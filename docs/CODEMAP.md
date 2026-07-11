@@ -17,8 +17,8 @@
 
 ## Game engine (P0)
 
-- `src/engine/config.ts` — shared config/types (EngineConfig, DEFAULT_ENGINE_CONFIG, tileSize 64×32, SceneTheme/CameraConfig/PropStyle/PlayerConfig/PlayerAnimationConfig+PlayerSpriteStyle, **NetConfig** P0-07 รวม channelId P0-08) — ทุกค่าปรับได้อยู่ที่นี่
-- `src/engine/runtime/app.ts` — createEngine(): ครอบ pixi Application (async init) + mount P0 Test Field scene + local player + **net layer (P0-07, offline-safe; joinOptions ส่ง mapId+channelId P0-08)** + ticker + fps ui + EngineHandle.destroy()
+- `src/engine/config.ts` — shared config/types (EngineConfig, DEFAULT_ENGINE_CONFIG, tileSize 64×32, SceneTheme/CameraConfig/PropStyle/PlayerConfig/PlayerAnimationConfig+PlayerSpriteStyle, **MobConfig** P0-09 (spawn/wander/animation/styles per mobType), **NetConfig** P0-07 รวม channelId P0-08) — ทุกค่าปรับได้อยู่ที่นี่
+- `src/engine/runtime/app.ts` — createEngine(): ครอบ pixi Application (async init) + mount P0 Test Field scene + local player + **dummy mob pockets (P0-09, `src/game/mob/manager.ts`)** + **net layer (P0-07, offline-safe; joinOptions ส่ง mapId+channelId P0-08)** + ticker + fps ui + EngineHandle.destroy()
 - `src/engine/runtime/resize.ts` — attachResize(): ResizeObserver บน container → renderer.resize; clampSize (pure)
 - `src/engine/runtime/assets.ts` — asset loader stub (wrapper รอบ pixi Assets, manifest ว่าง)
 - `src/engine/input/keyboard.ts` — keyboard intent tracker: MOVE_KEYS (WASD+arrows) + intentFromKeys (screen basis → tile-space, pure) + attachKeyboard (listeners + detach)
@@ -40,7 +40,15 @@
 - `src/engine/render/camera.ts` — camera math (pure): computeMapScreenBounds / clampCameraScreen / lerpTile (fixed iso, no rotation/zoom)
 - `src/engine/render/placement.ts` — entityFootToScreen (pure): lock convention "tile ที่ส่งเข้า API = foot ต่อเนื่อง → tileToScreen (ไม่ +0.5)"
 - `src/engine/render/scene.ts` — createMapScene(): pixi glue — ground layer (grid/checker/blocked, วาดครั้งเดียว) + entity layer (depth-sorted via zIndex rank) + fixed camera follow + entity API (addEntity/moveEntity/removeEntity)
-- `src/game/` — (planned) combat/entity/spawn บน engine
+
+## Game logic (P0-09, บน engine — src/game/**)
+
+- `src/game/mob/rng.ts` — RngFn type + defaultRng (Math.random) + createLcgRng (seeded deterministic, ใช้ในเทสต์) — inject ได้ทุกจุดที่สุ่ม
+- `src/game/mob/spawn.ts` — spawnPocketMobs/spawnAllPockets (pure, TA §18.1 fixed pocket + random point inside): จำนวน = random(packSize)clamp activeCap, จุดเกิด = findWalkableSpawnPoint (retry ตาม MobSpawnConfig.maxPlacementAttempts, best-effort ข้ามถ้าหาไม่เจอ)
+- `src/game/mob/wander.ts` — createWanderState/stepWander (pure): สลับ idle/walk สุ่มช่วงเวลาจาก MobWanderConfig, เดินด้วย stepMovement เดิม + leash แบบง่าย (ผูก pocket.area เป็นเงื่อนไข block เพิ่ม) + walkableFromMap helper
+- `src/game/mob/manifest.ts` — createMobAnimationManifest(): reuse AnimationManifest/resolveClip ของ engine — 2 ทิศวาดจริง (S,N) + mirror 6 ทิศ (mob symmetric, ดูเหตุผลในไฟล์)
+- `src/game/mob/placeholder.ts` — generateMobTextures(): placeholder ด้วยโค้ด (Graphics→RenderTexture) ต่อ mobType (slime ก้อนเขียวเด้ง / mushroom หมวกแดง), generate ครั้งเดียวต่อ mobType (แชร์ข้าม instance)
+- `src/game/mob/manager.ts` — createMobManager(): pixi glue spawn ทุก pocket ตอน scene สร้าง + ticker update (wander step + animator + moveEntity) + destroy (texture ต่อ mobType, ไม่ destroy ต่อ instance)
 
 ## Realtime server (P0-07, แยก process — L4)
 
@@ -78,6 +86,9 @@
 - `tests/engine-movement-direction.test.ts` — resolveDirection: 8 combo→ทิศ + มุม 45° ครบ + ขอบ 22.5° + idle คงทิศ + directionToScreenUnit
 - `tests/engine-animation-manifest.test.ts` — resolveClip: 5 drawn ไม่ mirror + 3 mirror ชี้ source ถูก + ครบ 8 ทิศ×idle/walk + 8-dir override + error (unknown anim / ทิศไม่มี / mirror source ไม่วาด) + advancePlayhead timing/loop/clamp/guard
 - `tests/engine-net-sync.test.ts` — net sync pure logic (P0-07, channel P0-08): coerce dir/anim + snapshotChanged + advanceSendTimer throttle/clamp + toMoveMessage + shared protocol constants + JoinOptions channelId shape + computePlayerCount
+- `tests/game-mob-rng.test.ts` — createLcgRng: seed เดียวกัน→sequence เหมือนกัน, seed ต่างกัน→ต่าง, ค่าอยู่ใน [0,1); defaultRng smoke test
+- `tests/game-mob-spawn.test.ts` — spawnPocketMobs/spawnAllPockets (pure): จำนวนอยู่ในช่วง packSize + clamp activeCap (หลาย seed) + deterministic ตาม seed + จุดเกิดอยู่ใน pocket.area และเดินได้จริง (ไม่บน blocked) + findWalkableSpawnPoint คืน undefined เมื่อหาไม่เจอ (ไม่ throw) + P0_TEST_FIELD จริง (3 pocket ไม่ล้นกัน)
+- `tests/game-mob-wander.test.ts` — createWanderState/stepWander (pure): idle/walk สลับตาม config (ไม่ hardcode) + ระยะเดิน = speed·dt + pure (ไม่ mutate) + leash ไม่หลุด pocket.area (deterministic + seeded random หลายร้อย step) + leash เคารพ collision ของ map จริงด้วย + walkableFromMap ผูก isWalkableTile ถูก
 
 ## Docs
 

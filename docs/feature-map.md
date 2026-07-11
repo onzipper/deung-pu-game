@@ -17,7 +17,7 @@
 | P0-08 Channel stub (channelId first-class, `filterBy(['mapId','channelId'])`, roomId จริงเข้า state, getNetDebugInfo) | P0 §4.7 · TA §6 · GS §57.3 | `src/shared/net-protocol.ts` (JoinOptions.channelId), `src/engine/config.ts` (NetConfig.channelId), `src/engine/runtime/app.ts` (joinOptions), `src/engine/net/net-client.ts` (getNetDebugInfo), `src/engine/net/sync.ts` (computePlayerCount), `server/index.ts` (filterBy), `server/rooms/MapRoom.ts` (onCreate channelId จาก client) | `tests/engine-net-sync.test.ts`, `tests/engine-config.test.ts` (pure); 2/3-client channel proof = manual script (ลบทิ้งแล้ว, ผลอยู่ current-state) |
 | Combat juice (damage number, hit stop, shake, loot) | GS §17 ทั้งหมด · TA §11 (budget) | `src/game/` (planned) | (planned) |
 | Skill data model (config-driven) | GS §50.1 (canonical fields) · TA §16.1 | (planned) | (planned) |
-| Mob pack/spawn (local P0) | GS §17.2 · TA §18 · density spec | `src/game/` (planned) | (planned) |
+| P0-09 Dummy Mob Pocket Spawn (fixed pocket + random point, wander, active cap) | P0 §4.8 · GS §57.8 · TA §18.1 · density spec | `src/game/mob/rng.ts`, `src/game/mob/spawn.ts`, `src/game/mob/wander.ts`, `src/game/mob/manifest.ts`, `src/game/mob/placeholder.ts`, `src/game/mob/manager.ts`, `src/engine/config.ts` (MobConfig), `src/engine/runtime/app.ts` | `tests/game-mob-rng.test.ts`, `tests/game-mob-spawn.test.ts`, `tests/game-mob-wander.test.ts` |
 | Performance guardrails (quality tiers, pooling) | GS §17.10 · TA §11 | `src/engine/` (planned) | (planned) |
 
 ## P1+ (ยังไม่เริ่ม — ดู TA §12 สำหรับ phase plan)

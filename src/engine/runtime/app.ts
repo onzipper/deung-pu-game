@@ -8,6 +8,7 @@ import { loadMapConfig } from "../map/loader";
 import { P0_TEST_FIELD } from "../map/p0-test-field";
 import { createMapScene, type MapSceneHandle } from "../render/scene";
 import { createLocalPlayer, type LocalPlayerHandle } from "../player/local-player";
+import { createMobManager, type MobManagerHandle } from "@/game/mob/manager";
 import { createNetClient, type NetClientHandle } from "../net/net-client";
 import { createRemotePlayerManager } from "../net/remote-player-manager";
 import {
@@ -77,6 +78,9 @@ export async function createEngine(
   // spawn + snap กล้องมาที่ player + attach keyboard เกิดภายใน createLocalPlayer
   const player = createLocalPlayer(scene, map, config, app.renderer);
 
+  // --- dummy mob pockets (P0-09): client/local spawn เท่านั้น — mob AI จริงเป็น P1 (TA §18) ---
+  const mobs: MobManagerHandle = createMobManager(scene, map, config, app.renderer);
+
   // --- realtime net (P0-07): remote players + position sync ---
   // Graceful offline: connect ล้ม = เล่น solo ต่อ (net.status = "offline"); ไม่ block boot.
   const localSnapshot = (): PlayerSnapshot => ({
@@ -124,6 +128,8 @@ export async function createEngine(
     const dtSeconds = ticker.deltaMS / 1000;
     // calc: player intent → movement (dt เป็นวินาที) → scene entity + camera target
     player.update(dtSeconds);
+    // calc: mob wander step (P0-09) → scene entity + animator
+    mobs.update(dtSeconds);
 
     // net (P0-07): throttle ส่ง local position + lerp remote players
     if (net && remotes) {
@@ -161,6 +167,7 @@ export async function createEngine(
     detachResize();
     net?.disconnect();
     remotes?.destroy();
+    mobs.destroy();
     player.destroy();
     scene.destroy();
     // removeView: true → เอา canvas ออกจาก DOM ด้วย; ล้าง GPU/texture/context ให้หมด

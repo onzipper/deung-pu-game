@@ -115,6 +115,79 @@ export interface PlayerAnimationConfig {
 }
 
 /**
+ * Style ของ mob placeholder 1 ชนิด (P0-09 dummy — ยังไม่มี art จริง) — คล้าย PropStyle
+ * แต่มี field เฉพาะ mob (accent = ตา/หมวก, bounceAmount = squash-stretch idle/walk).
+ * วาดโดยเท้า (foot) อยู่ที่ local (0,0) เหมือน prop/player.
+ */
+export interface MobStyle {
+  /** สีหลัก (ตัว slime / ก้านเห็ด) */
+  bodyColor: number;
+  /** สีรอง (ตา slime / หมวกเห็ด) */
+  accentColor: number;
+  /** ความกว้าง placeholder (px) */
+  width: number;
+  /** ความสูง placeholder (px) วัดจากเท้าขึ้นบน */
+  height: number;
+  /** ระยะบีบ/เด้งสูงสุดตอน idle/walk (px) */
+  bounceAmount: number;
+  /** รูปทรง placeholder ต่อ mobType (P0-09 มีแค่ 2 — เพิ่มได้ทีหลัง) */
+  shape: "slime" | "mushroom";
+}
+
+/**
+ * Animation config ของ mob dummy (P0-09) — idle/walk เท่านั้น (attack มา P0-10).
+ * โครงเดียวกับ PlayerAnimationConfig แต่ mob ไม่มี attack ใน scope นี้.
+ */
+export interface MobAnimationConfig {
+  /** ms/เฟรม ตอน idle */
+  idleFrameDuration: number;
+  /** ms/เฟรม ตอน walk */
+  walkFrameDuration: number;
+  /** จำนวนเฟรม idle (≥1) */
+  idleFrames: number;
+  /** จำนวนเฟรม walk */
+  walkFrames: number;
+}
+
+/** ช่วง [min,max] หน่วย ms — ใช้กับ wander idle/walk duration (สุ่มในช่วงนี้ทุกรอบ). */
+export interface MsRange {
+  min: number;
+  max: number;
+}
+
+/**
+ * พฤติกรรม wander ของ mob dummy (P0-09, GS §57.8 · TA §18.1) — สลับ idle/walk สุ่มช่วงเวลา,
+ * leash แบบง่ายผูกกับ pocket.area (ดู src/game/mob/wander.ts). ทุกค่าเป็น Design Knob.
+ */
+export interface MobWanderConfig {
+  /** ความเร็วเดินตอน wander (tile/วินาที) — ตั้งใจช้ากว่า player ให้ดู "เดินเตร่" */
+  speed: number;
+  /** clamp dt สูงสุดต่อ step (วินาที) — ส่งต่อ stepMovement เดิม กัน tunneling */
+  maxStepSeconds: number;
+  /** ช่วงเวลา idle ต่อรอบ (ms) */
+  idleDurationMs: MsRange;
+  /** ช่วงเวลา walk ต่อรอบ (ms) */
+  walkDurationMs: MsRange;
+}
+
+/** พฤติกรรม spawn ของ mob dummy (P0-09, TA §18.1 fixed pocket + random point inside). */
+export interface MobSpawnConfig {
+  /** จำนวนครั้ง retry สุ่มจุดเกิดต่อตัวก่อนข้าม (กัน infinite loop ถ้า pocket เดินไม่ได้เกือบหมด) */
+  maxPlacementAttempts: number;
+}
+
+/** รวม config ของ mob dummy ทั้งหมด (P0-09) — ทุกค่าปรับได้ที่นี่ (Design Knob discipline). */
+export interface MobConfig {
+  spawn: MobSpawnConfig;
+  wander: MobWanderConfig;
+  animation: MobAnimationConfig;
+  /** style เริ่มต้นเมื่อ mobType ไม่ตรงใน styles map */
+  defaultStyle: MobStyle;
+  /** style ต่อ mobType (key ต้องตรง MobPocket.mobType ที่ map config ใช้ เช่น "slime"/"mushroom") */
+  styles: Record<string, MobStyle>;
+}
+
+/**
  * พฤติกรรม local player movement (P0-05). ทุกค่าเป็น Design Knob — ห้าม hardcode ใน mover.
  */
 export interface PlayerConfig {
@@ -203,6 +276,8 @@ export interface EngineConfig {
   camera: CameraConfig;
   /** local player movement + placeholder style (P0-05) */
   player: PlayerConfig;
+  /** dummy mob pocket spawn + wander + placeholder style (P0-09) */
+  mob: MobConfig;
   /** realtime/network knob (P0-07) */
   net: NetConfig;
 }
@@ -262,6 +337,55 @@ export const DEFAULT_PLAYER_CONFIG: PlayerConfig = {
   animation: DEFAULT_PLAYER_ANIMATION_CONFIG,
 };
 
+/**
+ * mobType key ต้องตรงกับ MobPocket.mobType ที่ map config ใช้จริง — ดู
+ * `src/engine/map/p0-test-field.ts` ("slime", "mushroom"). ไม่พบ key → fallback defaultStyle.
+ */
+export const DEFAULT_MOB_CONFIG: MobConfig = {
+  spawn: {
+    maxPlacementAttempts: 20,
+  },
+  wander: {
+    // ช้ากว่า player (speed 4) ชัดเจน — ให้ดูเหมือน "เดินเตร่" ไม่ใช่วิ่งไล่
+    speed: 1.2,
+    maxStepSeconds: 0.1,
+    idleDurationMs: { min: 1200, max: 2800 },
+    walkDurationMs: { min: 600, max: 1600 },
+  },
+  animation: {
+    idleFrameDuration: 450,
+    walkFrameDuration: 220,
+    idleFrames: 2,
+    walkFrames: 2,
+  },
+  defaultStyle: {
+    bodyColor: 0x8a8a8a,
+    accentColor: 0x5a5a5a,
+    width: 22,
+    height: 16,
+    bounceAmount: 2,
+    shape: "slime",
+  },
+  styles: {
+    slime: {
+      bodyColor: 0x4fbf6b,
+      accentColor: 0x1b1b23,
+      width: 24,
+      height: 18,
+      bounceAmount: 3,
+      shape: "slime",
+    },
+    mushroom: {
+      bodyColor: 0xe8d9a0, // ก้าน
+      accentColor: 0xc0392b, // หมวกแดง
+      width: 22,
+      height: 26,
+      bounceAmount: 2,
+      shape: "mushroom",
+    },
+  },
+};
+
 export const DEFAULT_NET_CONFIG: NetConfig = {
   enabled: true,
   serverUrl: "ws://localhost:2567",
@@ -287,6 +411,7 @@ export const DEFAULT_ENGINE_CONFIG: EngineConfig = {
   theme: DEFAULT_SCENE_THEME,
   camera: DEFAULT_CAMERA_CONFIG,
   player: DEFAULT_PLAYER_CONFIG,
+  mob: DEFAULT_MOB_CONFIG,
   net: DEFAULT_NET_CONFIG,
 };
 
@@ -308,9 +433,10 @@ export function createEngineConfig(
       ...DEFAULT_ENGINE_CONFIG.camera,
       ...overrides.camera,
     },
-    // theme/player มี nested object — override ทั้งก้อนเมื่อกำหนด, ไม่งั้นใช้ default
+    // theme/player/mob มี nested object — override ทั้งก้อนเมื่อกำหนด, ไม่งั้นใช้ default
     theme: overrides.theme ?? DEFAULT_ENGINE_CONFIG.theme,
     player: overrides.player ?? DEFAULT_ENGINE_CONFIG.player,
+    mob: overrides.mob ?? DEFAULT_ENGINE_CONFIG.mob,
     // net = shallow-merge (override บาง knob เช่น serverUrl จาก env โดยคงค่าอื่น)
     net: { ...DEFAULT_ENGINE_CONFIG.net, ...overrides.net },
   };
