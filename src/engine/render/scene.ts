@@ -12,7 +12,7 @@
 import { Application, Container, Graphics } from "pixi.js";
 import type { EngineConfig, PropStyle } from "@/engine/config";
 import type { ScreenPoint, TilePoint } from "@/engine/iso/coords";
-import { screenToTile, tileToScreen } from "@/engine/iso/coords";
+import { tileToScreen } from "@/engine/iso/coords";
 import { entityFootToScreen } from "@/engine/render/placement";
 import {
   isBlockedTile,
@@ -25,9 +25,6 @@ import {
   type ScreenBounds,
 } from "@/engine/render/camera";
 import { DepthRegistry } from "@/engine/render/depth-registry";
-
-/** id คงที่ของ debug pointer entity (ถูกแทนด้วย player จริงใน P0-05). */
-export const DEBUG_POINTER_ID = "__debug_pointer__";
 
 /** public handle ของ scene — app.ts / layer ถัดไปคุยผ่านนี้เท่านั้น. */
 export interface MapSceneHandle {
@@ -200,26 +197,8 @@ export function createMapScene(
     addEntity(`prop:${prop.propId}:${i}`, g, prop.tile, prop.zLayer ?? 0);
   });
 
-  // ── debug pointer entity (พิสูจน์ dynamic depth sort ด้วยตา) ─────────────
-  // P0-05 จะแทนด้วย player จริง (input + collision) — ตอนนั้นปิด config.debugPointerEntity.
-  let detachPointer: (() => void) | null = null;
-  if (config.debugPointerEntity) {
-    const marker = drawPropGraphic(config.theme.debugEntity);
-    addEntity(DEBUG_POINTER_ID, marker, {
-      tx: map.spawnPoint.x,
-      ty: map.spawnPoint.y,
-    });
-
-    app.stage.eventMode = "static";
-    app.stage.hitArea = app.screen;
-    const onPointerMove = (e: { global: { x: number; y: number } }): void => {
-      const local = world.toLocal(e.global);
-      const tile = screenToTile({ sx: local.x, sy: local.y }, tileSize);
-      moveEntity(DEBUG_POINTER_ID, tile);
-    };
-    app.stage.on("pointermove", onPointerMove);
-    detachPointer = () => app.stage.off("pointermove", onPointerMove);
-  }
+  // entity แบบ dynamic (local player, mob) มาจาก layer ถัดไปผ่าน addEntity/moveEntity
+  // (P0-05 local player: src/engine/player/local-player.ts).
 
   applyCamera();
   // apply rank เริ่มต้นทันที (ก่อน frame แรก) เพื่อ initial paint ถูกลำดับ
@@ -269,7 +248,6 @@ export function createMapScene(
     removeEntity,
 
     destroy(): void {
-      detachPointer?.();
       registry.clear();
       world.destroy({ children: true });
     },

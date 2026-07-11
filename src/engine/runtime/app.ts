@@ -7,14 +7,17 @@ import { type EngineConfig, resolveResolution } from "../config";
 import { loadMapConfig } from "../map/loader";
 import { P0_TEST_FIELD } from "../map/p0-test-field";
 import { createMapScene, type MapSceneHandle } from "../render/scene";
+import { createLocalPlayer, type LocalPlayerHandle } from "../player/local-player";
 import { attachResize } from "./resize";
 
 /** handle สาธารณะที่ React (หรือ caller อื่น) ใช้คุมกับ engine — ห้ามให้ caller แตะ pixi ตรง ๆ นอกจากผ่าน app */
 export interface EngineHandle {
   /** pixi Application instance (read-only ต่อ caller โดยมารยาท) */
   readonly app: Application;
-  /** map scene ปัจจุบัน — layer ถัดไป (P0-05/06/09) ใช้ entity API ผ่านนี้ */
+  /** map scene ปัจจุบัน — layer ถัดไป (P0-06/09) ใช้ entity API ผ่านนี้ */
   readonly scene: MapSceneHandle;
+  /** local player controller (P0-05) — keyboard movement + collision + camera follow */
+  readonly player: LocalPlayerHandle;
   /** เก็บกวาดครบ: ticker, resize observer, canvas, GPU resources */
   destroy(): void;
 }
@@ -54,8 +57,10 @@ export async function createEngine(
   // --- map scene: load P0 Test Field ผ่าน loader (validate) แล้ว render ---
   const map = loadMapConfig(P0_TEST_FIELD);
   const scene = createMapScene(app, map, config);
-  // กล้องเริ่มที่จุดเกิด (snap ทันที ไม่ให้กวาดจาก origin) — player จริงมา P0-05
-  scene.setCameraTarget({ tx: map.spawnPoint.x, ty: map.spawnPoint.y }, true);
+
+  // --- local player (P0-05): keyboard movement + collision slide + camera follow ---
+  // spawn + snap กล้องมาที่ player + attach keyboard เกิดภายใน createLocalPlayer
+  const player = createLocalPlayer(scene, map, config);
 
   // --- ui layer (screen-space, ไม่โดน camera pan) — P0-11 จะทำ overlay เต็ม ---
   const ui = new Container();
@@ -75,6 +80,9 @@ export async function createEngine(
   // --- update loop: calc → render (แยกกันชัด) ---
   let fpsSampleMs = 0;
   const onTick = (ticker: Ticker): void => {
+    // calc: player intent → movement (dt เป็นวินาที) → scene entity + camera target
+    player.update(ticker.deltaMS / 1000);
+    // render: camera follow (lerp) + depth resort ถ้า dirty
     scene.update(ticker.deltaTime);
     fpsSampleMs += ticker.deltaMS;
     if (fpsSampleMs >= FPS_SAMPLE_INTERVAL_MS) {
@@ -90,6 +98,7 @@ export async function createEngine(
     destroyed = true;
     app.ticker.remove(onTick);
     detachResize();
+    player.destroy();
     scene.destroy();
     // removeView: true → เอา canvas ออกจาก DOM ด้วย; ล้าง GPU/texture/context ให้หมด
     app.destroy(
@@ -98,5 +107,5 @@ export async function createEngine(
     );
   };
 
-  return { app, scene, destroy };
+  return { app, scene, player, destroy };
 }

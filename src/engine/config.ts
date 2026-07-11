@@ -44,8 +44,41 @@ export interface SceneTheme {
   defaultProp: PropStyle;
   /** style ต่อ propId */
   props: Record<string, PropStyle>;
-  /** style ของ debug pointer entity (พิสูจน์ dynamic depth sort ด้วยตา) */
-  debugEntity: PropStyle;
+}
+
+/**
+ * Placeholder graphic ของ local player (P0-05). sprite จริงมา P0-06 —
+ * ตอนนี้เป็น body ellipse + "nose" marker ชี้ทิศ facing เพื่อเห็น direction resolver ทำงาน.
+ * วาดโดยเท้า (foot) อยู่ที่ local (0,0) เหมือน prop (anchor ฐาน → depth ตรงตำแหน่ง tile).
+ */
+export interface PlayerStyle {
+  /** สี body (0xRRGGBB) */
+  bodyColor: number;
+  /** ความกว้าง body (px) */
+  bodyWidth: number;
+  /** ความสูง body วัดจากเท้าขึ้นบน (px) */
+  bodyHeight: number;
+  /** สี nose marker (จุดบอกทิศหน้า) */
+  noseColor: number;
+  /** รัศมี nose marker (px) */
+  noseRadius: number;
+  /** ระยะ nose ยื่นจากกลาง body ตามทิศ facing (px) */
+  noseReach: number;
+}
+
+/**
+ * พฤติกรรม local player movement (P0-05). ทุกค่าเป็น Design Knob — ห้าม hardcode ใน mover.
+ */
+export interface PlayerConfig {
+  /** ความเร็วเดิน หน่วย tile/วินาที (วัดในระยะ tile-space euclidean) */
+  speed: number;
+  /**
+   * clamp dt สูงสุดต่อ 1 movement step (วินาที) — กัน tunneling ทะลุกำแพงตอน dt กระโดด
+   * (เช่นสลับ tab กลับมา rAF ค้างนาน). speed·maxStepSeconds ต้อง < 1 tile เพื่อไม่ข้ามบล็อก.
+   */
+  maxStepSeconds: number;
+  /** style ของ placeholder graphic */
+  style: PlayerStyle;
 }
 
 /** พฤติกรรมกล้อง (fixed iso · no rotation · no zoom — P0). */
@@ -89,11 +122,8 @@ export interface EngineConfig {
   theme: SceneTheme;
   /** พฤติกรรมกล้อง (P0-04) */
   camera: CameraConfig;
-  /**
-   * เปิด debug pointer entity (วงจี๊ดเดินตาม pointer) เพื่อพิสูจน์ depth sort ด้วยตา.
-   * P0-05 จะแทนด้วย player จริง — ตอนนั้นปิด flag นี้ได้.
-   */
-  debugPointerEntity: boolean;
+  /** local player movement + placeholder style (P0-05) */
+  player: PlayerConfig;
 }
 
 export const DEFAULT_SCENE_THEME: SceneTheme = {
@@ -110,12 +140,25 @@ export const DEFAULT_SCENE_THEME: SceneTheme = {
     signpost: { color: 0xc9a24b, width: 12, height: 34, shape: "box" },
     stump: { color: 0x7a5a3a, width: 20, height: 16, shape: "ellipse" },
   },
-  debugEntity: { color: 0xff2d78, width: 22, height: 22, shape: "ellipse" },
 };
 
 export const DEFAULT_CAMERA_CONFIG: CameraConfig = {
   followLerp: 0.12,
   edgeMargin: 96,
+};
+
+export const DEFAULT_PLAYER_CONFIG: PlayerConfig = {
+  // speed·maxStepSeconds = 0.4 tile/step < 1 → กัน tunneling บล็อก 1 tile.
+  speed: 4,
+  maxStepSeconds: 0.1,
+  style: {
+    bodyColor: 0xffd24a,
+    bodyWidth: 20,
+    bodyHeight: 34,
+    noseColor: 0x1b1b23,
+    noseRadius: 3,
+    noseReach: 14,
+  },
 };
 
 export const DEFAULT_ENGINE_CONFIG: EngineConfig = {
@@ -130,7 +173,7 @@ export const DEFAULT_ENGINE_CONFIG: EngineConfig = {
   tileSize: { width: 64, height: 32 },
   theme: DEFAULT_SCENE_THEME,
   camera: DEFAULT_CAMERA_CONFIG,
-  debugPointerEntity: true,
+  player: DEFAULT_PLAYER_CONFIG,
 };
 
 /**
@@ -151,8 +194,9 @@ export function createEngineConfig(
       ...DEFAULT_ENGINE_CONFIG.camera,
       ...overrides.camera,
     },
-    // theme มี nested Record (props) — override ทั้งก้อนเมื่อกำหนด, ไม่งั้นใช้ default
+    // theme/player มี nested object — override ทั้งก้อนเมื่อกำหนด, ไม่งั้นใช้ default
     theme: overrides.theme ?? DEFAULT_ENGINE_CONFIG.theme,
+    player: overrides.player ?? DEFAULT_ENGINE_CONFIG.player,
   };
 }
 

@@ -13,10 +13,14 @@
 
 ## Game engine (P0)
 
-- `src/engine/config.ts` — shared config/types (EngineConfig, DEFAULT_ENGINE_CONFIG, tileSize 64×32, SceneTheme/CameraConfig/PropStyle) — ทุกค่าปรับได้อยู่ที่นี่
-- `src/engine/runtime/app.ts` — createEngine(): ครอบ pixi Application (async init) + mount P0 Test Field scene + ticker + fps ui + EngineHandle.destroy()
+- `src/engine/config.ts` — shared config/types (EngineConfig, DEFAULT_ENGINE_CONFIG, tileSize 64×32, SceneTheme/CameraConfig/PropStyle/PlayerConfig) — ทุกค่าปรับได้อยู่ที่นี่
+- `src/engine/runtime/app.ts` — createEngine(): ครอบ pixi Application (async init) + mount P0 Test Field scene + local player + ticker + fps ui + EngineHandle.destroy()
 - `src/engine/runtime/resize.ts` — attachResize(): ResizeObserver บน container → renderer.resize; clampSize (pure)
 - `src/engine/runtime/assets.ts` — asset loader stub (wrapper รอบ pixi Assets, manifest ว่าง)
+- `src/engine/input/keyboard.ts` — keyboard intent tracker: MOVE_KEYS (WASD+arrows) + intentFromKeys (screen basis → tile-space, pure) + attachKeyboard (listeners + detach)
+- `src/engine/movement/mover.ts` — stepMovement (pure): เดินต่อเนื่อง float tile + normalize diagonal + axis-separated collision slide + clamp dt
+- `src/engine/movement/direction.ts` — resolveDirection (pure): tile vector → 8-dir logical (คิดจากมุมบนจอ) + directionToScreenUnit — เตรียม P0-06 sprite 5-dir+mirror
+- `src/engine/player/local-player.ts` — createLocalPlayer(): pixi glue เชื่อม keyboard→mover→direction→scene entity + camera follow; placeholder graphic (body+nose บอกทิศ)
 - `src/engine/iso/coords.ts` — iso projection converters: TilePoint/ScreenPoint types + tileToScreen/screenToTile/snapToTile (pure math)
 - `src/engine/iso/depth.ts` — iso depth sort key: depthKey(tile, zLayer) + band constants (pure math)
 - `src/engine/map/types.ts` — MapConfig schema (spec P0 §4.3) + CollisionLayer/PropSpawn/MobPocket + packTile/isBlockedTile/isWithinBounds/isWalkableTile helpers
@@ -25,7 +29,7 @@
 - `src/engine/render/depth-registry.ts` — DepthRegistry<D> (pure): entity registry + compareDepth comparator + dirty-tracked sorted() — source of truth ของลำดับ depth
 - `src/engine/render/camera.ts` — camera math (pure): computeMapScreenBounds / clampCameraScreen / lerpTile (fixed iso, no rotation/zoom)
 - `src/engine/render/placement.ts` — entityFootToScreen (pure): lock convention "tile ที่ส่งเข้า API = foot ต่อเนื่อง → tileToScreen (ไม่ +0.5)"
-- `src/engine/render/scene.ts` — createMapScene(): pixi glue — ground layer (grid/checker/blocked, วาดครั้งเดียว) + entity layer (depth-sorted via zIndex rank) + fixed camera follow + entity API + debug pointer entity
+- `src/engine/render/scene.ts` — createMapScene(): pixi glue — ground layer (grid/checker/blocked, วาดครั้งเดียว) + entity layer (depth-sorted via zIndex rank) + fixed camera follow + entity API (addEntity/moveEntity/removeEntity)
 - `src/game/` — (planned) combat/entity/spawn บน engine
 
 ## UI (React overlay)
@@ -52,6 +56,9 @@
 - `tests/engine-render-depth.test.ts` — DepthRegistry: sorted order ตาม depthKey + tie-break + dirty tracking + lifecycle
 - `tests/engine-render-camera.test.ts` — camera math: map screen bounds (จตุรัส/ไม่จตุรัส) + clamp ขอบ 4 ด้าน + content==viewport + lerp follow
 - `tests/engine-render-placement.test.ts` — lock foot convention: entityFootToScreen = tileToScreen (ไม่ +0.5), ≠ tileCenterToScreen
+- `tests/engine-input-keyboard.test.ts` — intent mapping screen→tile (W/W+D/ปล่อยหมด/ตรงข้ามหักล้าง) + basis project ถูกทิศ
+- `tests/engine-movement-mover.test.ts` — stepMovement: เดินตรง/เฉียง normalize + clamp dt + collision slide แยกแกน + block หยุด
+- `tests/engine-movement-direction.test.ts` — resolveDirection: 8 combo→ทิศ + มุม 45° ครบ + ขอบ 22.5° + idle คงทิศ + directionToScreenUnit
 
 ## Docs
 
