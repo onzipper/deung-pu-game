@@ -10,9 +10,12 @@
 import { Client, getStateCallbacks, type Room } from "colyseus.js";
 import {
   MAP_ROOM_NAME,
+  MSG_DEBUG_KILL_MOB,
   MSG_MOVE,
   MSG_POSITION_CORRECTION,
+  type DebugKillMobMessage,
   type JoinOptions,
+  type MobSnapshot,
   type MoveMessage,
   type PlayerSnapshot,
   type PositionCorrectionMessage,
@@ -67,6 +70,24 @@ export interface NetClientHandlers {
    * (P0-era caller ไม่มี hook นี้ก็ยังทำงาน — net-client แค่ไม่มี correction ให้ก่อน P1-02).
    */
   onPositionCorrection?(correction: PositionCorrectionMessage): void;
+  /** มอน server-authoritative เพิ่ม/เปลี่ยน/ลบ (P1-03) → caller ป้อนเข้า mob view manager. optional. */
+  onMobAdd?(snap: MobSnapshot): void;
+  onMobChange?(snap: MobSnapshot): void;
+  onMobRemove?(mobId: string): void;
+}
+
+/** อ่าน MobState schema (reflection → any) → MobSnapshot (coerce state). */
+function mobSnapshotOf(
+  mob: { mobId: string; mobType: string; tx: number; ty: number; state: string; hp: number },
+): MobSnapshot {
+  return {
+    mobId: mob.mobId,
+    mobType: mob.mobType,
+    tx: mob.tx,
+    ty: mob.ty,
+    state: coerceAnim(mob.state), // "idle"|"walk" (เดียวกับ player anim)
+    hp: mob.hp,
+  };
 }
 
 export interface NetClientConfig {
@@ -81,6 +102,8 @@ export interface NetClientHandle {
   getNetDebugInfo(): NetDebugInfo;
   /** ส่งตำแหน่ง local player ขึ้น server (no-op ถ้ายังไม่ online) */
   sendMove(msg: MoveMessage): void;
+  /** DEBUG (P1-03): ส่งคำสั่งฆ่ามอนไป server เพื่อทดสอบ death→respawn (no-op ถ้ายังไม่ online). */
+  sendDebugKillMob(mobId: string): void;
   /** ออกจาก room + ปิด connection (idempotent) */
   disconnect(): void;
 }
@@ -162,6 +185,20 @@ export function createNetClient(
       handlers.onPlayerRemove(sessionId);
     });
 
+    // P1-03: mobs map (server-authoritative) → onAdd/onChange/onRemove → mob view manager
+    $(joinedRoom.state).mobs.onAdd(
+      (mob: Record<string, unknown> & { mobId: string; mobType: string; tx: number; ty: number; state: string; hp: number }) => {
+        handlers.onMobAdd?.(mobSnapshotOf(mob));
+        $(mob).onChange(() => {
+          handlers.onMobChange?.(mobSnapshotOf(mob));
+        });
+      },
+      true, // immediate: มอนที่มีอยู่ก่อนเรา join
+    );
+    $(joinedRoom.state).mobs.onRemove((_mob: unknown, mobId: string) => {
+      handlers.onMobRemove?.(mobId);
+    });
+
     // P1-02: server → client position correction (move ถูกปฏิเสธ) → นับ + ส่งต่อ caller reconcile
     joinedRoom.onMessage(
       MSG_POSITION_CORRECTION,
@@ -222,6 +259,11 @@ export function createNetClient(
     sendMove(msg: MoveMessage): void {
       if (!room || status.state !== "online") return;
       room.send(MSG_MOVE, msg);
+    },
+    sendDebugKillMob(mobId: string): void {
+      if (!room || status.state !== "online") return;
+      const msg: DebugKillMobMessage = { mobId };
+      room.send(MSG_DEBUG_KILL_MOB, msg);
     },
     disconnect(): void {
       if (disposed) return;

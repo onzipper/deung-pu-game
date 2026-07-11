@@ -223,7 +223,14 @@ function parsePocket(
   const activeCap = reqInt(o.activeCap, `${path}.activeCap`);
   if (activeCap < 1) fail(`${path}.activeCap ต้อง ≥ 1 (got ${activeCap})`);
 
-  return { pocketId, mobType, area, packSize: { min, max }, activeCap };
+  const pocket: MobPocket = { pocketId, mobType, area, packSize: { min, max }, activeCap };
+  // P1-03: respawn delay override ต่อ pocket (optional) — ไม่ระบุ → global default (MobConfig.respawnDelayMs)
+  if (o.respawnDelayMs !== undefined) {
+    const d = reqFinite(o.respawnDelayMs, `${path}.respawnDelayMs`);
+    if (d < 0) fail(`${path}.respawnDelayMs ต้อง ≥ 0 (got ${d})`);
+    pocket.respawnDelayMs = d;
+  }
+  return pocket;
 }
 
 /**

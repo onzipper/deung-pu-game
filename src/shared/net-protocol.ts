@@ -38,6 +38,37 @@ export const DEFAULT_CHANNEL_ID = "CH.1";
 export const MSG_MOVE = "move";
 
 /**
+ * message type: client → server (**DEBUG/ADMIN เท่านั้น**, P1-03) — ฆ่ามอน 1 ตัวเพื่อทดสอบ
+ * death→respawn ฝั่ง server ก่อน P1-05 (server combat authority) มาแทน. payload = DebugKillMobMessage.
+ * TODO(P1-05): ลบ handler นี้เมื่อ cast_skill → server damage → mob death จริงพร้อม (TA §15).
+ */
+export const MSG_DEBUG_KILL_MOB = "debug_kill_mob";
+
+/** payload ของ MSG_DEBUG_KILL_MOB (client → server, debug). */
+export interface DebugKillMobMessage {
+  mobId: string;
+}
+
+/** anim state ของมอนที่ sync (P1-03) — idle/walk เท่านั้น (attack/death = client เล่นเองจาก event, tech §6). */
+export type WireMobState = "idle" | "walk";
+
+/**
+ * snapshot ของมอน 1 ตัวที่ client อ่านจาก room state (P1-03, TA §18/§6 monster sync).
+ * ตรงกับ MobState schema ฝั่ง server (server/schema/MapRoomState.ts) — field ต้องตรงกัน.
+ * ทิศ (facing) **ไม่ sync** — client derive จาก delta ตำแหน่งเอง (มอน 2-dir+mirror, ประหยัด bandwidth §18.2).
+ */
+export interface MobSnapshot {
+  mobId: string;
+  mobType: string;
+  tx: number;
+  ty: number;
+  /** anim state (idle/walk) — client เลือก clip */
+  state: WireMobState;
+  /** hp ปัจจุบัน (P1-03 เต็มไว้; death จริง = P1-05) */
+  hp: number;
+}
+
+/**
  * message type: server → **client เดียว** เมื่อ move ถูกปฏิเสธ (P1-02, TA §6/§16.3).
  * server ไม่ apply ตำแหน่งที่ผิด → ส่งตำแหน่ง authoritative ล่าสุดกลับให้ client reconcile
  * (snap local player + เคลียร์ prediction). ไม่แบน/ไม่เตะ — แค่ snap กลับ.

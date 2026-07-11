@@ -1,9 +1,11 @@
-// Combat stub glue — pixi glue (P0-10, P0_SCOPE_LOCK §4.9). Plain TS + PixiJS เท่านั้น
+// Combat stub glue — pixi glue (P0-10, P1-03 retarget). Plain TS + PixiJS เท่านั้น
 // (ห้าม React/Next) — src/game/** ใช้ engine ผ่าน public API เท่านั้น (LocalPlayerHandle/
-// MapSceneHandle/MobManagerHandle) ไม่แตะ pixi.Application ตรง ๆ.
+// MapSceneHandle/MobViewHandle) ไม่แตะ pixi.Application ตรง ๆ.
 //
-// Chain ที่พิสูจน์: กด Space → cooldown check → attack animation (LocalPlayerHandle.triggerAttack)
-// → findHits (hit-test.ts, pure) → mob.applyDamage (dummy) → damage number + hitbox debug flash.
+// Chain: กด Space → cooldown check → attack animation (LocalPlayerHandle.triggerAttack)
+// → findHits (hit-test.ts, pure) → damage number + hitbox debug flash.
+// **P1-03:** มอนเป็น server-authoritative (view manager) → stub เล่นแค่ effect **ไม่ฆ่า**
+//   (getAliveTargets จาก MobViewHandle; kill/damage จริง = P1-05 server combat, TA §15).
 //
 // ไม่ทำ (P1, ดู P0 §4.9 + AI.md never-change list): skill balance จริง, full damage formula
 // (tech §15.2), item drop/EXP/gold, boss mechanic. ตัวเลข damage/hp/cooldown ทั้งหมดเป็น
@@ -16,7 +18,7 @@ import { tileToScreen } from "@/engine/iso/coords";
 import type { Direction } from "@/engine/movement/direction";
 import type { LocalPlayerHandle } from "@/engine/player/local-player";
 import type { MapSceneHandle } from "@/engine/render/scene";
-import type { MobManagerHandle } from "@/game/mob/manager";
+import type { MobViewHandle } from "@/game/mob/manager";
 import { defaultRng, type RngFn } from "@/game/mob/rng";
 import {
   advanceCooldown,
@@ -80,7 +82,7 @@ let hitboxSeq = 0;
 export function createCombatStub(
   scene: MapSceneHandle,
   player: LocalPlayerHandle,
-  mobs: MobManagerHandle,
+  mobs: MobViewHandle,
   config: EngineConfig,
   rng: RngFn = defaultRng,
 ): CombatStubHandle {
@@ -121,7 +123,8 @@ export function createCombatStub(
           const target = targets.find((t) => t.id === id);
           if (!target) continue; // ปกติไม่เกิด — hitIds มาจาก targets ชุดเดียวกัน
           const damage = rollDummyDamage(combat.dummyDamage, rng);
-          mobs.applyDamage(id, damage);
+          // P1-03: มอนเป็น server-authoritative แล้ว → stub เล่นแค่ effect (damage number), **ไม่ฆ่า**.
+          // TODO(P1-05): ส่ง cast_skill intent → server คำนวณ damage/death จริง (TA §15) → despawn ผ่าน state.
           damageNumbers.spawn(target.pos, damage);
         }
 

@@ -120,6 +120,11 @@ export interface MobPocket {
   packSize: PackSize;
   /** จำนวน mob มีชีวิตพร้อมกันสูงสุดใน pocket */
   activeCap: number;
+  /**
+   * respawn delay override ต่อ pocket (ms) — มอนใน pocket นี้ตายแล้วเกิดใหม่หลังเวลานี้ (P1-03, §18.1
+   * "respawn window configurable"). ไม่ระบุ → ใช้ global default (MobConfig.respawnDelayMs).
+   */
+  respawnDelayMs?: number;
 }
 
 /**

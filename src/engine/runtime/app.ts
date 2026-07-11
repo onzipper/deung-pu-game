@@ -8,7 +8,8 @@ import { loadMapConfig } from "../map/loader";
 import { P0_TEST_FIELD } from "../map/p0-test-field";
 import { createMapScene, type MapSceneHandle } from "../render/scene";
 import { createLocalPlayer, type LocalPlayerHandle } from "../player/local-player";
-import { createMobManager, type MobManagerHandle } from "@/game/mob/manager";
+import { createMobViewManager, type MobViewHandle } from "@/game/mob/manager";
+import { createMobSimulation, type MobSimulation } from "@/game/mob/simulation";
 import { createCombatStub, type CombatStubHandle } from "@/game/combat/combat-stub";
 import { createNetClient, type NetClientHandle } from "../net/net-client";
 import { createRemotePlayerManager } from "../net/remote-player-manager";
@@ -88,11 +89,13 @@ export async function createEngine(
   // spawn + snap กล้องมาที่ player + attach keyboard เกิดภายใน createLocalPlayer
   const player = createLocalPlayer(scene, map, config, app.renderer);
 
-  // --- dummy mob pockets (P0-09): client/local spawn เท่านั้น — mob AI จริงเป็น P1 (TA §18) ---
-  const mobs: MobManagerHandle = createMobManager(scene, map, config, app.renderer);
+  // --- mobs (P1-03): server-authoritative → view manager render จาก snapshot (interpolation, TA §18/§6) ---
+  // spawn/AI/leash/respawn อยู่ที่ authority (server sim); view manager แค่ interpolate+วาด (ไม่มี game logic).
+  const mobView: MobViewHandle = createMobViewManager(scene, config, app.renderer);
 
-  // --- combat stub (P0-10): Space → attack anim → hit test → dummy damage + feedback ---
-  const combat: CombatStubHandle = createCombatStub(scene, player, mobs, config);
+  // --- combat stub (P0-10 → P1-03): Space → attack anim → hit test → damage number (effect only) ---
+  // P1-03: มอน server-authoritative → stub ไม่ฆ่า (ดู combat-stub.ts TODO P1-05).
+  const combat: CombatStubHandle = createCombatStub(scene, player, mobView, config);
 
   // --- realtime net (P0-07): remote players + position sync ---
   // Graceful offline: connect ล้ม = เล่น solo ต่อ (net.status = "offline"); ไม่ block boot.
@@ -123,9 +126,66 @@ export async function createEngine(
           lastSent = null;
           sendAccumMs = 0;
         },
+        // P1-03: มอน server-authoritative → ป้อนเข้า view manager (server mode)
+        onMobAdd: (snap) => mobView.onMobAdd(snap),
+        onMobChange: (snap) => mobView.onMobChange(snap),
+        onMobRemove: (mobId) => mobView.onMobRemove(mobId),
       },
     );
   }
+
+  // --- mob source controller (P1-03): server-driven (online) หรือ local sim (offline fallback) ---
+  // graceful offline: connect เป็น async — ระหว่าง "connecting" ยังไม่โชว์มอน; online → server feed;
+  // offline/net ปิด → รัน sim ตัวเดียวกับ server ฝั่ง client (pure) แล้วป้อน view เอง (มอนเดิน/aggro ได้เหมือนกัน).
+  type MobMode = "pending" | "server" | "local";
+  const simIntervalMs = 1000 / config.mob.ai.tickHz;
+  const hpFor = (mobType: string): number =>
+    config.combat.mobHp[mobType] ?? config.combat.defaultMobHp;
+  let mobMode: MobMode = "pending";
+  let localSim: MobSimulation | null = null;
+  let simAccumMs = 0;
+
+  const desiredMobMode = (): MobMode => {
+    const state = net ? net.status.state : "idle";
+    if (state === "online") return "server";
+    if (!config.net.enabled || state === "offline") return "local";
+    return "pending"; // connecting/idle — รอผลก่อน
+  };
+
+  const updateMobs = (dtSeconds: number, deltaMs: number): void => {
+    const desired = desiredMobMode();
+    if (desired !== mobMode) {
+      // ออกจาก local → หยุด sim + เคลียร์มอน local
+      if (mobMode === "local") {
+        localSim = null;
+        mobView.removeAll();
+      }
+      // เข้า local → เคลียร์มอน server ค้าง (ถ้ามี) + สร้าง sim ใหม่
+      if (desired === "local") {
+        mobView.removeAll();
+        localSim = createMobSimulation({ map, config: config.mob, hpFor });
+        simAccumMs = 0;
+      }
+      // pending↔server ไม่แตะ view — server callbacks จัดการเอง
+      mobMode = desired;
+    }
+
+    if (mobMode === "local" && localSim) {
+      simAccumMs += deltaMs;
+      let stepped = false;
+      // fixed-step sim (accumulator) — offline client เป็น authority ของ view ตัวเอง
+      while (simAccumMs >= simIntervalMs) {
+        simAccumMs -= simIntervalMs;
+        localSim.tick(simIntervalMs / 1000, [
+          { id: "local", tx: player.position.tx, ty: player.position.ty },
+        ], performance.now());
+        stepped = true;
+      }
+      if (stepped) mobView.syncAll(localSim.snapshots());
+    }
+
+    mobView.update(dtSeconds);
+  };
 
   // --- ui layer (screen-space, ไม่โดน camera pan) — P0-11 จะทำ overlay เต็ม ---
   const ui = new Container();
@@ -166,9 +226,9 @@ export async function createEngine(
     const dtSeconds = ticker.deltaMS / 1000;
     // calc: player intent → movement (dt เป็นวินาที) → scene entity + camera target
     player.update(dtSeconds);
-    // calc: mob wander step (P0-09) → scene entity + animator
-    mobs.update(dtSeconds);
-    // calc: combat stub (P0-10) — attack input → hit test → dummy damage + feedback
+    // calc: mobs (P1-03) — server-driven view interpolation หรือ offline local sim → scene entity
+    updateMobs(dtSeconds, ticker.deltaMS);
+    // calc: combat stub (P0-10) — attack input → hit test → damage number (effect only, P1-03)
     combat.update(dtSeconds);
 
     // net (P0-07): throttle ส่ง local position + lerp remote players
@@ -213,7 +273,7 @@ export async function createEngine(
     net?.disconnect();
     remotes?.destroy();
     combat.destroy();
-    mobs.destroy();
+    mobView.destroy();
     player.destroy();
     scene.destroy();
     // removeView: true → เอา canvas ออกจาก DOM ด้วย; ล้าง GPU/texture/context ให้หมด

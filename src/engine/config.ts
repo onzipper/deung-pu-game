@@ -176,11 +176,52 @@ export interface MobSpawnConfig {
   maxPlacementAttempts: number;
 }
 
-/** รวม config ของ mob dummy ทั้งหมด (P0-09) — ทุกค่าปรับได้ที่นี่ (Design Knob discipline). */
+/**
+ * Mob AI knob (P1-03, TA §18.3 aggro/leash/pull cap) — server-authoritative simulation.
+ * ทุกค่าเป็น Design Knob (§48). **ค่า default = ตัวตั้งของ tech รอ owner tune** (เช่นเดียวกับ wander P0-09):
+ * §18.3 ระบุ "aggro range ตาม mob type" + "pull cap Map 1: 8–12" เป็น semantics; ตัวเลขจริงเป็น knob.
+ */
+export interface MobAiConfig {
+  /** อัตรา AI tick ฝั่ง server (Hz) — TA §11 fixed 10Hz */
+  tickHz: number;
+  /** ความเร็วไล่ตอน aggro (tile/วินาที) — < player speed เพื่อให้วิ่งหนีแล้วหลุด leash ได้ (§18.3) */
+  chaseSpeed: number;
+  /** aggro radius ต่อ mobType (tile, euclidean) — ไม่พบ key → defaultAggroRadius */
+  aggroRadius: Record<string, number>;
+  /** aggro radius เริ่มต้นเมื่อ mobType ไม่ตรงใน aggroRadius */
+  defaultAggroRadius: number;
+  /** ระยะ (tile) จากจุดเกิดที่มอนถูกลากเกิน → leash กลับ (§18.3 "ลากนานเกิน/ออก pocket") */
+  leashRadius: number;
+  /** ระยะ (tile) ที่เป้าห่างมอนเกิน → เลิก aggro (ไล่ไม่ทัน → ปล่อย) */
+  deaggroRadius: number;
+  /** ระยะ (tile) จากจุดเกิดที่ถือว่ากลับถึงแล้ว → reset เป็น wander */
+  returnResetRadius: number;
+  /** pull cap ต่อผู้เล่น (§18.3 Map 1–2: 8–12) — มอนเกิน cap ต่อ player ไม่ aggro เพิ่ม */
+  pullCap: number;
+}
+
+/**
+ * Mob AI LOD knob (P1-03, TA §6/§11) — pocket ที่ไม่มีผู้เล่นในรัศมี AOI → tick ช้าลง/หลับ
+ * เพื่อประหยัด server (density สูงหลาย pocket). ทุกค่าเป็น Design Knob.
+ */
+export interface MobLodConfig {
+  /** ระยะ (tile) จากขอบ pocket ที่มีผู้เล่นอยู่ → pocket active (full tick). ~1.5 จอ (§11 AOI) */
+  aoiRadius: number;
+  /** อัตรา tick ตอน pocket ไม่ active (Hz) — TA §6 1–2Hz; **0 = หลับสนิท** (spawn state คงอยู่, ไม่ wander) */
+  idleTickHz: number;
+}
+
+/** รวม config ของ mob ทั้งหมด (P0-09 spawn/wander/render + P1-03 ai/lod/respawn) — Design Knob. */
 export interface MobConfig {
   spawn: MobSpawnConfig;
   wander: MobWanderConfig;
   animation: MobAnimationConfig;
+  /** AI aggro/leash/pull cap ฝั่ง server (P1-03, TA §18.3) */
+  ai: MobAiConfig;
+  /** AI LOD tick ฝั่ง server (P1-03, TA §6/§11) */
+  lod: MobLodConfig;
+  /** respawn delay เริ่มต้น (ms) เมื่อมอนตาย — override ต่อ pocket ได้ (MobPocket.respawnDelayMs). P1-03 */
+  respawnDelayMs: number;
   /** style เริ่มต้นเมื่อ mobType ไม่ตรงใน styles map */
   defaultStyle: MobStyle;
   /** style ต่อ mobType (key ต้องตรง MobPocket.mobType ที่ map config ใช้ เช่น "slime"/"mushroom") */
@@ -534,6 +575,26 @@ export const DEFAULT_MOB_CONFIG: MobConfig = {
     idleFrames: 2,
     walkFrames: 2,
   },
+  // P1-03 AI (TA §18.3) — ค่า tech-default รอ owner tune (PENDING OWNER, เหมือน wander P0-09)
+  ai: {
+    tickHz: 10, // TA §11 fixed 10Hz
+    chaseSpeed: 2.4, // < player speed 4 → วิ่งหนีแล้วหลุด leash ได้ (เร็วกว่า wander 1.2 ชัดเจน)
+    aggroRadius: {
+      slime: 4, // passive-ish swarm — ระยะสั้น
+      mushroom: 5, // ตัวอึด อาราม์ไกลกว่า
+    },
+    defaultAggroRadius: 4,
+    leashRadius: 8, // ลากออกจากจุดเกิดเกิน 8 tile → กลับ (Map 1 pocket ~5–6 tile)
+    deaggroRadius: 9, // เป้าหนีห่างมอนเกิน 9 tile → ปล่อย
+    returnResetRadius: 0.75, // ถึงจุดเกิดในระยะ < 1 tile → reset wander
+    pullCap: 10, // §18.3 Map 1: 8–12 → กลางช่วง
+  },
+  // P1-03 AI LOD (TA §6/§11)
+  lod: {
+    aoiRadius: 14, // ~ครึ่งจอ iso — มีผู้เล่นในระยะนี้จาก pocket → full tick
+    idleTickHz: 2, // ไม่มีผู้เล่นใน AOI → 2Hz (ยัง wander ช้า ๆ; ตั้ง 0 = หลับสนิท)
+  },
+  respawnDelayMs: 5000, // ตาย → เกิดใหม่ใน 5 วิ (P1-03 dev default; §18.1 respawn window configurable)
   defaultStyle: {
     bodyColor: 0x8a8a8a,
     accentColor: 0x5a5a5a,

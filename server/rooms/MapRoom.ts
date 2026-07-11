@@ -14,17 +14,27 @@
 // channelId (P0-08): มาจาก client joinOptions ตรง ๆ (default = DEFAULT_CHANNEL_ID). server.define ผูก
 // `.filterBy(['mapId','channelId'])` (server/index.ts) แยก room instance ตาม (mapId, channelId).
 //
+// P1-03 server-side mob simulation (TA §18 + §6 monster sync + §11 LOD):
+//   onCreate สร้าง MobSimulation (pure, src/game/mob/simulation.ts — spawn/respawn/AI/LOD) แล้ว
+//   ขับด้วย setSimulationInterval ที่ ai.tickHz (10Hz) → เขียนผล mob เข้า schema (state.mobs MapSchema).
+//   **Single source of truth**: reuse pure spawn/wander/ai เดิม (ไม่ copy) + knob จาก DEFAULT_ENGINE_CONFIG.
+//   death จริง (damage) = P1-05; P1-03 ทดสอบ death→respawn ผ่าน MSG_DEBUG_KILL_MOB (debug เท่านั้น).
+//   **AOI filter (§18.2) ยังไม่บังคับ** ที่ 30 CCU/map เล็ก — จุด filter = syncMobsToState() (ดู TODO ในนั้น).
+//
 // P1 **ยังไม่ทำ** (จด TODO ชี้ spec):
-//   - mob sync (P1-03) · reconnect 30s grace (P1-07, allowReconnection) · persistence ตอน leave
+//   - reconnect 30s grace (P1-07, allowReconnection) · persistence ตอน leave
 //   - server-side full simulation ของ player position ทุก tick (ยัง client-drive + validate, TA §6)
+//   - AOI filter บังคับ (P1+/map ใหญ่, §18.2) · mob death จาก combat จริง (P1-05, TA §15)
 
 import { Room, type Client } from "colyseus";
-import { MapRoomState, PlayerState } from "../schema/MapRoomState";
+import { MapRoomState, MobState, PlayerState } from "../schema/MapRoomState";
 import {
   DEFAULT_CHANNEL_ID,
   DEFAULT_MAP_ID,
+  MSG_DEBUG_KILL_MOB,
   MSG_MOVE,
   MSG_POSITION_CORRECTION,
+  type DebugKillMobMessage,
   type JoinOptions,
   type MoveMessage,
   type PositionCorrectionMessage,
@@ -39,6 +49,11 @@ import { P0_TEST_FIELD } from "../../src/engine/map/p0-test-field";
 import { isWalkableTile, type MapConfig } from "../../src/engine/map/types";
 import { snapToTile } from "../../src/engine/iso/coords";
 import { DEFAULT_ENGINE_CONFIG } from "../../src/engine/config";
+import {
+  createMobSimulation,
+  type MobSimulation,
+} from "../../src/game/mob/simulation";
+import type { AiPlayerRef } from "../../src/game/mob/ai";
 
 /** onCreate options = merge ของ options ที่ define() ตั้ง (ว่างใน P0) + clientOptions ของคนแรกที่ join. */
 interface MapRoomCreateOptions {
@@ -68,6 +83,8 @@ export class MapRoom extends Room<MapRoomState> {
   /** knob เดียวกับ client (speed + validation) — single source of truth (DEFAULT_ENGINE_CONFIG) */
   private moveParams!: MoveValidationParams;
   private readonly trackers = new Map<string, MoveTracker>();
+  /** mob simulation ฝั่ง server (P1-03) — authoritative spawn/respawn/AI/LOD (pure core) */
+  private sim!: MobSimulation;
 
   onCreate(options: MapRoomCreateOptions = {}): void {
     const state = new MapRoomState();
@@ -87,6 +104,27 @@ export class MapRoom extends Room<MapRoomState> {
       speed: DEFAULT_ENGINE_CONFIG.player.speed,
       validation: DEFAULT_ENGINE_CONFIG.movementValidation,
     };
+
+    // P1-03: สร้าง mob simulation (spawn ชุดแรกทันที) + ขับด้วย fixed tick ที่ ai.tickHz (TA §11 10Hz).
+    // hp ต่อ mobType อ่านจาก combat config เดียวกับ client (single source of truth).
+    const combat = DEFAULT_ENGINE_CONFIG.combat;
+    this.sim = createMobSimulation({
+      map: this.map,
+      config: DEFAULT_ENGINE_CONFIG.mob,
+      hpFor: (mobType) => combat.mobHp[mobType] ?? combat.defaultMobHp,
+    });
+    this.syncMobsToState();
+    this.setSimulationInterval(
+      (deltaMs) => this.stepMobSim(deltaMs),
+      1000 / DEFAULT_ENGINE_CONFIG.mob.ai.tickHz,
+    );
+
+    // P1-03 DEBUG/ADMIN: ฆ่ามอนเพื่อทดสอบ death→respawn (ก่อน P1-05 server combat). ไม่ใช่ gameplay จริง.
+    this.onMessage(MSG_DEBUG_KILL_MOB, (_client: Client, message: DebugKillMobMessage) => {
+      if (message?.mobId && this.sim.killMob(message.mobId)) {
+        console.log(`[MapRoom ${this.roomId}] DEBUG kill mob ${message.mobId} → respawn scheduled`);
+      }
+    });
 
     this.onMessage(MSG_MOVE, (client: Client, message: MoveMessage) => {
       const player = this.state.players.get(client.sessionId);
@@ -134,6 +172,52 @@ export class MapRoom extends Room<MapRoomState> {
         );
       }
     });
+  }
+
+  /**
+   * 1 base cycle ของ mob AI (setSimulationInterval @ ai.tickHz). ป้อนตำแหน่งผู้เล่นทุกคน (จาก schema)
+   * ให้ sim → เขียนผลกลับ schema. dt จริงจาก Colyseus (deltaMs) → รองรับ drift.
+   */
+  private stepMobSim(deltaMs: number): void {
+    const players: AiPlayerRef[] = [];
+    this.state.players.forEach((p, sessionId) => {
+      players.push({ id: sessionId, tx: p.tx, ty: p.ty });
+    });
+    this.sim.tick(deltaMs / 1000, players, Date.now());
+    this.syncMobsToState();
+  }
+
+  /**
+   * เขียน mob จาก simulation → schema (state.mobs). upsert ตัวที่มี + ลบตัวที่หายไป (ตาย/ยังไม่ respawn).
+   *
+   * **AOI filter point (§18.2 — ยังไม่บังคับ P1):** ตอนนี้เขียน mob **ทุกตัว** ลง shared state → ทุก client
+   * เห็นหมด (พอที่ 30 CCU/map เล็ก, density §11 target). เมื่อ scale (map ใหญ่/หลาย pocket active,
+   * entity 150–200) ต้อง filter ต่อ client ที่นี่: ใช้ Colyseus StateView/@filter + spatial hash (§11)
+   * ส่งเฉพาะ mob ในรัศมี AOI ของแต่ละ player. TODO(§18.2/P1+): เพิ่ม per-client view ที่จุดนี้.
+   */
+  private syncMobsToState(): void {
+    const seen = new Set<string>();
+    this.sim.forEach((m) => {
+      seen.add(m.id);
+      let ms = this.state.mobs.get(m.id);
+      if (!ms) {
+        ms = new MobState();
+        ms.mobId = m.id;
+        ms.mobType = m.mobType;
+        this.state.mobs.set(m.id, ms);
+      }
+      ms.tx = m.pos.tx;
+      ms.ty = m.pos.ty;
+      ms.state = m.moved ? "walk" : "idle";
+      ms.hp = m.hp;
+    });
+    // ลบ mob ที่ไม่อยู่ใน sim แล้ว (ตายรอ respawn) → client เห็น despawn.
+    // เก็บ key ก่อนค่อยลบ (เลี่ยง mutate ระหว่าง iterate MapSchema).
+    const stale: string[] = [];
+    this.state.mobs.forEach((_ms, id) => {
+      if (!seen.has(id)) stale.push(id);
+    });
+    for (const id of stale) this.state.mobs.delete(id);
   }
 
   onJoin(client: Client, options: JoinOptions): void {
