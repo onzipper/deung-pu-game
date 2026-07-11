@@ -211,7 +211,26 @@ export interface MobLodConfig {
   idleTickHz: number;
 }
 
-/** รวม config ของ mob ทั้งหมด (P0-09 spawn/wander/render + P1-03 ai/lod/respawn) — Design Knob. */
+/**
+ * HP bar เล็ก ๆ เหนือมอนที่เคยโดนตี (P1-05, client visual ล้วน) — โชว์เมื่อ hp < maxHp เท่านั้น.
+ * วาดด้วย Graphics ง่าย ๆ (ไม่ใช่ balance — สี/ขนาดเป็น Design Knob visual).
+ */
+export interface MobHpBarConfig {
+  /** ความกว้างแถบ (px) */
+  width: number;
+  /** ความสูงแถบ (px) */
+  height: number;
+  /** ระยะ (px) เหนือ foot ของมอน (ลบ = ขึ้นบน) */
+  offsetY: number;
+  /** สีพื้นหลังแถบ (hp ที่หายไป) */
+  bgColor: number;
+  /** สีแถบ hp ปัจจุบัน */
+  fgColor: number;
+  /** สีขอบแถบ */
+  borderColor: number;
+}
+
+/** รวม config ของ mob ทั้งหมด (P0-09 spawn/wander/render + P1-03 ai/lod/respawn + P1-05 hpBar) — Design Knob. */
 export interface MobConfig {
   spawn: MobSpawnConfig;
   wander: MobWanderConfig;
@@ -222,6 +241,8 @@ export interface MobConfig {
   lod: MobLodConfig;
   /** respawn delay เริ่มต้น (ms) เมื่อมอนตาย — override ต่อ pocket ได้ (MobPocket.respawnDelayMs). P1-03 */
   respawnDelayMs: number;
+  /** HP bar เหนือมอนที่โดนตี (P1-05, client visual) */
+  hpBar: MobHpBarConfig;
   /** style เริ่มต้นเมื่อ mobType ไม่ตรงใน styles map */
   defaultStyle: MobStyle;
   /** style ต่อ mobType (key ต้องตรง MobPocket.mobType ที่ map config ใช้ เช่น "slime"/"mushroom") */
@@ -316,18 +337,68 @@ export interface DeathFeedbackConfig {
 export interface CombatStubConfig {
   /** รูปทรง hit test ของการโจมตี (radius/arc/cooldown) */
   attack: AttackShapeConfig;
-  /** ช่วง dummy damage ต่อ hit */
+  /** ช่วง dummy damage ต่อ hit (P1-05: ใช้เฉพาะ **offline fallback** — non-authoritative playground) */
   dummyDamage: DummyDamageRange;
-  /** hp ต่อ mobType (key ต้องตรง MobPocket.mobType เช่น "slime"/"mushroom") */
-  mobHp: Record<string, number>;
-  /** hp เริ่มต้นเมื่อ mobType ไม่ตรงใน mobHp */
-  defaultMobHp: number;
   /** hitbox debug flash */
   hitboxDebug: HitboxDebugConfig;
   /** dummy damage number ลอยเหนือมอน */
   damageNumber: DamageNumberConfig;
   /** feedback ตอนมอนตาย */
   deathFeedback: DeathFeedbackConfig;
+}
+
+/**
+ * Player combat stat baseline (P1-05, proposal §2.1 — **PENDING OWNER**). server-authoritative.
+ * P1: ผู้เล่นทุกคน = นักดาบ lv1 (progression = P2) → 1 ชุดพอ. ทุกค่าเป็น Design Knob (§48/§15.1).
+ */
+export interface PlayerCombatStats {
+  /** HP สูงสุด (ยังไม่ใช้ full ใน P1 — เตรียมไว้) */
+  hp: number;
+  /** ATK — scale damage (§15.2) */
+  atk: number;
+  /** DEF — ลด damage ขาเข้า (มอนตี player, §15.2) */
+  def: number;
+  /** โอกาส crit 0..1 (§15.3, ฐาน 5%) */
+  critRate: number;
+  /** ตัวคูณเพิ่มตอน crit (fraction, §15.3 locked +50% = 0.5) */
+  critDmg: number;
+  /** Penetration — ลด effective_DEF ของเป้า (P1 = 0, โตจาก gear ภายหลัง) */
+  penetration: number;
+}
+
+/**
+ * Mob combat stat ต่อ mobType (P1-05, proposal §2.2 — **PENDING OWNER**). server-authoritative.
+ * ใช้ทั้ง damage formula (def/tierReduction) + hp เริ่มต้นของ simulation (single source of truth).
+ */
+export interface MobCombatStats {
+  /** HP เริ่มต้น (simulation อ่านค่านี้เป็น hp เกิด) */
+  hp: number;
+  /** ATK — มอนตี player (§15.2) */
+  atk: number;
+  /** DEF — ลด damage ที่ player ตีมอน (§15.2) */
+  def: number;
+  /** ตัวคูณลด damage ขาเข้าตาม tier (§15.5) — normal = 1.0 เสมอ; elite/boss < 1 */
+  tierReduction: number;
+}
+
+/**
+ * Combat balance knob (P1-05, TA §15.2/§15.3/§15.5) — **server-authoritative, PENDING OWNER**.
+ * ค่า default มาจาก `docs/design/proposals/deungpu_P1_BALANCE_PROPOSAL_v1.md` (ยังไม่ใช่ spec ที่เคาะ —
+ * เข้า §48 ผ่าน process §59.4). ทุกค่าเป็น Design Knob — สูตรอ่านจากที่นี่ ห้าม hardcode (formula.ts).
+ */
+export interface CombatBalanceConfig {
+  /** k = global damage-diminishing constant (§15.2, proposal §1 default 50, range 30–80) */
+  k: number;
+  /** ตัวคูณ PvP ทั่วโลก (P1 ไม่มี PvP → 1.0, §50.1 pvpModifier ต่อสกิลใช้คูณเพิ่มตอน PvP จริง) */
+  pvpModifier: number;
+  /** headroom range validation กัน false-reject ตอน latency/prediction (§16.3, ≥ 1) */
+  rangeToleranceFactor: number;
+  /** stat นักดาบ lv1 (P1 vertical) */
+  player: PlayerCombatStats;
+  /** stat ต่อ mobType (key ตรง MobPocket.mobType เช่น "slime"/"mushroom") */
+  mobs: Record<string, MobCombatStats>;
+  /** stat เริ่มต้นเมื่อ mobType ไม่ตรงใน mobs */
+  defaultMob: MobCombatStats;
 }
 
 /**
@@ -480,8 +551,10 @@ export interface EngineConfig {
   mob: MobConfig;
   /** realtime/network knob (P0-07) */
   net: NetConfig;
-  /** combat stub knob (P0-10) — hit test/dummy damage/hitbox debug/damage number/death feedback */
+  /** combat stub knob (P0-10) — hit test/dummy damage (offline)/hitbox debug/damage number/death feedback */
   combat: CombatStubConfig;
+  /** server combat balance knob (P1-05, TA §15) — k/player stat/mob stat (PENDING OWNER) */
+  combatBalance: CombatBalanceConfig;
   /** debug overlay knob (P0-11) — poll interval/default visibility/depth label style */
   debugOverlay: DebugOverlayConfig;
 }
@@ -595,6 +668,14 @@ export const DEFAULT_MOB_CONFIG: MobConfig = {
     idleTickHz: 2, // ไม่มีผู้เล่นใน AOI → 2Hz (ยัง wander ช้า ๆ; ตั้ง 0 = หลับสนิท)
   },
   respawnDelayMs: 5000, // ตาย → เกิดใหม่ใน 5 วิ (P1-03 dev default; §18.1 respawn window configurable)
+  hpBar: {
+    width: 28,
+    height: 4,
+    offsetY: -40, // เหนือหัวมอน (foot ที่ 0 → ลบ = ขึ้นบน)
+    bgColor: 0x3a1a1a, // แดงเข้ม = hp ที่หาย
+    fgColor: 0x4fbf6b, // เขียว = hp เหลือ
+    borderColor: 0x0a0a0a,
+  },
   defaultStyle: {
     bodyColor: 0x8a8a8a,
     accentColor: 0x5a5a5a,
@@ -633,12 +714,7 @@ export const DEFAULT_COMBAT_STUB_CONFIG: CombatStubConfig = {
     arcDegrees: 120, // ครึ่งละ 60° รอบทิศ facing
     cooldownMs: 400,
   },
-  dummyDamage: { min: 8, max: 14 }, // dummy เท่านั้น — ไม่ใช่สูตรจริง (tech §15.2 = P1)
-  mobHp: {
-    slime: 30,
-    mushroom: 45,
-  },
-  defaultMobHp: 30,
+  dummyDamage: { min: 8, max: 14 }, // dummy เท่านั้น (offline playground) — สูตรจริง = combatBalance/formula.ts (P1-05)
   hitboxDebug: {
     enabled: true, // P0 dev: เปิดไว้ให้เห็น hit area ทันที — toggle ปิดได้ที่นี่
     color: 0xff3b3b,
@@ -656,6 +732,32 @@ export const DEFAULT_COMBAT_STUB_CONFIG: CombatStubConfig = {
     durationMs: 260,
     minScale: 0.15,
   },
+};
+
+/**
+ * Server combat balance defaults (P1-05) — **PENDING OWNER**. copy จาก proposal
+ * (`docs/design/proposals/deungpu_P1_BALANCE_PROPOSAL_v1.md` §1/§2.1/§2.2). ยังไม่ใช่ spec ที่เคาะ.
+ * mobs key ตรง MobPocket.mobType จริง ("slime" = ดึ๋งปุ๊, "mushroom" = หมูพอง — ดู p0-test-field).
+ */
+export const DEFAULT_COMBAT_BALANCE_CONFIG: CombatBalanceConfig = {
+  k: 50, // proposal §1 default (range 30–80) — knob ความอึดทั้งเกม
+  pvpModifier: 1.0, // P1 ไม่มี PvP
+  rangeToleranceFactor: 1.5, // เผื่อ latency/prediction (เหมือน movement speed tolerance §16.3)
+  player: {
+    // นักดาบ lv1 (proposal §2.1)
+    hp: 100,
+    atk: 12,
+    def: 8,
+    critRate: 0.05, // 5%
+    critDmg: 0.5, // +50% (§15.3 locked)
+    penetration: 0, // P1 = 0 (โตจาก gear ภายหลัง)
+  },
+  mobs: {
+    // proposal §2.2 — HP/ATK/DEF/tierReduction ต่อ mobType
+    slime: { hp: 45, atk: 6, def: 4, tierReduction: 1.0 }, // ดึ๋งปุ๊ (normal-swarm)
+    mushroom: { hp: 130, atk: 11, def: 10, tierReduction: 1.0 }, // หมูพอง (normal-tough)
+  },
+  defaultMob: { hp: 45, atk: 6, def: 4, tierReduction: 1.0 },
 };
 
 export const DEFAULT_DEBUG_OVERLAY_CONFIG: DebugOverlayConfig = {
@@ -700,6 +802,7 @@ export const DEFAULT_ENGINE_CONFIG: EngineConfig = {
   mob: DEFAULT_MOB_CONFIG,
   net: DEFAULT_NET_CONFIG,
   combat: DEFAULT_COMBAT_STUB_CONFIG,
+  combatBalance: DEFAULT_COMBAT_BALANCE_CONFIG,
   debugOverlay: DEFAULT_DEBUG_OVERLAY_CONFIG,
 };
 
@@ -728,6 +831,7 @@ export function createEngineConfig(
       overrides.movementValidation ?? DEFAULT_ENGINE_CONFIG.movementValidation,
     mob: overrides.mob ?? DEFAULT_ENGINE_CONFIG.mob,
     combat: overrides.combat ?? DEFAULT_ENGINE_CONFIG.combat,
+    combatBalance: overrides.combatBalance ?? DEFAULT_ENGINE_CONFIG.combatBalance,
     // net = shallow-merge (override บาง knob เช่น serverUrl จาก env โดยคงค่าอื่น)
     net: { ...DEFAULT_ENGINE_CONFIG.net, ...overrides.net },
     // debugOverlay = shallow-merge (override เช่น defaultVisible โดยคง poll interval เดิม)

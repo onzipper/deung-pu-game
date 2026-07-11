@@ -84,8 +84,13 @@ export interface MobSimulation {
    * `nowMs` = clock (ms) — ใช้ตัดสิน respawn due + schedule (server Date.now; เทสต์ inject).
    */
   tick(dtSeconds: number, players: readonly AiPlayerRef[], nowMs: number): void;
-  /** ฆ่ามอน (P1-03 ผ่าน debug/admin; P1-05 = server combat) → ลบทันที + จอง respawn. คืน true ถ้าลบจริง. */
+  /** ฆ่ามอนทันที (leash/admin) → ลบ + จอง respawn. คืน true ถ้าลบจริง. */
   killMob(id: string): boolean;
+  /**
+   * หัก hp มอน (P1-05 server combat, TA §15) → ถ้า hp ≤ 0 despawn + จอง respawn (เหมือน killMob).
+   * คืน { hp, killed } หลังหัก หรือ null ถ้าไม่พบมอน (ตายไปแล้ว/ id มั่ว). amount ควร ≥ 0.
+   */
+  damageMob(id: string, amount: number): { hp: number; killed: boolean } | null;
   /** วน mob ทุกตัวที่ยังมีชีวิต (caller เขียนลง schema/view). */
   forEach(cb: (mob: SimMob) => void): void;
   /** snapshot array (alloc ใหม่ — ใช้ debug/proof/offline sync ที่ไม่ hot). */
@@ -178,6 +183,14 @@ export function createMobSimulation(params: MobSimulationParams): MobSimulation 
     if (!point) return; // หาที่เกิดไม่เจอ → ข้าม (best-effort)
     const mob = makeMob(pocketId, pocket.mobType, point);
     mobs.set(mob.id, mob);
+  };
+
+  /** ลบมอน + จอง respawn (dueAt = clock ล่าสุด + delay ต่อ pocket). shared โดย killMob/damageMob. */
+  const despawnAndScheduleRespawn = (mob: SimMob): void => {
+    mobs.delete(mob.id);
+    const pocket = pocketById.get(mob.pocketId);
+    const delay = pocket ? respawnDelayFor(pocket) : config.respawnDelayMs;
+    respawnQueue.push({ pocketId: mob.pocketId, dueAtMs: lastNowMs + delay });
   };
 
   const processRespawns = (nowMs: number): void => {
@@ -292,12 +305,21 @@ export function createMobSimulation(params: MobSimulationParams): MobSimulation 
     killMob(id: string): boolean {
       const mob = mobs.get(id);
       if (!mob) return false;
-      mobs.delete(id);
       // ปล่อย pull count ทันทีไม่ต้อง — pull counts สร้างใหม่ทุก tick จาก mobs ที่เหลือ
-      const pocket = pocketById.get(mob.pocketId);
-      const delay = pocket ? respawnDelayFor(pocket) : config.respawnDelayMs;
-      respawnQueue.push({ pocketId: mob.pocketId, dueAtMs: lastNowMs + delay });
+      despawnAndScheduleRespawn(mob);
       return true;
+    },
+
+    damageMob(id: string, amount: number): { hp: number; killed: boolean } | null {
+      const mob = mobs.get(id);
+      if (!mob) return null;
+      mob.hp -= amount;
+      if (mob.hp <= 0) {
+        mob.hp = 0;
+        despawnAndScheduleRespawn(mob);
+        return { hp: 0, killed: true };
+      }
+      return { hp: mob.hp, killed: false };
     },
 
     forEach(cb: (mob: SimMob) => void): void {

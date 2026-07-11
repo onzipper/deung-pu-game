@@ -1,15 +1,19 @@
-// Combat stub glue — pixi glue (P0-10, P1-03 retarget). Plain TS + PixiJS เท่านั้น
-// (ห้าม React/Next) — src/game/** ใช้ engine ผ่าน public API เท่านั้น (LocalPlayerHandle/
+// Combat client coordinator — pixi glue (P0-10 stub → P1-05 server-authoritative). Plain TS + PixiJS
+// เท่านั้น (ห้าม React/Next) — src/game/** ใช้ engine ผ่าน public API เท่านั้น (LocalPlayerHandle/
 // MapSceneHandle/MobViewHandle) ไม่แตะ pixi.Application ตรง ๆ.
 //
-// Chain: กด Space → cooldown check → attack animation (LocalPlayerHandle.triggerAttack)
-// → findHits (hit-test.ts, pure) → damage number + hitbox debug flash.
-// **P1-03:** มอนเป็น server-authoritative (view manager) → stub เล่นแค่ effect **ไม่ฆ่า**
-//   (getAliveTargets จาก MobViewHandle; kill/damage จริง = P1-05 server combat, TA §15).
+// P1-05 (TA §15/§16.2/§6): combat = **server-authoritative**. บทบาทฝั่ง client ที่นี่:
+//   กด Space → cooldown gate (predictive) → เล่น anticipation animation **ทันที** (ไม่รอ server, §6)
+//   → **online**: ส่ง cast intent (skillId + aim + ทิศ) ให้ server ผ่าน `castSkill`; damage/ตาย จริง
+//     มาทาง MSG_SKILL_RESULT (onSkillResult) + mob despawn ผ่าน state (mob view manager).
+//   → **offline** (ไม่มี server): non-authoritative playground — เล่น dummy damage number เดิม
+//     (findHits local + rollDummyDamage) ไม่ฆ่ามอน (authority = server). ระบุชัดว่า offline = ไม่จริง.
 //
-// ไม่ทำ (P1, ดู P0 §4.9 + AI.md never-change list): skill balance จริง, full damage formula
-// (tech §15.2), item drop/EXP/gold, boss mechanic. ตัวเลข damage/hp/cooldown ทั้งหมดเป็น
-// Design Knob จาก config.combat (engine/config.ts) — ห้าม hardcode ในไฟล์นี้.
+// **ไม่ import สูตร damage (formula.ts)** — สูตรเป็น server-only (TA §7/§16.1, กันหลุด client bundle).
+// ที่นี่ใช้แค่ geometry (hit-test.ts, shared) สำหรับ offline dummy + hitbox debug + aim.
+//
+// ไม่ทำ (feel pass เต็ม = P1-06, TA §11): hit stop, screen shake, BitmapText pool, death juice จริง.
+//   ค่า cosmetic/timing ทั้งหมดเป็น Design Knob จาก config — ห้าม hardcode.
 
 import { Graphics } from "pixi.js";
 import type { AttackShapeConfig, EngineConfig, HitboxDebugConfig, TileSize } from "@/engine/config";
@@ -19,6 +23,8 @@ import type { Direction } from "@/engine/movement/direction";
 import type { LocalPlayerHandle } from "@/engine/player/local-player";
 import type { MapSceneHandle } from "@/engine/render/scene";
 import type { MobViewHandle } from "@/game/mob/manager";
+import type { ClientSkillView } from "@/game/skill/views";
+import type { CastSkillMessage, SkillResultMessage } from "@/shared/net-protocol";
 import { defaultRng, type RngFn } from "@/game/mob/rng";
 import {
   advanceCooldown,
@@ -27,6 +33,7 @@ import {
   rollDummyDamage,
   screenAngleForDirection,
   tileUnitVectorForScreenAngle,
+  type AttackShape,
 } from "@/game/combat/hit-test";
 import { createDamageNumberLayer, type DamageNumberLayerHandle } from "@/game/combat/damage-number";
 
@@ -35,17 +42,35 @@ const HITBOX_DEBUG_ZLAYER = 40;
 /** ความละเอียดของ wedge visual (จำนวนช่วงมุม) — ค่า rendering detail ล้วน ไม่ใช่ balance knob. */
 const HITBOX_ARC_SEGMENTS = 16;
 
+/** dependencies ที่ caller (app.ts) เชื่อมกับ net/skill layer (P1-05). */
+export interface CombatStubDeps {
+  /** สกิลที่ผูกกับปุ่มโจมตี (P1-05: skill แรกของนักดาบ, **client view** — ไม่มี server-only field). */
+  skill: ClientSkillView;
+  /** ส่ง cast intent ขึ้น server (online). caller เชื่อมกับ net.sendCast (no-op ถ้า offline). */
+  castSkill: (msg: CastSkillMessage) => void;
+  /** true = online (server authority) → ส่ง intent; false = offline → dummy playground. */
+  isOnline: () => boolean;
+  /** RNG inject (offline dummy damage เท่านั้น; default Math.random). */
+  rng?: RngFn;
+}
+
 export interface CombatStubHandle {
-  /** เรียกทุก frame ด้วย dt วินาที — cooldown/attack input/hit test/feedback ทั้งหมดอยู่ที่นี่ */
+  /** เรียกทุก frame ด้วย dt วินาที — cooldown/attack input/cast/feedback ทั้งหมดอยู่ที่นี่ */
   update(dtSeconds: number): void;
+  /**
+   * P1-05: รับ MSG_SKILL_RESULT (broadcast) → เล่น damage number ที่ตำแหน่งมอนที่โดน (ทุก caster —
+   * เลข = cosmetic client-side, §16.2/§6). ตำแหน่งจาก cache ล่าสุด (killing blow ที่ despawn ไปแล้ว
+   * ยังมีตำแหน่งใน cache 1 เฟรม). death juice เต็ม = P1-06.
+   */
+  onSkillResult(result: SkillResultMessage): void;
   /** ลบ hitbox debug + damage number ที่ค้างอยู่ทั้งหมดออกจาก scene */
   destroy(): void;
 }
 
 /**
- * วาด wedge (pie slice) แทนพื้นที่ hit test จริง — sample จุดตามขอบ arc ด้วย
- * tileUnitVectorForScreenAngle แล้ว project เข้า screen (tileToScreen ของ delta) เพื่อให้รูปที่เห็น
- * ตรงกับเกณฑ์ที่ findHits ใช้จริงเป๊ะ (ไม่ใช่วงกลม/พัดลมเดา — diamond projection ทำให้ไม่ใช่วงกลมบนจอ).
+ * วาด wedge (pie slice) แทนพื้นที่ hit test — sample จุดตามขอบ arc ด้วย tileUnitVectorForScreenAngle
+ * แล้ว project เข้า screen (tileToScreen ของ delta) ให้รูปที่เห็นตรงกับเกณฑ์ที่ findHits ใช้จริงเป๊ะ
+ * (diamond projection → ไม่ใช่วงกลม/พัดลมบนจอ). P1-05: shape = **สกิลจริง** (range/angle จาก definition).
  */
 function buildHitboxWedge(
   facing: Direction,
@@ -74,26 +99,42 @@ function buildHitboxWedge(
 let hitboxSeq = 0;
 
 /**
- * สร้าง combat stub 1 ชุด (ต่อ local player 1 คน — P0 มีแค่ local เดียว).
- * caller (app.ts) เรียก update(dtSeconds) ทุก frame แล้ว destroy() ตอนปิด engine.
- *
- * @param rng RNG inject ได้ (default Math.random runtime) — ใช้เฉพาะ dummy damage roll
+ * สร้าง combat coordinator 1 ชุด (ต่อ local player 1 คน). caller (app.ts) เรียก update(dt) ทุก frame,
+ * onSkillResult(result) เมื่อ net ส่งผลสกิลมา, destroy() ตอนปิด engine.
  */
 export function createCombatStub(
   scene: MapSceneHandle,
   player: LocalPlayerHandle,
   mobs: MobViewHandle,
   config: EngineConfig,
-  rng: RngFn = defaultRng,
+  deps: CombatStubDeps,
 ): CombatStubHandle {
   const { combat, tileSize } = config;
+  const { skill } = deps;
+  const rng: RngFn = deps.rng ?? defaultRng;
   const damageNumbers: DamageNumberLayerHandle = createDamageNumberLayer(
     scene,
     combat.damageNumber,
   );
 
+  // shape ของสกิลจริง (client view มี range/radius/angle — shared field): cone/arc/line ใช้ range+angle,
+  // circle ใช้ radius; angle null → 360 (รอบตัว). ใช้ทั้ง offline dummy hit + hitbox debug wedge.
+  const skillShape: AttackShape = {
+    radius: skill.radius != null ? skill.radius : skill.range,
+    arcDegrees: skill.angle != null ? skill.angle : 360,
+  };
+  const debugShape: AttackShapeConfig = {
+    radius: skillShape.radius,
+    arcDegrees: skillShape.arcDegrees,
+    cooldownMs: 0, // ไม่ใช้ (cooldown จริงมาจาก skill.cooldown)
+  };
+  const cooldownMs = skill.cooldown * 1000;
+
   let cooldownRemainingMs = 0;
   let hitbox: { id: string; display: Graphics; elapsedMs: number } | null = null;
+  /** cache ตำแหน่งมอนล่าสุด (id → foot tile) — ให้ damage number ของ killing blow render ตรงจุด
+   *  แม้ mob เพิ่ง despawn (state removal อาจมาก่อน/หลัง skill_result). refresh ทุก frame. */
+  const lastMobPos = new Map<string, TilePoint>();
 
   const clearHitboxDebug = (): void => {
     if (!hitbox) return;
@@ -103,7 +144,7 @@ export function createCombatStub(
 
   const spawnHitboxDebug = (origin: TilePoint, facing: Direction): void => {
     clearHitboxDebug(); // stub เดียวพอ (ไม่ pool หลายอันซ้อน)
-    const display = buildHitboxWedge(facing, combat.attack, tileSize, combat.hitboxDebug);
+    const display = buildHitboxWedge(facing, debugShape, tileSize, combat.hitboxDebug);
     const id = `hitbox-debug:${hitboxSeq++}`;
     scene.addEntity(id, display, origin, HITBOX_DEBUG_ZLAYER);
     hitbox = { id, display, elapsedMs: 0 };
@@ -113,19 +154,41 @@ export function createCombatStub(
     update(dtSeconds: number): void {
       cooldownRemainingMs = advanceCooldown(cooldownRemainingMs, dtSeconds);
 
-      if (player.consumeAttackPressed() && canAttack(cooldownRemainingMs)) {
-        cooldownRemainingMs = combat.attack.cooldownMs;
-        player.triggerAttack();
+      // refresh cache ตำแหน่งมอน (clone tx/ty — getAliveTargets คืน live reference)
+      lastMobPos.clear();
+      for (const t of mobs.getAliveTargets()) {
+        lastMobPos.set(t.id, { tx: t.pos.tx, ty: t.pos.ty });
+      }
 
-        const targets = mobs.getAliveTargets();
-        const hitIds = findHits(player.position, player.facing, targets, tileSize, combat.attack);
-        for (const id of hitIds) {
-          const target = targets.find((t) => t.id === id);
-          if (!target) continue; // ปกติไม่เกิด — hitIds มาจาก targets ชุดเดียวกัน
-          const damage = rollDummyDamage(combat.dummyDamage, rng);
-          // P1-03: มอนเป็น server-authoritative แล้ว → stub เล่นแค่ effect (damage number), **ไม่ฆ่า**.
-          // TODO(P1-05): ส่ง cast_skill intent → server คำนวณ damage/death จริง (TA §15) → despawn ผ่าน state.
-          damageNumbers.spawn(target.pos, damage);
+      if (player.consumeAttackPressed() && canAttack(cooldownRemainingMs)) {
+        cooldownRemainingMs = cooldownMs; // client-side predictive gate (server = authority จริง)
+        player.triggerAttack(); // anticipation ทันที — ไม่รอ server (TA §6)
+
+        // aim = จุดหน้า player ตามทิศ facing ที่ระยะสกิล (server ใช้ตรวจ range + ศูนย์กลาง AoE)
+        const facingAngle = screenAngleForDirection(player.facing);
+        const unit = tileUnitVectorForScreenAngle(facingAngle, tileSize);
+        const aim: TilePoint = {
+          tx: player.position.tx + unit.tx * skill.range,
+          ty: player.position.ty + unit.ty * skill.range,
+        };
+
+        if (deps.isOnline()) {
+          // online: ส่ง intent → damage/ตาย มาทาง onSkillResult (server authority §7/§15)
+          deps.castSkill({
+            skillId: skill.skillId,
+            aimTx: aim.tx,
+            aimTy: aim.ty,
+            direction: player.facing,
+          });
+        } else {
+          // offline: non-authoritative playground — dummy damage number เดิม (ไม่ฆ่ามอน)
+          const targets = mobs.getAliveTargets();
+          const hitIds = findHits(player.position, player.facing, targets, tileSize, skillShape);
+          for (const id of hitIds) {
+            const target = targets.find((t) => t.id === id);
+            if (!target) continue;
+            damageNumbers.spawn(target.pos, rollDummyDamage(combat.dummyDamage, rng));
+          }
         }
 
         if (combat.hitboxDebug.enabled) {
@@ -145,6 +208,14 @@ export function createCombatStub(
       }
 
       damageNumbers.update(dtSeconds);
+    },
+
+    onSkillResult(result: SkillResultMessage): void {
+      for (const hit of result.hits) {
+        const pos = lastMobPos.get(hit.mobId);
+        if (!pos) continue; // มอนไม่รู้จัก/หายไปเกิน 1 เฟรม — ข้าม (killed juice เต็ม = P1-06)
+        damageNumbers.spawn(pos, hit.dmg);
+      }
     },
 
     destroy(): void {

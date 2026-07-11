@@ -2,7 +2,8 @@ import { describe, expect, test } from "vitest";
 import { loadSkillDefinitions, SkillDefinitionError } from "@/game/skill/loader";
 import { SKILL_FIELD_NAMES, type SkillDefinition } from "@/game/skill/types";
 import { clientView, SERVER_ONLY_FIELDS, serverView } from "@/game/skill/views";
-import { WARRIOR_SKILLS } from "@/game/skill/warrior-skills";
+import { WARRIOR_SKILLS_SERVER } from "@/game/skill/data/warrior-skills-server";
+import { WARRIOR_SKILLS_CLIENT } from "@/game/skill/data/warrior-skills-client";
 
 // skill definition ที่ถูกต้องขั้นต่ำ (ครบ 37 field) — clone แล้ว mutate เพื่อทดสอบทีละข้อ.
 function validSkill(): Record<string, unknown> {
@@ -212,9 +213,9 @@ describe("loadSkillDefinitions — unknown field (typo/แปลกปลอม)
   });
 });
 
-describe("WARRIOR_SKILLS — ข้อมูลจริงนักดาบ 4 skills ผ่าน validation จริง", () => {
+describe("WARRIOR_SKILLS_SERVER — ข้อมูลจริงนักดาบ 4 skills ผ่าน validation จริง", () => {
   test("ทั้ง 4 skill โหลดผ่าน loader ไม่มี error", () => {
-    const map = loadSkillDefinitions(WARRIOR_SKILLS as unknown[]);
+    const map = loadSkillDefinitions(WARRIOR_SKILLS_SERVER as unknown[]);
     expect(map.size).toBe(4);
     expect([...map.keys()]).toEqual([
       "sword_basic_slash",
@@ -225,7 +226,7 @@ describe("WARRIOR_SKILLS — ข้อมูลจริงนักดาบ 4 
   });
 
   test("แต่ละ skill มีครบ 37 field ตรงชื่อ §50.1", () => {
-    for (const skill of WARRIOR_SKILLS) {
+    for (const skill of WARRIOR_SKILLS_SERVER) {
       const keys = Object.keys(skill).sort();
       expect(keys).toEqual([...SKILL_FIELD_NAMES].sort());
     }
@@ -233,7 +234,7 @@ describe("WARRIOR_SKILLS — ข้อมูลจริงนักดาบ 4 
 });
 
 describe("views — serverView ครบทุก field", () => {
-  const def = WARRIOR_SKILLS[1]; // sword_royal_wave — AoE farming มีค่าทุก field ที่น่าสนใจ
+  const def = WARRIOR_SKILLS_SERVER[1]; // sword_royal_wave — AoE farming มีค่าทุก field ที่น่าสนใจ
 
   test("serverView คืนทุก field (37 ตัว) เท่ากับต้นฉบับ", () => {
     const view = serverView(def);
@@ -248,7 +249,7 @@ describe("views — serverView ครบทุก field", () => {
 });
 
 describe("views — clientView ตัด server-only field ออก (TA §16.1)", () => {
-  const def: SkillDefinition = WARRIOR_SKILLS[1]; // sword_royal_wave
+  const def: SkillDefinition = WARRIOR_SKILLS_SERVER[1]; // sword_royal_wave
   const view = clientView(def);
 
   test("SERVER_ONLY_FIELDS ตรงตาม TA §16.1 (9 fields)", () => {
@@ -288,11 +289,44 @@ describe("views — clientView ตัด server-only field ออก (TA §16.1)
   });
 
   test("clientView ทุก skill นักดาบ ไม่มี server-only field หลุด", () => {
-    for (const skill of WARRIOR_SKILLS) {
+    for (const skill of WARRIOR_SKILLS_SERVER) {
       const cv = clientView(skill);
       for (const field of SERVER_ONLY_FIELDS) {
         expect(Object.prototype.hasOwnProperty.call(cv, field)).toBe(false);
       }
+    }
+  });
+});
+
+// ── ป้องกัน balance รั่ว client bundle (P1-05 BLOCKER fix, TA §16.1) ──────────────
+// client manifest (warrior-skills-client.ts) ต้อง (ก) ไม่มี server-only key แม้ literal
+// (ข) server data ผ่าน loader (ค) สอดคล้อง server (skillId + shared field ตรง = clientView(server)).
+describe("WARRIOR_SKILLS_CLIENT — client manifest ปลอด server-only literal + ตรง server (drift guard)", () => {
+  test("(ก) ทุก skill ใน client manifest ไม่มี server-only key แม้แต่ literal", () => {
+    for (const cv of WARRIOR_SKILLS_CLIENT) {
+      const keys = Object.keys(cv);
+      for (const field of SERVER_ONLY_FIELDS) {
+        expect(keys).not.toContain(field);
+      }
+      // ยืนยันเหลือ 28 field (37 - 9 server-only) เป๊ะ — ไม่ตกหล่น/ไม่เกิน
+      expect(keys.length).toBe(37 - SERVER_ONLY_FIELDS.length);
+    }
+  });
+
+  test("(ข) server data ผ่าน loader validation จริง (37 field ครบ)", () => {
+    const map = loadSkillDefinitions(WARRIOR_SKILLS_SERVER as unknown[]);
+    expect(map.size).toBe(WARRIOR_SKILLS_SERVER.length);
+  });
+
+  test("(ค) client manifest = clientView(server) เป๊ะ ทุก skill (กัน 2 ไฟล์ drift)", () => {
+    // skillId ชุดเดียวกัน ลำดับเดียวกัน
+    expect(WARRIOR_SKILLS_CLIENT.map((c) => c.skillId)).toEqual(
+      WARRIOR_SKILLS_SERVER.map((s) => s.skillId),
+    );
+    // ทุก entry: client authored = clientView ของ server ตัวเดียวกัน (shared/client/meta field ค่าตรง)
+    for (const server of WARRIOR_SKILLS_SERVER) {
+      const client = WARRIOR_SKILLS_CLIENT.find((c) => c.skillId === server.skillId);
+      expect(client).toEqual(clientView(server));
     }
   });
 });

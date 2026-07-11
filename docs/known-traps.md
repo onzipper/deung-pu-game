@@ -43,4 +43,22 @@
 - อาการ: `Cannot find module 'colyseus.js'` เมื่อรัน proof script ที่วางใน scratchpad (นอก repo)
 - วิธีเลี่ยง: วาง integration/proof script ไว้ **ใน project** (เช่น temp file ที่ root แล้วลบ) หรือ set `NODE_PATH` ชี้ node_modules ของ repo — node resolve module จากตำแหน่งไฟล์ขึ้นไป
 
+## Combat damage formula ห้ามหลุด client bundle (P1-05, TA §7/§16.1)
+
+- อาการเสี่ยง: client มีสูตร damage/ค่า balance ใน bundle → ผู้เล่น reverse-engineer / มโนผล → server-authority พัง (§7 economy risk)
+- สาเหตุที่จะเกิด: `src/game/combat/` เป็นโค้ด shared (client glue เช่น combat-stub.ts อยู่โฟลเดอร์เดียวกับ formula.ts/cast-validation.ts) — เผลอ import formula.ts จาก client path หรือทำ barrel `index.ts` ที่ re-export ทุกอย่าง = สูตรติดไป client bundle
+- วิธีเลี่ยง (P1-05 ใช้): `src/game/combat/formula.ts` = **server-only** (import เฉพาะ `server/rooms/**`) · **ไม่มี barrel/index** ใน `src/game/combat/` · client (combat-stub.ts / app.ts) import ได้เฉพาะ `hit-test.ts` (geometry) + `damage-number.ts` — **ห้าม** import formula.ts/cast-validation.ts. P1 monorepo ยังไม่มี import-graph test แยก bundle → คุมด้วย convention + comment header ("SERVER-ONLY") + review. ถ้าจะเพิ่ม barrel ในโฟลเดอร์นี้ ต้องกัน formula ออกจาก export ที่ client แตะ
+
+## import "ข้อมูล" server-only = รั่วเท่ากับ import สูตร (clientView() runtime ไม่ช่วยเรื่อง bundle)
+
+- อาการ: client static import ไฟล์ที่มี **full SkillDefinition literal** (เช่น `WARRIOR_SKILLS` เดิม) แล้วเรียก `clientView()` ตัด field ตอน runtime — แต่ **literal values (baseMultiplier 2.2, bossModifier, maxTargets, hitCount, pvpModifier, crowdControl) ยังถูก bundler รวมลง browser JS** ตั้งแต่บรรทัด import → เปิด devtools/source อ่าน reverse-engineer balance ได้ครบ (ขัด TA §7/§16.1)
+- สาเหตุ: `clientView()` ทำงาน **หลัง** โหลด module แล้ว — bundler ไม่รู้ว่าจะตัด field ไหน จึงรวม object literal ทั้งก้อน (tree-shaking ไม่ตัด property ภายใน object ที่ถูกใช้). "ตัดตอน runtime" ≠ "ไม่อยู่ใน bundle"
+- วิธีเลี่ยง (P1-05 ใช้): **แยก data 2 ไฟล์ตั้งแต่ต้น** — `src/game/skill/data/warrior-skills-server.ts` (full 37 field, SERVER-ONLY, import เฉพาะ `server/**`+tests) · `src/game/skill/data/warrior-skills-client.ts` (ClientSkillView 28 field, **ไม่มี server-only literal เลย**, client import ตัวนี้). กัน drift ด้วยเทสต์ `client == clientView(server)` (tests/game-skill-loader.test.ts). **หลักการ:** ถ้า literal ไหนเป็น balance/สูตร ห้ามให้ client import ไฟล์ที่มี literal นั้น — เช็คด้วย grep import graph ไม่ใช่เชื่อ runtime transform
+
+## tsx รัน server: ต้องส่ง --tsconfig server/tsconfig.json (ไม่งั้น decorator พัง)
+
+- อาการ: `node node_modules/tsx/dist/cli.mjs server/index.ts` → `TypeError: Cannot read properties of undefined (reading 'constructor')` ที่ @colyseus/schema annotations
+- สาเหตุ: tsx default ใช้ modern (TC39) decorators ของ esbuild; @colyseus/schema `@type` = legacy PropertyDecorator ต้อง experimentalDecorators + useDefineForClassFields:false (อยู่ใน server/tsconfig.json)
+- วิธีเลี่ยง: รันด้วย `--tsconfig server/tsconfig.json` เสมอ (ตรงกับ `npm run dev:server`); proof/integration script ก็ต้องผ่าน server ที่รันแบบนี้
+
 <!-- เพิ่มกับดักใหม่ด้านล่างเมื่อเจอจริง -->

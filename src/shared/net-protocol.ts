@@ -38,15 +38,61 @@ export const DEFAULT_CHANNEL_ID = "CH.1";
 export const MSG_MOVE = "move";
 
 /**
- * message type: client → server (**DEBUG/ADMIN เท่านั้น**, P1-03) — ฆ่ามอน 1 ตัวเพื่อทดสอบ
- * death→respawn ฝั่ง server ก่อน P1-05 (server combat authority) มาแทน. payload = DebugKillMobMessage.
- * TODO(P1-05): ลบ handler นี้เมื่อ cast_skill → server damage → mob death จริงพร้อม (TA §15).
+ * message type: client → server (**intent เท่านั้น**, P1-05, TA §16.2) — ขอใช้สกิล.
+ * server validate (รู้จัก skillId / cooldown / range §16.3) → คำนวณ AoE hit + damage (สูตร server §15.2)
+ * → apply กับ mob → broadcast MSG_SKILL_RESULT. ปฏิเสธ → MSG_CAST_REJECTED (เงียบ ๆ ไม่ crash).
+ * payload = CastSkillMessage. **client ไม่ส่ง damage/ผล — ส่งแค่ intent** (server-authoritative §7).
  */
-export const MSG_DEBUG_KILL_MOB = "debug_kill_mob";
+export const MSG_CAST_SKILL = "cast_skill";
 
-/** payload ของ MSG_DEBUG_KILL_MOB (client → server, debug). */
-export interface DebugKillMobMessage {
+/**
+ * payload ของ MSG_CAST_SKILL (client → server, P1-05).
+ * aim (tx,ty) = จุดเล็ง (tile coord) ใช้ตรวจ range + เป็นศูนย์กลาง AoE บางชนิด; direction = ทิศ facing
+ * ที่ client เล็ง (arc/cone ใช้ทิศนี้). server ไม่ trust ระยะ — validate เองจากตำแหน่ง caster ใน state.
+ */
+export interface CastSkillMessage {
+  skillId: string;
+  aimTx: number;
+  aimTy: number;
+  direction: WirePlayerDirection;
+}
+
+/** ผลการโดนสกิลต่อ mob 1 ตัว (P1-05, TA §16.2) — client แตกเป็น damage number เอง (§6/§16.2). */
+export interface SkillHit {
   mobId: string;
+  /** damage รวมต่อ mob (server aggregate multi-hit เป็นเลขเดียว) */
+  dmg: number;
+  /** crit หรือไม่ (มี sub-hit ใด crit) */
+  crit: boolean;
+  /** true = hit นี้ฆ่ามอน (mob จะ despawn ผ่าน state removal ด้วย) */
+  killed: boolean;
+}
+
+/**
+ * message type: server → **ทุก client ในห้อง** (broadcast, P1-05, TA §16.2) — ผลการใช้สกิล.
+ * client เล่น damage number / impact / death จากผลนี้ (ความจริงจาก server). payload = SkillResultMessage.
+ */
+export const MSG_SKILL_RESULT = "skill_result";
+
+/** payload ของ MSG_SKILL_RESULT (server → broadcast, P1-05). */
+export interface SkillResultMessage {
+  /** sessionId ผู้ใช้สกิล */
+  casterId: string;
+  skillId: string;
+  /** เป้าที่โดน (ว่างได้ = สกิลพลาด/utility ไม่ทำ damage) */
+  hits: SkillHit[];
+}
+
+/**
+ * message type: server → **client ผู้ cast เท่านั้น** (P1-05) — cast ถูกปฏิเสธ (cooldown/skill มั่ว/range).
+ * เงียบ ๆ (ไม่ apply, ไม่ crash room) — UX/debug เท่านั้น, ไม่ผูก punishment. payload = CastRejectedMessage.
+ */
+export const MSG_CAST_REJECTED = "cast_rejected";
+
+/** payload ของ MSG_CAST_REJECTED (server → client เดียว, P1-05). reason = "unknown_skill"|"cooldown"|"out_of_range". */
+export interface CastRejectedMessage {
+  skillId: string;
+  reason: string;
 }
 
 /** anim state ของมอนที่ sync (P1-03) — idle/walk เท่านั้น (attack/death = client เล่นเองจาก event, tech §6). */
@@ -64,7 +110,7 @@ export interface MobSnapshot {
   ty: number;
   /** anim state (idle/walk) — client เลือก clip */
   state: WireMobState;
-  /** hp ปัจจุบัน (P1-03 เต็มไว้; death จริง = P1-05) */
+  /** hp ปัจจุบัน (P1-05: update จริงจาก server combat → client โชว์ HP bar เมื่อ hp < maxHp) */
   hp: number;
 }
 

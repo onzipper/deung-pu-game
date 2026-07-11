@@ -1,13 +1,19 @@
-// นักดาบ (swordsman) skill data — 4 skills, ครบ 37 field ตาม game spec v15 §50.1.
+// นักดาบ (swordsman) skill data — **SERVER-ONLY**. full SkillDefinition ครบ 37 field (GS v15 §50.1).
 // Plain TS only — ห้าม import React / Next.js / pixi runtime (game logic บน engine).
+//
+// ⚠️ SERVER-ONLY (TA §7/§16.1): ไฟล์นี้มี **9 server-only field เป็น literal** (baseMultiplier/scalingStat/
+//   damageType/maxTargets/hitCount/bossModifier/pvpModifier/crowdControl/serverAuthority) — balance data
+//   ที่ห้ามหลุด client bundle. import ได้เฉพาะ `server/**` + tests. **client ห้าม import ไฟล์นี้**
+//   (แม้จะเรียก clientView() ตอน runtime ก็ไม่ช่วย — literal value ถูก bundle ลง browser ตั้งแต่ import แล้ว;
+//   ดู known-traps "import ข้อมูล server-only = รั่วเท่ากับ import สูตร"). client ใช้ warrior-skills-client.ts.
 //
 // >>> PENDING OWNER — ตัวเลขทั้งหมดในไฟล์นี้ยังไม่ใช่ spec ที่เคาะแล้ว <<<
 // ค่า copy ตรงจาก docs/design/proposals/deungpu_P1_BALANCE_PROPOSAL_v1.md §3.1
 // (มติ decision-index 2026-07-12: ใช้เป็น draft ให้เกมเดินได้ก่อน owner เคาะ)
-// เมื่อ owner เคาะแล้ว: sync ค่าจากที่นี่กับ checkpoint §48/§50.1 ผ่าน process §59.4
-// (proposal §5 มี checklist รายการที่ owner ต้องเคาะ รวม skillName placeholder บางตัว)
+// เมื่อ owner เคาะแล้ว: sync ค่าจากที่นี่กับ checkpoint §48/§50.1 ผ่าน process §59.4.
 //
 // field names ทุกตัว copy ตรงจาก §50.1 — ห้าม rename/เพิ่ม field ใหม่.
+// **drift guard:** warrior-skills-client.ts ต้องตรงกับ clientView() ของไฟล์นี้ (tests/game-skill-loader.test.ts).
 
 import type { SkillDefinition } from "@/game/skill/types";
 
@@ -175,8 +181,8 @@ export const SWORD_GUARD_DOMAIN: SkillDefinition = {
   performanceBudget: "low",
 };
 
-/** ทั้ง 4 skill นักดาบ ตามลำดับ proposal §3.1 (S1–S4) — ป้อนเข้า loadSkillDefinitions ได้ตรง. */
-export const WARRIOR_SKILLS: readonly SkillDefinition[] = [
+/** ทั้ง 4 skill นักดาบ ตามลำดับ proposal §3.1 (S1–S4) — ป้อนเข้า loadSkillDefinitions ได้ตรง (server). */
+export const WARRIOR_SKILLS_SERVER: readonly SkillDefinition[] = [
   SWORD_BASIC_SLASH,
   SWORD_ROYAL_WAVE,
   SWORD_SOLAR_CLEAVE,

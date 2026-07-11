@@ -11,6 +11,7 @@ import { createLocalPlayer, type LocalPlayerHandle } from "../player/local-playe
 import { createMobViewManager, type MobViewHandle } from "@/game/mob/manager";
 import { createMobSimulation, type MobSimulation } from "@/game/mob/simulation";
 import { createCombatStub, type CombatStubHandle } from "@/game/combat/combat-stub";
+import { WARRIOR_SKILLS_CLIENT } from "@/game/skill/data/warrior-skills-client";
 import { createNetClient, type NetClientHandle } from "../net/net-client";
 import { createRemotePlayerManager } from "../net/remote-player-manager";
 import {
@@ -93,9 +94,17 @@ export async function createEngine(
   // spawn/AI/leash/respawn อยู่ที่ authority (server sim); view manager แค่ interpolate+วาด (ไม่มี game logic).
   const mobView: MobViewHandle = createMobViewManager(scene, config, app.renderer);
 
-  // --- combat stub (P0-10 → P1-03): Space → attack anim → hit test → damage number (effect only) ---
-  // P1-03: มอน server-authoritative → stub ไม่ฆ่า (ดู combat-stub.ts TODO P1-05).
-  const combat: CombatStubHandle = createCombatStub(scene, player, mobView, config);
+  // --- combat (P1-05 server-authoritative): Space → anticipation anim + cast intent → server result ---
+  // skill แรกนักดาบจาก **client manifest** (ClientSkillView) — ไม่มี server-only field แม้เป็น literal
+  // (balance/สูตรไม่รั่ว client bundle, TA §16.1; server-only data อยู่ warrior-skills-server.ts). S1 = index 0.
+  const firstWarriorSkill = WARRIOR_SKILLS_CLIENT[0];
+  // net ถูก assign ด้านล่าง (declare ก่อน combat เพื่อให้ castSkill/isOnline closure อ้างได้ — เรียกตอน runtime หลัง assign).
+  let net: NetClientHandle | null = null;
+  const combat: CombatStubHandle = createCombatStub(scene, player, mobView, config, {
+    skill: firstWarriorSkill,
+    castSkill: (msg) => net?.sendCast(msg),
+    isOnline: () => net?.status.state === "online",
+  });
 
   // --- realtime net (P0-07): remote players + position sync ---
   // Graceful offline: connect ล้ม = เล่น solo ต่อ (net.status = "offline"); ไม่ block boot.
@@ -105,7 +114,6 @@ export async function createEngine(
     direction: player.facing,
     anim: coerceAnim(player.animation),
   });
-  let net: NetClientHandle | null = null;
   let remotes: ReturnType<typeof createRemotePlayerManager> | null = null;
   let sendAccumMs = 0;
   let lastSent: PlayerSnapshot | null = null;
@@ -130,6 +138,8 @@ export async function createEngine(
         onMobAdd: (snap) => mobView.onMobAdd(snap),
         onMobChange: (snap) => mobView.onMobChange(snap),
         onMobRemove: (mobId) => mobView.onMobRemove(mobId),
+        // P1-05: ผลใช้สกิลจาก server (ทุก caster) → เล่น damage number จริง
+        onSkillResult: (result) => combat.onSkillResult(result),
       },
     );
   }
@@ -140,7 +150,7 @@ export async function createEngine(
   type MobMode = "pending" | "server" | "local";
   const simIntervalMs = 1000 / config.mob.ai.tickHz;
   const hpFor = (mobType: string): number =>
-    config.combat.mobHp[mobType] ?? config.combat.defaultMobHp;
+    (config.combatBalance.mobs[mobType] ?? config.combatBalance.defaultMob).hp;
   let mobMode: MobMode = "pending";
   let localSim: MobSimulation | null = null;
   let simAccumMs = 0;

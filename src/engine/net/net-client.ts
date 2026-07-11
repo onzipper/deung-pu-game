@@ -10,15 +10,19 @@
 import { Client, getStateCallbacks, type Room } from "colyseus.js";
 import {
   MAP_ROOM_NAME,
-  MSG_DEBUG_KILL_MOB,
+  MSG_CAST_SKILL,
+  MSG_CAST_REJECTED,
   MSG_MOVE,
   MSG_POSITION_CORRECTION,
-  type DebugKillMobMessage,
+  MSG_SKILL_RESULT,
+  type CastRejectedMessage,
+  type CastSkillMessage,
   type JoinOptions,
   type MobSnapshot,
   type MoveMessage,
   type PlayerSnapshot,
   type PositionCorrectionMessage,
+  type SkillResultMessage,
 } from "@/shared/net-protocol";
 import { coerceAnim, coerceDirection, computePlayerCount, type ConnectionState } from "@/engine/net/sync";
 
@@ -74,6 +78,10 @@ export interface NetClientHandlers {
   onMobAdd?(snap: MobSnapshot): void;
   onMobChange?(snap: MobSnapshot): void;
   onMobRemove?(mobId: string): void;
+  /** ผลการใช้สกิล (P1-05, broadcast) → caller เล่น damage number/impact จากผล server จริง. optional. */
+  onSkillResult?(result: SkillResultMessage): void;
+  /** cast ถูกปฏิเสธ (P1-05, ถึง caster เท่านั้น) — debug/UX เท่านั้น. optional. */
+  onCastRejected?(rejected: CastRejectedMessage): void;
 }
 
 /** อ่าน MobState schema (reflection → any) → MobSnapshot (coerce state). */
@@ -102,8 +110,8 @@ export interface NetClientHandle {
   getNetDebugInfo(): NetDebugInfo;
   /** ส่งตำแหน่ง local player ขึ้น server (no-op ถ้ายังไม่ online) */
   sendMove(msg: MoveMessage): void;
-  /** DEBUG (P1-03): ส่งคำสั่งฆ่ามอนไป server เพื่อทดสอบ death→respawn (no-op ถ้ายังไม่ online). */
-  sendDebugKillMob(mobId: string): void;
+  /** P1-05: ส่ง cast intent (skillId + aim + ทิศ) ขึ้น server (no-op ถ้ายังไม่ online). */
+  sendCast(msg: CastSkillMessage): void;
   /** ออกจาก room + ปิด connection (idempotent) */
   disconnect(): void;
 }
@@ -208,6 +216,15 @@ export function createNetClient(
       },
     );
 
+    // P1-05: server → client (broadcast) ผลใช้สกิล → caller เล่น damage number/impact จริง
+    joinedRoom.onMessage(MSG_SKILL_RESULT, (result: SkillResultMessage) => {
+      handlers.onSkillResult?.(result);
+    });
+    // P1-05: server → caster เดียว cast ถูกปฏิเสธ (cooldown/skill มั่ว/range) — debug/UX
+    joinedRoom.onMessage(MSG_CAST_REJECTED, (rejected: CastRejectedMessage) => {
+      handlers.onCastRejected?.(rejected);
+    });
+
     // channel/map อาจถูก set หลัง state แรก → sync ค่าล่าสุด
     $(joinedRoom.state).listen("channelId", (v: string) => {
       status.channelId = v;
@@ -260,10 +277,9 @@ export function createNetClient(
       if (!room || status.state !== "online") return;
       room.send(MSG_MOVE, msg);
     },
-    sendDebugKillMob(mobId: string): void {
+    sendCast(msg: CastSkillMessage): void {
       if (!room || status.state !== "online") return;
-      const msg: DebugKillMobMessage = { mobId };
-      room.send(MSG_DEBUG_KILL_MOB, msg);
+      room.send(MSG_CAST_SKILL, msg);
     },
     disconnect(): void {
       if (disposed) return;

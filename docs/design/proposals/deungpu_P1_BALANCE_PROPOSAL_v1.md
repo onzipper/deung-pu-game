@@ -472,6 +472,7 @@ single-target เร็วกว่า ~3.8× → **guardrail ผ่าน** (bo
 - [ ] **[9] damageType (physical/magic)** — P1 ยังไม่ split resist → เป็น label. เคาะว่า P1 ให้เป็น cosmetic ก่อน หรือทำ resist ตั้งแต่ต้น
 - [ ] **[10] ชื่อ basic attack 5 อาชีพ** (ฟันดาบสามัญ ฯลฯ) — placeholder, ขอชื่อจริง/ยืนยัน
 - [ ] **[11] Ultimate skills** — ยืนยันว่าแยกรอบถัดไป (ไม่อยู่ใน proposal นี้)
+- [ ] **[12] จุด round ของ multi-hit damage** — สกิล hitCount > 1 (นักธนู/นักเวท §3.3–3.4): ปัดเศษ **ต่อ sub-hit แล้วรวม** (implement ปัจจุบัน P1-05 `computeSkillDamage` — ตรง damage number ต่อ hit เป็น integer) **หรือ** รวม float ก่อนแล้วค่อย round ทีเดียว (ต่างกันเล็กน้อยเชิงตัวเลขเมื่อ baseMultiplier/hit ต่ำ). §15.2 ไม่ครอบจุดนี้ — P1 นักดาบ hitCount=1 ไม่มีผล; เคาะก่อนอาชีพ multi-hit เข้าจริง
 
 > เมื่อ owner เคาะ: อัปเดต checkpoint **§48** (default+range knobs) + **§50.1** (ถ้าเพิ่ม field เช่น resource) ผ่าน process **§59.4**, แล้ว tech ใส่ค่าเข้า config loader (P1-04/P1-05).
 

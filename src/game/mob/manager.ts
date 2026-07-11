@@ -10,11 +10,11 @@
 //   Remove (หรือ syncAll สำหรับ offline). buffer sample now−bufferMs ให้ smooth เท่ากันทั้งสอง source.
 // facing (ทิศ) **ไม่ sync** — derive จาก delta ตำแหน่งที่ interpolate ได้ (มอน 2-dir+mirror, §18.2 ประหยัด wire).
 //
-// TODO(P1-05): combat จริงจะฆ่ามอนฝั่ง server → despawn มาทาง onMobRemove เอง; ตอนนี้ combat stub
-//   เล่นแค่ effect ไม่ฆ่า (ดู combat-stub.ts). object pooling (tech §11) = future (เหมือน remote player).
+// P1-05: server combat ฆ่ามอนจริง → despawn มาทาง onMobRemove; hp จาก snapshot → HP bar เล็ก ๆ
+//   เหนือมอนที่โดนตี (hp < maxHp; maxHp จาก combatBalance). object pooling (tech §11) = future.
 
-import type { Renderer } from "pixi.js";
-import type { EngineConfig, MobStyle } from "@/engine/config";
+import { Container, Graphics, type Renderer } from "pixi.js";
+import type { EngineConfig, MobHpBarConfig, MobStyle } from "@/engine/config";
 import type { TilePoint } from "@/engine/iso/coords";
 import type { MapSceneHandle } from "@/engine/render/scene";
 import type { MobSnapshot } from "@/shared/net-protocol";
@@ -43,6 +43,12 @@ interface MobViewEntry {
   readonly mobType: string;
   readonly animator: SpriteAnimator;
   readonly buffer: InterpolationBuffer;
+  /** HP bar (P1-05) — child ของ container เดียวกับ animator; โชว์เมื่อ hp < maxHp */
+  readonly hpBar: Graphics;
+  /** hp สูงสุดของ mobType (จาก combatBalance) — คิด ratio ของ hp bar */
+  readonly maxHp: number;
+  /** hp ปัจจุบันจาก snapshot ล่าสุด (server-authoritative, P1-05) */
+  hp: number;
   /** ตำแหน่งที่ render อยู่จริง (จาก sampleAt) */
   current: TilePoint;
   facing: Direction;
@@ -90,6 +96,26 @@ export function createMobViewManager(
   const { mob, tileSize, net } = config;
   const manifest = createMobAnimationManifest(mob.animation);
   const interp = net.interpolation;
+  const hpBarCfg = mob.hpBar;
+  const balance = config.combatBalance;
+  const maxHpFor = (mobType: string): number =>
+    (balance.mobs[mobType] ?? balance.defaultMob).hp;
+
+  /** วาด HP bar ตาม hp/maxHp — ซ่อนเมื่อ hp เต็ม (มอนที่ยังไม่โดนตี ไม่มีแถบ). */
+  const drawHpBar = (g: Graphics, hp: number, maxHp: number, cfg: MobHpBarConfig): void => {
+    g.clear();
+    if (maxHp <= 0 || hp >= maxHp) {
+      g.visible = false;
+      return;
+    }
+    g.visible = true;
+    const ratio = Math.max(0, Math.min(1, hp / maxHp));
+    const x = -cfg.width / 2;
+    const y = cfg.offsetY;
+    g.rect(x - 1, y - 1, cfg.width + 2, cfg.height + 2).fill({ color: cfg.borderColor });
+    g.rect(x, y, cfg.width, cfg.height).fill({ color: cfg.bgColor });
+    g.rect(x, y, cfg.width * ratio, cfg.height).fill({ color: cfg.fgColor });
+  };
 
   // texture ต่อ mobType — generate ครั้งเดียว, แชร์ทุก instance (เหมือน P0-09; ห้าม generate ต่อตัว).
   const texturesByType = new Map<string, MobTextureSet>();
@@ -123,14 +149,28 @@ export function createMobViewManager(
       animation: snap.state,
       direction: INITIAL_FACING,
     });
+    // wrap animator + hp bar ใน container เดียว (foot ที่ local 0,0) — scene.addEntity/moveEntity
+    // ขยับ container ทั้งก้อน; hp bar เป็น child ลอยเหนือหัวตาม offset. scene.removeEntity destroy
+    // container(children:true) → animator sprite + hp bar หาย, texture ที่แชร์ไม่โดน destroy (ดู destroy()).
+    const container = new Container();
+    container.addChild(animator.view);
+    const hpBar = new Graphics();
+    container.addChild(hpBar);
+
     const pos: TilePoint = { tx: snap.tx, ty: snap.ty };
-    scene.addEntity(entityId(snap.mobId), animator.view, pos);
+    scene.addEntity(entityId(snap.mobId), container, pos);
     const buffer = newBuffer();
     buffer.push(now(), snap.tx, snap.ty, "S", snap.state); // seed → entity เพิ่งเกิด clamp ที่นี่
+
+    const maxHp = maxHpFor(snap.mobType);
+    drawHpBar(hpBar, snap.hp, maxHp, hpBarCfg);
     mobs.set(snap.mobId, {
       mobType: snap.mobType,
       animator,
       buffer,
+      hpBar,
+      maxHp,
+      hp: snap.hp,
       current: { tx: snap.tx, ty: snap.ty },
       facing: INITIAL_FACING,
       anim: snap.state,
@@ -144,6 +184,10 @@ export function createMobViewManager(
       return;
     }
     entry.buffer.push(now(), snap.tx, snap.ty, "S", snap.state);
+    if (snap.hp !== entry.hp) {
+      entry.hp = snap.hp;
+      drawHpBar(entry.hpBar, entry.hp, entry.maxHp, hpBarCfg);
+    }
   };
 
   const remove = (mobId: string): void => {
