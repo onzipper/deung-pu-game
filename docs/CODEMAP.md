@@ -19,6 +19,9 @@
 - `src/engine/runtime/assets.ts` — asset loader stub (wrapper รอบ pixi Assets, manifest ว่าง)
 - `src/engine/iso/coords.ts` — iso projection converters: TilePoint/ScreenPoint types + tileToScreen/screenToTile/snapToTile (pure math)
 - `src/engine/iso/depth.ts` — iso depth sort key: depthKey(tile, zLayer) + band constants (pure math)
+- `src/engine/map/types.ts` — MapConfig schema (spec P0 §4.3) + CollisionLayer/PropSpawn/MobPocket + packTile/isBlockedTile/isWithinBounds/isWalkableTile helpers
+- `src/engine/map/loader.ts` — loadMapConfig(raw): validate + build blockedSet (MapConfigError, no zod)
+- `src/engine/map/p0-test-field.ts` — P0 Test Field config data (24×24, spawn/collision/props/3 pockets)
 - `src/game/` — (planned) combat/entity/spawn บน engine
 
 ## UI (React overlay)
@@ -41,6 +44,7 @@
 - `tests/engine-resize.test.ts` — clampSize (pure resize helper)
 - `tests/engine-iso-coords.test.ts` — iso converters: known values / round-trip fuzz / snapToTile
 - `tests/engine-iso-depth.test.ts` — depthKey ordering + zLayer band non-overlap
+- `tests/engine-map-loader.test.ts` — map loader validation (invariants throw) + P0 Test Field passes
 
 ## Docs
 

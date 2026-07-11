@@ -6,10 +6,11 @@ _Last updated: 2026-07-12_
 
 ## Where we are
 
-**P0 เริ่มแล้ว** (Engine Foundation Vertical Slice, tech §19 · `docs/design/deungpu_P0_SCOPE_LOCK_v1.md`). **P0-01 Runtime Setup เสร็จ (รอ review/merge)**: route `/game` mount pixi Application ผ่าน engine layer (`src/engine/**`, plain TS — ไม่พึ่ง React) + placeholder scene (diamond หมุน + FPS) พิสูจน์ render loop, resize + lifecycle destroy สะอาด (กัน StrictMode double-mount). **P0-02 Isometric Coordinate System เสร็จ (รอ review)**: pure-math iso converters + depth key ใน `src/engine/iso/**`. ถัดไป: P0-03 Test Map Config
+**P0 เริ่มแล้ว** (Engine Foundation Vertical Slice, tech §19 · `docs/design/deungpu_P0_SCOPE_LOCK_v1.md`). **P0-01 Runtime Setup เสร็จ (รอ review/merge)**: route `/game` mount pixi Application ผ่าน engine layer (`src/engine/**`, plain TS — ไม่พึ่ง React) + placeholder scene (diamond หมุน + FPS) พิสูจน์ render loop, resize + lifecycle destroy สะอาด (กัน StrictMode double-mount). **P0-02 Isometric Coordinate System เสร็จ (รอ review)**: pure-math iso converters + depth key ใน `src/engine/iso/**`. **P0-03 Test Map Config เสร็จ (รอ review)**: map config schema + loader/validator + P0 Test Field data ใน `src/engine/map/**` (pure TS). ถัดไป: P0-04 Renderer Scene Graph & Depth Sorting
 
 ## Latest work
 
+- 2026-07-12: P0-03 Test Map Config — `src/engine/map/{types,loader,p0-test-field}.ts` + `tests/engine-map-loader.test.ts`. MapConfig ตาม spec P0 §4.3 (field ชั้นนอกล็อก); CollisionLayer = blockedRects+blockedTiles → build blockedSet (packTile, lookup O(1) จาก integer tile); PropSpawn (tile float ได้ + zLayer สำหรับ depth band); MobPocket (area rect + packSize + activeCap ตาม TA §18). loader validate ด้วยมือ ไม่ใช้ zod (fail-loud, ชี้ field ผิด). P0 Test Field = 24×24, spawn (12.5,12.5), กำแพง+บ่อน้ำ block, 7 props (บาง float), 3 pockets (slime/mushroom). pure TS ไม่พึ่ง React/pixi
 - 2026-07-12: P0-02 Isometric Coordinate System — `src/engine/iso/coords.ts` (TilePoint/ScreenPoint + tileToScreen/screenToTile/snapToTile) + `src/engine/iso/depth.ts` (depthKey + zLayer band) — pure math, ห้าม render/PixiJS; เทสต์ round-trip + band non-overlap (never-downgrade zone)
 - 2026-07-11: สร้าง Next.js project + push ขึ้น GitHub
 - 2026-07-11: นำ spec 6 ไฟล์เข้า repo (game spec v14 canonical + map bibles + tech architecture v1.4 + decision locks)
@@ -40,4 +41,4 @@ _Last updated: 2026-07-12_
 
 ## Next recommended work
 
-- P0-03 Test Map Config — นิยาม map/tile data (grid ขนาด, walkability) บน iso foundation ของ P0-02 ตาม `docs/design/deungpu_P0_SCOPE_LOCK_v1.md` §4.3 (depth-sort renderer + scene graph เหลือ P0-04)
+- P0-04 Renderer Scene Graph & Depth Sorting — เอา `P0_TEST_FIELD` (loadMapConfig) มาวาด diamond grid + props แล้ว depth-sort ตาม isoY/zLayer ตาม `docs/design/deungpu_P0_SCOPE_LOCK_v1.md` §4.2; ใช้ helper isWalkableTile เตรียม P0-05 movement
