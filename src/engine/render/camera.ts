@@ -95,6 +95,15 @@ export function clampCameraScreen(
 }
 
 /**
+ * บวก shake offset (px, จาก render/screen-shake.ts) เข้ากับจุดกล้องที่ clamp แล้ว (P1-06, GS §17.5).
+ * เรียก **หลัง** clampCameraScreen เสมอ (shake = juice ชั้นบนสุด ไม่ผ่าน clamp ซ้ำ — ไม่งั้น shake
+ * จะโดนตัดทิ้งเวลากล้องอยู่ติดขอบ map). offset {0,0} = no-op (คืนจุดเดิมทุกประการ).
+ */
+export function applyShakeOffset(point: ScreenPoint, offset: ScreenPoint): ScreenPoint {
+  return { sx: point.sx + offset.sx, sy: point.sy + offset.sy };
+}
+
+/**
  * Lerp tile-space follow: current เข้าหา target ทีละ frame ด้วย alpha ∈ [0,1].
  *   next = current + (target − current)·alpha
  * alpha สูง = ตามเร็ว/แข็ง, ต่ำ = นุ่ม/หน่วง. alpha=1 = snap ทันที.

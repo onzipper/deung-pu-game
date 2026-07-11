@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest";
 import type { TileSize } from "@/engine/config";
 import type { MapBounds } from "@/engine/map/types";
 import {
+  applyShakeOffset,
   clampCameraScreen,
   computeMapScreenBounds,
   lerpTile,
@@ -100,5 +101,15 @@ describe("lerpTile — camera follow เข้าเป้า", () => {
     expect(lerpTile({ tx: 1, ty: 2 }, { tx: 9, ty: 9 }, 1.5)).toEqual({ tx: 9, ty: 9 });
     expect(lerpTile({ tx: 1, ty: 2 }, { tx: 9, ty: 9 }, 0)).toEqual({ tx: 1, ty: 2 });
     expect(lerpTile({ tx: 1, ty: 2 }, { tx: 9, ty: 9 }, -1)).toEqual({ tx: 1, ty: 2 });
+  });
+});
+
+describe("applyShakeOffset — บวก screen shake offset เข้ากล้อง (P1-06)", () => {
+  test("offset {0,0} = no-op", () => {
+    expect(applyShakeOffset({ sx: 10, sy: -5 }, { sx: 0, sy: 0 })).toEqual({ sx: 10, sy: -5 });
+  });
+
+  test("บวก offset ตรง ๆ ทั้งสองแกน", () => {
+    expect(applyShakeOffset({ sx: 10, sy: -5 }, { sx: 3, sy: 7 })).toEqual({ sx: 13, sy: 2 });
   });
 });

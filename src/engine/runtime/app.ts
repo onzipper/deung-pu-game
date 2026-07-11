@@ -11,6 +11,7 @@ import { createLocalPlayer, type LocalPlayerHandle } from "../player/local-playe
 import { createMobViewManager, type MobViewHandle } from "@/game/mob/manager";
 import { createMobSimulation, type MobSimulation } from "@/game/mob/simulation";
 import { createCombatStub, type CombatStubHandle } from "@/game/combat/combat-stub";
+import { createStressHarness, type StressHarnessHandle } from "@/game/combat/stress-harness";
 import { WARRIOR_SKILLS_CLIENT } from "@/game/skill/data/warrior-skills-client";
 import { createNetClient, type NetClientHandle } from "../net/net-client";
 import { createRemotePlayerManager } from "../net/remote-player-manager";
@@ -104,6 +105,16 @@ export async function createEngine(
     skill: firstWarriorSkill,
     castSkill: (msg) => net?.sendCast(msg),
     isOnline: () => net?.status.state === "online",
+  });
+
+  // --- stress harness (P1-06 §5, dev-only) — F4 toggles synthetic load (~40 mobs + ~300 dmg#/วิ) เพื่อ
+  // พิสูจน์ budget TA §11 โดยไม่ต้องมี server; ใช้ mob view + combat pool จริง (ไม่ใช่ path แยก) ---
+  const stressHarness: StressHarnessHandle = createStressHarness({
+    mobView,
+    combat,
+    map,
+    config: config.stressHarness,
+    mobTypes: Object.keys(config.mob.styles),
   });
 
   // --- realtime net (P0-07): remote players + position sync ---
@@ -230,6 +241,15 @@ export async function createEngine(
   app.canvas.addEventListener("pointermove", onPointerMove);
   app.canvas.addEventListener("pointerleave", onPointerLeave);
 
+  // --- stress harness toggle (P1-06 §5, dev-only) — F4, เหมือน F3 debug overlay: preventDefault กัน
+  // browser ทำอย่างอื่น, key เป็น config (toggleKeyCode) ไม่ hardcode ---
+  const onStressToggleKeyDown = (e: KeyboardEvent): void => {
+    if (e.code !== config.stressHarness.toggleKeyCode) return;
+    e.preventDefault();
+    stressHarness.toggle();
+  };
+  window.addEventListener("keydown", onStressToggleKeyDown);
+
   // --- update loop: calc → render (แยกกันชัด) ---
   let fpsSampleMs = 0;
   const onTick = (ticker: Ticker): void => {
@@ -238,8 +258,10 @@ export async function createEngine(
     player.update(dtSeconds);
     // calc: mobs (P1-03) — server-driven view interpolation หรือ offline local sim → scene entity
     updateMobs(dtSeconds, ticker.deltaMS);
-    // calc: combat stub (P0-10) — attack input → hit test → damage number (effect only, P1-03)
+    // calc: combat stub (P0-10→P1-06) — attack input → hit test → damage number/hit stop/shake (juice)
     combat.update(dtSeconds);
+    // calc: stress harness (P1-06 §5, dev-only) — no-op เมื่อปิดอยู่ (default)
+    stressHarness.update(dtSeconds, ticker.deltaMS);
 
     // net (P0-07): throttle ส่ง local position + lerp remote players
     if (net && remotes) {
@@ -280,8 +302,10 @@ export async function createEngine(
     detachResize();
     app.canvas.removeEventListener("pointermove", onPointerMove);
     app.canvas.removeEventListener("pointerleave", onPointerLeave);
+    window.removeEventListener("keydown", onStressToggleKeyDown);
     net?.disconnect();
     remotes?.destroy();
+    stressHarness.destroy();
     combat.destroy();
     mobView.destroy();
     player.destroy();

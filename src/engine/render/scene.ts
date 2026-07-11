@@ -19,6 +19,7 @@ import {
   type MapConfig,
 } from "@/engine/map/types";
 import {
+  applyShakeOffset,
   clampCameraScreen,
   computeMapScreenBounds,
   lerpTile,
@@ -36,6 +37,12 @@ export interface MapSceneHandle {
   resize(width: number, height: number): void;
   /** ตั้งเป้ากล้อง (tile space); snap=true = กระโดดทันทีไม่ lerp */
   setCameraTarget(tile: TilePoint, snap?: boolean): void;
+  /**
+   * ตั้ง shake offset (px) ของเฟรมนี้ (P1-06, GS §17.5) — บวกเข้ากล้อง **หลัง** clamp ขอบ map เสมอ
+   * (ดู camera.ts applyShakeOffset). caller (game/combat) คำนวณ offset จาก engine/render/screen-shake.ts
+   * แล้วเรียกก่อน update() ทุก frame; {sx:0,sy:0} (ค่าเริ่มต้น) = ไม่มี shake.
+   */
+  setCameraShakeOffset(offset: ScreenPoint): void;
 
   // --- entity layer API (P0-05/06/09) ---
   /**
@@ -156,9 +163,12 @@ export function createMapScene(
   const camCurrent: TilePoint = { tx: map.spawnPoint.x, ty: map.spawnPoint.y };
   const camTarget: TilePoint = { tx: map.spawnPoint.x, ty: map.spawnPoint.y };
   let viewport = { width: app.renderer.width, height: app.renderer.height };
+  // P1-06 screen shake (GS §17.5): offset px บวกเข้า **หลัง** clamp เสมอ — caller เซ็ตทุก frame
+  // ผ่าน setCameraShakeOffset ก่อนเรียก update(); ค่าเริ่มต้น {0,0} = ไม่มีผลต่อกล้องเลย.
+  let shakeOffset: ScreenPoint = { sx: 0, sy: 0 };
 
   const applyCamera = (): void => {
-    // world-screen ของจุดที่กล้องเล็ง → clamp ไม่ให้หลุดขอบ → วาง worldContainer
+    // world-screen ของจุดที่กล้องเล็ง → clamp ไม่ให้หลุดขอบ → บวก shake (หลัง clamp) → วาง worldContainer
     const raw: ScreenPoint = tileToScreen(camCurrent, tileSize);
     const clamped = clampCameraScreen(
       raw,
@@ -166,9 +176,10 @@ export function createMapScene(
       viewport,
       config.camera.edgeMargin,
     );
+    const final = applyShakeOffset(clamped, shakeOffset);
     world.position.set(
-      viewport.width / 2 - clamped.sx,
-      viewport.height / 2 - clamped.sy,
+      viewport.width / 2 - final.sx,
+      viewport.height / 2 - final.sy,
     );
   };
 
@@ -304,6 +315,12 @@ export function createMapScene(
         camCurrent.ty = tile.ty;
         applyCamera();
       }
+    },
+
+    setCameraShakeOffset(offset: ScreenPoint): void {
+      shakeOffset = offset;
+      // ไม่เรียก applyCamera()/syncDepth() ที่นี่ตรง ๆ — caller เรียกก่อน update() เสมอในเฟรมเดียวกัน
+      // (pattern เดียวกับ setCameraTarget ที่ snap=false), กัน apply ซ้ำสองรอบต่อ frame.
     },
 
     addEntity,
