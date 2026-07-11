@@ -47,6 +47,19 @@ describe("engine config", () => {
     expect(cfg.net.serverUrl).toBe(DEFAULT_ENGINE_CONFIG.net.serverUrl);
   });
 
+  test("debugOverlay default: poll interval ~200–300ms (P0 §4.10, ไม่ per-frame)", () => {
+    expect(DEFAULT_ENGINE_CONFIG.debugOverlay.pollIntervalMs).toBeGreaterThanOrEqual(200);
+    expect(DEFAULT_ENGINE_CONFIG.debugOverlay.pollIntervalMs).toBeLessThanOrEqual(300);
+  });
+
+  test("createEngineConfig() override debugOverlay.defaultVisible โดยคง knob อื่น (shallow-merge)", () => {
+    const cfg = createEngineConfig({
+      debugOverlay: { ...DEFAULT_ENGINE_CONFIG.debugOverlay, defaultVisible: false },
+    });
+    expect(cfg.debugOverlay.defaultVisible).toBe(false);
+    expect(cfg.debugOverlay.pollIntervalMs).toBe(DEFAULT_ENGINE_CONFIG.debugOverlay.pollIntervalMs);
+  });
+
   test("resolveResolution ใช้ค่า config ถ้ากำหนด, มิฉะนั้น fallback devicePixelRatio", () => {
     expect(resolveResolution({ ...DEFAULT_ENGINE_CONFIG, resolution: 2 }, 3)).toBe(2);
     expect(resolveResolution(DEFAULT_ENGINE_CONFIG, 3)).toBe(3);

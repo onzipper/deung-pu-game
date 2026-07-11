@@ -17,10 +17,11 @@
 
 ## Game engine (P0)
 
-- `src/engine/config.ts` — shared config/types (EngineConfig, DEFAULT_ENGINE_CONFIG, tileSize 64×32, SceneTheme/CameraConfig/PropStyle/PlayerConfig/PlayerAnimationConfig+PlayerSpriteStyle, **MobConfig** P0-09 (spawn/wander/animation/styles per mobType), **NetConfig** P0-07 รวม channelId P0-08, **CombatStubConfig** P0-10 (attack shape/dummyDamage/mobHp/hitboxDebug/damageNumber/deathFeedback)) — ทุกค่าปรับได้อยู่ที่นี่
-- `src/engine/runtime/app.ts` — createEngine(): ครอบ pixi Application (async init) + mount P0 Test Field scene + local player + **dummy mob pockets (P0-09, `src/game/mob/manager.ts`)** + **combat stub (P0-10, `src/game/combat/combat-stub.ts`)** + **net layer (P0-07, offline-safe; joinOptions ส่ง mapId+channelId P0-08)** + ticker + fps ui + EngineHandle.destroy()
+- `src/engine/config.ts` — shared config/types (EngineConfig, DEFAULT_ENGINE_CONFIG, tileSize 64×32, SceneTheme/CameraConfig/PropStyle/PlayerConfig/PlayerAnimationConfig+PlayerSpriteStyle, **MobConfig** P0-09 (spawn/wander/animation/styles per mobType), **NetConfig** P0-07 รวม channelId P0-08, **CombatStubConfig** P0-10 (attack shape/dummyDamage/mobHp/hitboxDebug/damageNumber/deathFeedback), **DebugOverlayConfig** P0-11 (defaultVisible/pollIntervalMs/depth label style)) — ทุกค่าปรับได้อยู่ที่นี่
+- `src/engine/runtime/app.ts` — createEngine(): ครอบ pixi Application (async init) + mount P0 Test Field scene + local player + **dummy mob pockets (P0-09, `src/game/mob/manager.ts`)** + **combat stub (P0-10, `src/game/combat/combat-stub.ts`)** + **net layer (P0-07, offline-safe; joinOptions ส่ง mapId+channelId P0-08)** + **pointer tile tracking (P0-11, pointermove บน app.canvas → screenToTile)** + ticker + fps ui + EngineHandle.destroy(); **P0-11**: `getDebugInfo()` (poll-only, ดู debug-info.ts) + `setDepthDebug()` passthrough → scene
 - `src/engine/runtime/resize.ts` — attachResize(): ResizeObserver บน container → renderer.resize; clampSize (pure)
 - `src/engine/runtime/assets.ts` — asset loader stub (wrapper รอบ pixi Assets, manifest ว่าง)
+- `src/engine/runtime/debug-info.ts` — **pure** (P0-11): EngineDebugInfo shape + `buildDebugInfo()`/`roundTile()` (ปัด playerTile 2 ตำแหน่ง) + `IDLE_NET_DEBUG_INFO` (net.enabled=false fallback) — ไม่แตะ pixi/colyseus, testable ตรง ๆ
 - `src/engine/input/keyboard.ts` — keyboard intent tracker: MOVE_KEYS (WASD+arrows) + intentFromKeys (screen basis → tile-space, pure) + attachKeyboard (listeners + detach) + **ATTACK_KEY (Space) edge-triggered consumeAttackPressed() P0-10**
 - `src/engine/movement/mover.ts` — stepMovement (pure): เดินต่อเนื่อง float tile + normalize diagonal + axis-separated collision slide + clamp dt
 - `src/engine/movement/direction.ts` — resolveDirection (pure): tile vector → 8-dir logical (คิดจากมุมบนจอ) + directionToScreenUnit — เตรียม P0-06 sprite 5-dir+mirror
@@ -39,7 +40,7 @@
 - `src/engine/render/depth-registry.ts` — DepthRegistry<D> (pure): entity registry + compareDepth comparator + dirty-tracked sorted() — source of truth ของลำดับ depth
 - `src/engine/render/camera.ts` — camera math (pure): computeMapScreenBounds / clampCameraScreen / lerpTile (fixed iso, no rotation/zoom)
 - `src/engine/render/placement.ts` — entityFootToScreen (pure): lock convention "tile ที่ส่งเข้า API = foot ต่อเนื่อง → tileToScreen (ไม่ +0.5)"
-- `src/engine/render/scene.ts` — createMapScene(): pixi glue — ground layer (grid/checker/blocked, วาดครั้งเดียว) + entity layer (depth-sorted via zIndex rank) + fixed camera follow + entity API (addEntity/moveEntity/removeEntity)
+- `src/engine/render/scene.ts` — createMapScene(): pixi glue — ground layer (grid/checker/blocked, วาดครั้งเดียว) + entity layer (depth-sorted via zIndex rank) + fixed camera follow + entity API (addEntity/moveEntity/removeEntity) + `entityCount` getter + **P0-11**: `setDepthDebug()` — depth-rank text layer (sibling ของ entityLayer, sync ตอน syncDepth ถ้าเปิด, ลบหมดตอนปิด/destroy)
 
 ## Game logic (P0-09, บน engine — src/game/**)
 
@@ -65,7 +66,9 @@
 
 ## UI (React overlay)
 
-- `src/ui/GameCanvas.tsx` — "use client" bridge: mount/unmount engine (กัน StrictMode double-mount)
+- `src/ui/GameCanvas.tsx` — "use client" bridge: mount/unmount engine (กัน StrictMode double-mount); เก็บ EngineHandle ใน ref (ไม่ใช่ React state) + render `<DebugOverlay>` (P0-11)
+- `src/ui/DebugOverlay.tsx` — "use client" (P0-11, P0 §4.10): panel มุมจอ poll `EngineHandle.getDebugInfo()` ทุกช่วง poll interval (config debugOverlay.pollIntervalMs, ~250ms, ไม่ per-frame) แสดง fps/player tile/pointer tile/entityCount/net(status·mapId·roomId·channelId·playerCount) + ปุ่ม toggle depth debug (เรียก `setDepthDebug`) + ซ่อน/แสดง panel (ปุ่ม + คีย์ลัด F3) — ยังไม่มี Zustand ใน P0 (ใช้ useState+setInterval; TODO P1 ย้ายเข้า Zustand bridge ตอน HUD จริง)
+- `src/ui/debug-overlay-logic.ts` — **pure** (P0-11): DebugOverlayState + `isDebugToggleKey`/`toggleVisible`/`toggleDepthDebug` (reducer, แยกจาก component ให้เทสต์ได้โดยไม่ต้อง render)
 
 ## Config
 
@@ -96,6 +99,8 @@
 - `tests/game-mob-spawn.test.ts` — spawnPocketMobs/spawnAllPockets (pure): จำนวนอยู่ในช่วง packSize + clamp activeCap (หลาย seed) + deterministic ตาม seed + จุดเกิดอยู่ใน pocket.area และเดินได้จริง (ไม่บน blocked) + findWalkableSpawnPoint คืน undefined เมื่อหาไม่เจอ (ไม่ throw) + P0_TEST_FIELD จริง (3 pocket ไม่ล้นกัน)
 - `tests/game-mob-wander.test.ts` — createWanderState/stepWander (pure): idle/walk สลับตาม config (ไม่ hardcode) + ระยะเดิน = speed·dt + pure (ไม่ mutate) + leash ไม่หลุด pocket.area (deterministic + seeded random หลายร้อย step) + leash เคารพ collision ของ map จริงด้วย + walkableFromMap ผูก isWalkableTile ถูก
 - `tests/game-combat-hit-test.test.ts` — findHits (pure, P0-10): ระยะ+arc รอบทิศ facing (8 ทิศ, กันชน half-arc >45° กับ boundary near-tie แยกเทสต์), หลังผู้เล่นไม่โดน, ระยะ 0 โดนเสมอ + rollDummyDamage ในช่วง (seeded RNG deterministic) + advanceCooldown/canAttack (cooldown gate เต็มรอบ) + applyDummyDamage (hp/death transition)
+- `tests/engine-runtime-debug-info.test.ts` — roundTile (ปัด 2 ตำแหน่ง) + buildDebugInfo shape (fps ปัด, pointerTile null-safe) + IDLE_NET_DEBUG_INFO (P0-11, pure)
+- `tests/ui-debug-overlay-logic.test.ts` — isDebugToggleKey (F3, กันชนคีย์อื่น) + toggleVisible/toggleDepthDebug reducer (pure, ไม่ mutate) (P0-11)
 
 ## Docs
 

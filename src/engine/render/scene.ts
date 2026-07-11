@@ -9,7 +9,7 @@
 // แยก calc ออกจาก render: ลำดับ depth = DepthRegistry (pure), camera = camera.ts (pure).
 // scene.ts เป็นแค่ "glue" ที่ apply ผล pure → pixi display objects.
 
-import { Application, Container, Graphics } from "pixi.js";
+import { Application, Container, Graphics, Text } from "pixi.js";
 import type { EngineConfig, PropStyle } from "@/engine/config";
 import type { ScreenPoint, TilePoint } from "@/engine/iso/coords";
 import { tileToScreen } from "@/engine/iso/coords";
@@ -24,7 +24,7 @@ import {
   lerpTile,
   type ScreenBounds,
 } from "@/engine/render/camera";
-import { DepthRegistry } from "@/engine/render/depth-registry";
+import { DepthRegistry, type DepthEntry } from "@/engine/render/depth-registry";
 
 /** public handle ของ scene — app.ts / layer ถัดไปคุยผ่านนี้เท่านั้น. */
 export interface MapSceneHandle {
@@ -48,6 +48,15 @@ export interface MapSceneHandle {
   moveEntity(id: string, tile: TilePoint): void;
   /** ลบ entity + destroy display */
   removeEntity(id: string): void;
+  /** จำนวน entity ปัจจุบันใน entity layer (props + player + mob) — P0-11 debug overlay */
+  readonly entityCount: number;
+
+  /**
+   * เปิด/ปิด depth-debug: เปิด = สร้าง text เล็ก ๆ แสดง depth rank (ลำดับวาด, 0=วาดก่อน)
+   * เหนือ entity ทุกตัว, sync ทุกครั้งที่ depth resort (P0-11, P0 §4.10). ปิด = ลบ label ทิ้งหมด
+   * ทันที — ไม่มี label ค้าง ไม่กระทบ perf ตอนปิด (ค่าเริ่มต้น = ปิด).
+   */
+  setDepthDebug(enabled: boolean): void;
 
   /** เก็บกวาด listener + display + GPU */
   destroy(): void;
@@ -131,8 +140,13 @@ export function createMapScene(
   const entityLayer = new Container();
   // unique zIndex rank ต่อ entity → pixi sort ตรงลำดับ DepthRegistry เป๊ะ (sort เมื่อ zIndex เปลี่ยนเท่านั้น)
   entityLayer.sortableChildren = true;
+  // depth-debug label layer (P0-11): sibling ของ entityLayer ใน world เดียวกัน (transform เหมือนกัน
+  // → ใช้ local position ของ entity display ตรง ๆ ได้เลย) วาดทับบนสุดเสมอ (เพิ่มทีหลัง entityLayer)
+  // — ไม่ใช้ zIndex ร่วมกับระบบ depth sort จริง กัน conflict กับ rank ที่ assign ให้ entity.
+  const depthDebugLayer = new Container();
   world.addChild(ground);
   world.addChild(entityLayer);
+  world.addChild(depthDebugLayer);
   app.stage.addChild(world);
 
   const registry = new DepthRegistry<Container>();
@@ -189,6 +203,54 @@ export function createMapScene(
     if (!entry) return;
     entityLayer.removeChild(entry.display);
     entry.display.destroy({ children: true });
+    removeDepthLabel(id);
+  };
+
+  // ── depth-debug labels (P0-11) ──────────────────────────────────────────
+  let depthDebugEnabled = false;
+  const depthLabels = new Map<string, Text>();
+
+  const removeDepthLabel = (id: string): void => {
+    const label = depthLabels.get(id);
+    if (!label) return;
+    depthDebugLayer.removeChild(label);
+    label.destroy();
+    depthLabels.delete(id);
+  };
+
+  const clearDepthLabels = (): void => {
+    for (const id of [...depthLabels.keys()]) removeDepthLabel(id);
+  };
+
+  /** sync label ต่อ entity ตามลำดับ rank ปัจจุบัน — เรียกเฉพาะตอน depthDebugEnabled=true. */
+  const updateDepthLabels = (order: readonly DepthEntry<Container>[]): void => {
+    const seen = new Set<string>();
+    order.forEach((entry, rank) => {
+      seen.add(entry.id);
+      let label = depthLabels.get(entry.id);
+      if (!label) {
+        label = new Text({
+          text: "",
+          style: {
+            fill: config.debugOverlay.depthLabelColor,
+            fontSize: config.debugOverlay.depthLabelFontSize,
+            fontFamily: "monospace",
+          },
+        });
+        depthLabels.set(entry.id, label);
+        depthDebugLayer.addChild(label);
+      }
+      label.text = String(rank);
+      // local space เดียวกับ entry.display (sibling ใน world) — ลอยเหนือ foot ตาม offset config
+      label.position.set(
+        entry.display.position.x - label.width / 2,
+        entry.display.position.y + config.debugOverlay.depthLabelOffsetY,
+      );
+    });
+    // ลบ label ของ entity ที่หลุด order (ไม่ควรเกิด เพราะ removeEntity ลบเองแล้ว — กันเหนียว)
+    for (const id of [...depthLabels.keys()]) {
+      if (!seen.has(id)) removeDepthLabel(id);
+    }
   };
 
   // ── seed props จาก config (เป็น entity depth-sorted) ────────────────────
@@ -210,6 +272,7 @@ export function createMapScene(
     for (let i = 0; i < order.length; i++) {
       order[i].display.zIndex = i;
     }
+    if (depthDebugEnabled) updateDepthLabels(order);
   }
 
   // ── public handle ──────────────────────────────────────────────────────
@@ -246,8 +309,22 @@ export function createMapScene(
     addEntity,
     moveEntity,
     removeEntity,
+    get entityCount(): number {
+      return registry.size;
+    },
+
+    setDepthDebug(enabled: boolean): void {
+      depthDebugEnabled = enabled;
+      if (!enabled) {
+        clearDepthLabels();
+        return;
+      }
+      // เปิด: วาด label ทันทีจากลำดับปัจจุบัน ไม่ต้องรอ dirty รอบหน้า
+      updateDepthLabels(registry.sorted());
+    },
 
     destroy(): void {
+      clearDepthLabels();
       registry.clear();
       world.destroy({ children: true });
     },

@@ -20,6 +20,8 @@ import {
 } from "../net/sync";
 import { DEFAULT_MAP_ID, type PlayerSnapshot } from "@/shared/net-protocol";
 import { attachResize } from "./resize";
+import { screenToTile, snapToTile, type TilePoint } from "../iso/coords";
+import { buildDebugInfo, IDLE_NET_DEBUG_INFO, type EngineDebugInfo } from "./debug-info";
 
 /** handle สาธารณะที่ React (หรือ caller อื่น) ใช้คุมกับ engine — ห้ามให้ caller แตะ pixi ตรง ๆ นอกจากผ่าน app */
 export interface EngineHandle {
@@ -35,6 +37,13 @@ export interface EngineHandle {
    * P0-11 debug overlay อ่านผ่าน `net.getNetDebugInfo()` (status/mapId/roomId/channelId/playerCount).
    */
   readonly net: NetClientHandle | null;
+  /**
+   * snapshot ข้อมูล debug (P0-11, P0 §4.10): fps/player tile/pointer tile/entity count/net status.
+   * **caller ต้อง poll ช้า ๆ เอง** (~200–300ms, ห้ามอ่านทุก frame เข้า React state — tech §2).
+   */
+  getDebugInfo(): EngineDebugInfo;
+  /** เปิด/ปิด depth-rank text เหนือ entity ทุกตัว (debug tool, P0-11) — passthrough ไปที่ scene */
+  setDepthDebug(enabled: boolean): void;
   /** เก็บกวาดครบ: ticker, resize observer, canvas, GPU resources */
   destroy(): void;
 }
@@ -126,6 +135,24 @@ export async function createEngine(
     scene.resize(width, height);
   });
 
+  // --- pointer tile tracking (P0-11 debug overlay) ---
+  // canvas CSS-pixel (getBoundingClientRect) อยู่ใน space เดียวกับ scene.world.position/viewport
+  // (autoDensity=true → CSS size = renderer logical size, ตรงกับที่ camera.ts ใช้อยู่แล้ว).
+  let pointerTile: TilePoint | null = null;
+  const onPointerMove = (e: PointerEvent): void => {
+    const rect = app.canvas.getBoundingClientRect();
+    const worldLocal = {
+      sx: e.clientX - rect.left - scene.world.position.x,
+      sy: e.clientY - rect.top - scene.world.position.y,
+    };
+    pointerTile = snapToTile(screenToTile(worldLocal, config.tileSize));
+  };
+  const onPointerLeave = (): void => {
+    pointerTile = null;
+  };
+  app.canvas.addEventListener("pointermove", onPointerMove);
+  app.canvas.addEventListener("pointerleave", onPointerLeave);
+
   // --- update loop: calc → render (แยกกันชัด) ---
   let fpsSampleMs = 0;
   const onTick = (ticker: Ticker): void => {
@@ -171,6 +198,8 @@ export async function createEngine(
     destroyed = true;
     app.ticker.remove(onTick);
     detachResize();
+    app.canvas.removeEventListener("pointermove", onPointerMove);
+    app.canvas.removeEventListener("pointerleave", onPointerLeave);
     net?.disconnect();
     remotes?.destroy();
     combat.destroy();
@@ -184,5 +213,23 @@ export async function createEngine(
     );
   };
 
-  return { app, scene, player, net, destroy };
+  return {
+    app,
+    scene,
+    player,
+    net,
+    getDebugInfo(): EngineDebugInfo {
+      return buildDebugInfo({
+        fps: app.ticker.FPS,
+        playerTile: player.position,
+        pointerTile,
+        entityCount: scene.entityCount,
+        net: net ? net.getNetDebugInfo() : IDLE_NET_DEBUG_INFO,
+      });
+    },
+    setDepthDebug(enabled: boolean): void {
+      scene.setDepthDebug(enabled);
+    },
+    destroy,
+  };
 }

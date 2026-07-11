@@ -326,6 +326,24 @@ export interface CameraConfig {
   edgeMargin: number;
 }
 
+/**
+ * Debug overlay knob (P0-11, P0 §4.10). React overlay **poll snapshot ช้า ๆ** จาก
+ * `EngineHandle.getDebugInfo()` — ห้าม subscribe ทุก frame (tech §2, world state ไม่เข้า React state).
+ * depth label style ใช้กับ text ที่ scene.ts สร้างเหนือ entity เมื่อ `setDepthDebug(true)`.
+ */
+export interface DebugOverlayConfig {
+  /** overlay แสดงตั้งแต่เริ่มหรือไม่ — ผู้เล่นกด F3 toggle ได้เสมอไม่ว่าค่านี้เป็นอะไร */
+  defaultVisible: boolean;
+  /** ความถี่ poll debug info จาก engine (ms) — ~200–300ms ตามสเปก ไม่ใช่ per-frame */
+  pollIntervalMs: number;
+  /** สี text label depth rank (0xRRGGBB) */
+  depthLabelColor: number;
+  /** ขนาดฟอนต์ label depth rank (px) */
+  depthLabelFontSize: number;
+  /** ระยะ (px) ที่ label ลอยเหนือ foot ของ entity (ลบ = ขึ้นบน) */
+  depthLabelOffsetY: number;
+}
+
 /** renderer preference ที่ pixi autoDetect รองรับ */
 export type RendererPreference = "webgl" | "webgpu";
 
@@ -367,6 +385,8 @@ export interface EngineConfig {
   net: NetConfig;
   /** combat stub knob (P0-10) — hit test/dummy damage/hitbox debug/damage number/death feedback */
   combat: CombatStubConfig;
+  /** debug overlay knob (P0-11) — poll interval/default visibility/depth label style */
+  debugOverlay: DebugOverlayConfig;
 }
 
 export const DEFAULT_SCENE_THEME: SceneTheme = {
@@ -508,6 +528,14 @@ export const DEFAULT_COMBAT_STUB_CONFIG: CombatStubConfig = {
   },
 };
 
+export const DEFAULT_DEBUG_OVERLAY_CONFIG: DebugOverlayConfig = {
+  defaultVisible: true, // P0 dev: เปิดไว้ให้เห็นทันที (F3 ปิดได้)
+  pollIntervalMs: 250, // ~200–300ms ตามสเปก (P0 §4.10) — ไม่ per-frame
+  depthLabelColor: 0xffe066,
+  depthLabelFontSize: 10,
+  depthLabelOffsetY: -30,
+};
+
 export const DEFAULT_NET_CONFIG: NetConfig = {
   enabled: true,
   serverUrl: "ws://localhost:2567",
@@ -536,6 +564,7 @@ export const DEFAULT_ENGINE_CONFIG: EngineConfig = {
   mob: DEFAULT_MOB_CONFIG,
   net: DEFAULT_NET_CONFIG,
   combat: DEFAULT_COMBAT_STUB_CONFIG,
+  debugOverlay: DEFAULT_DEBUG_OVERLAY_CONFIG,
 };
 
 /**
@@ -563,6 +592,8 @@ export function createEngineConfig(
     combat: overrides.combat ?? DEFAULT_ENGINE_CONFIG.combat,
     // net = shallow-merge (override บาง knob เช่น serverUrl จาก env โดยคงค่าอื่น)
     net: { ...DEFAULT_ENGINE_CONFIG.net, ...overrides.net },
+    // debugOverlay = shallow-merge (override เช่น defaultVisible โดยคง poll interval เดิม)
+    debugOverlay: { ...DEFAULT_ENGINE_CONFIG.debugOverlay, ...overrides.debugOverlay },
   };
 }
 
