@@ -13,6 +13,7 @@ Project bootstrap เสร็จ: repo ใหม่ (`onzipper/deung-pu-game`) 
 - 2026-07-11: สร้าง Next.js project + push ขึ้น GitHub
 - 2026-07-11: นำ spec 6 ไฟล์เข้า repo (game spec v14 canonical + map bibles + tech architecture v1.4 + decision locks)
 - 2026-07-11: ตั้งระบบ docs-for-AI (AI.md, CODEMAP, feature-map, context packs, decision-index, known-traps, path-guard test, agent personas)
+- 2026-07-11: เพิ่ม specialist personas (engine/game/ui/qa/docs-curator) — realtime/worker/data/audio จดเป็น deferred รอ phase จริง (`.claude/README.md`)
 
 ## Blockers / owed
 
