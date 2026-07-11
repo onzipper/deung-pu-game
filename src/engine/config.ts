@@ -290,7 +290,28 @@ export interface CombatStubConfig {
 }
 
 /**
- * Realtime/network knob (P0-07). ทุกค่าปรับได้ที่นี่ (Design Knob discipline).
+ * Snapshot interpolation knob (P1-01, TA §6). กำหนดพฤติกรรม "render ย้อนหลัง" ของ remote entity
+ * ผ่าน interpolation buffer (src/engine/net/interpolation.ts). ทุกค่าเป็น Design Knob.
+ */
+export interface NetInterpolationConfig {
+  /**
+   * ระยะเวลา (ms) ที่ remote entity render ย้อนหลังจากเวลาปัจจุบัน — TA §6 แนะนำ ~100–150ms.
+   * ยิ่งมาก = ทน jitter/packet loss ได้ดี แต่ latency ที่ตาเห็นมากขึ้น. ควร ≥ 1 broadcast interval + margin.
+   */
+  bufferMs: number;
+  /**
+   * ระยะเวลาสูงสุด (ms) ที่ยอมให้ extrapolate เลย snapshot ล่าสุดตอน buffer starved ก่อน freeze.
+   * ตั้งเล็ก (~1 interval) เพื่อกันตัวละครลอยไกลเกินจริงเมื่อ packet หาย.
+   */
+  maxExtrapolationMs: number;
+  /** ขนาด ring buffer ต่อ entity (จำนวน snapshot สูงสุด) — ต้อง ≥ 2; เผื่อ jitter หลาย interval */
+  bufferCapacity: number;
+  /** อัตรา broadcast ที่คาดจาก server (Hz) — ใช้ documentation/tuning (ควรตรง positionSyncHz ฝั่งส่ง) */
+  expectedSnapshotRateHz: number;
+}
+
+/**
+ * Realtime/network knob (P0-07, interpolation P1-01). ทุกค่าปรับได้ที่นี่ (Design Knob discipline).
  * P0 = local dev เท่านั้น; serverUrl override ได้ผ่าน env ตอน bootstrap (GameCanvas).
  */
 export interface NetConfig {
@@ -310,8 +331,8 @@ export interface NetConfig {
   positionSyncHz: number;
   /** ระยะ (tile) ที่ต้องขยับเกินถึงจะส่ง — กัน spam idle frame */
   sendEpsilon: number;
-  /** ความแข็งของ lerp remote player เข้าหา target ต่อ frame 0..1 */
-  remoteLerp: number;
+  /** snapshot interpolation ของ remote entity (P1-01) — render ย้อนหลัง ~100–150ms จาก buffer */
+  interpolation: NetInterpolationConfig;
   /** สีตัว remote player (แยกจาก local ด้วยตา) */
   remotePlayerColor: number;
   /** สี accent (ไหล่) ของ remote player */
@@ -543,7 +564,12 @@ export const DEFAULT_NET_CONFIG: NetConfig = {
   channelId: DEFAULT_CHANNEL_ID,
   positionSyncHz: 12, // 10–15Hz (tech §6) — 12 = กลางช่วง
   sendEpsilon: 0.02, // tile — ต่ำกว่านี้ = ผู้เล่นแทบไม่ขยับ, ไม่ต้องส่ง
-  remoteLerp: 0.2, // นุ่มพอสำหรับ iso movement ที่ 12Hz broadcast
+  interpolation: {
+    bufferMs: 120, // ~100–150ms (TA §6) — 120 = 1 interval(83ms @12Hz) + jitter margin
+    maxExtrapolationMs: 100, // ~1 broadcast interval — extrapolate สั้น ๆ แล้ว freeze
+    bufferCapacity: 16, // เผื่อ jitter หลาย interval (12Hz → 16 snapshot ≈ 1.3s ประวัติ)
+    expectedSnapshotRateHz: 12, // = positionSyncHz ฝั่งส่ง
+  },
   remotePlayerColor: 0x4aa3ff, // ฟ้า = คนอื่น (local = เหลือง)
   remotePlayerAccentColor: 0x1b5fa8,
 };

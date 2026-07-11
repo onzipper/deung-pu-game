@@ -28,7 +28,8 @@
 - `src/engine/player/local-player.ts` — createLocalPlayer(): pixi glue เชื่อม keyboard→mover→direction→animator→scene entity + camera follow; walk/idle + 5-dir+mirror animated sprite (แทน body+nose); expose position/facing/**animation** ให้ net sync; **P0-10**: triggerAttack()/isAttacking (ล็อก animation="attack" จนจบคลิป) + consumeAttackPressed() ส่งต่อจาก keyboard
 - `src/engine/net/sync.ts` — net sync **pure** helpers (P0-07, computePlayerCount P0-08): coerceDirection/coerceAnim + snapshotChanged (กัน spam) + advanceSendTimer (throttle) + toMoveMessage + computePlayerCount (debug overlay) + ConnectionState type
 - `src/engine/net/net-client.ts` — createNetClient(): colyseus.js glue — connect/joinOrCreate MapRoom (joinOptions รวม channelId, P0-08) + wire schema callbacks → onPlayerAdd/Change/Remove + sendMove; **graceful offline** (connect ล้ม = solo); NetStatus + **getNetDebugInfo()** (P0-08, status/mapId/roomId/channelId/playerCount) ให้ P0-11 debug อ่าน
-- `src/engine/net/remote-player-manager.ts` — createRemotePlayerManager(): pixi glue สร้าง/lerp/ลบ remote player entity (animator สีต่าง) จาก net event
+- `src/engine/net/interpolation.ts` — createInterpolationBuffer(): **pure** snapshot ring buffer ต่อ entity (P1-01, TA §6) — push(t,tx,ty,dir,anim) + sampleAt(renderTime) lerp ตำแหน่งจาก 2 snapshot คร่อม; edge: ว่าง→null, เกิดใหม่→clamp, starved→extrapolate สั้น+clamp; out-of-order→drop; slot/result preallocate (ไม่ new ใน hot loop)
+- `src/engine/net/remote-player-manager.ts` — createRemotePlayerManager(): pixi glue สร้าง/ขยับ/ลบ remote player entity (animator สีต่าง) จาก net event; **P1-01**: push snapshot เข้า interpolation buffer (stamp clock ที่ inject ได้) → ticker sampleAt(now−bufferMs) → render ย้อนหลัง smooth (แทน lerp ง่าย P0-07)
 - `src/engine/animation/manifest.ts` — animation manifest (data-driven) + resolveClip (pure): logical dir → sprite source+mirror flag (5-dir+mirror, 8-dir override L15) + advancePlayhead (pure frame timing/loop) + createPlayerAnimationManifest
 - `src/engine/animation/player-placeholder.ts` — generatePlayerTextures(): วาด placeholder sprite ด้วยโค้ด (Graphics→RenderTexture) — 5 ทิศ, walk/idle/attack, asymmetric ให้เห็น mirror; foot anchor คงที่
 - `src/engine/animation/animator.ts` — createSpriteAnimator(): pixi glue เล่นเฟรมบน Sprite (setState/update) + mirror ด้วย scale.x=−1 รอบ anchor เท้า
@@ -95,6 +96,7 @@
 - `tests/engine-movement-direction.test.ts` — resolveDirection: 8 combo→ทิศ + มุม 45° ครบ + ขอบ 22.5° + idle คงทิศ + directionToScreenUnit
 - `tests/engine-animation-manifest.test.ts` — resolveClip: 5 drawn ไม่ mirror + 3 mirror ชี้ source ถูก + ครบ 8 ทิศ×idle/walk + 8-dir override + error (unknown anim / ทิศไม่มี / mirror source ไม่วาด) + advancePlayhead timing/loop/clamp/guard
 - `tests/engine-net-sync.test.ts` — net sync pure logic (P0-07, channel P0-08): coerce dir/anim + snapshotChanged + advanceSendTimer throttle/clamp + toMoveMessage + shared protocol constants + JoinOptions channelId shape + computePlayerCount
+- `tests/engine-net-interpolation.test.ts` — interpolation buffer pure logic (P1-01): lerp กึ่งกลาง/สัดส่วน + ทิศ/anim จาก snapshot ใหม่ + edge ว่าง/snapshot เดียว/เกิดใหม่ clamp + extrapolate สั้น+clamp เกิน max + out-of-order/duplicate drop + overflow ring + pooling reuse
 - `tests/game-mob-rng.test.ts` — createLcgRng: seed เดียวกัน→sequence เหมือนกัน, seed ต่างกัน→ต่าง, ค่าอยู่ใน [0,1); defaultRng smoke test
 - `tests/game-mob-spawn.test.ts` — spawnPocketMobs/spawnAllPockets (pure): จำนวนอยู่ในช่วง packSize + clamp activeCap (หลาย seed) + deterministic ตาม seed + จุดเกิดอยู่ใน pocket.area และเดินได้จริง (ไม่บน blocked) + findWalkableSpawnPoint คืน undefined เมื่อหาไม่เจอ (ไม่ throw) + P0_TEST_FIELD จริง (3 pocket ไม่ล้นกัน)
 - `tests/game-mob-wander.test.ts` — createWanderState/stepWander (pure): idle/walk สลับตาม config (ไม่ hardcode) + ระยะเดิน = speed·dt + pure (ไม่ mutate) + leash ไม่หลุด pocket.area (deterministic + seeded random หลายร้อย step) + leash เคารพ collision ของ map จริงด้วย + walkableFromMap ผูก isWalkableTile ถูก
@@ -117,4 +119,5 @@
 - `docs/context/ui.md` — ui context pack
 - `docs/design/` — game spec (v15 canonical + P0 scope lock + map bibles)
 - `docs/design/art-reference/` — ภาพ ref จาก owner (visual north star) + index README
+- `docs/design/proposals/` — **proposal รอ owner เคาะ (ไม่ใช่ spec)** · `docs/design/proposals/deungpu_P1_BALANCE_PROPOSAL_v1.md` = P1 balance draft (ค่า k, stat baseline, skill 5 อาชีพ §50.1, mob Map 1) — PENDING OWNER, เข้า spec ผ่าน §59.4
 - `docs/tech/` — tech spec (architecture v1.5 + decision locks)

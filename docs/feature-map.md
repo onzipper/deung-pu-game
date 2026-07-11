@@ -23,6 +23,12 @@
 | Performance guardrails (quality tiers, pooling) | GS §17.10 · TA §11 | `src/engine/` (planned) | (planned) |
 | P0-12 P0 Handoff Check (audit 12/12 Done Definition items, ห้ามแก้ production code) | P0 §6 | ตรวจข้าม P0-01→11 ทั้งหมด (ไม่มีไฟล์ source ใหม่) — หลักฐาน: gate รัน (`npm test`/lint/build/server tsc) + live 2/3-client colyseus.js proof script (ชั่วคราว, รันแล้วลบ ไม่ commit) + scope grep audit | ทุกเทสต์ที่มีอยู่แล้ว (272/272 เขียว) — ไม่มีเทสต์ใหม่ (audit-only issue) |
 
+## P1 — World Sync (current phase)
+
+| Feature | Spec | Impl | Tests |
+|---|---|---|---|
+| P1-01 Netcode interpolation (remote entities render ย้อนหลัง ~100–150ms จาก snapshot buffer; local ยัง full client-predict — reconcile hook วางไว้รอ P1-02) | TA §6 movement sync | `src/engine/net/interpolation.ts` (pure buffer), `src/engine/net/remote-player-manager.ts` (push/sample glue + inject clock), `src/engine/config.ts` (NetInterpolationConfig), `src/engine/runtime/app.ts` (reconcile hook TODO) | `tests/engine-net-interpolation.test.ts` (pure) |
+
 ## P1+ (ยังไม่เริ่ม — ดู TA §12 สำหรับ phase plan)
 
 | Feature | Spec |
