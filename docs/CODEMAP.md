@@ -43,4 +43,5 @@
 - `docs/context/engine.md` — engine context pack
 - `docs/context/ui.md` — ui context pack
 - `docs/design/` — game spec (v14 canonical + map bibles)
+- `docs/design/art-reference/` — ภาพ ref จาก owner (visual north star) + index README
 - `docs/tech/` — tech spec (architecture v1.4 + decision locks)

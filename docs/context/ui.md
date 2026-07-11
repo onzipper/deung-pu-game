@@ -14,6 +14,7 @@
 
 - **Ancient Asian Fantasy UI + Modern Readability** — fantasy กลิ่นไทย/หิน/ไม้/โลหะ แต่อ่านง่าย
 - Palette กลาง: GS §46.1 · rarity colors: §46.3 · status colors: §46.4
+- **ภาพ ref จาก owner**: `docs/design/art-reference/` — ทุกหน้าจอมีภาพเทียบ ห้ามออกแบบหลุดโทนจากชุดนี้
 - HUD: compact อ่านง่าย ไม่บัง combat; boss telegraph สำคัญกว่า HUD เสมอ
 - Confirmation modal บังคับ: market purchase / enhancement / rare item / ใช้เกรี้ยว (visual weight สูงกว่าปกติ)
 - Screen mood รายหน้าจอ: GS §47

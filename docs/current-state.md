@@ -14,12 +14,16 @@ Project bootstrap เสร็จ: repo ใหม่ (`onzipper/deung-pu-game`) 
 - 2026-07-11: นำ spec 6 ไฟล์เข้า repo (game spec v14 canonical + map bibles + tech architecture v1.4 + decision locks)
 - 2026-07-11: ตั้งระบบ docs-for-AI (AI.md, CODEMAP, feature-map, context packs, decision-index, known-traps, path-guard test, agent personas)
 - 2026-07-11: เพิ่ม specialist personas (engine/game/ui/qa/docs-curator) — realtime/worker/data/audio จดเป็น deferred รอ phase จริง (`.claude/README.md`)
+- 2026-07-11: owner เคาะ 3 decisions: branch model (develop), ClickUp tracking, tech ตั้งเลข balance + update spec (ดู decision-index)
+- 2026-07-11: นำภาพ ref 11 ภาพเข้า `docs/design/art-reference/` — กลุ่ม A (pixel art) = style target, กลุ่ม B = layout เท่านั้น
 
 ## Blockers / owed
 
-1. ยังไม่มีโค้ดเกม — P0 ต้องเริ่มจาก iso foundation (tech §17) — รอ owner สั่งเริ่ม
-2. Branch model ผมตั้ง default: feature branch → PR → owner อนุมัติ merge เข้า `main` — **รอ owner ยืนยันหรือปรับ**
-3. PixiJS 8 ยังไม่ได้ติดตั้ง (จะติดตั้งตอนเริ่ม P0)
+1. ยังไม่มีโค้ดเกม — **owner สั่ง "ยังไม่แก้โค้ด อยู่ช่วง tune docs"** — P0 เริ่มเมื่อ owner เคาะ
+2. ค้าง: tech ร่างตัวเลข balance P0 (ค่า k, ตาราง skill 5 อาชีพ) เสนอเป็น spec update ให้ owner เคาะ (decision-index)
+3. ค้าง: ClickUp skill + แนวทาง token optimization — กำลังคุยกับ owner ยังไม่ implement
+4. PixiJS 8 ยังไม่ได้ติดตั้ง (จะติดตั้งตอนเริ่ม P0)
+5. ภาพ ref กลุ่ม B (04–11) เป็น painterly — owner อาจ gen ใหม่เป็น pixel art มาแทน
 
 ## Owner decisions affecting immediate work
 

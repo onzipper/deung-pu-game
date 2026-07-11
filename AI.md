@@ -55,7 +55,7 @@ File → หน้าที่: `docs/CODEMAP.md` (แทนการ grep src/)
 ## Never change without owner confirmation
 
 - **อะไรก็ตามที่ spec ไม่ครอบคลุม หรือขัดกับ spec** → spec ต้องถูกอัปเดต/เคาะก่อนเสมอ
-- Merge เข้า `main` (ยืนยันทุกครั้ง)
+- Merge `develop` → `main` (ยืนยันทุกครั้ง) — งานประจำ: แตก branch จาก `develop` → PR กลับเข้า `develop` ให้ owner review
 - Schema ฐานข้อมูล / migration บน production
 - Skill schema field names (v14 §50.1) — เพิ่ม field ใหม่ต้องผ่าน process v14 §59.4
 - Design Knobs semantics (v14 §48) — tech ทำระบบให้ปรับค่าได้ แต่ไม่ตัดสิน balance เอง

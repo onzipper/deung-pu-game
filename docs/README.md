@@ -35,6 +35,7 @@
 | `design/deungpu_project_checkpoint_v14_runtime_bot_channel_schema_ownership_ready.md` | **Canonical game spec v14** — §48 Design Knobs · §50.1 Skill Schema (field naming source of truth) · §57 engine decisions · §59 runtime decisions |
 | `design/deungpu_MAP_LAYOUT_BIBLE_v1.md` | Map 1–10 layout: จุดวาง spawn/boss/secret/route |
 | `design/deungpu_MAP_SCALE_AND_SPAWN_DENSITY_SPEC_v1.md` | ขนาด map, density, AoE target, spawn pack/pocket, telemetry |
+| `design/art-reference/` | **ภาพ ref จาก owner (visual north star)** — 11 ภาพ + index; งาน UI/ฉาก/effect ต้องเทียบกับชุดนี้ |
 
 ### Tech spec — `tech/` (tech เป็นเจ้าของ: implementation / runtime / persistence / performance)
 
