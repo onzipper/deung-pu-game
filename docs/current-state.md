@@ -6,7 +6,7 @@ _Last updated: 2026-07-12_
 
 ## Where we are
 
-Project bootstrap เสร็จ: repo ใหม่ (`onzipper/deung-pu-game`) มี Next.js 16 shell เปล่า + spec ครบใน `docs/design` + `docs/tech` + ระบบ docs-for-AI ตาม AI Operating System Starter Kit — **ยังไม่เริ่มเขียนโค้ดเกม** phase ถัดไปคือ **P0 = Engine Foundation Vertical Slice** (tech §19 · `docs/design/deungpu_P0_SCOPE_LOCK_v1.md`)
+**P0 เริ่มแล้ว** (Engine Foundation Vertical Slice, tech §19 · `docs/design/deungpu_P0_SCOPE_LOCK_v1.md`). **P0-01 Runtime Setup เสร็จ (รอ review/merge)**: route `/game` mount pixi Application ผ่าน engine layer (`src/engine/**`, plain TS — ไม่พึ่ง React) + placeholder scene (diamond หมุน + FPS) พิสูจน์ render loop, resize + lifecycle destroy สะอาด (กัน StrictMode double-mount). ถัดไป: P0-02 Isometric Rendering Foundation (P0 §4.2)
 
 ## Latest work
 
@@ -18,19 +18,20 @@ Project bootstrap เสร็จ: repo ใหม่ (`onzipper/deung-pu-game`) 
 - 2026-07-11: นำภาพ ref 11 ภาพเข้า `docs/design/art-reference/` — กลุ่ม A (pixel art) = style target, กลุ่ม B = layout เท่านั้น
 - 2026-07-12: owner สั่ง**เลิกใช้ ClickUp** — track งานใน repo ที่เดียว (docs); ไม่ลบข้อมูลใน ClickUp (decision-index #13/#16 superseded)
 - 2026-07-12: import **spec v15 + tech v1.5 + P0_SCOPE_LOCK_v1**; ย้าย v14/v1.4 → `docs/history/`; อัปเดต reference ทุก index doc (canonical ชี้ v15/v1.5) — delta หลัก = P0 Scope Lock
+- 2026-07-12: **P0-01 Runtime Foundation** — ติดตั้ง pixi.js v8.19 + สร้าง engine runtime (`src/engine/config.ts`, `src/engine/runtime/{app,resize,assets}.ts`) + `src/ui/GameCanvas.tsx` + route `/game`; unit test config+resize เขียว, build ผ่าน
 
 ## Blockers / owed
 
-1. ยังไม่มีโค้ดเกม — **owner สั่ง "ยังไม่แก้โค้ด อยู่ช่วง tune docs"** — P0 เริ่มเมื่อ owner เคาะ
+1. ~~ยังไม่มีโค้ดเกม / hold~~ — **owner สั่งเริ่ม P0 แล้ว 2026-07-12** — งานโค้ดวิ่งตาม P0-01→12
 2. ค้าง: tech ร่างตัวเลข balance P0 (ค่า k, ตาราง skill 5 อาชีพ) เสนอเป็น spec update ให้ owner เคาะ (decision-index)
 3. ~~ClickUp skill~~ — **ปิดแล้ว 2026-07-12** (เลิกใช้ ClickUp)
-4. PixiJS 8 ยังไม่ได้ติดตั้ง (จะติดตั้งตอนเริ่ม P0)
+4. ~~PixiJS 8 ยังไม่ได้ติดตั้ง~~ — **ติดตั้งแล้ว 2026-07-12** (pixi.js v8.19, P0-01)
 5. ภาพ ref กลุ่ม B (04–11) เป็น painterly — owner อาจ gen ใหม่เป็น pixel art มาแทน
 
 ## Owner decisions affecting immediate work
 
 - Spec-first rule: ห้ามเดา ห้ามคิดเอง — เกิน spec ต้องอัปเดต spec ก่อน (decision-index #1)
-- Locked decisions ทั้งหมด: tech architecture §0.1 (L1–L17) — server-authoritative, MySQL, Render, iso, 5 อาชีพ, ฯลฯ
+- Locked decisions ทั้งหมด: tech architecture §0.1 (L1–L18) — server-authoritative, MySQL, Render, iso, 5 อาชีพ, P0 scope lock ฯลฯ
 
 ## Do not touch right now
 
@@ -38,4 +39,4 @@ Project bootstrap เสร็จ: repo ใหม่ (`onzipper/deung-pu-game`) 
 
 ## Next recommended work
 
-- **P0 ยัง hold** (owner ยังไม่สั่งเริ่มโค้ด — อยู่ช่วง tune docs) — เมื่อ GO: เริ่ม P0-01 Project Runtime Setup → P0-02 iso foundation (`src/engine/`: projection converter + depth sort + fixed-timestep loop) ตาม tech §17/§19 + `docs/design/deungpu_P0_SCOPE_LOCK_v1.md`, Appendix B
+- P0-02 iso foundation (`src/engine/`: projection converter + depth sort + fixed-timestep loop) ตาม tech §17/§19 + `docs/design/deungpu_P0_SCOPE_LOCK_v1.md` §4.2, Appendix B — สร้างต่อบน engine runtime ของ P0-01
