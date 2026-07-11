@@ -1,0 +1,70 @@
+// Shared realtime protocol (P0-07) — plain TS, **ไม่มี runtime dependency**.
+// import ได้ทั้ง client (`@/shared/net-protocol`) และ server (relative `../src/shared/net-protocol`).
+// วางที่ src/shared/ เพราะ client (Next) ใช้ alias `@/` อยู่แล้ว; server มี own tsconfig ที่ map `@/*` เช่นกัน.
+//
+// กติกา: ไฟล์นี้เก็บเฉพาะ "สัญญา" ที่ client/server ต้องตรงกัน — ชื่อ room, message type,
+// รูปร่าง payload (wire shape). ห้ามใส่ pixi/colyseus/engine glue ที่นี่ (จะทำให้ทั้งสองฝั่งพัง import).
+//
+// P0 scope (P0_SCOPE_LOCK §4.6/§4.7): join/leave · position sync · other players visible ·
+// minimal room state · channelId placeholder. ยังไม่ทำ reconnect/party/auth/persistence.
+
+import type { Direction } from "@/engine/movement/direction";
+
+/**
+ * Wire direction = Direction เดียวกับ engine (5-dir + mirror → 8 logical).
+ * ใช้ `import type` → runtime ไม่โหลด engine module (server decouple จาก pixi/engine).
+ */
+export type WirePlayerDirection = Direction;
+
+/** สถานะ animation ที่ sync ข้าม network (P0: idle/walk พอ; attack = P0-09 stub, ยังไม่ sync). */
+export type WirePlayerAnim = "idle" | "walk";
+
+/** ชื่อ room เดียวของ P0 (map instance). MapRoom = Colyseus Room 1:1 (tech §6). */
+export const MAP_ROOM_NAME = "map_room";
+
+/** map เดียวของ P0 (ตรงกับ engine map/p0-test-field). */
+export const DEFAULT_MAP_ID = "p0-test-field";
+
+/**
+ * channelId placeholder (P0_SCOPE_LOCK §4.7). P0 = fixed "CH.1" ใน room state.
+ * P1: auto-assign ตาม load/population (tech §6, RUNTIME §4) — architecture ไม่ผูก map↔room ถาวร.
+ */
+export const DEFAULT_CHANNEL_ID = "CH.1";
+
+/** message type: client → server ส่งตำแหน่ง/ทิศ/anim ปัจจุบัน (throttled ~10–15Hz, tech §6). */
+export const MSG_MOVE = "move";
+
+/**
+ * payload ของ MSG_MOVE (client → server).
+ * position เป็น **tile/world coordinate** (float ได้) — server เก็บ, client อื่นแปลงเป็น iso screen เอง (tech §6).
+ * P0: server **trust** ค่านี้ (ยังไม่ validate). P1 TODO: server-authoritative speed/wall/teleport check (tech §6 "Player movement sync").
+ */
+export interface MoveMessage {
+  tx: number;
+  ty: number;
+  direction: WirePlayerDirection;
+  anim: WirePlayerAnim;
+}
+
+/**
+ * option ที่ client ส่งตอน joinOrCreate → server ใช้ spawn player ตำแหน่งถูกตั้งแต่เฟรมแรก
+ * (กัน flash ที่ default tile). mapId เผื่อ P1 แยกหลาย map/room.
+ */
+export interface JoinOptions {
+  mapId: string;
+  tx: number;
+  ty: number;
+  direction: WirePlayerDirection;
+  anim: WirePlayerAnim;
+}
+
+/**
+ * snapshot ของผู้เล่น 1 คนที่ client อ่านจาก room state (รวม field ทั้งหมดที่ sync).
+ * ตรงกับ PlayerState schema ฝั่ง server (server/schema/MapRoomState.ts) — field ต้องตรงกัน.
+ */
+export interface PlayerSnapshot {
+  tx: number;
+  ty: number;
+  direction: WirePlayerDirection;
+  anim: WirePlayerAnim;
+}

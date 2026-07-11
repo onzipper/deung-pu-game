@@ -35,6 +35,8 @@ export interface LocalPlayerHandle {
   readonly position: Readonly<TilePoint>;
   /** ทิศ facing ปัจจุบัน (logical) */
   readonly facing: Direction;
+  /** animation ปัจจุบัน ("idle"/"walk") — P0-07 ใช้ sync ขึ้น server */
+  readonly animation: string;
   /** เรียกทุก frame ด้วย dt เป็น "วินาที" (ticker.deltaMS/1000) */
   update(dtSeconds: number): void;
   /** ถอด keyboard listener + ลบ entity ออกจาก scene + ปล่อย texture */
@@ -88,6 +90,9 @@ export function createLocalPlayer(
     position: pos,
     get facing() {
       return facing;
+    },
+    get animation() {
+      return animation;
     },
 
     update(dtSeconds: number): void {

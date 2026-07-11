@@ -2,6 +2,8 @@
 // Plain TS only — ห้าม import React / Next.js / pixi.js runtime ที่นี่ (type-only ได้ถ้าจำเป็น).
 // ทุกค่าที่ปรับได้ต้องอยู่ในนี้ (Design Knob discipline, AI.md §กฎเหล็ก) — ห้าม hardcode กระจายในโค้ด render.
 
+import { MAP_ROOM_NAME } from "@/shared/net-protocol";
+
 /** ขนาด diamond tile ของ iso grid (locked ~64×32, tech §17). ยังไม่ใช้จริงใน P0-01 — วางไว้ให้ layer ถัดไป. */
 export interface TileSize {
   /** ความกว้าง diamond (px) ที่ resolution = 1 */
@@ -129,6 +131,29 @@ export interface PlayerConfig {
   animation: PlayerAnimationConfig;
 }
 
+/**
+ * Realtime/network knob (P0-07). ทุกค่าปรับได้ที่นี่ (Design Knob discipline).
+ * P0 = local dev เท่านั้น; serverUrl override ได้ผ่าน env ตอน bootstrap (GameCanvas).
+ */
+export interface NetConfig {
+  /** เปิด/ปิด realtime ทั้งหมด — false = solo ล้วน (ไม่ connect) */
+  enabled: boolean;
+  /** ws endpoint ของ Colyseus (default local dev) */
+  serverUrl: string;
+  /** ชื่อ room (ต้องตรง server) — default = MAP_ROOM_NAME */
+  roomName: string;
+  /** อัตราส่ง position ขึ้น server (Hz) — tech §6 แนะนำ 10–15Hz */
+  positionSyncHz: number;
+  /** ระยะ (tile) ที่ต้องขยับเกินถึงจะส่ง — กัน spam idle frame */
+  sendEpsilon: number;
+  /** ความแข็งของ lerp remote player เข้าหา target ต่อ frame 0..1 */
+  remoteLerp: number;
+  /** สีตัว remote player (แยกจาก local ด้วยตา) */
+  remotePlayerColor: number;
+  /** สี accent (ไหล่) ของ remote player */
+  remotePlayerAccentColor: number;
+}
+
 /** พฤติกรรมกล้อง (fixed iso · no rotation · no zoom — P0). */
 export interface CameraConfig {
   /** ความแข็งของ follow lerp ต่อ frame 0..1 (สูง=ตามเร็ว, 1=snap) */
@@ -172,6 +197,8 @@ export interface EngineConfig {
   camera: CameraConfig;
   /** local player movement + placeholder style (P0-05) */
   player: PlayerConfig;
+  /** realtime/network knob (P0-07) */
+  net: NetConfig;
 }
 
 export const DEFAULT_SCENE_THEME: SceneTheme = {
@@ -229,6 +256,17 @@ export const DEFAULT_PLAYER_CONFIG: PlayerConfig = {
   animation: DEFAULT_PLAYER_ANIMATION_CONFIG,
 };
 
+export const DEFAULT_NET_CONFIG: NetConfig = {
+  enabled: true,
+  serverUrl: "ws://localhost:2567",
+  roomName: MAP_ROOM_NAME,
+  positionSyncHz: 12, // 10–15Hz (tech §6) — 12 = กลางช่วง
+  sendEpsilon: 0.02, // tile — ต่ำกว่านี้ = ผู้เล่นแทบไม่ขยับ, ไม่ต้องส่ง
+  remoteLerp: 0.2, // นุ่มพอสำหรับ iso movement ที่ 12Hz broadcast
+  remotePlayerColor: 0x4aa3ff, // ฟ้า = คนอื่น (local = เหลือง)
+  remotePlayerAccentColor: 0x1b5fa8,
+};
+
 export const DEFAULT_ENGINE_CONFIG: EngineConfig = {
   backgroundColor: 0x1b1b23,
   backgroundAlpha: 1,
@@ -242,6 +280,7 @@ export const DEFAULT_ENGINE_CONFIG: EngineConfig = {
   theme: DEFAULT_SCENE_THEME,
   camera: DEFAULT_CAMERA_CONFIG,
   player: DEFAULT_PLAYER_CONFIG,
+  net: DEFAULT_NET_CONFIG,
 };
 
 /**
@@ -265,6 +304,8 @@ export function createEngineConfig(
     // theme/player มี nested object — override ทั้งก้อนเมื่อกำหนด, ไม่งั้นใช้ default
     theme: overrides.theme ?? DEFAULT_ENGINE_CONFIG.theme,
     player: overrides.player ?? DEFAULT_ENGINE_CONFIG.player,
+    // net = shallow-merge (override บาง knob เช่น serverUrl จาก env โดยคงค่าอื่น)
+    net: { ...DEFAULT_ENGINE_CONFIG.net, ...overrides.net },
   };
 }
 
