@@ -17,6 +17,8 @@
 - `src/engine/runtime/app.ts` — createEngine(): ครอบ pixi Application (async init) + placeholder scene + ticker + EngineHandle.destroy()
 - `src/engine/runtime/resize.ts` — attachResize(): ResizeObserver บน container → renderer.resize; clampSize (pure)
 - `src/engine/runtime/assets.ts` — asset loader stub (wrapper รอบ pixi Assets, manifest ว่าง)
+- `src/engine/iso/coords.ts` — iso projection converters: TilePoint/ScreenPoint types + tileToScreen/screenToTile/snapToTile (pure math)
+- `src/engine/iso/depth.ts` — iso depth sort key: depthKey(tile, zLayer) + band constants (pure math)
 - `src/game/` — (planned) combat/entity/spawn บน engine
 
 ## UI (React overlay)
@@ -37,6 +39,8 @@
 - `tests/docs-guard.test.ts` — path-guard: ไฟล์ที่อ้างใน CODEMAP/feature-map/context ต้องมีจริง
 - `tests/engine-config.test.ts` — EngineConfig defaults / merge / resolveResolution
 - `tests/engine-resize.test.ts` — clampSize (pure resize helper)
+- `tests/engine-iso-coords.test.ts` — iso converters: known values / round-trip fuzz / snapToTile
+- `tests/engine-iso-depth.test.ts` — depthKey ordering + zLayer band non-overlap
 
 ## Docs
 

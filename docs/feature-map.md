@@ -7,7 +7,7 @@
 | Feature | Spec | Source | Tests |
 |---|---|---|---|
 | P0-01 Runtime foundation (pixi app / lifecycle / resize / asset stub) | P0 §4.1 · TA §19 | `src/engine/config.ts`, `src/engine/runtime/app.ts`, `src/engine/runtime/resize.ts`, `src/engine/runtime/assets.ts`, `src/ui/GameCanvas.tsx`, `src/app/game/page.tsx` | `tests/engine-config.test.ts`, `tests/engine-resize.test.ts` |
-| Iso foundation (projection/depth-sort/collision grid) | TA §17.1–17.3 · GS §57.1 | `src/engine/` (planned) | (planned) |
+| Iso foundation (projection/depth-sort/collision grid) | TA §17.1–17.3 · GS §57.1 | `src/engine/iso/coords.ts`, `src/engine/iso/depth.ts` (depth-sort renderer เหลือ P0-04) | `tests/engine-iso-coords.test.ts`, `tests/engine-iso-depth.test.ts` |
 | Direction resolver 5-dir + mirror | TA §17.4 · GS §57.2 | `src/engine/` (planned) | (planned) |
 | Combat juice (damage number, hit stop, shake, loot) | GS §17 ทั้งหมด · TA §11 (budget) | `src/game/` (planned) | (planned) |
 | Skill data model (config-driven) | GS §50.1 (canonical fields) · TA §16.1 | (planned) | (planned) |
