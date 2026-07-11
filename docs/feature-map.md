@@ -1,6 +1,6 @@
 # Feature map — feature → spec § / source / tests
 
-> อ่านเฉพาะแถวของงานตัวเอง · spec path ย่อ: **GS** = game spec v14 (`docs/design/deungpu_project_checkpoint_v14_runtime_bot_channel_schema_ownership_ready.md`), **TA** = tech architecture (`docs/tech/deungpu_technical_architecture_v1.md`)
+> อ่านเฉพาะแถวของงานตัวเอง · spec path ย่อ: **GS** = game spec v15 (`docs/design/deungpu_project_checkpoint_v15_p0_scope_lock_ready.md`), **TA** = tech architecture v1.5 (`docs/tech/deungpu_technical_architecture_v1_5_p0_scope_lock.md`), **P0** = `docs/design/deungpu_P0_SCOPE_LOCK_v1.md`
 
 ## P0 — Combat Feel (current phase)
 

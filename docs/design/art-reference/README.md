@@ -1,7 +1,7 @@
 # Art Reference — ภาพอ้างอิงจาก owner (2026-07-11)
 
 > **Visual north star ของโปรเจกต์** — เวลา implement UI/ฉาก/effect ให้เทียบกับภาพชุดนี้เพื่อไม่หลุดทางที่ owner ต้องการ
-> ค่าตัวเลขในภาพ (ดาเมจ, ราคา, stat) เป็นภาพประกอบ ไม่ใช่ spec — spec ตัวเลขยึด game spec v14
+> ค่าตัวเลขในภาพ (ดาเมจ, ราคา, stat) เป็นภาพประกอบ ไม่ใช่ spec — spec ตัวเลขยึด game spec v15
 
 ## ⭐ กลุ่ม A: Canonical style + layout (01–03) — pixel art ตรง locked decision
 
@@ -30,7 +30,7 @@
 | `10-daily-report.png` | รายงานประจำวัน: การ์ดบอท/ตลาด/ความก้าวหน้า/คำแนะนำ | GS §47.7 |
 | `11-secret-clue.png` | UI เบาะแสลับ: กระดาษ parchment, ผนึกม่วง, ตัวนับเบาะแส | GS §10, §47.8 |
 
-**GS** = game spec v14 (`docs/design/deungpu_project_checkpoint_v14_runtime_bot_channel_schema_ownership_ready.md`)
+**GS** = game spec v15 (`docs/design/deungpu_project_checkpoint_v15_p0_scope_lock_ready.md`)
 
 ## จุดที่ engine/ui ต้อง match (จากกลุ่ม A)
 

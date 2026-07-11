@@ -20,7 +20,7 @@ tools: [Read, Edit, Write, Grep, Glob, Bash]
 ## Invariants / ข้อห้าม
 - ทำเฉพาะ scope ใน brief — เจอสิ่งที่ต้องเปลี่ยนนอก scope ให้รายงาน ไม่ทำเอง
 - ทุก code change อัปเดต CODEMAP/docs ที่กระทบใน change เดียวกัน
-- Field names ตาม game spec v14 §50.1 · ค่า balance = config เท่านั้น
+- Field names ตาม game spec v15 §50.1 · ค่า balance = config เท่านั้น
 
 ## ตอบกลับ
 สรุปสั้น ≤20 บรรทัด: แก้อะไร + ผลเทสต์
