@@ -1,36 +1,36 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# ดึ๋งปุ๊ (deung-pu-game)
 
-## Getting Started
+> **2.5D Web MMORPG / Stylized Asian Fantasy / Bot-assisted Open World Farming MMORPG**
+> ผู้เล่นเป็นนักผจญภัยในเมืองมนุษย์ที่ถูกลอบภัย มีตลาด มีดันเจี้ยน มีระบบฟาร์มและบอทช่วยเล่น — ตะลุยแผนที่สู่ต้นตอของปรากฏการณ์ "ดึ๋งปุ๊"
 
-First, run the development server:
+## Source of truth
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+**เชื่อ spec เป็นหลัก — ห้ามเดา ห้ามคิดเอง** ถ้าต้องทำอะไรนอกเหนือ spec ต้องอัปเดต spec ก่อนทุกครั้ง
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+| เอกสาร | บทบาท |
+|---|---|
+| [docs/design/deungpu_project_checkpoint_v14_runtime_bot_channel_schema_ownership_ready.md](docs/design/deungpu_project_checkpoint_v14_runtime_bot_channel_schema_ownership_ready.md) | **Canonical game spec (v14)** — game semantics / balance / §48 Design Knobs / §50.1 Skill Schema |
+| [docs/tech/deungpu_technical_architecture_v1.md](docs/tech/deungpu_technical_architecture_v1.md) | **Tech architecture (v1.4)** — stack, locked decisions, MVP plan P0–P6 |
+| [docs/README.md](docs/README.md) | สารบัญ docs ทั้งหมด + ลำดับการอ่าน |
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+AI agents: เริ่มที่ [AI.md](AI.md) เสมอ
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Stack (locked — tech architecture §2, §14)
 
-## Learn More
+Next.js 15+ (App Router) · React 19 · TypeScript · PixiJS 8 (game renderer) · Zustand · Colyseus (Render SG) · BullMQ · MySQL 8 (Hostinger) + Prisma · Redis · Auth.js · Howler.js + Tone.js · Vitest + Playwright
 
-To learn more about Next.js, take a look at the following resources:
+Package manager: **npm**
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Commands
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+| Command | ทำอะไร |
+|---|---|
+| `npm run dev` | dev server (localhost:3000) |
+| `npm run build` | production build |
+| `npm run lint` | ESLint |
+| `npm test` | Vitest (รวม docs path-guard test) |
 
-## Deploy on Vercel
+## Current phase
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+**P0 — Combat Feel** (local, ไม่มี server): iso foundation + PixiJS combat scene
+ดูสถานะล่าสุดที่ [docs/current-state.md](docs/current-state.md)
