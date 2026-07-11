@@ -205,6 +205,91 @@ export interface PlayerConfig {
 }
 
 /**
+ * รูปทรง hit test ของ attack (P0-10 combat stub, P0_SCOPE_LOCK §4.9) — **ไม่ใช่สูตร damage จริง**
+ * (multiplicative diminishing = P1 server, tech §15.2). ระยะ = euclidean บน tile coords;
+ * arc = มุมรวม (องศา) รอบทิศ facing แปลงผ่าน iso projection ให้ตรงกับ "หน้า player บนจอ"
+ * (ดู src/game/combat/hit-test.ts).
+ */
+export interface AttackShapeConfig {
+  /** รัศมี hit (tile, euclidean บน tile coords) */
+  radius: number;
+  /** ความกว้างรวมของ arc (องศา) รอบทิศ facing (ครึ่งหนึ่งไปแต่ละข้าง) */
+  arcDegrees: number;
+  /** cooldown ระหว่างโจมตี (ms) */
+  cooldownMs: number;
+}
+
+/** ช่วง [min,max] ของ dummy damage (P0-10) — สุ่ม uniform, **ไม่ใช่สูตรจริง** (ดู hit-test.ts). */
+export interface DummyDamageRange {
+  min: number;
+  max: number;
+}
+
+/**
+ * style ของ hitbox debug flash (P0-10, P0 §4.10 debug overlay). toggle ผ่าน `enabled` เท่านั้น —
+ * **ห้าม**ให้ toggle นี้ไปแปรตาม quality setting (invariant: boss/attack telegraph ต้องชัดเสมอ,
+ * ที่นี่คือ debug tool เลยยิ่งต้อง deterministic ไม่ผูกกับ quality).
+ */
+export interface HitboxDebugConfig {
+  /** เปิด/ปิด flash พื้นที่โจมตี (debug tool) */
+  enabled: boolean;
+  /** สี fill/stroke ของ wedge */
+  color: number;
+  /** ความทึบเริ่มต้น (fade ลงเหลือ 0 ตลอด durationMs) */
+  alpha: number;
+  /** อายุของ flash (ms) ก่อนหายไป */
+  durationMs: number;
+}
+
+/**
+ * style + timing ของ dummy damage number ที่ลอยเหนือ mob (P0-10).
+ * TODO(P1): เปลี่ยนเป็น BitmapText + object pool ตาม tech §11 ("ทุกอย่างที่เกิด-ตายถี่ ห้าม new
+ * ใน hot loop") — P0 ยังสร้าง/ทำลาย Text ตรง ๆ ต่อครั้งโจมตี (ปริมาณต่ำพอสำหรับ stub).
+ */
+export interface DamageNumberConfig {
+  /** สีตัวเลข */
+  color: number;
+  /** ขนาดฟอนต์ (px) */
+  fontSize: number;
+  /** ระยะ (px) ที่เลขลอยขึ้นตลอดอายุ */
+  riseDistance: number;
+  /** ตำแหน่งเริ่มต้น (px เทียบกับ foot ของเป้า, ลบ = เหนือหัว) */
+  spawnOffsetY: number;
+  /** อายุของเลข (ms) ก่อน fade หมด+หาย */
+  lifetimeMs: number;
+}
+
+/** feedback ตอนมอนตาย (P0-10) — squash แนวตั้ง + fade แล้ว despawn (placeholder, ไม่มี loot/EXP). */
+export interface DeathFeedbackConfig {
+  /** อายุ (ms) ของ squash+fade ก่อน despawn จริง */
+  durationMs: number;
+  /** สัดส่วนย่อความสูงต่ำสุดตอนจบ (0..1 เช่น 0.15 = เหลือ 15% ความสูง) */
+  minScale: number;
+}
+
+/**
+ * รวม config ของ combat stub ทั้งหมด (P0-10, P0_SCOPE_LOCK §4.9) — ทุกค่าปรับได้ที่นี่
+ * (Design Knob discipline, ห้าม hardcode กระจายในโค้ด combat). **สโคปนี้เป็น stub เท่านั้น**:
+ * ไม่ใช่ skill schema จริง (GS §50.1, P1), ไม่ใช่ damage formula จริง (tech §15.2, P1).
+ */
+export interface CombatStubConfig {
+  /** รูปทรง hit test ของการโจมตี (radius/arc/cooldown) */
+  attack: AttackShapeConfig;
+  /** ช่วง dummy damage ต่อ hit */
+  dummyDamage: DummyDamageRange;
+  /** hp ต่อ mobType (key ต้องตรง MobPocket.mobType เช่น "slime"/"mushroom") */
+  mobHp: Record<string, number>;
+  /** hp เริ่มต้นเมื่อ mobType ไม่ตรงใน mobHp */
+  defaultMobHp: number;
+  /** hitbox debug flash */
+  hitboxDebug: HitboxDebugConfig;
+  /** dummy damage number ลอยเหนือมอน */
+  damageNumber: DamageNumberConfig;
+  /** feedback ตอนมอนตาย */
+  deathFeedback: DeathFeedbackConfig;
+}
+
+/**
  * Realtime/network knob (P0-07). ทุกค่าปรับได้ที่นี่ (Design Knob discipline).
  * P0 = local dev เท่านั้น; serverUrl override ได้ผ่าน env ตอน bootstrap (GameCanvas).
  */
@@ -280,6 +365,8 @@ export interface EngineConfig {
   mob: MobConfig;
   /** realtime/network knob (P0-07) */
   net: NetConfig;
+  /** combat stub knob (P0-10) — hit test/dummy damage/hitbox debug/damage number/death feedback */
+  combat: CombatStubConfig;
 }
 
 export const DEFAULT_SCENE_THEME: SceneTheme = {
@@ -386,6 +473,41 @@ export const DEFAULT_MOB_CONFIG: MobConfig = {
   },
 };
 
+/**
+ * mobHp key ต้องตรงกับ mobType จริงที่ map config ใช้ (ดู DEFAULT_MOB_CONFIG.styles) —
+ * "slime"/"mushroom". ไม่พบ key → fallback defaultMobHp.
+ */
+export const DEFAULT_COMBAT_STUB_CONFIG: CombatStubConfig = {
+  attack: {
+    radius: 1.6, // tile — พอครอบ mob ที่ยืนติดกับ player 1 ช่อง
+    arcDegrees: 120, // ครึ่งละ 60° รอบทิศ facing
+    cooldownMs: 400,
+  },
+  dummyDamage: { min: 8, max: 14 }, // dummy เท่านั้น — ไม่ใช่สูตรจริง (tech §15.2 = P1)
+  mobHp: {
+    slime: 30,
+    mushroom: 45,
+  },
+  defaultMobHp: 30,
+  hitboxDebug: {
+    enabled: true, // P0 dev: เปิดไว้ให้เห็น hit area ทันที — toggle ปิดได้ที่นี่
+    color: 0xff3b3b,
+    alpha: 0.35,
+    durationMs: 180,
+  },
+  damageNumber: {
+    color: 0xffe066,
+    fontSize: 16,
+    riseDistance: 28,
+    spawnOffsetY: -34,
+    lifetimeMs: 650,
+  },
+  deathFeedback: {
+    durationMs: 260,
+    minScale: 0.15,
+  },
+};
+
 export const DEFAULT_NET_CONFIG: NetConfig = {
   enabled: true,
   serverUrl: "ws://localhost:2567",
@@ -413,6 +535,7 @@ export const DEFAULT_ENGINE_CONFIG: EngineConfig = {
   player: DEFAULT_PLAYER_CONFIG,
   mob: DEFAULT_MOB_CONFIG,
   net: DEFAULT_NET_CONFIG,
+  combat: DEFAULT_COMBAT_STUB_CONFIG,
 };
 
 /**
@@ -437,6 +560,7 @@ export function createEngineConfig(
     theme: overrides.theme ?? DEFAULT_ENGINE_CONFIG.theme,
     player: overrides.player ?? DEFAULT_ENGINE_CONFIG.player,
     mob: overrides.mob ?? DEFAULT_ENGINE_CONFIG.mob,
+    combat: overrides.combat ?? DEFAULT_ENGINE_CONFIG.combat,
     // net = shallow-merge (override บาง knob เช่น serverUrl จาก env โดยคงค่าอื่น)
     net: { ...DEFAULT_ENGINE_CONFIG.net, ...overrides.net },
   };

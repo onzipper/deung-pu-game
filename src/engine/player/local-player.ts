@@ -35,8 +35,20 @@ export interface LocalPlayerHandle {
   readonly position: Readonly<TilePoint>;
   /** ทิศ facing ปัจจุบัน (logical) */
   readonly facing: Direction;
-  /** animation ปัจจุบัน ("idle"/"walk") — P0-07 ใช้ sync ขึ้น server */
+  /** animation ปัจจุบัน ("idle"/"walk"/"attack") — P0-07 ใช้ sync ขึ้น server */
   readonly animation: string;
+  /** true ระหว่างเล่น attack animation (ยังไม่จบคลิป) — P0-10 combat stub */
+  readonly isAttacking: boolean;
+  /**
+   * consume การกด ATTACK_KEY (Space) ตั้งแต่ครั้งก่อนหน้า — edge-triggered (กันกดค้างสแปม),
+   * ส่งต่อจาก keyboard tracker ภายใน (P0-10 combat-stub เรียกทุก frame เพื่อตัดสิน cooldown เอง)
+   */
+  consumeAttackPressed(): boolean;
+  /**
+   * เริ่มเล่น attack animation ครั้งเดียว — ล็อก animation="attack" จนจบคลิป
+   * (attackFrameDuration × attackFrames จาก PlayerAnimationConfig) แล้วกลับ idle/walk เอง (P0-10).
+   */
+  triggerAttack(): void;
   /** เรียกทุก frame ด้วย dt เป็น "วินาที" (ticker.deltaMS/1000) */
   update(dtSeconds: number): void;
   /** ถอด keyboard listener + ลบ entity ออกจาก scene + ปล่อย texture */
@@ -62,6 +74,10 @@ export function createLocalPlayer(
   const pos: TilePoint = { tx: map.spawnPoint.x, ty: map.spawnPoint.y };
   let facing: Direction = INITIAL_FACING;
   let animation = "idle";
+  // P0-10 combat stub: ระยะเวลาล็อก animation="attack" (ms) = ความยาวคลิปจริงจาก config
+  // (attack.loop=false ใน manifest อยู่แล้ว — ตัวจับเวลานี้แค่คืน control ให้ idle/walk ต่อ).
+  const attackDurationMs = player.animation.attackFrameDuration * player.animation.attackFrames;
+  let attackElapsedMs: number | null = null; // null = ไม่ได้กำลังโจมตี
 
   // --- animated sprite (P0-06) ---
   const manifest = createPlayerAnimationManifest(player.animation);
@@ -94,6 +110,15 @@ export function createLocalPlayer(
     get animation() {
       return animation;
     },
+    get isAttacking() {
+      return attackElapsedMs !== null;
+    },
+
+    consumeAttackPressed: () => keyboard.consumeAttackPressed(),
+
+    triggerAttack(): void {
+      attackElapsedMs = 0; // update() รอบถัดไปจะ lock animation="attack" ทันที
+    },
 
     update(dtSeconds: number): void {
       const intent = keyboard.getIntent();
@@ -110,7 +135,16 @@ export function createLocalPlayer(
       facing = resolveDirection(intent, tileSize, facing);
       // moving = มี intent จริง → walk; ไม่งั้น idle (คงทิศล่าสุด)
       const moving = intent.tx * intent.tx + intent.ty * intent.ty >= MOVE_EPS;
-      animation = moving ? "walk" : "idle";
+
+      if (attackElapsedMs !== null) {
+        // P0-10: attack ชนะ walk/idle จนจบคลิป — เดินระหว่างโจมตีได้ (position ขยับตามปกติ)
+        // แต่ animation ค้าง "attack" ไม่ให้ walk มาแทรก
+        attackElapsedMs += dtSeconds * 1000;
+        animation = "attack";
+        if (attackElapsedMs >= attackDurationMs) attackElapsedMs = null;
+      } else {
+        animation = moving ? "walk" : "idle";
+      }
 
       animator.setState(animation, facing);
       animator.update(dtSeconds);

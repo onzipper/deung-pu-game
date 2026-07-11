@@ -9,6 +9,7 @@ import { P0_TEST_FIELD } from "../map/p0-test-field";
 import { createMapScene, type MapSceneHandle } from "../render/scene";
 import { createLocalPlayer, type LocalPlayerHandle } from "../player/local-player";
 import { createMobManager, type MobManagerHandle } from "@/game/mob/manager";
+import { createCombatStub, type CombatStubHandle } from "@/game/combat/combat-stub";
 import { createNetClient, type NetClientHandle } from "../net/net-client";
 import { createRemotePlayerManager } from "../net/remote-player-manager";
 import {
@@ -81,6 +82,9 @@ export async function createEngine(
   // --- dummy mob pockets (P0-09): client/local spawn เท่านั้น — mob AI จริงเป็น P1 (TA §18) ---
   const mobs: MobManagerHandle = createMobManager(scene, map, config, app.renderer);
 
+  // --- combat stub (P0-10): Space → attack anim → hit test → dummy damage + feedback ---
+  const combat: CombatStubHandle = createCombatStub(scene, player, mobs, config);
+
   // --- realtime net (P0-07): remote players + position sync ---
   // Graceful offline: connect ล้ม = เล่น solo ต่อ (net.status = "offline"); ไม่ block boot.
   const localSnapshot = (): PlayerSnapshot => ({
@@ -130,6 +134,8 @@ export async function createEngine(
     player.update(dtSeconds);
     // calc: mob wander step (P0-09) → scene entity + animator
     mobs.update(dtSeconds);
+    // calc: combat stub (P0-10) — attack input → hit test → dummy damage + feedback
+    combat.update(dtSeconds);
 
     // net (P0-07): throttle ส่ง local position + lerp remote players
     if (net && remotes) {
@@ -167,6 +173,7 @@ export async function createEngine(
     detachResize();
     net?.disconnect();
     remotes?.destroy();
+    combat.destroy();
     mobs.destroy();
     player.destroy();
     scene.destroy();

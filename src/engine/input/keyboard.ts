@@ -38,6 +38,9 @@ export const MOVE_KEYS: Readonly<Record<string, TilePoint>> = {
   ArrowRight: SCREEN_RIGHT,
 };
 
+/** ปุ่มโจมตี (P0-10 combat stub) — เดี่ยว ไม่ใช่ MOVE_KEYS (ไม่มี tile-space basis). */
+export const ATTACK_KEY = "Space";
+
 /**
  * รวม basis ของทุกปุ่มที่กดค้าง → intent vector (tile-space, ยังไม่ normalize).
  * pure + deterministic (ผลไม่ขึ้นกับลำดับใน set). ไม่กดอะไร → (0,0).
@@ -62,6 +65,11 @@ export interface KeyboardTracker {
   readonly active: ReadonlySet<string>;
   /** intent vector (tile-space, ยังไม่ normalize) จากปุ่มที่กดตอนนี้ */
   getIntent(): TilePoint;
+  /**
+   * consume การกด ATTACK_KEY ตั้งแต่ครั้งก่อนหน้า — **edge-triggered** (true ครั้งเดียวต่อการกดจริง
+   * ไม่ใช่ทุก frame ที่กดค้าง; keydown repeat ก็ไม่นับซ้ำ) เรียกแล้ว flag รีเซ็ตทันที (P0-10).
+   */
+  consumeAttackPressed(): boolean;
   /** ถอด listener + เคลียร์ปุ่มค้าง (ต้องเรียกตอน destroy player/engine) */
   detach(): void;
 }
@@ -76,12 +84,16 @@ export interface KeyboardTracker {
  */
 export function attachKeyboard(target: EventTarget = window): KeyboardTracker {
   const active = new Set<string>();
+  let attackPending = false;
 
   const onDown = (e: Event): void => {
     const ke = e as KeyboardEvent;
     if (MOVE_KEYS[ke.code]) {
       active.add(ke.code);
       ke.preventDefault();
+    } else if (ke.code === ATTACK_KEY) {
+      if (!ke.repeat) attackPending = true; // edge-triggered: กดค้างไม่สแปม (cooldown เป็นหน้าที่ combat-stub)
+      ke.preventDefault(); // กัน space เลื่อนหน้าเว็บ
     }
   };
   const onUp = (e: Event): void => {
@@ -89,6 +101,7 @@ export function attachKeyboard(target: EventTarget = window): KeyboardTracker {
   };
   const onBlur = (): void => {
     active.clear();
+    attackPending = false;
   };
 
   target.addEventListener("keydown", onDown);
@@ -98,11 +111,17 @@ export function attachKeyboard(target: EventTarget = window): KeyboardTracker {
   return {
     active,
     getIntent: () => intentFromKeys(active),
+    consumeAttackPressed() {
+      const v = attackPending;
+      attackPending = false;
+      return v;
+    },
     detach() {
       target.removeEventListener("keydown", onDown);
       target.removeEventListener("keyup", onUp);
       target.removeEventListener("blur", onBlur);
       active.clear();
+      attackPending = false;
     },
   };
 }

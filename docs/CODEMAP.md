@@ -17,14 +17,14 @@
 
 ## Game engine (P0)
 
-- `src/engine/config.ts` — shared config/types (EngineConfig, DEFAULT_ENGINE_CONFIG, tileSize 64×32, SceneTheme/CameraConfig/PropStyle/PlayerConfig/PlayerAnimationConfig+PlayerSpriteStyle, **MobConfig** P0-09 (spawn/wander/animation/styles per mobType), **NetConfig** P0-07 รวม channelId P0-08) — ทุกค่าปรับได้อยู่ที่นี่
-- `src/engine/runtime/app.ts` — createEngine(): ครอบ pixi Application (async init) + mount P0 Test Field scene + local player + **dummy mob pockets (P0-09, `src/game/mob/manager.ts`)** + **net layer (P0-07, offline-safe; joinOptions ส่ง mapId+channelId P0-08)** + ticker + fps ui + EngineHandle.destroy()
+- `src/engine/config.ts` — shared config/types (EngineConfig, DEFAULT_ENGINE_CONFIG, tileSize 64×32, SceneTheme/CameraConfig/PropStyle/PlayerConfig/PlayerAnimationConfig+PlayerSpriteStyle, **MobConfig** P0-09 (spawn/wander/animation/styles per mobType), **NetConfig** P0-07 รวม channelId P0-08, **CombatStubConfig** P0-10 (attack shape/dummyDamage/mobHp/hitboxDebug/damageNumber/deathFeedback)) — ทุกค่าปรับได้อยู่ที่นี่
+- `src/engine/runtime/app.ts` — createEngine(): ครอบ pixi Application (async init) + mount P0 Test Field scene + local player + **dummy mob pockets (P0-09, `src/game/mob/manager.ts`)** + **combat stub (P0-10, `src/game/combat/combat-stub.ts`)** + **net layer (P0-07, offline-safe; joinOptions ส่ง mapId+channelId P0-08)** + ticker + fps ui + EngineHandle.destroy()
 - `src/engine/runtime/resize.ts` — attachResize(): ResizeObserver บน container → renderer.resize; clampSize (pure)
 - `src/engine/runtime/assets.ts` — asset loader stub (wrapper รอบ pixi Assets, manifest ว่าง)
-- `src/engine/input/keyboard.ts` — keyboard intent tracker: MOVE_KEYS (WASD+arrows) + intentFromKeys (screen basis → tile-space, pure) + attachKeyboard (listeners + detach)
+- `src/engine/input/keyboard.ts` — keyboard intent tracker: MOVE_KEYS (WASD+arrows) + intentFromKeys (screen basis → tile-space, pure) + attachKeyboard (listeners + detach) + **ATTACK_KEY (Space) edge-triggered consumeAttackPressed() P0-10**
 - `src/engine/movement/mover.ts` — stepMovement (pure): เดินต่อเนื่อง float tile + normalize diagonal + axis-separated collision slide + clamp dt
 - `src/engine/movement/direction.ts` — resolveDirection (pure): tile vector → 8-dir logical (คิดจากมุมบนจอ) + directionToScreenUnit — เตรียม P0-06 sprite 5-dir+mirror
-- `src/engine/player/local-player.ts` — createLocalPlayer(): pixi glue เชื่อม keyboard→mover→direction→animator→scene entity + camera follow; walk/idle + 5-dir+mirror animated sprite (แทน body+nose); expose position/facing/**animation** ให้ net sync
+- `src/engine/player/local-player.ts` — createLocalPlayer(): pixi glue เชื่อม keyboard→mover→direction→animator→scene entity + camera follow; walk/idle + 5-dir+mirror animated sprite (แทน body+nose); expose position/facing/**animation** ให้ net sync; **P0-10**: triggerAttack()/isAttacking (ล็อก animation="attack" จนจบคลิป) + consumeAttackPressed() ส่งต่อจาก keyboard
 - `src/engine/net/sync.ts` — net sync **pure** helpers (P0-07, computePlayerCount P0-08): coerceDirection/coerceAnim + snapshotChanged (กัน spam) + advanceSendTimer (throttle) + toMoveMessage + computePlayerCount (debug overlay) + ConnectionState type
 - `src/engine/net/net-client.ts` — createNetClient(): colyseus.js glue — connect/joinOrCreate MapRoom (joinOptions รวม channelId, P0-08) + wire schema callbacks → onPlayerAdd/Change/Remove + sendMove; **graceful offline** (connect ล้ม = solo); NetStatus + **getNetDebugInfo()** (P0-08, status/mapId/roomId/channelId/playerCount) ให้ P0-11 debug อ่าน
 - `src/engine/net/remote-player-manager.ts` — createRemotePlayerManager(): pixi glue สร้าง/lerp/ลบ remote player entity (animator สีต่าง) จาก net event
@@ -48,7 +48,13 @@
 - `src/game/mob/wander.ts` — createWanderState/stepWander (pure): สลับ idle/walk สุ่มช่วงเวลาจาก MobWanderConfig, เดินด้วย stepMovement เดิม + leash แบบง่าย (ผูก pocket.area เป็นเงื่อนไข block เพิ่ม) + walkableFromMap helper
 - `src/game/mob/manifest.ts` — createMobAnimationManifest(): reuse AnimationManifest/resolveClip ของ engine — 2 ทิศวาดจริง (S,N) + mirror 6 ทิศ (mob symmetric, ดูเหตุผลในไฟล์)
 - `src/game/mob/placeholder.ts` — generateMobTextures(): placeholder ด้วยโค้ด (Graphics→RenderTexture) ต่อ mobType (slime ก้อนเขียวเด้ง / mushroom หมวกแดง), generate ครั้งเดียวต่อ mobType (แชร์ข้าม instance)
-- `src/game/mob/manager.ts` — createMobManager(): pixi glue spawn ทุก pocket ตอน scene สร้าง + ticker update (wander step + animator + moveEntity) + destroy (texture ต่อ mobType, ไม่ destroy ต่อ instance)
+- `src/game/mob/manager.ts` — createMobManager(): pixi glue spawn ทุก pocket ตอน scene สร้าง + ticker update (wander step + animator + moveEntity) + destroy (texture ต่อ mobType, ไม่ destroy ต่อ instance); **P0-10**: hp ต่อ mobType (config.combat.mobHp), applyDamage()/getAliveTargets() ให้ combat stub ใช้, death feedback (squash+fade) ใน update() ก่อน despawn
+
+## Game logic (P0-10, combat stub — src/game/combat/**)
+
+- `src/game/combat/hit-test.ts` — pure combat calc (ไม่แตะ pixi): findHits (tile-space radius + screen-space arc รอบ facing), rollDummyDamage/advanceCooldown/canAttack/applyDummyDamage (hp/death transition) + helper screenAngleForDirection/tileUnitVectorForScreenAngle (reuse ใน combat-stub.ts วาด hitbox debug)
+- `src/game/combat/damage-number.ts` — createDamageNumberLayer(): pixi glue ตัวเลข damage ลอย+fade เหนือ mob ผ่าน scene entity API (addEntity/removeEntity) — TODO(P1) BitmapText+pool (tech §11)
+- `src/game/combat/combat-stub.ts` — createCombatStub(): glue Space→cooldown gate→player.triggerAttack()→findHits→mob.applyDamage()+damage number, hitbox debug wedge (fade, zLayer สูงผ่าน depthKey ที่มีอยู่) — P0_SCOPE_LOCK §4.9 stub เท่านั้น ไม่ใช่ damage formula จริง
 
 ## Realtime server (P0-07, แยก process — L4)
 
@@ -89,6 +95,7 @@
 - `tests/game-mob-rng.test.ts` — createLcgRng: seed เดียวกัน→sequence เหมือนกัน, seed ต่างกัน→ต่าง, ค่าอยู่ใน [0,1); defaultRng smoke test
 - `tests/game-mob-spawn.test.ts` — spawnPocketMobs/spawnAllPockets (pure): จำนวนอยู่ในช่วง packSize + clamp activeCap (หลาย seed) + deterministic ตาม seed + จุดเกิดอยู่ใน pocket.area และเดินได้จริง (ไม่บน blocked) + findWalkableSpawnPoint คืน undefined เมื่อหาไม่เจอ (ไม่ throw) + P0_TEST_FIELD จริง (3 pocket ไม่ล้นกัน)
 - `tests/game-mob-wander.test.ts` — createWanderState/stepWander (pure): idle/walk สลับตาม config (ไม่ hardcode) + ระยะเดิน = speed·dt + pure (ไม่ mutate) + leash ไม่หลุด pocket.area (deterministic + seeded random หลายร้อย step) + leash เคารพ collision ของ map จริงด้วย + walkableFromMap ผูก isWalkableTile ถูก
+- `tests/game-combat-hit-test.test.ts` — findHits (pure, P0-10): ระยะ+arc รอบทิศ facing (8 ทิศ, กันชน half-arc >45° กับ boundary near-tie แยกเทสต์), หลังผู้เล่นไม่โดน, ระยะ 0 โดนเสมอ + rollDummyDamage ในช่วง (seeded RNG deterministic) + advanceCooldown/canAttack (cooldown gate เต็มรอบ) + applyDummyDamage (hp/death transition)
 
 ## Docs
 
