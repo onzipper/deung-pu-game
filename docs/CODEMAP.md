@@ -13,8 +13,8 @@
 
 ## Game engine (P0)
 
-- `src/engine/config.ts` — shared config/types (EngineConfig, DEFAULT_ENGINE_CONFIG, tileSize 64×32) — ทุกค่าปรับได้อยู่ที่นี่
-- `src/engine/runtime/app.ts` — createEngine(): ครอบ pixi Application (async init) + placeholder scene + ticker + EngineHandle.destroy()
+- `src/engine/config.ts` — shared config/types (EngineConfig, DEFAULT_ENGINE_CONFIG, tileSize 64×32, SceneTheme/CameraConfig/PropStyle) — ทุกค่าปรับได้อยู่ที่นี่
+- `src/engine/runtime/app.ts` — createEngine(): ครอบ pixi Application (async init) + mount P0 Test Field scene + ticker + fps ui + EngineHandle.destroy()
 - `src/engine/runtime/resize.ts` — attachResize(): ResizeObserver บน container → renderer.resize; clampSize (pure)
 - `src/engine/runtime/assets.ts` — asset loader stub (wrapper รอบ pixi Assets, manifest ว่าง)
 - `src/engine/iso/coords.ts` — iso projection converters: TilePoint/ScreenPoint types + tileToScreen/screenToTile/snapToTile (pure math)
@@ -22,6 +22,10 @@
 - `src/engine/map/types.ts` — MapConfig schema (spec P0 §4.3) + CollisionLayer/PropSpawn/MobPocket + packTile/isBlockedTile/isWithinBounds/isWalkableTile helpers
 - `src/engine/map/loader.ts` — loadMapConfig(raw): validate + build blockedSet (MapConfigError, no zod)
 - `src/engine/map/p0-test-field.ts` — P0 Test Field config data (24×24, spawn/collision/props/3 pockets)
+- `src/engine/render/depth-registry.ts` — DepthRegistry<D> (pure): entity registry + compareDepth comparator + dirty-tracked sorted() — source of truth ของลำดับ depth
+- `src/engine/render/camera.ts` — camera math (pure): computeMapScreenBounds / clampCameraScreen / lerpTile (fixed iso, no rotation/zoom)
+- `src/engine/render/placement.ts` — entityFootToScreen (pure): lock convention "tile ที่ส่งเข้า API = foot ต่อเนื่อง → tileToScreen (ไม่ +0.5)"
+- `src/engine/render/scene.ts` — createMapScene(): pixi glue — ground layer (grid/checker/blocked, วาดครั้งเดียว) + entity layer (depth-sorted via zIndex rank) + fixed camera follow + entity API + debug pointer entity
 - `src/game/` — (planned) combat/entity/spawn บน engine
 
 ## UI (React overlay)
@@ -45,6 +49,9 @@
 - `tests/engine-iso-coords.test.ts` — iso converters: known values / round-trip fuzz / snapToTile
 - `tests/engine-iso-depth.test.ts` — depthKey ordering + zLayer band non-overlap
 - `tests/engine-map-loader.test.ts` — map loader validation (invariants throw) + P0 Test Field passes
+- `tests/engine-render-depth.test.ts` — DepthRegistry: sorted order ตาม depthKey + tie-break + dirty tracking + lifecycle
+- `tests/engine-render-camera.test.ts` — camera math: map screen bounds (จตุรัส/ไม่จตุรัส) + clamp ขอบ 4 ด้าน + content==viewport + lerp follow
+- `tests/engine-render-placement.test.ts` — lock foot convention: entityFootToScreen = tileToScreen (ไม่ +0.5), ≠ tileCenterToScreen
 
 ## Docs
 

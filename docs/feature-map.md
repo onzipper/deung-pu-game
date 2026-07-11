@@ -7,8 +7,9 @@
 | Feature | Spec | Source | Tests |
 |---|---|---|---|
 | P0-01 Runtime foundation (pixi app / lifecycle / resize / asset stub) | P0 §4.1 · TA §19 | `src/engine/config.ts`, `src/engine/runtime/app.ts`, `src/engine/runtime/resize.ts`, `src/engine/runtime/assets.ts`, `src/ui/GameCanvas.tsx`, `src/app/game/page.tsx` | `tests/engine-config.test.ts`, `tests/engine-resize.test.ts` |
-| Iso foundation (projection/depth-sort/collision grid) | TA §17.1–17.3 · GS §57.1 | `src/engine/iso/coords.ts`, `src/engine/iso/depth.ts` (depth-sort renderer เหลือ P0-04) | `tests/engine-iso-coords.test.ts`, `tests/engine-iso-depth.test.ts` |
+| Iso foundation (projection/depth-sort/collision grid) | TA §17.1–17.3 · GS §57.1 | `src/engine/iso/coords.ts`, `src/engine/iso/depth.ts` | `tests/engine-iso-coords.test.ts`, `tests/engine-iso-depth.test.ts` |
 | P0-03 Map config (schema/loader/test field) | P0 §4.3+§3 · TA §19 | `src/engine/map/types.ts`, `src/engine/map/loader.ts`, `src/engine/map/p0-test-field.ts` | `tests/engine-map-loader.test.ts` |
+| P0-04 Renderer scene graph & depth sorting | P0 §4.2 · TA §11, §17.2 | `src/engine/render/depth-registry.ts`, `src/engine/render/camera.ts`, `src/engine/render/placement.ts`, `src/engine/render/scene.ts`, `src/engine/runtime/app.ts` | `tests/engine-render-depth.test.ts`, `tests/engine-render-camera.test.ts`, `tests/engine-render-placement.test.ts` |
 | Direction resolver 5-dir + mirror | TA §17.4 · GS §57.2 | `src/engine/` (planned) | (planned) |
 | Combat juice (damage number, hit stop, shake, loot) | GS §17 ทั้งหมด · TA §11 (budget) | `src/game/` (planned) | (planned) |
 | Skill data model (config-driven) | GS §50.1 (canonical fields) · TA §16.1 | (planned) | (planned) |

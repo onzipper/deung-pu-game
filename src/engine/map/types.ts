@@ -84,7 +84,11 @@ export interface CollisionLayer {
 export interface PropSpawn {
   /** placeholder asset/type id (เช่น "tree", "rock") */
   propId: string;
-  /** ตำแหน่ง tile space (float ได้) */
+  /**
+   * ตำแหน่ง **foot ต่อเนื่อง** ใน tile space (float ได้). P0-04 convention:
+   * renderer วางด้วย tileToScreen ตรง ๆ (ไม่ +0.5) — อยากวางกลาง cell (n,n+1)²
+   * ให้ใส่ n+0.5 เอง (เช่น กลาง cell (12,8) = { tx: 12.5, ty: 8.5 }).
+   */
   tile: TilePoint;
   /** band override สำหรับ depth sort (integer; optional, default 0) */
   zLayer?: number;

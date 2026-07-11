@@ -37,15 +37,17 @@ export const P0_TEST_FIELD: MapConfigInput = {
     ],
   },
 
-  // 7 props — บางตัว float (ทศนิยม) จงใจให้ไม่ตรง grid เพื่อทดสอบ depth sort.
+  // 7 props. tile = ตำแหน่ง foot ต่อเนื่อง (P0-04 convention: ไม่ +0.5 ตอน render —
+  // อยากกลาง cell ต้องใส่ n+0.5 เอง). props "กลาง cell" ใช้ n.5; บางตัว float ไม่ตรงกลาง
+  // จงใจ (14.2/6.8, 18.5/10.5) เพื่อทดสอบ depth sort ต่อเนื่อง.
   props: [
-    { propId: "tree", tile: { tx: 3.5, ty: 3.5 } },
-    { propId: "rock", tile: { tx: 9, ty: 2 } },
-    { propId: "tree", tile: { tx: 14.2, ty: 6.8 } }, // float
-    { propId: "bush", tile: { tx: 5, ty: 18 } },
-    { propId: "rock", tile: { tx: 18.5, ty: 10.5 } }, // float
-    { propId: "signpost", tile: { tx: 12, ty: 8 }, zLayer: 1 }, // band override
-    { propId: "stump", tile: { tx: 21, ty: 21 } },
+    { propId: "tree", tile: { tx: 3.5, ty: 3.5 } }, // กลาง cell (3,3)
+    { propId: "rock", tile: { tx: 9.5, ty: 2.5 } }, // กลาง cell (9,2)
+    { propId: "tree", tile: { tx: 14.2, ty: 6.8 } }, // float (ไม่ตรงกลาง)
+    { propId: "bush", tile: { tx: 5.5, ty: 18.5 } }, // กลาง cell (5,18)
+    { propId: "rock", tile: { tx: 18.5, ty: 10.5 } }, // กลาง cell (18,10)
+    { propId: "signpost", tile: { tx: 12.5, ty: 8.5 }, zLayer: 1 }, // กลาง cell (12,8) + band override
+    { propId: "stump", tile: { tx: 21.5, ty: 21.5 } }, // กลาง cell (21,21)
   ],
 
   // 3 farming pocket (TA §18: fixed pocket, จุดเกิดสุ่มภายใน rect — logic อยู่ P0-09).
