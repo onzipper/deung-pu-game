@@ -1,29 +1,34 @@
 // Local player controller — pixi glue ที่เชื่อม input → movement → scene entity.
 // Plain TS + PixiJS เท่านั้น (ห้าม React/Next). แยกชั้น: input (keyboard.ts) + calc (mover.ts /
-// direction.ts เป็น pure) + render (scene entity API). ตัว controller นี้แค่ orchestrate + วาด placeholder.
+// direction.ts / animation manifest เป็น pure) + render (scene entity + animator). controller นี้ orchestrate.
 //
-// P0-05: player เป็น placeholder graphic (body ellipse + nose marker บอกทิศ facing) —
-// sprite/animation จริงมา P0-06 (จะแทน display นี้). เดินด้วย keyboard + collision slide,
-// กล้องตาม player.
+// P0-06: player = **animated sprite** (placeholder generate ด้วยโค้ด) แทน body+nose ของ P0-05.
+//   เดิน → walk + ทิศจาก resolveDirection · หยุด → idle คงทิศล่าสุด · 5 ทิศวาด + mirror 3 ทิศ.
+//   sprite บอกทิศได้เอง (face marker + accent asymmetry) → ถอด nose marker ออก.
 
-import { Container, Graphics } from "pixi.js";
+import type { Renderer } from "pixi.js";
 import type { EngineConfig } from "@/engine/config";
 import type { TilePoint } from "@/engine/iso/coords";
 import { isWalkableTile, type MapConfig } from "@/engine/map/types";
 import type { MapSceneHandle } from "@/engine/render/scene";
 import { attachKeyboard } from "@/engine/input/keyboard";
 import { stepMovement } from "@/engine/movement/mover";
+import { resolveDirection, type Direction } from "@/engine/movement/direction";
+import { createPlayerAnimationManifest } from "@/engine/animation/manifest";
+import { generatePlayerTextures } from "@/engine/animation/player-placeholder";
 import {
-  directionToScreenUnit,
-  resolveDirection,
-  type Direction,
-} from "@/engine/movement/direction";
+  createSpriteAnimator,
+  type SpriteAnimator,
+} from "@/engine/animation/animator";
 
 /** id คงที่ของ local player ใน scene entity layer. */
 export const LOCAL_PLAYER_ID = "__local_player__";
 
 /** ทิศเริ่มต้นตอน idle — หันเข้ากล้อง (ลงจอ). */
 const INITIAL_FACING: Direction = "S";
+
+/** intent ที่สั้นกว่านี้ (²) ถือว่า "ไม่เดิน" → idle. */
+const MOVE_EPS = 1e-9;
 
 export interface LocalPlayerHandle {
   /** ตำแหน่ง foot ปัจจุบัน (read-only view) */
@@ -32,61 +37,43 @@ export interface LocalPlayerHandle {
   readonly facing: Direction;
   /** เรียกทุก frame ด้วย dt เป็น "วินาที" (ticker.deltaMS/1000) */
   update(dtSeconds: number): void;
-  /** ถอด keyboard listener + ลบ entity ออกจาก scene */
+  /** ถอด keyboard listener + ลบ entity ออกจาก scene + ปล่อย texture */
   destroy(): void;
 }
 
-/** วาด body placeholder: เงาที่เท้า + ตัว ellipse (foot อยู่ที่ local (0,0)). */
-function drawBody(config: EngineConfig): Graphics {
-  const { style } = config.player;
-  const g = new Graphics();
-  const hw = style.bodyWidth / 2;
-  // เงาที่เท้า (แบน) ช่วยอ่านตำแหน่ง foot บนพื้น
-  g.ellipse(0, 0, hw, style.bodyWidth / 4).fill({
-    color: 0x000000,
-    alpha: 0.25,
-  });
-  // body ตั้งขึ้นจากเท้า
-  g.ellipse(0, -style.bodyHeight / 2, hw, style.bodyHeight / 2)
-    .fill({ color: style.bodyColor })
-    .stroke({ color: 0x000000, width: 1, alpha: 0.5 });
-  return g;
-}
-
-/** วาง nose marker (จุดบอกทิศหน้า) ตามทิศ facing รอบกลาง body. */
-function drawNose(g: Graphics, config: EngineConfig, dir: Direction): void {
-  const { style } = config.player;
-  const u = directionToScreenUnit(dir);
-  const cx = u.sx * style.noseReach;
-  // ยึดรอบกลาง body (−bodyHeight/2); ย่อแกน y ครึ่งหนึ่งให้ดู "เอียงตามพื้น iso"
-  const cy = -style.bodyHeight / 2 + u.sy * style.noseReach * 0.5;
-  g.clear();
-  g.circle(cx, cy, style.noseRadius).fill({ color: style.noseColor });
-}
-
 /**
- * สร้าง local player: spawn ที่ map.spawnPoint, snap กล้องมาที่ player, attach keyboard.
+ * สร้าง local player: spawn ที่ map.spawnPoint, snap กล้องมาที่ player, attach keyboard,
+ * generate placeholder sprite + animator (5-dir + mirror).
  * caller (app.ts) เรียก update(dtSeconds) ทุก frame แล้ว destroy() ตอนปิด engine.
  *
+ * @param renderer pixi renderer (app.renderer) — ใช้ generate placeholder texture
  * @param target EventTarget ของ keyboard (default window) — inject ได้เพื่อเทสต์
  */
 export function createLocalPlayer(
   scene: MapSceneHandle,
   map: MapConfig,
   config: EngineConfig,
+  renderer: Renderer,
   target?: EventTarget,
 ): LocalPlayerHandle {
   const { tileSize, player } = config;
   const pos: TilePoint = { tx: map.spawnPoint.x, ty: map.spawnPoint.y };
   let facing: Direction = INITIAL_FACING;
+  let animation = "idle";
 
-  const display = new Container();
-  const body = drawBody(config);
-  const nose = new Graphics();
-  display.addChild(body, nose);
-  drawNose(nose, config, facing);
+  // --- animated sprite (P0-06) ---
+  const manifest = createPlayerAnimationManifest(player.animation);
+  const textures = generatePlayerTextures(
+    renderer,
+    manifest,
+    player.animation.style,
+  );
+  const animator: SpriteAnimator = createSpriteAnimator(textures, manifest, {
+    animation,
+    direction: facing,
+  });
 
-  scene.addEntity(LOCAL_PLAYER_ID, display, pos);
+  scene.addEntity(LOCAL_PLAYER_ID, animator.view, pos);
   scene.setCameraTarget(pos, true); // กล้องเริ่มที่ player (ไม่กวาดจาก origin)
 
   const keyboard = attachKeyboard(target);
@@ -115,16 +102,19 @@ export function createLocalPlayer(
       }
 
       // facing = ทิศที่ "ตั้งใจเดิน" (intent) — กดชนกำแพงก็ยังหันไปทางนั้น; idle คงเดิม
-      const nextFacing = resolveDirection(intent, tileSize, facing);
-      if (nextFacing !== facing) {
-        facing = nextFacing;
-        drawNose(nose, config, facing);
-      }
+      facing = resolveDirection(intent, tileSize, facing);
+      // moving = มี intent จริง → walk; ไม่งั้น idle (คงทิศล่าสุด)
+      const moving = intent.tx * intent.tx + intent.ty * intent.ty >= MOVE_EPS;
+      animation = moving ? "walk" : "idle";
+
+      animator.setState(animation, facing);
+      animator.update(dtSeconds);
     },
 
     destroy(): void {
       keyboard.detach();
-      scene.removeEntity(LOCAL_PLAYER_ID);
+      scene.removeEntity(LOCAL_PLAYER_ID); // destroy sprite view
+      animator.destroy(); // ปล่อย texture ที่ generate
     },
   };
 }

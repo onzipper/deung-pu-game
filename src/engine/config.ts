@@ -67,6 +67,52 @@ export interface PlayerStyle {
 }
 
 /**
+ * Visual knob ของ placeholder sprite ที่ generate ด้วยโค้ด (P0-06) — แทน body/nose ของ P0-05.
+ * วาดโดยเท้า (foot) อยู่ที่ local (0,0). ตัวละคร **ไม่สมมาตร** (accent ข้างเดียว) โดยจงใจ
+ * เพื่อพิสูจน์ด้วยตาว่าการ mirror (SE←SW, E←W, NE←NW) ทำงานจริง.
+ */
+export interface PlayerSpriteStyle {
+  /** สีลำตัว (0xRRGGBB) */
+  bodyColor: number;
+  /** สีหัว */
+  headColor: number;
+  /** สี marker บอก "ด้านหน้า" (หันไปทางไหน) */
+  faceColor: number;
+  /** สี accent ข้างเดียว (ไหล่/กระเป๋า) — ตัวชี้ asymmetry ที่ต้อง flip ตอน mirror */
+  accentColor: number;
+  /** สีขา (สลับตอน walk) */
+  legColor: number;
+  /** ความกว้างลำตัว (px) */
+  bodyWidth: number;
+  /** ความสูงรวมจากเท้าถึงหัว (px) */
+  bodyHeight: number;
+  /** ระยะเด้งตัวสูงสุดตอน walk (px) */
+  walkBob: number;
+}
+
+/**
+ * Animation config (P0-06) — data-driven, ทุกค่าเป็น Design Knob.
+ * frameDuration หน่วย "ms/เฟรม"; frameCount = จำนวนเฟรมที่ generator สร้างต่อ (animation, ทิศ).
+ * manifest จริง (drawn dirs + mirror map) ประกอบใน animation/manifest.ts จากค่าเหล่านี้.
+ */
+export interface PlayerAnimationConfig {
+  /** ms/เฟรม ตอน idle */
+  idleFrameDuration: number;
+  /** ms/เฟรม ตอน walk */
+  walkFrameDuration: number;
+  /** ms/เฟรม ตอน attack */
+  attackFrameDuration: number;
+  /** จำนวนเฟรม idle (≥1) */
+  idleFrames: number;
+  /** จำนวนเฟรม walk (2–4 แนะนำ) */
+  walkFrames: number;
+  /** จำนวนเฟรม attack */
+  attackFrames: number;
+  /** visual knob ของ placeholder */
+  style: PlayerSpriteStyle;
+}
+
+/**
  * พฤติกรรม local player movement (P0-05). ทุกค่าเป็น Design Knob — ห้าม hardcode ใน mover.
  */
 export interface PlayerConfig {
@@ -77,8 +123,10 @@ export interface PlayerConfig {
    * (เช่นสลับ tab กลับมา rAF ค้างนาน). speed·maxStepSeconds ต้อง < 1 tile เพื่อไม่ข้ามบล็อก.
    */
   maxStepSeconds: number;
-  /** style ของ placeholder graphic */
+  /** style ของ placeholder graphic (P0-05 — nose marker; ยังเก็บไว้ให้ debug) */
   style: PlayerStyle;
+  /** sprite animation config (P0-06) — data-driven, 5-dir + mirror */
+  animation: PlayerAnimationConfig;
 }
 
 /** พฤติกรรมกล้อง (fixed iso · no rotation · no zoom — P0). */
@@ -147,6 +195,25 @@ export const DEFAULT_CAMERA_CONFIG: CameraConfig = {
   edgeMargin: 96,
 };
 
+export const DEFAULT_PLAYER_ANIMATION_CONFIG: PlayerAnimationConfig = {
+  idleFrameDuration: 500, // เด้งหายใจช้า ๆ
+  walkFrameDuration: 140, // ~7fps ก้าวเดิน
+  attackFrameDuration: 90,
+  idleFrames: 2,
+  walkFrames: 4,
+  attackFrames: 3,
+  style: {
+    bodyColor: 0xffd24a,
+    headColor: 0xf1c27d,
+    faceColor: 0x1b1b23,
+    accentColor: 0xd64545, // แดง = ไหล่ข้างเดียว (asymmetry ให้เห็น mirror)
+    legColor: 0x5a4a2a,
+    bodyWidth: 20,
+    bodyHeight: 34,
+    walkBob: 3,
+  },
+};
+
 export const DEFAULT_PLAYER_CONFIG: PlayerConfig = {
   // speed·maxStepSeconds = 0.4 tile/step < 1 → กัน tunneling บล็อก 1 tile.
   speed: 4,
@@ -159,6 +226,7 @@ export const DEFAULT_PLAYER_CONFIG: PlayerConfig = {
     noseRadius: 3,
     noseReach: 14,
   },
+  animation: DEFAULT_PLAYER_ANIMATION_CONFIG,
 };
 
 export const DEFAULT_ENGINE_CONFIG: EngineConfig = {

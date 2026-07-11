@@ -60,7 +60,7 @@ export async function createEngine(
 
   // --- local player (P0-05): keyboard movement + collision slide + camera follow ---
   // spawn + snap กล้องมาที่ player + attach keyboard เกิดภายใน createLocalPlayer
-  const player = createLocalPlayer(scene, map, config);
+  const player = createLocalPlayer(scene, map, config, app.renderer);
 
   // --- ui layer (screen-space, ไม่โดน camera pan) — P0-11 จะทำ overlay เต็ม ---
   const ui = new Container();
