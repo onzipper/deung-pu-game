@@ -78,12 +78,21 @@ export function toMoveMessage(
   return { tx, ty, direction, anim };
 }
 
-/** สถานะการเชื่อมต่อ net (shared shape — net-client.ts alias เป็น NetConnectionState). */
-export type ConnectionState = "idle" | "connecting" | "online" | "offline";
+/**
+ * สถานะการเชื่อมต่อ net (shared shape — net-client.ts alias เป็น NetConnectionState).
+ * P1-07: เพิ่ม "reconnecting" — ws หลุดแต่ยังพยายาม reconnect เข้า seat เดิมใน grace (debug overlay โชว์).
+ */
+export type ConnectionState =
+  | "idle"
+  | "connecting"
+  | "online"
+  | "reconnecting"
+  | "offline";
 
 /**
  * จำนวนผู้เล่นทั้งหมดในห้อง (รวมตัวเอง) จาก connection state + remoteCount — pure logic
- * เบื้องหลัง getNetDebugInfo() (P0-08 debug overlay). offline/connecting = 0 (ยังไม่มีห้องจริง).
+ * เบื้องหลัง getNetDebugInfo() (P0-08 debug overlay). เฉพาะ online เท่านั้นที่มีห้องจริง; อื่น ๆ
+ * (รวม reconnecting ที่ยังไม่กลับเข้าห้อง) = 0.
  */
 export function computePlayerCount(
   state: ConnectionState,

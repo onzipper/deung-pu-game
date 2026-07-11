@@ -137,6 +137,12 @@ export interface MapConfigInput {
   tileSize: TileSize;
   bounds: MapBounds;
   spawnPoint: SpawnPoint;
+  /**
+   * จุด safe camp ของ map (P1-07, §59.1 reconnect fallback / จุดวาป). **optional** — ไม่ระบุ →
+   * fallback = spawnPoint (ดู safeCampOf). ค่าเป็น tile coord (float ได้) เหมือน spawnPoint,
+   * ต้องเดินได้ (loader validate เหมือน spawnPoint). P0 Test Field ยังไม่ตั้ง = ใช้ spawnPoint.
+   */
+  safeCamp?: SpawnPoint;
   collision: CollisionLayerInput;
   props: PropSpawn[];
   mobPockets: MobPocket[];
@@ -152,9 +158,19 @@ export interface MapConfig {
   tileSize: TileSize;
   bounds: MapBounds;
   spawnPoint: SpawnPoint;
+  /** safe camp / reconnect fallback (P1-07, §59.1) — optional; ไม่มี → ใช้ spawnPoint (ดู safeCampOf) */
+  safeCamp?: SpawnPoint;
   collision: CollisionLayer;
   readonly props: readonly PropSpawn[];
   readonly mobPockets: readonly MobPocket[];
+}
+
+/**
+ * จุด safe camp ของ map (P1-07, §59.1 reconnect fallback) — map.safeCamp ถ้ามี, ไม่งั้น spawnPoint.
+ * server ใช้เป็นจุด spawn เมื่อ reconnect เกิน grace / ตำแหน่งเดิม invalid (§59.1).
+ */
+export function safeCampOf(map: MapConfig): SpawnPoint {
+  return map.safeCamp ?? map.spawnPoint;
 }
 
 /**

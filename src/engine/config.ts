@@ -537,6 +537,39 @@ export interface NetConfig {
 }
 
 /**
+ * Client auto-reconnect retry/backoff (P1-07, GS §59.1 · TA §6) — ตอน ws หลุด client พยายาม
+ * reconnect เข้า seat เดิม (reconnection token) ด้วย exponential backoff จนกว่าจะสำเร็จ/หมดสิทธิ์.
+ * ทุกค่าเป็น Design Knob. ควรตั้งให้ cumulative backoff ครอบ grace window (จะได้ retry ทันใน grace).
+ */
+export interface ReconnectClientRetryConfig {
+  /** จำนวนครั้งพยายาม reconnect อัตโนมัติก่อนยอมแพ้ (→ fresh join ที่ safe camp / offline) */
+  maxAttempts: number;
+  /** ดีเลย์ก่อน retry ครั้งแรก (ms) */
+  baseDelayMs: number;
+  /** ตัวคูณ backoff แบบ exponential ต่อครั้ง (≥ 1) */
+  backoffFactor: number;
+  /** เพดานดีเลย์ต่อครั้ง (ms) — กัน backoff บวมเกิน grace window */
+  maxDelayMs: number;
+}
+
+/**
+ * Reconnect knob (P1-07, GS §59.1 · TA §6) — **mirror client/server** เหมือน movementValidation:
+ *   server อ่าน `graceSeconds` (allowReconnection hold state), client อ่าน `clientRetry` (auto-reconnect).
+ * single source of truth = DEFAULT_ENGINE_CONFIG. graceSeconds ฝั่ง server override ได้ผ่าน env
+ * `RECONNECT_GRACE_SECONDS` **สำหรับ dev/test เท่านั้น** (เช่นตั้ง 2 วิ พิสูจน์ grace expiry ใน proof).
+ * ทุกค่าเป็น Design Knob.
+ */
+export interface ReconnectConfig {
+  /**
+   * server hold state หลัง disconnect ไม่ตั้งใจ (วินาที, §59.1 = 30). reconnect ทันในนี้ + ตำแหน่งเดิม
+   * valid → กลับ room/channel/ตำแหน่งเดิม; เกิน/room ปิด/ตำแหน่ง invalid → spawn ใหม่ที่ safe camp.
+   */
+  graceSeconds: number;
+  /** client auto-reconnect retry/backoff */
+  clientRetry: ReconnectClientRetryConfig;
+}
+
+/**
  * Movement validation knob (P1-02, TA §6/§7/§16.3) — server-authoritative movement.
  * **Mirror ทั้ง client/server**: server อ่านค่าเดียวกันจาก DEFAULT_ENGINE_CONFIG (ไฟล์นี้ compile
  * ร่วมกัน — single source of truth; client bootstrap ไม่ override movement knob เหล่านี้). ทุกค่าเป็น Design Knob.
@@ -636,6 +669,8 @@ export interface EngineConfig {
   mob: MobConfig;
   /** realtime/network knob (P0-07) */
   net: NetConfig;
+  /** reconnect knob (P1-07, GS §59.1) — grace seconds (server) + client retry/backoff (mirror) */
+  reconnect: ReconnectConfig;
   /** combat stub knob (P0-10) — hit test/dummy damage (offline)/hitbox debug/death feedback */
   combat: CombatStubConfig;
   /** server combat balance knob (P1-05, TA §15) — k/player stat/mob stat (PENDING OWNER) */
@@ -915,6 +950,20 @@ export const DEFAULT_NET_CONFIG: NetConfig = {
   remotePlayerAccentColor: 0x1b5fa8,
 };
 
+/**
+ * Reconnect defaults (P1-07, GS §59.1 = 30s grace). clientRetry backoff (0.5→1→2→4→8→8s) สะสม ≈ 23.5s
+ * ครอบ 30s grace → มีสิทธิ์ retry สำเร็จก่อนหมด grace. graceSeconds override ได้ผ่าน env (dev/test).
+ */
+export const DEFAULT_RECONNECT_CONFIG: ReconnectConfig = {
+  graceSeconds: 30, // §59.1 30s grace
+  clientRetry: {
+    maxAttempts: 6,
+    baseDelayMs: 500,
+    backoffFactor: 2,
+    maxDelayMs: 8000,
+  },
+};
+
 export const DEFAULT_ENGINE_CONFIG: EngineConfig = {
   backgroundColor: 0x1b1b23,
   backgroundAlpha: 1,
@@ -931,6 +980,7 @@ export const DEFAULT_ENGINE_CONFIG: EngineConfig = {
   movementValidation: DEFAULT_MOVEMENT_VALIDATION_CONFIG,
   mob: DEFAULT_MOB_CONFIG,
   net: DEFAULT_NET_CONFIG,
+  reconnect: DEFAULT_RECONNECT_CONFIG,
   combat: DEFAULT_COMBAT_STUB_CONFIG,
   combatBalance: DEFAULT_COMBAT_BALANCE_CONFIG,
   combatFeel: DEFAULT_COMBAT_FEEL_CONFIG,
@@ -968,6 +1018,8 @@ export function createEngineConfig(
     stressHarness: overrides.stressHarness ?? DEFAULT_ENGINE_CONFIG.stressHarness,
     // net = shallow-merge (override บาง knob เช่น serverUrl จาก env โดยคงค่าอื่น)
     net: { ...DEFAULT_ENGINE_CONFIG.net, ...overrides.net },
+    // reconnect = shallow-merge (override เช่น graceSeconds โดยคง clientRetry เดิม)
+    reconnect: { ...DEFAULT_ENGINE_CONFIG.reconnect, ...overrides.reconnect },
     // debugOverlay = shallow-merge (override เช่น defaultVisible โดยคง poll interval เดิม)
     debugOverlay: { ...DEFAULT_ENGINE_CONFIG.debugOverlay, ...overrides.debugOverlay },
   };

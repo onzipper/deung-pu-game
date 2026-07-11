@@ -178,16 +178,17 @@ function parseSpawnPoint(
   v: unknown,
   bounds: MapBounds,
   blockedSet: ReadonlySet<number>,
+  path = "spawnPoint",
 ): SpawnPoint {
-  const o = asRecord(v, "spawnPoint");
-  const x = reqFinite(o.x, "spawnPoint.x");
-  const y = reqFinite(o.y, "spawnPoint.y");
+  const o = asRecord(v, path);
+  const x = reqFinite(o.x, `${path}.x`);
+  const y = reqFinite(o.y, `${path}.y`);
   // spawn เป็น tile coord (float ได้) → snap ก่อนเช็ค cell.
   const cell = snapToTile({ tx: x, ty: y });
-  requireIntTileInBounds(cell, "spawnPoint", bounds);
+  requireIntTileInBounds(cell, path, bounds);
   if (blockedSet.has(packTile(cell.tx, cell.ty, bounds.width))) {
     fail(
-      `spawnPoint (${x},${y}) → cell (${cell.tx},${cell.ty}) ทับ collision — ` +
+      `${path} (${x},${y}) → cell (${cell.tx},${cell.ty}) ทับ collision — ` +
         `จุดเกิดต้องเดินได้`,
     );
   }
@@ -255,6 +256,11 @@ export function loadMapConfig(raw: unknown): MapConfig {
 
   const { layer: collision, blockedSet } = parseCollision(o.collision, bounds);
   const spawnPoint = parseSpawnPoint(o.spawnPoint, bounds, blockedSet);
+  // P1-07 (§59.1): safe camp optional — validate เหมือน spawnPoint (ในขอบเขต + เดินได้) ถ้าระบุ.
+  const safeCamp =
+    o.safeCamp !== undefined
+      ? parseSpawnPoint(o.safeCamp, bounds, blockedSet, "safeCamp")
+      : undefined;
 
   const rawProps = asArray(o.props, "props");
   const props = rawProps.map((p, i) => parseProp(p, `props[${i}]`));
@@ -276,6 +282,7 @@ export function loadMapConfig(raw: unknown): MapConfig {
     tileSize,
     bounds,
     spawnPoint,
+    ...(safeCamp !== undefined ? { safeCamp } : {}),
     collision,
     props,
     mobPockets,

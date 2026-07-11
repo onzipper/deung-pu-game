@@ -132,7 +132,12 @@ export async function createEngine(
     remotes = createRemotePlayerManager(scene, config, app.renderer);
     const initial = localSnapshot();
     net = createNetClient(
-      { serverUrl: config.net.serverUrl, roomName: config.net.roomName },
+      {
+        serverUrl: config.net.serverUrl,
+        roomName: config.net.roomName,
+        // P1-07: auto-reconnect retry/backoff (§59.1) — mirror knob จาก config.reconnect
+        retry: config.reconnect.clientRetry,
+      },
       { mapId: DEFAULT_MAP_ID, channelId: config.net.channelId, ...initial },
       {
         onPlayerAdd: (id, snap) => remotes?.onPlayerAdd(id, snap),

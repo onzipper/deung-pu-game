@@ -5,9 +5,20 @@
 // **Graceful offline (สำคัญ):** connect เป็น best-effort/async — ถ้า server ไม่รัน/ล้ม
 //   → status = "offline", log, **ไม่ throw** เพื่อให้ /game เล่น solo ต่อได้ (owner เปิดดูโดยไม่ start server).
 //
-// P0 ยังไม่ทำ: reconnect 30s grace (tech §6/§59.1), auth/JWT, party sync — จด TODO ชี้ spec.
+// P1-07 reconnect 30s grace (GS §59.1 · TA §6): เก็บ reconnectionToken หลัง join → ตอน ws หลุดแบบ
+//   ไม่ตั้งใจ (onLeave code ≠ consented) เข้า status "reconnecting" แล้ว auto-reconnect เข้า seat เดิม
+//   ด้วย exponential backoff (reconnectBackoffMs/shouldRetryReconnect, pure). สำเร็จ = re-wire เงียบ ๆ
+//   (resume ตำแหน่งเดิมจาก server hold); หมดสิทธิ์/เกิน grace = fresh join ที่ safe camp (joinOptions เดิม).
+//   re-wire = reset entity ที่ track ไว้ก่อน (กัน remote/mob ซ้ำจาก onAdd immediate รอบใหม่).
+//
+// P0 ยังไม่ทำ: auth/JWT, party sync — จด TODO ชี้ spec.
 
 import { Client, getStateCallbacks, type Room } from "colyseus.js";
+import {
+  reconnectBackoffMs,
+  shouldRetryReconnect,
+} from "@/shared/reconnect";
+import type { ReconnectClientRetryConfig } from "@/engine/config";
 import {
   MAP_ROOM_NAME,
   MSG_CAST_SKILL,
@@ -101,6 +112,16 @@ function mobSnapshotOf(
 export interface NetClientConfig {
   serverUrl: string;
   roomName: string;
+  /** P1-07: client auto-reconnect retry/backoff knob (จาก config.reconnect.clientRetry) */
+  retry: ReconnectClientRetryConfig;
+}
+
+/** colyseus WebSocket close code สำหรับ "consented leave" (client เรียก leave() ตั้งใจ) — default 4000. */
+const WS_CLOSE_CONSENTED = 4000;
+
+/** await ได้ (cancel เองด้วย disposed check ฝั่ง caller) — ใช้เว้นช่วง backoff ระหว่าง reconnect. */
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 export interface NetClientHandle {
@@ -156,11 +177,32 @@ export function createNetClient(
 
   let room: Room | null = null;
   let disposed = false;
+  // P1-07: token กลับเข้า seat เดิม (อัปเดตทุกครั้งที่ join/reconnect สำเร็จ) + flag กัน reconnect ซ้อน.
+  let reconnectionToken: string | null = null;
+  let reconnecting = false;
+  // P1-07: entity ที่ track ไว้ (สำหรับ reset ก่อน re-wire — กัน onAdd(immediate) รอบใหม่ทำ remote/mob ซ้ำ).
+  const knownRemotes = new Set<string>();
+  const knownMobs = new Set<string>();
 
   const client = new Client(config.serverUrl);
 
+  /**
+   * P1-07: เคลียร์ entity ที่ track ไว้ (เรียก caller ให้ลบ) ก่อน re-wire room ใหม่ตอน reconnect —
+   * กัน remote player / mob ค้างซ้ำเมื่อ onAdd(immediate) ยิงใหม่ทั้งชุดจาก full state sync.
+   */
+  const resetTrackedEntities = (): void => {
+    for (const id of knownRemotes) handlers.onPlayerRemove(id);
+    knownRemotes.clear();
+    status.remoteCount = 0;
+    for (const id of knownMobs) handlers.onMobRemove?.(id);
+    knownMobs.clear();
+  };
+
   const wire = (joinedRoom: Room): void => {
+    // re-wire (reconnect/fresh join): ล้าง entity เดิมก่อน กันซ้ำ (first wire = no-op, set ว่าง).
+    resetTrackedEntities();
     room = joinedRoom;
+    reconnectionToken = joinedRoom.reconnectionToken; // P1-07: เก็บ token ล่าสุดไว้ reconnect
     status.state = "online";
     status.roomId = joinedRoom.roomId;
     status.selfSessionId = joinedRoom.sessionId;
@@ -178,6 +220,7 @@ export function createNetClient(
       (player: Record<string, unknown> & { tx: number; ty: number; direction: string; anim: string }, sessionId: string) => {
         if (sessionId === joinedRoom.sessionId) return;
         status.remoteCount += 1;
+        knownRemotes.add(sessionId); // P1-07: track เพื่อ reset ตอน reconnect
         handlers.onPlayerAdd(sessionId, snapshotOf(player));
         // per-player change → ขยับ remote entity (position/dir/anim)
         $(player).onChange(() => {
@@ -190,12 +233,14 @@ export function createNetClient(
     $(joinedRoom.state).players.onRemove((_player: unknown, sessionId: string) => {
       if (sessionId === joinedRoom.sessionId) return;
       status.remoteCount = Math.max(0, status.remoteCount - 1);
+      knownRemotes.delete(sessionId);
       handlers.onPlayerRemove(sessionId);
     });
 
     // P1-03: mobs map (server-authoritative) → onAdd/onChange/onRemove → mob view manager
     $(joinedRoom.state).mobs.onAdd(
       (mob: Record<string, unknown> & { mobId: string; mobType: string; tx: number; ty: number; state: string; hp: number }) => {
+        knownMobs.add(mob.mobId); // P1-07: track เพื่อ reset ตอน reconnect
         handlers.onMobAdd?.(mobSnapshotOf(mob));
         $(mob).onChange(() => {
           handlers.onMobChange?.(mobSnapshotOf(mob));
@@ -204,6 +249,7 @@ export function createNetClient(
       true, // immediate: มอนที่มีอยู่ก่อนเรา join
     );
     $(joinedRoom.state).mobs.onRemove((_mob: unknown, mobId: string) => {
+      knownMobs.delete(mobId);
       handlers.onMobRemove?.(mobId);
     });
 
@@ -233,13 +279,80 @@ export function createNetClient(
       status.mapId = v;
     });
 
-    joinedRoom.onLeave(() => {
+    joinedRoom.onLeave((code: number) => {
       if (disposed) return;
-      status.state = "offline";
+      // P1-07: consented leave (เราเรียก leave() เอง) → offline จริง. หลุดไม่ตั้งใจ (code ≠ 4000) →
+      // พยายาม auto-reconnect เข้า seat เดิม (server hold state ใน grace, §59.1).
+      if (code === WS_CLOSE_CONSENTED || reconnectionToken === null) {
+        status.state = "offline";
+        return;
+      }
+      void beginReconnect();
     });
     joinedRoom.onError((code: number, message?: string) => {
       status.lastError = `room error ${code}: ${message ?? ""}`;
     });
+  };
+
+  /**
+   * P1-07: ws หลุดไม่ตั้งใจ → auto-reconnect เข้า seat เดิมด้วย exponential backoff (§59.1 grace window).
+   * สำเร็จ → wire room ใหม่ (resume ตำแหน่งเดิมที่ server hold, resetTrackedEntities กันซ้ำ).
+   * หมดสิทธิ์/เกิน grace (reconnect throw ทุกครั้ง) → fresh join ที่ safe camp (joinOptions เดิม, §59.1).
+   */
+  const beginReconnect = async (): Promise<void> => {
+    if (reconnecting || disposed) return;
+    reconnecting = true;
+    status.state = "reconnecting";
+    const token = reconnectionToken;
+    room = null;
+
+    let attempt = 0;
+    while (!disposed && token !== null && shouldRetryReconnect(attempt, config.retry)) {
+      await delay(reconnectBackoffMs(attempt, config.retry));
+      if (disposed) {
+        reconnecting = false;
+        return;
+      }
+      attempt += 1;
+      try {
+        const rejoined = await client.reconnect<unknown>(token);
+        if (disposed) {
+          void rejoined.leave();
+          reconnecting = false;
+          return;
+        }
+        wire(rejoined); // สำเร็จ → resume เงียบ ๆ (status กลับเป็น online ใน wire)
+        reconnecting = false;
+        return;
+      } catch (err) {
+        status.lastError = err instanceof Error ? err.message : String(err);
+        // ลองใหม่รอบถัดไป (backoff เพิ่มขึ้น) จนกว่าจะหมด maxAttempts → fresh join ด้านล่าง
+      }
+    }
+
+    reconnecting = false;
+    if (disposed) return;
+    // เกิน grace / seat หาย → join ใหม่ที่ safe camp (server resolveSpawnPosition การันตีจุดลงได้, §59.1)
+    void freshJoin();
+  };
+
+  /** P1-07: fresh join หลัง reconnect ล้มเหลว — spawn ที่ safe camp (joinOptions เดิม), ไม่ throw. */
+  const freshJoin = async (): Promise<void> => {
+    status.state = "connecting";
+    try {
+      const joined = await client.joinOrCreate<unknown>(
+        config.roomName ?? MAP_ROOM_NAME,
+        joinOptions,
+      );
+      if (disposed) {
+        void joined.leave();
+        return;
+      }
+      wire(joined);
+    } catch (err) {
+      status.state = "offline";
+      status.lastError = err instanceof Error ? err.message : String(err);
+    }
   };
 
   // fire-and-forget connect — ล้มเหลว = offline, ไม่ throw (graceful solo)
@@ -285,6 +398,7 @@ export function createNetClient(
       if (disposed) return;
       disposed = true;
       status.state = "offline";
+      reconnectionToken = null; // P1-07: กัน onLeave trigger auto-reconnect หลังตั้งใจปิด
       if (room) void room.leave();
       room = null;
     },

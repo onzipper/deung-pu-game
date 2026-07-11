@@ -9,6 +9,7 @@ import {
   isWalkableTile,
   isWithinBounds,
   packTile,
+  safeCampOf,
   type MapConfigInput,
 } from "@/engine/map/types";
 
@@ -182,5 +183,33 @@ describe("P0_TEST_FIELD — ข้อมูลจริงผ่าน validatio
     expect(isBlockedTile(map, 6, 4)).toBe(true); // กำแพง
     expect(isBlockedTile(map, 17, 17)).toBe(true); // บ่อน้ำ
     expect(isBlockedTile(map, 10, 5)).toBe(true); // หินเดี่ยว
+  });
+});
+
+describe("safeCamp (P1-07, §59.1) — optional field + fallback", () => {
+  test("ไม่ระบุ safeCamp → safeCampOf = spawnPoint", () => {
+    const map = loadMapConfig(P0_TEST_FIELD);
+    expect(map.safeCamp).toBeUndefined();
+    expect(safeCampOf(map)).toEqual(map.spawnPoint);
+  });
+
+  test("ระบุ safeCamp เดินได้ → ผ่าน + safeCampOf คืนค่านั้น", () => {
+    const cfg = validConfig();
+    cfg.safeCamp = { x: 8.5, y: 8.5 };
+    const map = loadMapConfig(cfg);
+    expect(map.safeCamp).toEqual({ x: 8.5, y: 8.5 });
+    expect(safeCampOf(map)).toEqual({ x: 8.5, y: 8.5 });
+  });
+
+  test("safeCamp ทับ collision → throw (validate เหมือน spawnPoint)", () => {
+    const cfg = validConfig();
+    cfg.safeCamp = { x: 2.5, y: 2.5 }; // อยู่ใน blockedRect (2,2)+2×2
+    expect(() => loadMapConfig(cfg)).toThrow(MapConfigError);
+  });
+
+  test("safeCamp หลุดขอบ → throw", () => {
+    const cfg = validConfig();
+    cfg.safeCamp = { x: 99, y: 99 };
+    expect(() => loadMapConfig(cfg)).toThrow(MapConfigError);
   });
 });
