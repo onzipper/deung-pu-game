@@ -2,7 +2,7 @@
 // Plain TS only — ห้าม import React / Next.js / pixi.js runtime ที่นี่ (type-only ได้ถ้าจำเป็น).
 // ทุกค่าที่ปรับได้ต้องอยู่ในนี้ (Design Knob discipline, AI.md §กฎเหล็ก) — ห้าม hardcode กระจายในโค้ด render.
 
-import { MAP_ROOM_NAME } from "@/shared/net-protocol";
+import { DEFAULT_CHANNEL_ID, MAP_ROOM_NAME } from "@/shared/net-protocol";
 
 /** ขนาด diamond tile ของ iso grid (locked ~64×32, tech §17). ยังไม่ใช้จริงใน P0-01 — วางไว้ให้ layer ถัดไป. */
 export interface TileSize {
@@ -142,6 +142,12 @@ export interface NetConfig {
   serverUrl: string;
   /** ชื่อ room (ต้องตรง server) — default = MAP_ROOM_NAME */
   roomName: string;
+  /**
+   * channel identity (P0-08, P0_SCOPE_LOCK §4.7) — ส่งใน joinOptions ให้ server ใช้
+   * filterBy(['mapId','channelId']) แยก room instance ตาม channel; default = DEFAULT_CHANNEL_ID.
+   * P0 ยังไม่มี UI เลือก channel/auto-assign (P1).
+   */
+  channelId: string;
   /** อัตราส่ง position ขึ้น server (Hz) — tech §6 แนะนำ 10–15Hz */
   positionSyncHz: number;
   /** ระยะ (tile) ที่ต้องขยับเกินถึงจะส่ง — กัน spam idle frame */
@@ -260,6 +266,7 @@ export const DEFAULT_NET_CONFIG: NetConfig = {
   enabled: true,
   serverUrl: "ws://localhost:2567",
   roomName: MAP_ROOM_NAME,
+  channelId: DEFAULT_CHANNEL_ID,
   positionSyncHz: 12, // 10–15Hz (tech §6) — 12 = กลางช่วง
   sendEpsilon: 0.02, // tile — ต่ำกว่านี้ = ผู้เล่นแทบไม่ขยับ, ไม่ต้องส่ง
   remoteLerp: 0.2, // นุ่มพอสำหรับ iso movement ที่ 12Hz broadcast

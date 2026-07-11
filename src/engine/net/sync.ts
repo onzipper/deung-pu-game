@@ -77,3 +77,17 @@ export function toMoveMessage(
 ): MoveMessage {
   return { tx, ty, direction, anim };
 }
+
+/** สถานะการเชื่อมต่อ net (shared shape — net-client.ts alias เป็น NetConnectionState). */
+export type ConnectionState = "idle" | "connecting" | "online" | "offline";
+
+/**
+ * จำนวนผู้เล่นทั้งหมดในห้อง (รวมตัวเอง) จาก connection state + remoteCount — pure logic
+ * เบื้องหลัง getNetDebugInfo() (P0-08 debug overlay). offline/connecting = 0 (ยังไม่มีห้องจริง).
+ */
+export function computePlayerCount(
+  state: ConnectionState,
+  remoteCount: number,
+): number {
+  return state === "online" ? remoteCount + 1 : 0;
+}

@@ -1,6 +1,6 @@
-// Net client — colyseus.js glue (P0-07). Plain TS + colyseus.js เท่านั้น (ห้าม React/Next/pixi).
-// หน้าที่: connect → joinOrCreate MapRoom → wire schema callbacks → emit domain event ให้ caller
-//   (remote-player-manager) + ส่ง local position ขึ้น server. calc/pure อยู่ใน sync.ts.
+// Net client — colyseus.js glue (P0-07, channel debug API P0-08). Plain TS + colyseus.js เท่านั้น (ห้าม React/Next/pixi).
+// หน้าที่: connect → joinOrCreate MapRoom (mapId+channelId ใน joinOptions) → wire schema callbacks →
+//   emit domain event ให้ caller (remote-player-manager) + ส่ง local position ขึ้น server. calc/pure อยู่ใน sync.ts.
 //
 // **Graceful offline (สำคัญ):** connect เป็น best-effort/async — ถ้า server ไม่รัน/ล้ม
 //   → status = "offline", log, **ไม่ throw** เพื่อให้ /game เล่น solo ต่อได้ (owner เปิดดูโดยไม่ start server).
@@ -15,16 +15,19 @@ import {
   type MoveMessage,
   type PlayerSnapshot,
 } from "@/shared/net-protocol";
-import { coerceAnim, coerceDirection } from "@/engine/net/sync";
+import { coerceAnim, coerceDirection, computePlayerCount, type ConnectionState } from "@/engine/net/sync";
 
-/** สถานะการเชื่อมต่อ (P0-11 debug overlay อ่านผ่าน EngineHandle.net.status). */
-export type NetConnectionState = "idle" | "connecting" | "online" | "offline";
+/**
+ * สถานะการเชื่อมต่อ (P0-11 debug overlay อ่านผ่าน EngineHandle.net.getNetDebugInfo()).
+ * alias ของ ConnectionState (sync.ts) — pure logic (computePlayerCount) ใช้ type เดียวกัน.
+ */
+export type NetConnectionState = ConnectionState;
 
 /** live snapshot ของสถานะ net — mutate in place, caller ถือ reference อ่านได้ทุก frame. */
 export interface NetStatus {
   state: NetConnectionState;
   serverUrl: string;
-  /** room/channel/map จริงจาก server state (placeholder P0: CH.1) — null ก่อน join สำเร็จ */
+  /** room/channel/map จริงจาก server state (channelId = P0-08 first-class filter key) — null ก่อน join สำเร็จ */
   roomId: string | null;
   channelId: string | null;
   mapId: string | null;
@@ -32,6 +35,19 @@ export interface NetStatus {
   /** จำนวนผู้เล่นอื่น (ไม่รวมตัวเอง) ที่กำลัง render */
   remoteCount: number;
   lastError: string | null;
+}
+
+/**
+ * shape เรียบสำหรับ P0-11 debug overlay (P0-08) — รวม ids + จำนวนผู้เล่นทั้งหมดในห้อง (รวมตัวเอง)
+ * แทนที่ caller จะต้องคำนวณ remoteCount+1 เอง.
+ */
+export interface NetDebugInfo {
+  status: NetConnectionState;
+  mapId: string | null;
+  roomId: string | null;
+  channelId: string | null;
+  /** จำนวนผู้เล่นทั้งหมดที่เห็นในห้องนี้ (รวมตัวเอง) — 0 ถ้ายังไม่ online */
+  playerCount: number;
 }
 
 /** event ที่ net-client แจ้ง caller (remote-player-manager สร้าง/ขยับ/ลบ entity). */
@@ -47,8 +63,10 @@ export interface NetClientConfig {
 }
 
 export interface NetClientHandle {
-  /** live status (อ่านอย่างเดียว) — สำหรับ debug overlay */
+  /** live status (อ่านอย่างเดียว) — raw fields, mutate in place ทุก frame */
   readonly status: Readonly<NetStatus>;
+  /** shape เรียบสำหรับ debug overlay (P0-11) — คำนวณ playerCount ให้แล้ว */
+  getNetDebugInfo(): NetDebugInfo;
   /** ส่งตำแหน่ง local player ขึ้น server (no-op ถ้ายังไม่ online) */
   sendMove(msg: MoveMessage): void;
   /** ออกจาก room + ปิด connection (idempotent) */
@@ -169,6 +187,15 @@ export function createNetClient(
 
   return {
     status,
+    getNetDebugInfo(): NetDebugInfo {
+      return {
+        status: status.state,
+        mapId: status.mapId,
+        roomId: status.roomId,
+        channelId: status.channelId,
+        playerCount: computePlayerCount(status.state, status.remoteCount),
+      };
+    },
     sendMove(msg: MoveMessage): void {
       if (!room || status.state !== "online") return;
       room.send(MSG_MOVE, msg);

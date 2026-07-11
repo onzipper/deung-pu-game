@@ -4,6 +4,7 @@ import {
   createEngineConfig,
   resolveResolution,
 } from "@/engine/config";
+import { DEFAULT_CHANNEL_ID } from "@/shared/net-protocol";
 
 describe("engine config", () => {
   test("default tile size = diamond 64×32 (locked, tech §17)", () => {
@@ -34,6 +35,16 @@ describe("engine config", () => {
   test("createEngineConfig() ไม่ mutate DEFAULT_ENGINE_CONFIG", () => {
     createEngineConfig({ tileSize: { width: 999 } as never });
     expect(DEFAULT_ENGINE_CONFIG.tileSize).toEqual({ width: 64, height: 32 });
+  });
+
+  test("net.channelId default = DEFAULT_CHANNEL_ID (P0-08, ไม่ hardcode ซ้ำ)", () => {
+    expect(DEFAULT_ENGINE_CONFIG.net.channelId).toBe(DEFAULT_CHANNEL_ID);
+  });
+
+  test("createEngineConfig() override net.channelId โดยคง net knob อื่น (shallow-merge)", () => {
+    const cfg = createEngineConfig({ net: { ...DEFAULT_ENGINE_CONFIG.net, channelId: "CH.2" } });
+    expect(cfg.net.channelId).toBe("CH.2");
+    expect(cfg.net.serverUrl).toBe(DEFAULT_ENGINE_CONFIG.net.serverUrl);
   });
 
   test("resolveResolution ใช้ค่า config ถ้ากำหนด, มิฉะนั้น fallback devicePixelRatio", () => {

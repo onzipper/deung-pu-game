@@ -3,10 +3,11 @@ import {
   advanceSendTimer,
   coerceAnim,
   coerceDirection,
+  computePlayerCount,
   snapshotChanged,
   toMoveMessage,
 } from "@/engine/net/sync";
-import type { PlayerSnapshot } from "@/shared/net-protocol";
+import type { JoinOptions, PlayerSnapshot } from "@/shared/net-protocol";
 import {
   DEFAULT_CHANNEL_ID,
   DEFAULT_MAP_ID,
@@ -99,5 +100,47 @@ describe("net sync — toMoveMessage + protocol constants", () => {
     expect(MAP_ROOM_NAME).toBe("map_room");
     expect(DEFAULT_MAP_ID).toBe("p0-test-field");
     expect(DEFAULT_CHANNEL_ID).toBe("CH.1");
+  });
+});
+
+describe("net protocol — JoinOptions มี channelId เป็น first-class field (P0-08, §4.7)", () => {
+  test("JoinOptions รับ mapId + channelId คู่กัน (compile-time shape + runtime round-trip)", () => {
+    const options: JoinOptions = {
+      mapId: DEFAULT_MAP_ID,
+      channelId: DEFAULT_CHANNEL_ID,
+      tx: 1,
+      ty: 2,
+      direction: "S",
+      anim: "idle",
+    };
+    expect(options.mapId).toBe(DEFAULT_MAP_ID);
+    expect(options.channelId).toBe(DEFAULT_CHANNEL_ID);
+  });
+
+  test("channel ต่างกัน (map เดียวกัน) → payload join options ต่างกัน (input ที่ filterBy ใช้แยก room)", () => {
+    const a: JoinOptions = {
+      mapId: DEFAULT_MAP_ID,
+      channelId: "CH.1",
+      tx: 0,
+      ty: 0,
+      direction: "S",
+      anim: "idle",
+    };
+    const b: JoinOptions = { ...a, channelId: "CH.2" };
+    expect(a.mapId).toBe(b.mapId);
+    expect(a.channelId).not.toBe(b.channelId);
+  });
+});
+
+describe("net sync — computePlayerCount (debug overlay, P0-08)", () => {
+  test("online → remoteCount + 1 (รวมตัวเอง)", () => {
+    expect(computePlayerCount("online", 0)).toBe(1);
+    expect(computePlayerCount("online", 3)).toBe(4);
+  });
+
+  test("idle/connecting/offline → 0 (ยังไม่มีห้องจริง)", () => {
+    expect(computePlayerCount("idle", 5)).toBe(0);
+    expect(computePlayerCount("connecting", 5)).toBe(0);
+    expect(computePlayerCount("offline", 5)).toBe(0);
   });
 });

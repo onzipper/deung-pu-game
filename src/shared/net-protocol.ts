@@ -1,4 +1,4 @@
-// Shared realtime protocol (P0-07) — plain TS, **ไม่มี runtime dependency**.
+// Shared realtime protocol (P0-07, channelId P0-08) — plain TS, **ไม่มี runtime dependency**.
 // import ได้ทั้ง client (`@/shared/net-protocol`) และ server (relative `../src/shared/net-protocol`).
 // วางที่ src/shared/ เพราะ client (Next) ใช้ alias `@/` อยู่แล้ว; server มี own tsconfig ที่ map `@/*` เช่นกัน.
 //
@@ -6,7 +6,8 @@
 // รูปร่าง payload (wire shape). ห้ามใส่ pixi/colyseus/engine glue ที่นี่ (จะทำให้ทั้งสองฝั่งพัง import).
 //
 // P0 scope (P0_SCOPE_LOCK §4.6/§4.7): join/leave · position sync · other players visible ·
-// minimal room state · channelId placeholder. ยังไม่ทำ reconnect/party/auth/persistence.
+// minimal room state · channelId เป็น first-class filter key (map+channel = room instance เดียว,
+// ยังไม่มี auto-assign). ยังไม่ทำ reconnect/party/auth/persistence.
 
 import type { Direction } from "@/engine/movement/direction";
 
@@ -26,8 +27,10 @@ export const MAP_ROOM_NAME = "map_room";
 export const DEFAULT_MAP_ID = "p0-test-field";
 
 /**
- * channelId placeholder (P0_SCOPE_LOCK §4.7). P0 = fixed "CH.1" ใน room state.
- * P1: auto-assign ตาม load/population (tech §6, RUNTIME §4) — architecture ไม่ผูก map↔room ถาวร.
+ * default channelId (P0_SCOPE_LOCK §4.7, P0-08). client ส่งค่านี้ใน JoinOptions.channelId
+ * เว้นแต่ override (NetConfig) — server ใช้ค่าจาก options จริง (ไม่ hardcode ซ้ำฝั่ง server).
+ * P0 ยังไม่มี UI เลือก channel/auto-assign (P1, tech §6, RUNTIME §4) — architecture ไม่ผูก map↔room ถาวร
+ * (พิสูจน์ด้วย filterBy(['mapId','channelId']): map+channel เดียวกัน = room เดียวกัน, channel ต่างกัน = room ต่างกัน).
  */
 export const DEFAULT_CHANNEL_ID = "CH.1";
 
@@ -49,9 +52,14 @@ export interface MoveMessage {
 /**
  * option ที่ client ส่งตอน joinOrCreate → server ใช้ spawn player ตำแหน่งถูกตั้งแต่เฟรมแรก
  * (กัน flash ที่ default tile). mapId เผื่อ P1 แยกหลาย map/room.
+ *
+ * channelId (P0-08, P0_SCOPE_LOCK §4.7): ส่งจาก client เพื่อให้ server ใช้
+ * `filterBy(['mapId','channelId'])` แยก room instance — map เดียวกัน + channel ต่างกัน
+ * = คนละ room instance, map+channel เดียวกัน = room เดียวกันเสมอ (ยังไม่มี auto-assign, P1).
  */
 export interface JoinOptions {
   mapId: string;
+  channelId: string;
   tx: number;
   ty: number;
   direction: WirePlayerDirection;

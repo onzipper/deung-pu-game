@@ -30,7 +30,7 @@ export interface EngineHandle {
   /**
    * realtime net client (P0-07) — null ถ้า config.net.enabled=false.
    * connect เป็น best-effort/async: status.state = connecting → online/offline.
-   * P0-11 debug overlay อ่าน `net.status` (roomId/channelId/mapId/remoteCount).
+   * P0-11 debug overlay อ่านผ่าน `net.getNetDebugInfo()` (status/mapId/roomId/channelId/playerCount).
    */
   readonly net: NetClientHandle | null;
   /** เก็บกวาดครบ: ticker, resize observer, canvas, GPU resources */
@@ -94,7 +94,7 @@ export async function createEngine(
     const initial = localSnapshot();
     net = createNetClient(
       { serverUrl: config.net.serverUrl, roomName: config.net.roomName },
-      { mapId: DEFAULT_MAP_ID, ...initial },
+      { mapId: DEFAULT_MAP_ID, channelId: config.net.channelId, ...initial },
       {
         onPlayerAdd: (id, snap) => remotes?.onPlayerAdd(id, snap),
         onPlayerChange: (id, snap) => remotes?.onPlayerChange(id, snap),
