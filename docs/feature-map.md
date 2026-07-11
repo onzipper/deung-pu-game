@@ -21,6 +21,7 @@
 | Skill data model (config-driven) | GS §50.1 (canonical fields) · TA §16.1 | (planned, P1 — full damage formula tech §15.2) | (planned) |
 | P0-09 Dummy Mob Pocket Spawn (fixed pocket + random point, wander, active cap) | P0 §4.8 · GS §57.8 · TA §18.1 · density spec | `src/game/mob/rng.ts`, `src/game/mob/spawn.ts`, `src/game/mob/wander.ts`, `src/game/mob/manifest.ts`, `src/game/mob/placeholder.ts`, `src/game/mob/manager.ts`, `src/engine/config.ts` (MobConfig), `src/engine/runtime/app.ts` | `tests/game-mob-rng.test.ts`, `tests/game-mob-spawn.test.ts`, `tests/game-mob-wander.test.ts` |
 | Performance guardrails (quality tiers, pooling) | GS §17.10 · TA §11 | `src/engine/` (planned) | (planned) |
+| P0-12 P0 Handoff Check (audit 12/12 Done Definition items, ห้ามแก้ production code) | P0 §6 | ตรวจข้าม P0-01→11 ทั้งหมด (ไม่มีไฟล์ source ใหม่) — หลักฐาน: gate รัน (`npm test`/lint/build/server tsc) + live 2/3-client colyseus.js proof script (ชั่วคราว, รันแล้วลบ ไม่ commit) + scope grep audit | ทุกเทสต์ที่มีอยู่แล้ว (272/272 เขียว) — ไม่มีเทสต์ใหม่ (audit-only issue) |
 
 ## P1+ (ยังไม่เริ่ม — ดู TA §12 สำหรับ phase plan)
 
