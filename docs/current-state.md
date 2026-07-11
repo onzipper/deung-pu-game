@@ -21,7 +21,7 @@ Project bootstrap เสร็จ: repo ใหม่ (`onzipper/deung-pu-game`) 
 
 1. ยังไม่มีโค้ดเกม — **owner สั่ง "ยังไม่แก้โค้ด อยู่ช่วง tune docs"** — P0 เริ่มเมื่อ owner เคาะ
 2. ค้าง: tech ร่างตัวเลข balance P0 (ค่า k, ตาราง skill 5 อาชีพ) เสนอเป็น spec update ให้ owner เคาะ (decision-index)
-3. ค้าง: ClickUp skill + แนวทาง token optimization — กำลังคุยกับ owner ยังไม่ implement
+3. ค้าง: ClickUp skill — owner เคาะแนวทางแล้ว (a+b+c, ดู decision-index) แต่**สั่ง hold ยังไม่ให้ทำ** — รอ owner สั่งเริ่ม + เคาะว่าจะใช้ list ไหน
 4. PixiJS 8 ยังไม่ได้ติดตั้ง (จะติดตั้งตอนเริ่ม P0)
 5. ภาพ ref กลุ่ม B (04–11) เป็น painterly — owner อาจ gen ใหม่เป็น pixel art มาแทน
 
