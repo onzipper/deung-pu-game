@@ -107,6 +107,7 @@ export function DebugOverlay({ getHandle }: DebugOverlayProps) {
           <div>roomId: {info.net.roomId ?? "-"}</div>
           <div>channelId: {info.net.channelId ?? "-"}</div>
           <div>players: {info.net.playerCount}</div>
+          <div>corrections: {info.net.correctionCount}</div>
         </div>
       ) : (
         <div className="text-white/50">waiting engine…</div>

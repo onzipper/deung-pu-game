@@ -38,6 +38,7 @@ export const IDLE_NET_DEBUG_INFO: NetDebugInfo = {
   roomId: null,
   channelId: null,
   playerCount: 0,
+  correctionCount: 0,
 };
 
 /** ประกอบ EngineDebugInfo จาก raw input — pure, ปัดเลขที่นี่ที่เดียว (ห้ามปัดกระจายที่อื่น). */

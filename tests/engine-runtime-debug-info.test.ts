@@ -8,6 +8,7 @@ const onlineNet: NetDebugInfo = {
   roomId: "room1",
   channelId: "CH.1",
   playerCount: 2,
+  correctionCount: 0,
 };
 
 describe("debug-info — roundTile (P0-11)", () => {
@@ -56,6 +57,7 @@ describe("debug-info — buildDebugInfo shape (P0-11, P0 §4.10)", () => {
       roomId: null,
       channelId: null,
       playerCount: 0,
+      correctionCount: 0,
     });
   });
 });

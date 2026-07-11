@@ -49,6 +49,12 @@ export interface LocalPlayerHandle {
    * (attackFrameDuration × attackFrames จาก PlayerAnimationConfig) แล้วกลับ idle/walk เอง (P0-10).
    */
   triggerAttack(): void;
+  /**
+   * snap local player ไปตำแหน่ง authoritative จาก server (P1-02 reconcile, TA §16.3).
+   * ใช้เมื่อได้ MSG_POSITION_CORRECTION — เขียนทับ position + ย้าย entity + snap กล้อง.
+   * reconcile แบบง่าย (snap เฉย ๆ, ไม่ rewind-replay input) — พอสำหรับ P1-02.
+   */
+  applyCorrection(tx: number, ty: number): void;
   /** เรียกทุก frame ด้วย dt เป็น "วินาที" (ticker.deltaMS/1000) */
   update(dtSeconds: number): void;
   /** ถอด keyboard listener + ลบ entity ออกจาก scene + ปล่อย texture */
@@ -118,6 +124,14 @@ export function createLocalPlayer(
 
     triggerAttack(): void {
       attackElapsedMs = 0; // update() รอบถัดไปจะ lock animation="attack" ทันที
+    },
+
+    applyCorrection(tx: number, ty: number): void {
+      // P1-02: server สั่ง snap กลับ — เขียนทับ position ทันที (ไม่ interpolate: correction = truth)
+      pos.tx = tx;
+      pos.ty = ty;
+      scene.moveEntity(LOCAL_PLAYER_ID, pos);
+      scene.setCameraTarget(pos, true); // snap กล้องตาม (ไม่ lerp ไปหาตำแหน่งใหม่)
     },
 
     update(dtSeconds: number): void {

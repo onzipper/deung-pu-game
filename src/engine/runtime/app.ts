@@ -116,6 +116,13 @@ export async function createEngine(
         onPlayerAdd: (id, snap) => remotes?.onPlayerAdd(id, snap),
         onPlayerChange: (id, snap) => remotes?.onPlayerChange(id, snap),
         onPlayerRemove: (id) => remotes?.onPlayerRemove(id),
+        // P1-02 reconcile: server ปฏิเสธ move → snap local player + เคลียร์ prediction state
+        // (lastSent=null → รอบส่งถัดไปเทียบจากตำแหน่งที่ถูก correct; sendAccum=0 กันยิงทันที).
+        onPositionCorrection: (correction) => {
+          player.applyCorrection(correction.tx, correction.ty);
+          lastSent = null;
+          sendAccumMs = 0;
+        },
       },
     );
   }
@@ -177,9 +184,8 @@ export async function createEngine(
         if (snapshotChanged(lastSent, snap, config.net.sendEpsilon)) {
           net.sendMove(toMoveMessage(snap.tx, snap.ty, snap.direction, snap.anim));
           lastSent = snap;
-          // TODO(P1-02): reconcile hook — เก็บ (seq, snap) ลง pending input buffer ที่นี่;
-          // เมื่อ server ตอบ authoritative pos → snap local + replay input หลัง ack (TA §6).
-          // P1-01 วางโครงไว้เฉย ๆ: local ยัง full client-predict (ไม่มี server correction).
+          // P1-02: reconcile = snap-only (onPositionCorrection handler ด้านบน). local ยัง
+          // full client-predict + server validate หยาบ (TA §6); rewind-replay input = future work.
         }
       }
       // remote entities render ย้อนหลังผ่าน interpolation buffer (P1-01) — local ไม่ผ่าน buffer นี้

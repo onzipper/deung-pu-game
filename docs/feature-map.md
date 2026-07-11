@@ -28,6 +28,7 @@
 | Feature | Spec | Impl | Tests |
 |---|---|---|---|
 | P1-01 Netcode interpolation (remote entities render ย้อนหลัง ~100–150ms จาก snapshot buffer; local ยัง full client-predict — reconcile hook วางไว้รอ P1-02) | TA §6 movement sync | `src/engine/net/interpolation.ts` (pure buffer), `src/engine/net/remote-player-manager.ts` (push/sample glue + inject clock), `src/engine/config.ts` (NetInterpolationConfig), `src/engine/runtime/app.ts` (reconcile hook TODO) | `tests/engine-net-interpolation.test.ts` (pure) |
+| P1-02 Server-authoritative movement (server โหลด map + validate ทุก MSG_MOVE: speed cap/walkable/teleport → ผิด snap กลับ ไม่แบน; client reconcile snap-only ผ่าน correction hook; reuse engine collision — single source of truth) | TA §6, §7, §16.3 | `src/shared/movement-validation.ts` (pure validateMove), `src/shared/net-protocol.ts` (MSG_POSITION_CORRECTION), `server/rooms/MapRoom.ts` (load map + validate + send correction), `src/engine/config.ts` (MovementValidationConfig), `src/engine/net/net-client.ts` (recv correction), `src/engine/player/local-player.ts` (applyCorrection), `src/engine/runtime/app.ts` (reconcile hook) | `tests/shared-movement-validation.test.ts` (pure) |
 
 ## P1+ (ยังไม่เริ่ม — ดู TA §12 สำหรับ phase plan)
 

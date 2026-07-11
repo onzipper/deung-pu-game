@@ -11,9 +11,11 @@ import { Client, getStateCallbacks, type Room } from "colyseus.js";
 import {
   MAP_ROOM_NAME,
   MSG_MOVE,
+  MSG_POSITION_CORRECTION,
   type JoinOptions,
   type MoveMessage,
   type PlayerSnapshot,
+  type PositionCorrectionMessage,
 } from "@/shared/net-protocol";
 import { coerceAnim, coerceDirection, computePlayerCount, type ConnectionState } from "@/engine/net/sync";
 
@@ -34,6 +36,8 @@ export interface NetStatus {
   selfSessionId: string | null;
   /** จำนวนผู้เล่นอื่น (ไม่รวมตัวเอง) ที่กำลัง render */
   remoteCount: number;
+  /** จำนวน position correction ที่ได้รับจาก server (P1-02) — สะสมตลอด session (debug) */
+  correctionCount: number;
   lastError: string | null;
 }
 
@@ -48,6 +52,8 @@ export interface NetDebugInfo {
   channelId: string | null;
   /** จำนวนผู้เล่นทั้งหมดที่เห็นในห้องนี้ (รวมตัวเอง) — 0 ถ้ายังไม่ online */
   playerCount: number;
+  /** จำนวน position correction สะสมจาก server (P1-02) — >0 = server ตี move กลับ */
+  correctionCount: number;
 }
 
 /** event ที่ net-client แจ้ง caller (remote-player-manager สร้าง/ขยับ/ลบ entity). */
@@ -55,6 +61,12 @@ export interface NetClientHandlers {
   onPlayerAdd(sessionId: string, snap: PlayerSnapshot): void;
   onPlayerChange(sessionId: string, snap: PlayerSnapshot): void;
   onPlayerRemove(sessionId: string): void;
+  /**
+   * server ปฏิเสธ move ของ local player แล้วส่งตำแหน่ง authoritative กลับ (P1-02, TA §16.3).
+   * caller (app.ts) reconcile: snap local player ไปตำแหน่งนี้ + เคลียร์ prediction. optional
+   * (P0-era caller ไม่มี hook นี้ก็ยังทำงาน — net-client แค่ไม่มี correction ให้ก่อน P1-02).
+   */
+  onPositionCorrection?(correction: PositionCorrectionMessage): void;
 }
 
 export interface NetClientConfig {
@@ -107,6 +119,7 @@ export function createNetClient(
     mapId: null,
     selfSessionId: null,
     remoteCount: 0,
+    correctionCount: 0,
     lastError: null,
   };
 
@@ -148,6 +161,15 @@ export function createNetClient(
       status.remoteCount = Math.max(0, status.remoteCount - 1);
       handlers.onPlayerRemove(sessionId);
     });
+
+    // P1-02: server → client position correction (move ถูกปฏิเสธ) → นับ + ส่งต่อ caller reconcile
+    joinedRoom.onMessage(
+      MSG_POSITION_CORRECTION,
+      (correction: PositionCorrectionMessage) => {
+        status.correctionCount += 1;
+        handlers.onPositionCorrection?.(correction);
+      },
+    );
 
     // channel/map อาจถูก set หลัง state แรก → sync ค่าล่าสุด
     $(joinedRoom.state).listen("channelId", (v: string) => {
@@ -194,6 +216,7 @@ export function createNetClient(
         roomId: status.roomId,
         channelId: status.channelId,
         playerCount: computePlayerCount(status.state, status.remoteCount),
+        correctionCount: status.correctionCount,
       };
     },
     sendMove(msg: MoveMessage): void {

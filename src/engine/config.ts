@@ -339,6 +339,39 @@ export interface NetConfig {
   remotePlayerAccentColor: number;
 }
 
+/**
+ * Movement validation knob (P1-02, TA §6/§7/§16.3) — server-authoritative movement.
+ * **Mirror ทั้ง client/server**: server อ่านค่าเดียวกันจาก DEFAULT_ENGINE_CONFIG (ไฟล์นี้ compile
+ * ร่วมกัน — single source of truth; client bootstrap ไม่ override movement knob เหล่านี้). ทุกค่าเป็น Design Knob.
+ *
+ * ใช้กับ validateMove() (src/shared/movement-validation.ts) — กติกา: server รับ position update
+ * จาก client แล้ว validate (1) speed cap (2) walkable (3) teleport; ผิด → snap กลับ (ไม่แบน, TA §16.3).
+ */
+export interface MovementValidationConfig {
+  /**
+   * ตัวคูณ headroom บน speed cap กัน network jitter/burst (≥ 1). ระยะสูงสุดที่ยอมต่อ update =
+   * playerSpeed × elapsedSec × factor. สูงไป = จับ speed hack ยากขึ้น; ต่ำไป = false positive ตอน jitter.
+   */
+  speedToleranceFactor: number;
+  /**
+   * ระยะ (tile, euclidean) ที่ single update เกินแล้วถือเป็น teleport ชัดเจน → correction ทันที
+   * (hard cap อิสระจาก elapsed — กัน exploit สะสม allowance ตอน gap ยาว). ปกติ 1 update ≤ ~0.5 tile.
+   */
+  teleportThresholdTiles: number;
+  /** ระยะเวลาขั้นต่ำ (ms) ระหว่างส่ง correction ต่อ player — กัน flood correction message (0 = ไม่จำกัด) */
+  correctionCooldownMs: number;
+  /**
+   * elapsed (ms) ขั้นต่ำที่ใช้คำนวณ speed cap — clamp floor กัน divide-by-tiny/allowance≈0 ตอน
+   * สอง message มาชิดกัน/clock skew (elapsed 0 หรือติดลบ). ควร ≈ ต่ำกว่า 1 send interval เล็กน้อย.
+   */
+  minElapsedMs: number;
+  /**
+   * elapsed (ms) สูงสุดที่ใช้คำนวณ speed cap — clamp ceiling กัน allowance บวมตอน gap ยาว
+   * (tab หลับ/packet หายหลาย interval) ซึ่งเปิดช่องให้ teleport ผ่าน speed cap.
+   */
+  maxElapsedMs: number;
+}
+
 /** พฤติกรรมกล้อง (fixed iso · no rotation · no zoom — P0). */
 export interface CameraConfig {
   /** ความแข็งของ follow lerp ต่อ frame 0..1 (สูง=ตามเร็ว, 1=snap) */
@@ -400,6 +433,8 @@ export interface EngineConfig {
   camera: CameraConfig;
   /** local player movement + placeholder style (P0-05) */
   player: PlayerConfig;
+  /** server-authoritative movement validation knob (P1-02) — mirror client/server */
+  movementValidation: MovementValidationConfig;
   /** dummy mob pocket spawn + wander + placeholder style (P0-09) */
   mob: MobConfig;
   /** realtime/network knob (P0-07) */
@@ -424,6 +459,19 @@ export const DEFAULT_SCENE_THEME: SceneTheme = {
     signpost: { color: 0xc9a24b, width: 12, height: 34, shape: "box" },
     stump: { color: 0x7a5a3a, width: 20, height: 16, shape: "ellipse" },
   },
+};
+
+export const DEFAULT_MOVEMENT_VALIDATION_CONFIG: MovementValidationConfig = {
+  // 1.5 = เผื่อ 50% กัน jitter/burst; ที่ speed 4 tile/s, 1 interval (~83ms @12Hz) allowance ≈ 0.5 tile
+  speedToleranceFactor: 1.5,
+  // 3 tile — 1 update ปกติ ≤ ~0.5 tile → 3 = teleport ชัดเจน (hard cap อิสระจาก elapsed)
+  teleportThresholdTiles: 3,
+  // 250ms — ไม่ยิง correction ถี่กว่านี้ต่อ player (กัน flood ตอน client โกงรัว)
+  correctionCooldownMs: 250,
+  // 50ms — floor กัน allowance≈0 ตอน message มาชิด/clock skew (ต่ำกว่า 1 interval @12Hz≈83ms)
+  minElapsedMs: 50,
+  // 1000ms — ceiling กัน allowance บวมตอน gap ยาว (tab หลับ) เปิดช่องให้ teleport ผ่าน speed cap
+  maxElapsedMs: 1000,
 };
 
 export const DEFAULT_CAMERA_CONFIG: CameraConfig = {
@@ -587,6 +635,7 @@ export const DEFAULT_ENGINE_CONFIG: EngineConfig = {
   theme: DEFAULT_SCENE_THEME,
   camera: DEFAULT_CAMERA_CONFIG,
   player: DEFAULT_PLAYER_CONFIG,
+  movementValidation: DEFAULT_MOVEMENT_VALIDATION_CONFIG,
   mob: DEFAULT_MOB_CONFIG,
   net: DEFAULT_NET_CONFIG,
   combat: DEFAULT_COMBAT_STUB_CONFIG,
@@ -614,6 +663,8 @@ export function createEngineConfig(
     // theme/player/mob มี nested object — override ทั้งก้อนเมื่อกำหนด, ไม่งั้นใช้ default
     theme: overrides.theme ?? DEFAULT_ENGINE_CONFIG.theme,
     player: overrides.player ?? DEFAULT_ENGINE_CONFIG.player,
+    movementValidation:
+      overrides.movementValidation ?? DEFAULT_ENGINE_CONFIG.movementValidation,
     mob: overrides.mob ?? DEFAULT_ENGINE_CONFIG.mob,
     combat: overrides.combat ?? DEFAULT_ENGINE_CONFIG.combat,
     // net = shallow-merge (override บาง knob เช่น serverUrl จาก env โดยคงค่าอื่น)

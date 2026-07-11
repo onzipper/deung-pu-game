@@ -38,6 +38,27 @@ export const DEFAULT_CHANNEL_ID = "CH.1";
 export const MSG_MOVE = "move";
 
 /**
+ * message type: server → **client เดียว** เมื่อ move ถูกปฏิเสธ (P1-02, TA §6/§16.3).
+ * server ไม่ apply ตำแหน่งที่ผิด → ส่งตำแหน่ง authoritative ล่าสุดกลับให้ client reconcile
+ * (snap local player + เคลียร์ prediction). ไม่แบน/ไม่เตะ — แค่ snap กลับ.
+ */
+export const MSG_POSITION_CORRECTION = "position_correction";
+
+/**
+ * payload ของ MSG_POSITION_CORRECTION (server → client เดียว, P1-02).
+ * tx/ty = ตำแหน่ง authoritative (valid ล่าสุดฝั่ง server, tile coord) ที่ client ต้อง snap กลับไป.
+ * direction/anim = state ล่าสุดฝั่ง server (คงจาก valid ล่าสุด). reason = debug เท่านั้น (ไม่ผูก gameplay).
+ */
+export interface PositionCorrectionMessage {
+  tx: number;
+  ty: number;
+  direction: WirePlayerDirection;
+  anim: WirePlayerAnim;
+  /** เหตุผลถูก correct ("teleport" | "speed" | "blocked" | "non_finite") — debug/log */
+  reason: string;
+}
+
+/**
  * payload ของ MSG_MOVE (client → server).
  * position เป็น **tile/world coordinate** (float ได้) — server เก็บ, client อื่นแปลงเป็น iso screen เอง (tech §6).
  * P0: server **trust** ค่านี้ (ยังไม่ validate). P1 TODO: server-authoritative speed/wall/teleport check (tech §6 "Player movement sync").
