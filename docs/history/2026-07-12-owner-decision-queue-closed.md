@@ -1,5 +1,7 @@
 # Owner Decision Queue — รวมทุกเรื่องที่รอ owner เคาะ
 
+> **ปิดแล้ว 2026-07-12** — owner ตอบครบทุกข้อ (1.1–5.3) ผ่าน Production Bible Set v1: คำตอบ canonical = `docs/design/bibles/deungpu_OWNER_DECISIONS_v1.md` + แถวสรุปใน `docs/decision-index.md` · ไฟล์นี้เก็บเป็นประวัติคำถามเท่านั้น ห้ามใช้อ้างสถานะปัจจุบัน
+>
 > จัดทำ 2026-07-12 ตามที่ owner ขอ (หลังปิด P0+P1) · ตอบกลับเป็น doc ได้เลย — อ้างเลขข้อ + คำตอบ/ตัวเลข/comment
 > ทุกข้อมี **[แนะนำ]** = ความเห็น tech ประกอบการตัดสิน ไม่ใช่คำตอบสำเร็จรูป
 > เคาะแล้ว → tech จะพาเข้า spec ตาม process (`docs/spec-update-playbook.md`, balance ผ่าน GS §59.4)

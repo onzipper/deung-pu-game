@@ -6,10 +6,17 @@ _Last updated: 2026-07-12_
 
 ## Where we are
 
-**P0 + P1 ปิดแล้ว** — merge เข้า `main` ผ่าน PR #6 (2026-07-12, `develop` → `main`); **623 tests เขียว** (docs path-guard รวมอยู่ในนั้น). **Test deploy live**: server บน **Render free tier + UptimeRobot** (`https://deung-pu-game.onrender.com`, `/healthz` = monitor endpoint) — พิสูจน์แล้วว่า matchmake + wss join + state sync + mob sim ทำงานบน production จริง. Client ฝั่ง **Hostinger** ยังไม่ deploy — รอ owner build ด้วย `NEXT_PUBLIC_RT_URL=wss://deung-pu-game.onrender.com` (ตาม `docs/deploy-checklist.md`) แล้ว smoke test ร่วมกัน. ถัดไป = ร่าง **P2 issue breakdown** (persistence/save, inventory, bot & report §59.2/TA §9, resync-on-refocus, start map จริง + จำ map ข้ามรีเฟรช, mobile polish, NPC/market) เมื่อ owner สั่งเริ่ม.
+**P0 + P1 ปิดแล้ว** (merge `main` ผ่าน PR #6, 2026-07-12) + **prod stutter fix แล้ว** (PR #7 — minElapsedMs 50→90 + correction-resume; verify บน prod = 0 corrections; รายละเอียด `docs/history/2026-07-12-p0-p1-worklog.md` + `docs/known-traps.md`). **Deploy live ทั้งสองฝั่ง**: server = Render free tier + UptimeRobot (`https://deung-pu-game.onrender.com`, `/healthz`), client = Hostinger (`https://deung-pu.softrock.space/game`).
 
-### Latest work
-- **prod stutter fix (2026-07-12, owner เคาะ)** branch `fix/prod-move-stutter`: บน production (Render free-tier + เน็ตจริง) click-to-move "เดินกระตุกแล้วหยุด ไม่ถึงจุดที่คลิก". Root cause: MSG_MOVE 12Hz (ก้าวละ 0.333 tile) มาถึง server ชิดกันเป็นก้อน (arrival compression) → elapsed≈0 → clamp floor `minElapsedMs` เดิม 50ms → allowance 0.30 < 0.333 → reject speed → correction → snap+ทิ้ง path. **A**: `minElapsedMs` 50→**90** (floor ต้อง ≥ 1 send interval 83ms; allowance@floor=0.54≥0.333; anti-teleport ยังคุมด้วย `teleportThresholdTiles=3`). **B**: `applyCorrection` ไม่ทิ้ง goal — replan A* ไป goal เดิม (`correction-resume.ts` `planCorrectionResume`, reuse findPath) เดินต่อเอง; WASD/fresh join=no-op; reconnect กลาง walk=resume; unreachable=cancel. เทสต์ใหม่ + regression ใน `tests/shared-movement-validation.test.ts` + `tests/engine-player-correction-resume.test.ts`. รายละเอียด: `docs/known-traps.md`.
+**Owner ปิด decision queue ทุกข้อแล้ว (2026-07-12)** ผ่าน **Production Bible Set v1** → อยู่ใน repo ที่ `docs/design/bibles/` (10 เล่ม — เล่มแรกที่ต้องเปิด: `deungpu_OWNER_DECISIONS_v1.md`) · spec เป็น **game v15.2 / tech v1.5.2** แล้ว (balance เลิกสถานะ PENDING — k=50, นักธนู=อาชีพที่ 2, party = public shared (final), background tab = safe-disconnect flow, milestone P2B ใหม่, asset canvas standards) · **P2 breakdown ร่างเสร็จ รอ owner review**: `docs/tech/deungpu_P2_ISSUE_BREAKDOWN_v1.md`
+
+### Latest work (2026-07-12, branch `docs/p2-prep-bible-import`)
+- Import Production Bible Set v1 → `docs/design/bibles/` — ลำดับ source of truth: Bible ชนะพฤติกรรม/ความหมาย, tech architecture ชนะวิธี implement (INDEX §2)
+- decision-index: +12 แถว (Bible 1.1–5.3 + Q1–Q5 resolutions + caveman-code ไม่ใช้) · owner-decision-queue ปิด → `docs/history/2026-07-12-owner-decision-queue-closed.md`
+- Spec amendments: game v15.2 (§0.0.1 log, §8.1 ลำดับอาชีพ, §50.1.1 resource/rounding/DEF/grouping, §59.1.2 background tab, §59.3.1 party model) · tech v1.5.2 (§6.2 realtime/ops, §12.1 P2 scope+P2B, §15.7.1 combat baseline, §17.3 click radius+Map 1 ratified, L12 asset canvas) · balance proposal → **APPROVED baseline**
+- `docs/agent-rules.md` ใหม่ (efficiency #3 — กติกากลาง brief + terse internal report + docs routing tier §7; brief ต่อไปอ้างไฟล์นี้แทน paste ซ้ำ)
+- `docs/tech/deungpu_P2_ISSUE_BREAKDOWN_v1.md` ใหม่ — 17 issues 3 คลื่น (e2e harness = P2-00) + done definition + P2B outline + content track; **owner ตอบคำถามครบแล้ว: PR ต่อคลื่น / นักธนู→P2B / Remote MySQL เปิดแล้ว**
+- **Spec ใหม่ 2 เล่มจาก owner (locked design)** → `docs/design/`: **เล่มดึ๋งๆ** (`deungpu_DUNG_DUNG_COMPANION_GUIDE_SYSTEM_SPEC_v1.md` — companion + "เล่นยังไง"/"ทำอะไรต่อดี" = คำตอบการบ้าน Q4) + **เล่ม Achievement/Journal** (`deungpu_ACHIEVEMENT_AND_ADVENTURE_JOURNAL_SPEC_v1.md`) · เคาะครบ 12 ข้อ (C1–C2, D1–D5, A1–A4 — ดู decision-index): P2 = DG lite (P2-12 เขียนใหม่), P2B = ตัวดึ๋งๆ + Achievement v1, ดึ๋งๆ ≠ Bot A + start flow แก้ (Bot A intro ย้ายไปตอนปลดล็อก), asset priority ใหม่ (ดึ๋งๆ อันดับ 2, bespoke placeholder + 12 animations), companion local-only, Auto Pilot ≠ bot, credit = participation, GameEvent log เริ่ม P2
 
 ### วิธีรัน realtime local (2 terminal)
 - Terminal 1: `npm run dev:server` (Colyseus บน ws://localhost:2567; env `PORT` override ได้)
@@ -22,30 +29,31 @@ _Last updated: 2026-07-12_
 - **P0 — Engine Foundation** (12 issues): iso coordinate/depth-sort · test map loader · renderer scene graph + camera · local player movement (WASD) · sprite animation (data-driven, 5-dir+mirror) · Colyseus realtime room skeleton · channel stub · dummy mob pocket spawn + wander · combat stub (hit-test/damage/feedback) · debug overlay (F3) · handoff check 12/12 PASS
 - **P1 — World Sync** (12 issues): snapshot interpolation buffer · server-authoritative movement validation · server-side mob simulation (aggro/leash/respawn) · skill schema loader (§50.1, 37 field) · server combat authority (formula §15.2) · combat feel pass (pooled damage numbers/hit-stop/screen-shake, F4 stress harness) · reconnect 30s grace (§59.1) · channel auto-assign + party sync (native Colyseus `filterBy`) · A* pathfinding + click-to-move + touch · Map 1 production layout + map transition · City Hub "นครอรุณผนึก" (safe zone) · handoff check 12/13 PASS + 1 PARTIAL (mob chase — script limitation ไม่ใช่บั๊ก)
 - **Review-fix 2 รอบ** จาก owner ทดสอบจริงบน browser: round 1 (22-item checklist) = reconnect token persist ข้ามรีเฟรช + ghost seat + StrictMode double-mount, juice floor ตอน kill/crit, walk-to-attack ต่อเนื่อง, exit ground marker + reachability guard test, debug overlay ย้ายมุมขวาบน; round 2 (5-point retest) = self-position adoption ก่อนส่ง move แรก (กัน correction/exit ไม่ทำงานตอน spawn), server-side hit tolerance (23–52% → 98.3% hit rate), เห็น remote player โจมตีบนจอเรา (`MSG_SKILL_RESULT`)
-- **Spec amendment v15.1 / v1.5.1**: สะท้อน decision ที่เคาะระหว่าง P0/P1 เข้า spec in-place (reconnect token per-tab, นโยบายแท็บเบื้องหลัง, exit ground marker, hit tolerance mechanism, walk-to-attack state machine) — **ยังไม่มีค่า balance ใดถูก merge เข้า spec**
+- **Spec amendment v15.1 / v1.5.1**: สะท้อน decision ที่เคาะระหว่าง P0/P1 เข้า spec in-place — ต่อมา v15.2/v1.5.2 (Bible Set) ปิดสถานะ PENDING ทั้งหมด
 - **Deploy prep**: production start script + standalone build + `.env.example` + `docs/deploy-checklist.md` + `/healthz` endpoint
 
-รายละเอียดเต็มทุก issue (P0-01→12, P1-01→12, review-fix round 1/2, spec amendment) → **`docs/history/2026-07-12-p0-p1-worklog.md`**
+รายละเอียดเต็มทุก issue (P0-01→12, P1-01→12, review-fix round 1/2, spec amendment, prod stutter fix) → **`docs/history/2026-07-12-p0-p1-worklog.md`**
 
 ## Blockers / owed
 
-1. **Hostinger client deploy + production smoke test** — รอ owner build+deploy ตาม `docs/deploy-checklist.md` แล้วทดสอบร่วมกับ Render server จริง
-2. **ตัวเลข balance P1** (ค่า k, stat baseline, ตาราง skill 5 อาชีพ, mob Map 1) — proposal ร่างแล้วรอ owner เคาะ: `docs/design/proposals/deungpu_P1_BALANCE_PROPOSAL_v1.md` (PENDING OWNER; implement ด้วยค่า draft ไปแล้วทั้ง P1). จุดต้องเคาะเพิ่ม: hit tolerance ตัวเลข (§15.7), party model (private-party-channel ที่ implement จริง vs shared-population ที่ brief ร่างไว้), resource pool (§50.1 มี resourceCost แต่ 10-stat ไม่มี pool), §16.1 field grouping (skillName/description/statusEffects ไม่ถูกจัดหมวดชัดเจน), multi-hit damage rounding — checklist เต็มอยู่ท้าย `deungpu_P1_ISSUE_BREAKDOWN_v1.md` + proposal doc
-3. **Render ยัง free tier** — ต้องเปลี่ยนเป็น paid always-on ก่อนเปิดให้ผู้เล่นจริง (decision-index 2026-07-12, free tier restart เป็นระยะ = state in-memory หาย)
-4. **Efficiency improvements ที่ owner เคาะแล้ว** (e2e harness ถาวร + `agent-rules.md`) — ให้ทำตอนเปิด P2 breakdown
+1. **P2 breakdown รอ owner review** — `docs/tech/deungpu_P2_ISSUE_BREAKDOWN_v1.md` + ตอบคำถาม 4 ข้อท้ายไฟล์ (execution mode PR ต่อคลื่น?, นักธนู P2 หรือ P2B, player journey doc, Hostinger MySQL ตอน P2-16) — เคาะแล้วเริ่มคลื่น 1 ได้ทันที
+2. **Production smoke test รอบเต็ม** (2 เครื่อง ตาม `docs/deploy-checklist.md` §3) — ยังไม่ได้ทำเป็นทางการหลัง stutter fix; ไม่ block P2
+3. **Render ยัง free tier** — อัปเกรด paid เมื่อชน hard trigger ตาม Bible 5.1 (คนนอก >5 / test >60 นาที / persistence data จริง / P2 integration env — ข้อสุดท้ายจะถึงตอน P2-16, ต้องคุยกับ owner)
+4. **doc การบ้าน owner "ต้องทำอะไรต่อ" (player journey)** — ป้อนเนื้อหา hint panel (P2-12); โครงระบบไม่ block
 
 ## Owner decisions affecting immediate work
 
 - Spec-first rule: ห้ามเดา ห้ามคิดเอง — เกิน spec ต้องอัปเดต spec ก่อน (decision-index #1)
-- Locked decisions ทั้งหมด: tech architecture §0.1 (L1–L18) — server-authoritative, MySQL, Render, iso, 5 อาชีพ, P0 scope lock ฯลฯ
-- ดู `docs/decision-index.md` เต็มสำหรับ decision ล่าสุดทั้งหมด (test deploy free tier, นโยบายแท็บเบื้องหลัง, จุดเริ่มเกม/จำ map รอ P2, spec amendment)
+- **Production Bible Set v1 = decision baseline** — ก่อน propose อะไร เช็ค `docs/design/bibles/deungpu_OWNER_DECISIONS_v1.md` + `docs/decision-index.md` ก่อน (อย่า re-propose)
+- Locked decisions ทั้งหมด: tech architecture §0.1 (L1–L18) + Bible Set
+- งานที่แตะโค้ด: อ่าน `docs/agent-rules.md` + `docs/known-traps.md` ก่อนเสมอ
 
 ## Do not touch right now
 
-- `docs/design/**` + `docs/tech/**` — spec แก้ได้เฉพาะ owner เคาะ
+- `docs/design/**` + `docs/tech/**` (รวม `bibles/`) — spec แก้ได้เฉพาะ owner เคาะ (breakdown/proposal ที่เป็น DRAFT ของ tech แก้ได้ตามงาน)
 
 ## Next recommended work
 
-- **รอ owner**: Hostinger deploy + smoke test, เคาะ balance proposal, ตัดสินใจ P2 scope ไหนเริ่มก่อน
-- **P2 scope** (ยังไม่เริ่ม, TA §12 phase plan): persistence/inventory/enhancement (TA §7-8), bot & report (TA §9), market (TA §5,§7), audio (TA §22), NPC/ร้านค้า/event เมือง (GS §3.3), Map 2+ (bible มี layout ยังไม่แปลง), mobile polish เต็ม (virtual joystick/HUD ปุ่ม)
-- **P1 HUD**: ติดตั้ง Zustand จริง + ย้าย pattern poll ชั่วคราวของ P0-11 (`src/ui/DebugOverlay.tsx`) เข้า store bridge ตาม `docs/context/ui.md` (contract: UI คุยกับ game ผ่าน Zustand เท่านั้น)
+- **รอ owner**: review PR branch `docs/p2-prep-bible-import` + เคาะ P2 breakdown (+ตอบคำถาม 4 ข้อ) → เริ่ม **คลื่น 1** (P2-00 e2e harness, P2-01 Zustand bridge, P2-02 DB schema, P2-14 multi-hit rounding — ขนานกันได้)
+- **Content track**: C0 ปิดท้าย (SVG placeholder kit ตามมาตรฐานใหม่) + C1 เริ่มคู่ P2 เมื่อ owner สั่ง
+- P2B design detail → แตกตอน P2 ใกล้จบ
