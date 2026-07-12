@@ -123,6 +123,18 @@ describe("resolveSkillHits — maxTargets cap (§18.4)", () => {
     // radius 1.5 → เฉพาะ near (d=1 < 2.25); mid (d=4) / far (d=9) เกิน
     expect(resolveSkillHits(skill, caster, "S", targets, TILE_64x32)).toEqual(["near"]);
   });
+
+  test("P1-05.1: hitTolerance ส่งต่อเข้า findHits — point-blank ทำให้มอนหลังผู้เล่นโดน (arc melee)", () => {
+    // สกิล cone แคบ (arc 60°) หันขึ้น (N); มอนอยู่ตรงข้ามเป๊ะ (S บนจอ = หลัง) แต่ในระยะ radius 1.2
+    const skill = makeSkill({ targetShape: "arc", radius: 1.2, angle: 60, maxTargets: 6 });
+    // tile (0.5,0.5) → screen (0,+16) = ทิศ S บนจอ (หลัง N พอดี 180°); d=0.707 < radius 1.2
+    const behind: HitTestTarget[] = [{ id: "behind", pos: { tx: 0.5, ty: 0.5 } }];
+    // ไม่มี tolerance → พลาด (หลัง arc)
+    expect(resolveSkillHits(skill, caster, "N", behind, TILE_64x32)).toEqual([]);
+    // มี point-blank 1.5 (> d) → โดน (มอนติดตัว, arc ไม่มีผลในระยะประชิด)
+    const tol = { rangePaddingTiles: 0, arcPaddingDegrees: 0, pointBlankRadiusTiles: 1.5 };
+    expect(resolveSkillHits(skill, caster, "N", behind, TILE_64x32, tol)).toEqual(["behind"]);
+  });
 });
 
 describe("validateCast (composite, §16.2/§16.3)", () => {

@@ -17,6 +17,12 @@
 // ยังใช้ dt จริงเสมอ. shake decay เป็น real-time เสมอ (ไม่ผูกกับ hit-stop scale) แล้วดัน offset เข้า
 // `scene.setCameraShakeOffset()` ทุก frame ก่อน app.ts เรียก scene.update(). ค่า cosmetic/timing ทั้งหมด
 // เป็น Design Knob จาก config.combatFeel — ห้าม hardcode.
+//
+// owner report follow-up ("เราไม่เห็นคนอื่นกำลังโจมตีจากจอเรา"): onSkillResult รับ `isOwnCast` เพิ่ม (caller
+// เทียบ result.casterId กับ net.status.selfSessionId) — **hit stop/screen shake gate เฉพาะ own cast**
+// (เพื่อนตีมอบตายอีกฝั่งไม่ควรทำให้จอเราสั่น/หยุด); เลข damage number ยังโชว์ทุก caster เหมือนเดิม (ไม่ gate,
+// §16.2/§6). remote attack **animation** playback (คนอื่นเห็นเราตี/เราเห็นคนอื่นตี) แยกอยู่ที่
+// remote-player-manager.ts playAttack() — ไม่เกี่ยวกับไฟล์นี้ (ไฟล์นี้คุมแค่ local player + juice).
 // P1 scope: skill เดียวที่ cast ได้คือ `deps.skill` (S1, ปุ่มโจมตีเดียว) → onSkillResult ใช้
 // hitStopLevel/screenShakeLevel จากตัวนี้ตรง ๆ (ไม่ lookup หลายสกิล — hotbar หลายสกิล = P2).
 
@@ -92,9 +98,12 @@ export interface CombatStubHandle {
   /**
    * P1-05: รับ MSG_SKILL_RESULT (broadcast) → เล่น damage number ที่ตำแหน่งมอนที่โดน (ทุก caster —
    * เลข = cosmetic client-side, §16.2/§6). ตำแหน่งจาก cache ล่าสุด (killing blow ที่ despawn ไปแล้ว
-   * ยังมีตำแหน่งใน cache 1 เฟรม). death juice เต็ม = P1-06.
+   * ยังมีตำแหน่งใน cache 1 เฟรม).
+   * @param isOwnCast true เฉพาะเมื่อ result.casterId เป็นตัวเราเอง — caller (app.ts) เทียบกับ
+   *   net.status.selfSessionId. **hit stop + screen shake trigger เฉพาะ own cast** (owner report: เพื่อน
+   *   ตีมอบตายอีกฝั่งไม่ควรทำให้จอเราสั่น/หยุด) — เลข damage number ยังโชว์ทุก caster เหมือนเดิม (ไม่ gate).
    */
-  onSkillResult(result: SkillResultMessage): void;
+  onSkillResult(result: SkillResultMessage, isOwnCast: boolean): void;
   /**
    * DEV-ONLY (P1-06 §5 stress harness) — spawn เลข damage สังเคราะห์ตรง ๆ ผ่าน pool/aggregate จริง
    * (พิสูจน์ budget ด้วยเส้นทางการผลิตจริง). ไม่ผ่าน validate/cooldown/server — caller (stress harness
@@ -276,11 +285,15 @@ export function createCombatStub(
       );
     },
 
-    onSkillResult(result: SkillResultMessage): void {
+    onSkillResult(result: SkillResultMessage, isOwnCast: boolean): void {
       for (const hit of result.hits) {
         const pos = lastMobPos.get(hit.mobId);
         if (!pos) continue; // มอนไม่รู้จัก/หายไปเกิน 1 เฟรม — ข้าม
         damageNumbers.spawn(pos, hit.dmg, { crit: hit.crit, targetId: hit.mobId });
+
+        // owner report: hit stop/screen shake ต้อง trigger เฉพาะผลจาก cast ของตัวเอง — เพื่อนตีมอบตายอีกฝั่ง
+        // ไม่ควรทำให้จอเราสั่น/หยุด (เลข damage number ข้างบนยังโชว์ทุก caster เหมือนเดิม, ไม่ gate).
+        if (!isOwnCast) continue;
 
         // P1-06 (GS §17.5): hit stop เมื่อ crit/kill เท่านั้น — ระดับตาม skill.hitStopLevel (client manifest),
         // ยกขึ้นด้วย minLevelOnKill/minLevelOnCrit (feel floor, ดู juice-level.ts) กัน skill level ต่ำ (S1=0)

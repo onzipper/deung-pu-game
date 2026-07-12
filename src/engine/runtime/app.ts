@@ -244,10 +244,27 @@ export async function createEngine(
             lastSent = null;
             sendAccumMs = 0;
           },
+          // Fix issue #1/#2: หลัง join/reconnect → snap local player ไปตำแหน่ง authoritative ของ server
+          // (spawn จริง / ตำแหน่ง hold ก่อน refresh) ก่อนส่ง move ก้าวแรก. ใช้ applyCorrection (snap
+          // position + camera, ยกเลิก path) — กัน "วาร์ปกลับจุดเดิม" + กัน exit detection พลาดเพราะ desync.
+          onSelfSpawn: (snap) => {
+            player.applyCorrection(snap.tx, snap.ty);
+            lastSent = null;
+            sendAccumMs = 0;
+          },
           onMobAdd: (snap) => mobView.onMobAdd(snap),
           onMobChange: (snap) => mobView.onMobChange(snap),
           onMobRemove: (mobId) => mobView.onMobRemove(mobId),
-          onSkillResult: (result) => combat.onSkillResult(result),
+          // owner report "เราไม่เห็นคนอื่นกำลังโจมตีจากจอเรา": MSG_SKILL_RESULT broadcast ให้ทุกคนในห้อง
+          // (server §7/§15) แต่ wire anim ไม่มี "attack" (coerceAnim whitelist idle/walk เท่านั้น) — สั่งเล่น
+          // คลิป attack ของ remote ตรง ๆ ผ่าน event นี้แทน (ไม่ผ่าน position sync). isOwnCast เทียบกับ
+          // net.status.selfSessionId ใช้ gate hit stop/screen shake ใน combat-stub ด้วย (เพื่อนตีมอบตายอีก
+          // ฝั่งไม่ควรทำให้จอเราสั่น — เลข damage number ไม่ถูก gate, โชว์ทุก caster เหมือนเดิม).
+          onSkillResult: (result) => {
+            const isOwnCast = net !== null && net.status.selfSessionId === result.casterId;
+            if (!isOwnCast) remotes?.playAttack(result.casterId);
+            combat.onSkillResult(result, isOwnCast);
+          },
           // P1-10: server บอกให้ข้าม map (server-authoritative exit detection) → schedule transition
           onMapTransition: (msg) =>
             requestTransition(msg.targetMapId, {

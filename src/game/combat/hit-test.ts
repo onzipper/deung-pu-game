@@ -17,8 +17,10 @@
 
 import { screenToTile, tileToScreen, type ScreenPoint, type TilePoint } from "@/engine/iso/coords";
 import { directionToScreenUnit, type Direction } from "@/engine/movement/direction";
-import type { TileSize } from "@/engine/config";
+import type { HitTolerance, TileSize } from "@/engine/config";
 import type { RngFn } from "@/game/mob/rng";
+
+export type { HitTolerance } from "@/engine/config";
 
 /** เวกเตอร์ทิศ-ระยะที่สั้นกว่านี้ (²) ถือว่าซ้อนตำแหน่งเดียวกับ attacker — arc ไม่มีความหมาย, ถือว่าโดน. */
 const ORIGIN_EPS = 1e-9;
@@ -42,6 +44,16 @@ export interface DummyDamageRange {
   readonly min: number;
   readonly max: number;
 }
+
+/**
+ * tolerance ศูนย์ = พฤติกรรม hit test เดิม (default ของ findHits/resolveSkillHits).
+ * (ชนิด HitTolerance นิยามใน engine/config.ts = แหล่ง Design Knob; ดู comment ที่นั่นสำหรับเหตุผลเต็ม.)
+ */
+export const ZERO_HIT_TOLERANCE: HitTolerance = {
+  rangePaddingTiles: 0,
+  arcPaddingDegrees: 0,
+  pointBlankRadiusTiles: 0,
+};
 
 /** ผล pure ของการรับ dummy damage 1 ครั้ง — ไม่แตะ mutable state เอง (caller เป็นคน apply). */
 export interface DummyDamageResult {
@@ -88,11 +100,13 @@ export function tileUnitVectorForScreenAngle(
  * หา target ที่โดน attack — pure, deterministic เต็ม (ไม่มี RNG ในนี้).
  *
  * เกณฑ์:
- *   1. ระยะ (euclidean บน tile coords, dtx/dty) ≤ shape.radius
- *   2. มุมบนจอของเวกเตอร์ attacker→target อยู่ในครึ่ง arc (±arcDegrees/2) รอบ facingAngle
+ *   1. ระยะ (euclidean บน tile coords, dtx/dty) ≤ shape.radius (+ tolerance.rangePaddingTiles)
+ *   2. มุมบนจอของเวกเตอร์ attacker→target อยู่ในครึ่ง arc (±(arcDegrees+arcPadding)/2) รอบ facingAngle
  *      (ทั้งสองมุมผ่าน screenAngleForDirection/tileToScreen ให้ตรงจอเดียวกัน)
- *   ระยะ 0 เป๊ะ (target ซ้อนตำแหน่ง attacker) → ถือว่าโดนเสมอ (มุมไม่มีความหมายที่ระยะ 0).
+ *   ระยะ 0 เป๊ะ (target ซ้อนตำแหน่ง attacker) หรือ **ใกล้กว่า pointBlankRadiusTiles** → โดนโดยไม่สน arc
+ *   (มอนติดตัว = ฟันโดนเสมอ; ที่ระยะประชิดมุมสวิงรุนแรงจน arc ไม่มีความหมายภายใต้ interp lag).
  *
+ * @param tolerance ค่าเผื่อ (default ZERO = พฤติกรรมเดิม; server ส่ง knob จาก CombatBalanceConfig)
  * @returns id ของ target ที่โดน (ลำดับตาม targets ที่ส่งเข้า)
  */
 export function findHits(
@@ -101,10 +115,16 @@ export function findHits(
   targets: readonly HitTestTarget[],
   tileSize: TileSize,
   shape: AttackShape,
+  tolerance: HitTolerance = ZERO_HIT_TOLERANCE,
 ): string[] {
-  const halfArcRad = (shape.arcDegrees / 2) * (Math.PI / 180);
+  const effRadius = shape.radius + Math.max(0, tolerance.rangePaddingTiles);
+  const radiusSq = effRadius * effRadius;
+  // clamp half-arc ที่ 180° (arc รวม ≤ 360 = รอบตัว) — arcPadding ที่ดัน arc เกิน 360 = ไม่กรองมุมเลย
+  const halfArcDeg = Math.min(360, shape.arcDegrees + Math.max(0, tolerance.arcPaddingDegrees)) / 2;
+  const halfArcRad = halfArcDeg * (Math.PI / 180);
+  const pointBlankSq =
+    Math.max(0, tolerance.pointBlankRadiusTiles) * Math.max(0, tolerance.pointBlankRadiusTiles);
   const facingAngle = screenAngleForDirection(facing);
-  const radiusSq = shape.radius * shape.radius;
 
   const hits: string[] = [];
   for (const target of targets) {
@@ -113,7 +133,8 @@ export function findHits(
     const distSq = dtx * dtx + dty * dty;
     if (distSq > radiusSq) continue;
 
-    if (distSq < ORIGIN_EPS) {
+    // ระยะ 0 เป๊ะ หรือ ภายใน point-blank (มอนติดตัว) → โดนโดยไม่เช็ค arc
+    if (distSq < ORIGIN_EPS || distSq <= pointBlankSq) {
       hits.push(target.id);
       continue;
     }

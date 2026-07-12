@@ -10,6 +10,12 @@
 //
 // lifecycle texture: generate ต่อ remote (N เล็กมากใน P0 = 30 CCU cap) → destroy สะอาดตอน remove.
 //   P1 TODO: share texture atlas / pool (tech §11 pooling) แทน generate ต่อคน.
+//
+// owner report "เราไม่เห็นคนอื่นกำลังโจมตีจากจอเรา": wire anim (coerceAnim ใน sync.ts) whitelist แค่
+// "idle"|"walk" — attack ไม่เคยข้าม position sync (ตั้งใจ, ดู remote-attack.ts header). แก้ด้วย
+// **event-driven** แทน: caller (app.ts) เรียก playAttack(sessionId) ทุกครั้งที่ได้ MSG_SKILL_RESULT จาก
+// caster ที่ไม่ใช่ตัวเอง → ล็อกคลิป attack ชั่วคราว (timing pure ใน remote-attack.ts, pattern เดียวกับ
+// local-player.ts triggerAttack) แล้วคืน control ให้ anim จาก interpolation sample ต่อ (idle/walk).
 
 import type { Renderer } from "pixi.js";
 import type { EngineConfig } from "@/engine/config";
@@ -20,6 +26,12 @@ import {
   createInterpolationBuffer,
   type InterpolationBuffer,
 } from "@/engine/net/interpolation";
+import {
+  advanceRemoteAttack,
+  createRemoteAttackState,
+  triggerRemoteAttack,
+  type RemoteAttackState,
+} from "@/engine/net/remote-attack";
 import { createPlayerAnimationManifest } from "@/engine/animation/manifest";
 import { generatePlayerTextures } from "@/engine/animation/player-placeholder";
 import {
@@ -42,12 +54,20 @@ interface RemoteEntry {
   current: TilePoint;
   facing: Direction;
   anim: string;
+  /** attack animation timer (event-driven, ดู remote-attack.ts) — ไม่เกี่ยวกับ wire anim/interpolation */
+  attack: RemoteAttackState;
 }
 
 export interface RemotePlayerManager {
   onPlayerAdd(sessionId: string, snap: PlayerSnapshot): void;
   onPlayerChange(sessionId: string, snap: PlayerSnapshot): void;
   onPlayerRemove(sessionId: string): void;
+  /**
+   * เล่น attack animation ของ remote 1 ครั้ง — caller (app.ts) เรียกเมื่อได้ MSG_SKILL_RESULT จาก
+   * casterId ที่ไม่ใช่ตัวเอง (event-driven, wire anim ไม่มี "attack" — ดู header comment). no-op ถ้ายังไม่
+   * รู้จัก sessionId นี้ (race เช่น attack event มาก่อน onPlayerAdd — ข้ามเงียบ ๆ ไม่ throw).
+   */
+  playAttack(sessionId: string): void;
   /** เรียกทุก frame (dt วินาที): sample buffer ที่ now−bufferMs → ขยับ entity + เดินเฟรม animator */
   update(dtSeconds: number): void;
   /** ลบ remote ทั้งหมด + ปล่อย texture */
@@ -67,6 +87,10 @@ export function createRemotePlayerManager(
 ): RemotePlayerManager {
   const manifest = createPlayerAnimationManifest(config.player.animation);
   const interp = config.net.interpolation;
+  // ความยาวคลิป attack (ms) — สูตรเดียวกับ local-player.ts (attackFrameDuration × attackFrames จาก
+  // config เดียวกัน) ให้ remote เล่นคลิปยาวเท่าตัวเองเป๊ะ (ไม่ hardcode ซ้ำ, ไม่ผูก wire anim).
+  const attackDurationMs =
+    config.player.animation.attackFrameDuration * config.player.animation.attackFrames;
   // remote = style เดียวกับ local แต่เปลี่ยนสีตัว/ไหล่ ให้แยกจากตัวเราด้วยตา
   const remoteStyle = {
     ...config.player.animation.style,
@@ -105,6 +129,7 @@ export function createRemotePlayerManager(
       current: { tx: snap.tx, ty: snap.ty },
       facing: snap.direction,
       anim: snap.anim,
+      attack: createRemoteAttackState(),
     });
   };
 
@@ -131,6 +156,12 @@ export function createRemotePlayerManager(
     onPlayerChange: update,
     onPlayerRemove: remove,
 
+    playAttack(sessionId: string): void {
+      const entry = remotes.get(sessionId);
+      if (!entry) return; // race: event มาก่อน onPlayerAdd ของ session นี้ — ข้ามเงียบ ๆ
+      triggerRemoteAttack(entry.attack);
+    },
+
     update(dtSeconds: number): void {
       const renderTime = now() - interp.bufferMs;
       for (const [sessionId, entry] of remotes) {
@@ -148,7 +179,9 @@ export function createRemotePlayerManager(
           entry.facing = sample.direction;
           entry.anim = sample.anim;
         }
-        entry.animator.setState(entry.anim, entry.facing);
+        // attack ล็อกทับ anim จาก sample ชั่วคราว (event-driven, wire anim ไม่มี "attack" — header comment)
+        const isAttacking = advanceRemoteAttack(entry.attack, dtSeconds * 1000, attackDurationMs);
+        entry.animator.setState(isAttacking ? "attack" : entry.anim, entry.facing);
         entry.animator.update(dtSeconds);
       }
     },

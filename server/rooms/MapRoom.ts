@@ -457,7 +457,15 @@ export class MapRoom extends Room<MapRoomState> {
     //   aimPos เป็นศูนย์กลาง AoE (ไม่ใช่ caster) + validate range ของ aimPos จาก server position — ปรับ
     //   resolveSkillHits ให้รับ origin แยกจาก caster ตาม targetShape.
     const facing = coerceDirection(message.direction);
-    const hitIds = resolveSkillHits(def, casterPos, facing, targets, DEFAULT_ENGINE_CONFIG.tileSize);
+    // P1-05.1: hitTolerance (knob) ชดเชย interp lag ที่ทำให้ตีไม่โดนมอนติดตัว (ดู CombatBalanceConfig.hitTolerance)
+    const hitIds = resolveSkillHits(
+      def,
+      casterPos,
+      facing,
+      targets,
+      DEFAULT_ENGINE_CONFIG.tileSize,
+      this.balance.hitTolerance,
+    );
 
     // สกิลที่ทำ damage: targetType enemy + baseMultiplier>0 + hitCount>0 (utility เช่น taunt = valid cast แต่ไม่ damage)
     const dealsDamage = def.targetType === "enemy" && def.baseMultiplier > 0 && def.hitCount > 0;

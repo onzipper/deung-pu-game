@@ -48,7 +48,7 @@ import {
   type PositionCorrectionMessage,
   type SkillResultMessage,
 } from "@/shared/net-protocol";
-import { coerceAnim, coerceDirection, computePlayerCount, type ConnectionState } from "@/engine/net/sync";
+import { canSendLocalMove, coerceAnim, coerceDirection, computePlayerCount, type ConnectionState } from "@/engine/net/sync";
 
 /**
  * สถานะการเชื่อมต่อ (P0-11 debug overlay อ่านผ่าน EngineHandle.net.getNetDebugInfo()).
@@ -71,6 +71,8 @@ export interface NetStatus {
   remoteCount: number;
   /** จำนวน position correction ที่ได้รับจาก server (P1-02) — สะสมตลอด session (debug) */
   correctionCount: number;
+  /** จำนวน cast ที่ server ปฏิเสธ (P1-05, MSG_CAST_REJECTED) — สะสมตลอด session (debug: ตีแล้วโดนปฏิเสธ) */
+  castRejectCount: number;
   lastError: string | null;
 }
 
@@ -89,6 +91,8 @@ export interface NetDebugInfo {
   playerCount: number;
   /** จำนวน position correction สะสมจาก server (P1-02) — >0 = server ตี move กลับ */
   correctionCount: number;
+  /** จำนวน cast ที่ถูกปฏิเสธสะสม (P1-05) — >0 = ตีแล้ว server ปฏิเสธ (cooldown/range/safe zone) */
+  castRejectCount: number;
 }
 
 /** event ที่ net-client แจ้ง caller (remote-player-manager สร้าง/ขยับ/ลบ entity). */
@@ -115,6 +119,13 @@ export interface NetClientHandlers {
    * teardown world เดิม + join room map ปลายทางที่ targetSpawn (fade). optional.
    */
   onMapTransition?(msg: MapTransitionMessage): void;
+  /**
+   * Fix issue #1/#2: หลัง join/reconnect สำเร็จ + self เข้า room state ครั้งแรก (immediate หรือ patch แรก)
+   * → server = source of truth ของตำแหน่ง spawn/held → caller **snap local player + camera** ไปตำแหน่งนี้
+   * ทันที (ก่อนส่ง move ก้าวแรก). fresh join = spawn จริง (idempotent) · reconnect within grace = ตำแหน่ง
+   * เดิมก่อน refresh (กัน "วาร์ปกลับ" + กัน exit detection พลาดเพราะ desync). ยิงครั้งเดียวต่อ 1 connection. optional.
+   */
+  onSelfSpawn?(snap: PlayerSnapshot): void;
 }
 
 /** อ่าน MobState schema (reflection → any) → MobSnapshot (coerce state). */
@@ -201,6 +212,7 @@ export function createNetClient(
     selfSessionId: null,
     remoteCount: 0,
     correctionCount: 0,
+    castRejectCount: 0,
     lastError: null,
   };
 
@@ -209,6 +221,10 @@ export function createNetClient(
   // P1-07: token กลับเข้า seat เดิม (อัปเดตทุกครั้งที่ join/reconnect สำเร็จ) + flag กัน reconnect ซ้อน.
   let reconnectionToken: string | null = null;
   let reconnecting = false;
+  // Fix issue #1/#2: adopt ตำแหน่ง authoritative ของ self แล้วหรือยัง (per-connection). reset=false ทุกครั้ง
+  // ที่ wire room ใหม่ → true เมื่อ self เข้า state ครั้งแรก. gate sendMove ระหว่างนี้ (กันยิง move จาก spawn
+  // ก่อนรู้ตำแหน่ง server hold → correction/warp + exit detection พลาด).
+  let selfAdopted = false;
   // P1-07: entity ที่ track ไว้ (สำหรับ reset ก่อน re-wire — กัน onAdd(immediate) รอบใหม่ทำ remote/mob ซ้ำ).
   const knownRemotes = new Set<string>();
   const knownMobs = new Set<string>();
@@ -265,6 +281,9 @@ export function createNetClient(
   const wire = (joinedRoom: Room): void => {
     // re-wire (reconnect/fresh join): ล้าง entity เดิมก่อน กันซ้ำ (first wire = no-op, set ว่าง).
     resetTrackedEntities();
+    // Fix issue #1/#2: connection ใหม่ → ยังไม่รู้ตำแหน่ง authoritative ของ self จนกว่า self เข้า state
+    // (gate sendMove จนกว่าจะ adopt). ต้อง reset ก่อน register onAdd (immediate อาจยิง self ทันทีในบรรทัดถัดไป).
+    selfAdopted = false;
     room = joinedRoom;
     persistToken(joinedRoom.reconnectionToken); // P1-07(-fix): เก็บ token ล่าสุด (memory + per-tab store)
     status.state = "online";
@@ -284,7 +303,14 @@ export function createNetClient(
     // players map: onAdd/onChange/onRemove (ข้าม self — local player render เองแล้ว)
     $(joinedRoom.state).players.onAdd(
       (player: Record<string, unknown> & { tx: number; ty: number; direction: string; anim: string }, sessionId: string) => {
-        if (sessionId === joinedRoom.sessionId) return;
+        if (sessionId === joinedRoom.sessionId) {
+          // Fix issue #1/#2: self เข้า state ครั้งแรกต่อ connection → adopt ตำแหน่ง authoritative (server
+          // hold ตำแหน่งจริง). caller snap local player + camera; หลังจากนี้ sendMove ปลดล็อก. local player
+          // = client-predicted → ไม่ผูก onChange (reconcile ต่อเนื่องผ่าน MSG_POSITION_CORRECTION เท่านั้น).
+          selfAdopted = true;
+          handlers.onSelfSpawn?.(snapshotOf(player));
+          return;
+        }
         status.remoteCount += 1;
         knownRemotes.add(sessionId); // P1-07: track เพื่อ reset ตอน reconnect
         handlers.onPlayerAdd(sessionId, snapshotOf(player));
@@ -332,8 +358,9 @@ export function createNetClient(
     joinedRoom.onMessage(MSG_SKILL_RESULT, (result: SkillResultMessage) => {
       handlers.onSkillResult?.(result);
     });
-    // P1-05: server → caster เดียว cast ถูกปฏิเสธ (cooldown/skill มั่ว/range) — debug/UX
+    // P1-05: server → caster เดียว cast ถูกปฏิเสธ (cooldown/skill มั่ว/range) — นับ + ส่งต่อ (debug/UX)
     joinedRoom.onMessage(MSG_CAST_REJECTED, (rejected: CastRejectedMessage) => {
+      status.castRejectCount += 1;
       handlers.onCastRejected?.(rejected);
     });
 
@@ -478,10 +505,13 @@ export function createNetClient(
         partyId: status.partyId,
         playerCount: computePlayerCount(status.state, status.remoteCount),
         correctionCount: status.correctionCount,
+        castRejectCount: status.castRejectCount,
       };
     },
     sendMove(msg: MoveMessage): void {
-      if (!room || status.state !== "online") return;
+      // Fix issue #1/#2: ห้ามส่ง move ก่อน adopt ตำแหน่ง authoritative ของ self (spawn/held) — ไม่งั้น
+      // ก้าวแรกยิงจาก spawn ของ client ก่อนรู้ตำแหน่ง server hold = correction/warp + exit detection พลาด.
+      if (!room || !canSendLocalMove(status.state, selfAdopted)) return;
       room.send(MSG_MOVE, msg);
     },
     sendCast(msg: CastSkillMessage): void {

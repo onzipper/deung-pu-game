@@ -497,6 +497,26 @@ export interface MobCombatStats {
  * ค่า default มาจาก `docs/design/proposals/deungpu_P1_BALANCE_PROPOSAL_v1.md` (ยังไม่ใช่ spec ที่เคาะ —
  * เข้า §48 ผ่าน process §59.4). ทุกค่าเป็น Design Knob — สูตรอ่านจากที่นี่ ห้าม hardcode (formula.ts).
  */
+/**
+ * Hit tolerance (P1-05.1 anti-miss, PENDING OWNER) — ชดเชย interpolation delay + close-range angular
+ * jitter ที่ทำให้ "ตีไม่โดน" ทั้งที่มอนติดตัว. อาการ (วัดจริง proof): client เล็ง/หันตามภาพมอนที่ interp
+ * ย้อนหลัง ~bufferMs (120ms) แต่ server ตัดสิน arc จากตำแหน่งมอน "ปัจจุบัน" → ที่ระยะประชิดมุมเบี้ยวได้ถึง
+ * ~180° (มอนวิ่งเข้าหา/สวนตัวผู้เล่น) → arc 60° ปฏิเสธ ~75% ของการตี. ทุกค่าเป็น Design Knob ห้าม hardcode.
+ * server ใช้ค่านี้ตอน resolveSkillHits เท่านั้น (client offline dummy = ZERO = shape จริงตามที่เห็น).
+ */
+export interface HitTolerance {
+  /** บวกเข้ากับ radius ของสกิลตอนเช็คระยะ (tile) — เผื่อมอนขยับออกเล็กน้อยระหว่าง lag. */
+  readonly rangePaddingTiles: number;
+  /** บวกเข้ากับ arcDegrees ของสกิล (องศา) — เผื่อมุมเบี้ยวจาก facing ที่ตั้งจากภาพย้อนหลัง. clamp รวม ≤ 360. */
+  readonly arcPaddingDegrees: number;
+  /**
+   * ระยะประชิด (tile จาก attacker): เป้าที่อยู่ใน (radius+padding) จริง **และ** ใกล้กว่านี้ → นับว่าโดน
+   * โดยไม่สน arc (มอนติดตัว = ฟันโดนเสมอ, ฟีล melee มาตรฐาน). กันตีหลังระยะไกล: เป้าที่ไกลกว่า point-blank
+   * ยังต้องอยู่ใน arc (มอน 3 tile ข้างหลังไม่โดน cone). ตั้งเล็ก (~ระยะ melee ประชิด) เพื่อรักษาทิศทางที่ระยะไกล.
+   */
+  readonly pointBlankRadiusTiles: number;
+}
+
 export interface CombatBalanceConfig {
   /** k = global damage-diminishing constant (§15.2, proposal §1 default 50, range 30–80) */
   k: number;
@@ -504,6 +524,8 @@ export interface CombatBalanceConfig {
   pvpModifier: number;
   /** headroom range validation กัน false-reject ตอน latency/prediction (§16.3, ≥ 1) */
   rangeToleranceFactor: number;
+  /** P1-05.1: ค่าเผื่อ hit test ฝั่ง server กัน "ตีไม่โดน" จาก interp lag (ดู HitTolerance) — PENDING OWNER tune */
+  hitTolerance: HitTolerance;
   /** stat นักดาบ lv1 (P1 vertical) */
   player: PlayerCombatStats;
   /** stat ต่อ mobType (key ตรง MobPocket.mobType เช่น "slime"/"mushroom") */
@@ -1077,6 +1099,14 @@ export const DEFAULT_COMBAT_BALANCE_CONFIG: CombatBalanceConfig = {
   k: 50, // proposal §1 default (range 30–80) — knob ความอึดทั้งเกม
   pvpModifier: 1.0, // P1 ไม่มี PvP
   rangeToleranceFactor: 1.5, // เผื่อ latency/prediction (เหมือน movement speed tolerance §16.3)
+  // P1-05.1 anti-miss (PENDING OWNER tune) — ค่าจาก proof: interp bufferMs=120, chaseSpeed=2.4 → lag ~0.29 tile.
+  // pointBlank 1.4 ครอบระยะ melee ประชิด (basic slash range 1.2) → มอนติดตัวโดนแม้ facing เบี้ยวจาก lag;
+  // rangePadding 0.35 ≳ ระยะที่มอนขยับได้ใน 1 buffer window; arcPadding 20° เผื่อมุมริงถัดจาก point-blank.
+  hitTolerance: {
+    rangePaddingTiles: 0.35,
+    arcPaddingDegrees: 20,
+    pointBlankRadiusTiles: 1.4,
+  },
   player: {
     // นักดาบ lv1 (proposal §2.1)
     hp: 100,

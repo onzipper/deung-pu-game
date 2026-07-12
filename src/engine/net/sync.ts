@@ -100,3 +100,20 @@ export function computePlayerCount(
 ): number {
   return state === "online" ? remoteCount + 1 : 0;
 }
+
+/**
+ * ควรส่ง MSG_MOVE ขึ้น server ไหม (fix issue #1/#2): ต้อง online **และ** adopt ตำแหน่ง authoritative
+ * ของตัวเองจาก server แล้ว (self เข้า room state ครั้งแรกต่อ 1 connection).
+ *
+ * ทำไม: `snapshotChanged(null, snap)` = true เสมอ → ถ้าไม่ gate ตรงนี้ client จะยิง move ก้าวแรก
+ * จาก **spawn ของ client** ก่อนรู้ตำแหน่งจริงที่ server hold (reconnect within grace = ตำแหน่งเดิม
+ * ก่อน refresh). ผล: (1) server มองเป็น teleport/speed → correction snap กลับ = "วาร์ปกลับจุดเดิม";
+ * (2) server ยังยึดตำแหน่ง hold → client เดินเหยียบ exit marker แต่ server ไม่เห็น client ใน exit area
+ * → MSG_MAP_TRANSITION ไม่ยิง. adopt ก่อนแล้วค่อยส่ง = ตำแหน่ง client/server ตรงกันตั้งแต่ก้าวแรก.
+ */
+export function canSendLocalMove(
+  state: ConnectionState,
+  selfAdopted: boolean,
+): boolean {
+  return state === "online" && selfAdopted;
+}

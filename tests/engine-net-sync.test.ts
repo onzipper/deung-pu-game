@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 import {
   advanceSendTimer,
+  canSendLocalMove,
   coerceAnim,
   coerceDirection,
   computePlayerCount,
@@ -152,5 +153,25 @@ describe("net sync — computePlayerCount (debug overlay, P0-08)", () => {
     expect(computePlayerCount("idle", 5)).toBe(0);
     expect(computePlayerCount("connecting", 5)).toBe(0);
     expect(computePlayerCount("offline", 5)).toBe(0);
+  });
+});
+
+describe("net sync — canSendLocalMove (gate ก่อน adopt ตำแหน่ง server, fix issue #1/#2)", () => {
+  test("online + adopt แล้ว → ส่งได้", () => {
+    expect(canSendLocalMove("online", true)).toBe(true);
+  });
+
+  test("online แต่ยังไม่ adopt → **ห้ามส่ง** (กันยิง move ก้าวแรกจาก spawn ก่อนรู้ตำแหน่ง server hold)", () => {
+    // นี่คือหัวใจของ fix: หลัง join/reconnect status=online ทันที แต่ self ยังไม่เข้า state →
+    // ถ้าส่ง move ตอนนี้ = ยิงจาก spawn ของ client → correction/warp (issue#1) + server ไม่เห็น client
+    // ใน exit area → MSG_MAP_TRANSITION ไม่ยิง (issue#2). ต้องรอ onSelfSpawn ก่อน.
+    expect(canSendLocalMove("online", false)).toBe(false);
+  });
+
+  test("ไม่ online (connecting/reconnecting/offline/idle) → ห้ามส่ง แม้ adopt=true", () => {
+    for (const s of ["idle", "connecting", "reconnecting", "offline"] as const) {
+      expect(canSendLocalMove(s, true)).toBe(false);
+      expect(canSendLocalMove(s, false)).toBe(false);
+    }
   });
 });

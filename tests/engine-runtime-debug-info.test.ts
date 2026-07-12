@@ -10,6 +10,7 @@ const onlineNet: NetDebugInfo = {
   partyId: "",
   playerCount: 2,
   correctionCount: 0,
+  castRejectCount: 0,
 };
 
 describe("debug-info — roundTile (P0-11)", () => {
@@ -60,6 +61,7 @@ describe("debug-info — buildDebugInfo shape (P0-11, P0 §4.10)", () => {
       partyId: null,
       playerCount: 0,
       correctionCount: 0,
+      castRejectCount: 0,
     });
   });
 });

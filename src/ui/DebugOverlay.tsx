@@ -111,6 +111,7 @@ export function DebugOverlay({ getHandle }: DebugOverlayProps) {
           <div>party: {info.net.partyId ? info.net.partyId : "solo"}</div>
           <div>players: {info.net.playerCount}</div>
           <div>corrections: {info.net.correctionCount}</div>
+          <div>cast rejects: {info.net.castRejectCount}</div>
         </div>
       ) : (
         <div className="text-white/50">waiting engine…</div>

@@ -11,8 +11,10 @@
 
 import {
   findHits,
+  ZERO_HIT_TOLERANCE,
   type AttackShape,
   type HitTestTarget,
+  type HitTolerance,
 } from "@/game/combat/hit-test";
 import type { SkillDefinition } from "@/game/skill/types";
 import type { TilePoint } from "@/engine/iso/coords";
@@ -86,9 +88,10 @@ export function resolveSkillHits(
   facing: Direction,
   targets: readonly HitTestTarget[],
   tileSize: TileSize,
+  tolerance: HitTolerance = ZERO_HIT_TOLERANCE,
 ): string[] {
   const shape = skillAttackShape(skill);
-  const hitIds = findHits(casterPos, facing, targets, tileSize, shape);
+  const hitIds = findHits(casterPos, facing, targets, tileSize, shape, tolerance);
 
   const posById = new Map<string, TilePoint>(targets.map((t) => [t.id, t.pos] as const));
   // sort ใกล้→ไกล (stable: index เดิมเป็น tie-break) แล้ว cap
