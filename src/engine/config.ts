@@ -777,6 +777,21 @@ export interface TransitionConfig {
   fadeInMs: number;
 }
 
+/**
+ * Persistence knob (P2-05, Storage §24 · TA §8) — **server knob** (อ่านฝั่ง realtime process MapRoom).
+ * character position/map ถูก save เป็นระยะระหว่างเล่น (นอกเหนือ save ตอน transition/leave) — ตาราง
+ * `character_state` แยกมาเพื่อ hot write (TA §8 "DB เฉพาะผลลัพธ์ batched"). ทุกค่าเป็น Design Knob.
+ * อยู่ใน EngineConfig (single source of truth เดียวกับ knob อื่น) แม้ client ไม่ได้ใช้ — number เฉย ๆ ไม่รั่ว balance.
+ */
+export interface PersistenceConfig {
+  /**
+   * ระยะห่างขั้นต่ำ (ms) ระหว่าง save CharacterState ต่อผู้เล่น — throttle hot write. save ตอน
+   * transition/leave บังคับเขียน (force) แต่ยัง respect ตัวนี้เพื่อกันเขียนถี่ซ้อนกับ interval รอบก่อน.
+   * ~30s (ตรงกับ session-lease heartbeat) — ปรับได้ที่นี่.
+   */
+  saveIntervalMs: number;
+}
+
 /** renderer preference ที่ pixi autoDetect รองรับ */
 export type RendererPreference = "webgl" | "webgpu";
 
@@ -836,6 +851,8 @@ export interface EngineConfig {
   stressHarness: StressHarnessConfig;
   /** debug overlay knob (P0-11) — poll interval/default visibility/depth label style */
   debugOverlay: DebugOverlayConfig;
+  /** character save/load persistence knob (P2-05, Storage §24) — server knob (save interval) */
+  persistence: PersistenceConfig;
 }
 
 export const DEFAULT_SCENE_THEME: SceneTheme = {
@@ -1141,6 +1158,11 @@ export const DEFAULT_DEBUG_OVERLAY_CONFIG: DebugOverlayConfig = {
   depthLabelOffsetY: -30,
 };
 
+/** Persistence defaults (P2-05, Storage §24) — save CharacterState ทุก ~30s (ตรง session-lease heartbeat). */
+export const DEFAULT_PERSISTENCE_CONFIG: PersistenceConfig = {
+  saveIntervalMs: 30_000,
+};
+
 export const DEFAULT_NET_CONFIG: NetConfig = {
   enabled: true,
   serverUrl: "ws://localhost:2567",
@@ -1201,6 +1223,7 @@ export const DEFAULT_ENGINE_CONFIG: EngineConfig = {
   combatFeel: DEFAULT_COMBAT_FEEL_CONFIG,
   stressHarness: DEFAULT_STRESS_HARNESS_CONFIG,
   debugOverlay: DEFAULT_DEBUG_OVERLAY_CONFIG,
+  persistence: DEFAULT_PERSISTENCE_CONFIG,
 };
 
 /**
@@ -1246,6 +1269,8 @@ export function createEngineConfig(
     reconnect: { ...DEFAULT_ENGINE_CONFIG.reconnect, ...overrides.reconnect },
     // debugOverlay = shallow-merge (override เช่น defaultVisible โดยคง poll interval เดิม)
     debugOverlay: { ...DEFAULT_ENGINE_CONFIG.debugOverlay, ...overrides.debugOverlay },
+    // persistence = shallow-merge (override saveIntervalMs โดยคงค่าอื่นเดิม)
+    persistence: { ...DEFAULT_ENGINE_CONFIG.persistence, ...overrides.persistence },
   };
 }
 

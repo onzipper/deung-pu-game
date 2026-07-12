@@ -98,4 +98,37 @@
 - ชั้นสอง (ทำคู่กัน): `applyCorrection` เดิมทิ้ง path เสมอ → correction ระหว่าง click-to-move = คลิกหาย. Fix: correction แล้ว **replan A* ไป goal เดิม** จากตำแหน่งใหม่ (`src/engine/player/correction-resume.ts` `planCorrectionResume`, reuse findPath) → เดินต่อเอง; ไม่มี goal (WASD/fresh join) = no-op; unreachable = cancel เหมือนเดิม
 - debug: `getNetDebugInfo().correctionCount` (F3 overlay) พุ่งตอนเดินปกติ = floor/interval mismatch (ไม่ใช่ speed hack จริง)
 
+## Colyseus onAuth ต้องเป็น **static** + reconnect ไม่เรียก onAuth (P2-04 WS handshake)
+
+- อาการที่จะเกิดถ้าเดา: เขียน `onAuth()` เป็น instance method บน Room → Colyseus **ignore เงียบ** (log `❌ onAuth() defined at the instance level will be ignored`) → token ไม่เคยถูก verify, security ไม่ทำงานเลย แต่เกมยัง join ได้ = ดูเหมือนผ่าน
+- สาเหตุ (ยืนยันจาก `@colyseus/core/build/MatchMaker.js` 0.16): `callOnAuth` เรียก `roomClass["onAuth"]` (**static**) ตอน **matchmaking** ก่อนสร้าง seat — `authContext = { token, headers, ip }` (token จาก query `_authToken`/Bearer header; **ไม่ใช่** joinOptions โดยตรง). ผล return truthy → เก็บใน `client.auth` (instance `onJoin(client, opts, client.auth)` อ่านต่อได้); falsy/throw ServerError → reject join
+- **reconnect (allowReconnection) ไม่ผ่าน onAuth** — reuse seat เดิม + `previousClient.auth` → token ต้องแนบเฉพาะ **fresh join** เท่านั้น (net-client แนบใน `freshJoin` ไม่ใช่ `beginReconnect`/`boot.reconnect`)
+- วิธีที่ P2-04 ใช้: อ่าน token จาก `options.token` (brief กำหนดให้แนบใน joinOptions) fallback `context.token`; verify ด้วย `verifyRealtimeToken` (reuse `src/server/auth/**` ตรง ๆ — server/tsconfig import ข้าม `../src/**` ได้, ไฟล์ pure node:crypto ไม่มี Next dep, **ไม่ต้องทำ shared module**). rate-limit/origin/decision = pure module ใน `server/security/**` (มี unit test); DB session lease = best-effort (DATABASE_URL ไม่ตั้ง → ข้าม, ห้ามให้ join พัง — dev/e2e ไม่มี DB)
+
+## Session takeover close code = terminal ฝั่ง client (ห้าม auto-reconnect วน) (P2-04, Storage §4.2)
+
+- อาการที่จะเกิดถ้าเดา: server เตะ session เก่าด้วย `client.leave(4001)` (SESSION_TAKEN_OVER) แต่ client เห็น code≠4000 → เข้า auto-reconnect path (P1-07) → reconnect/fresh-join → **takeover ตัวใหม่กลับ** → 2 แท็บแย่ง seat วนไม่จบ
+- วิธีเลี่ยง (fix ใช้): (a) net-client `onLeave`: `code === WS_CLOSE_SESSION_TAKEN_OVER` → **terminal** (ล้าง token+store, offline, `lastError="session_taken_over"`) ห้าม reconnect. (b) server `onLeave`: sessionId ที่ถูก takeover ต้อง **ลบทันที ไม่เข้า grace** (ตั้งใจเตะ ≠ หลุดเน็ต) — mark ใน set ก่อน `client.leave` เพราะ onLeave ได้แค่ `consented:boolean` (= code===4000) ไม่เห็น code จริง (Colyseus `_onLeave` แปลง code→consented). release lease/registry ทำแบบ session-scoped (`deleteMany where sessionId`) → ตัวเก่าที่ถูกเตะไม่ลบ lease ของตัวใหม่ (takeover-wins)
+
 <!-- เพิ่มกับดักใหม่ด้านล่างเมื่อเจอจริง -->
+
+## P2-05: save ตอน map transition ต้องกัน onLeave เขียนทับ
+
+checkExit (ข้าม map) save ตำแหน่ง**ปลายทาง**ไปแล้ว แต่ transition ทำให้ client leave room เก่าแบบ consented → ถ้า onLeave save ตามปกติจะเขียนตำแหน่ง **map เก่า** ทับจุดหมายทันที (ผู้เล่น refresh แล้วเด้งกลับ map เก่า). MapRoom จึง mark `transitioningSessions` ตอน checkExit แล้ว onLeave ข้าม save สำหรับ session นั้น (เคลียร์ตอน removePlayer). ใครแตะ save cycle/transition ต้องรักษา invariant นี้ — มีเทสต์คุมใน `tests/server-characters-persistence.test.ts`.
+
+## PowerShell เขียนไฟล์ = BOM → migration SQL พัง + DB จริงเป็น MariaDB
+
+- `Out-File -Encoding utf8` บน PowerShell 5.1 เขียน **UTF-8 มี BOM** → MySQL/MariaDB อ่าน migration.sql ไม่ได้ (error 1064 ตรง `﻿-- CreateTable`) — เขียนไฟล์ที่ tool อื่นอ่านให้ใช้ Bash/Write tool หรือ strip BOM (`sed -i '1s/^\xEF\xBB\xBF//'`) · เจอจริงตอน `prisma migrate deploy` ครั้งแรก (2026-07-12); แก้ด้วย `prisma migrate resolve --rolled-back` แล้ว deploy ใหม่
+- **DB จริงบน Hostinger = MariaDB ไม่ใช่ MySQL 8** (TA L3 เขียน MySQL 8) — Prisma provider `mysql` ใช้ได้, collation `utf8mb4_unicode_ci` ที่เราใช้รองรับ; **ห้ามใช้ feature เฉพาะ MySQL 8** (เช่น collation ตระกูล `utf8mb4_0900_*`, CHECK constraint บางแบบ) — เจออะไรแปลกให้เช็คคู่มือ MariaDB ก่อน
+
+## ส่ง `fetch` เป็น DI property/callback = "Illegal invocation" ใน browser (Node ไม่เจอ)
+
+- อาการ: inject `fetchFn: fetch` แล้วฝั่งรับเรียก `deps.fetchFn(...)` → browser โยน `TypeError: Illegal invocation` (this=deps ไม่ใช่ window) → ถ้าอยู่ใน try/catch best-effort จะถูกกลืนเงียบ; vitest (node/undici) **ไม่ brand-check this** จึง test ผ่านหมด → บั๊กโผล่เฉพาะ browser จริง. เคสจริง: /game entry gate อัมพาตทั้งตัว — login อยู่แต่ไม่เด้ง /hub, เข้าเกม anonymous ที่จุดเริ่มต้น (owner-report#6 รอบ 3, 2026-07-12)
+- วิธีเลี่ยง: ห้ามส่ง `fetch` ตรง ๆ เป็น property/callback — ห่อ `(input, init) => fetch(input, init)` (หรือ `fetch.bind(globalThis)`); ฝั่งรับเรียกผ่าน local binding (`const f = deps.fetchFn; f(...)`) ไม่ใช่ `deps.fetchFn(...)` — กันทั้งสองชั้น (GameCanvas + boot-gate ทำแล้วทั้งคู่)
+- เทสต์ต้องจำลอง brand-check เอง (`makeBrowserFetch` ใน `tests/app-game-boot-gate.test.ts`) เพราะ undici ไม่ throw — mock ธรรมดาจับ regression class นี้ไม่ได้
+
+## router.refresh() ไม่ reset useState ของ client component = state ค้างข้าม login/logout
+
+- อาการ: logout แล้ว login ใหม่ที่ /hub → ลิสต์ตัวละครไม่แสดง (ว่าง) จนกด refresh ทั้งหน้า (owner-report#7 รอบ 3, 2026-07-12)
+- สาเหตุ: Server Component re-run ตอน `router.refresh()` ส่ง props สดจริง แต่ React **preserve client component instance เดิม** (type+ตำแหน่งใน tree ไม่เปลี่ยน) → `useState(initialProps)` initializer ไม่รันซ้ำ → state ที่ copy จาก props ค้างค่าจากรอบก่อน (เช่น `[]` จากตอนยังไม่ login)
+- วิธีเลี่ยง: component ที่ seed state จาก server props + อยู่คร่อม auth boundary ต้องผูก `key` กับ identity (`key={session.accountId}` / `key="anon"` — ดู `src/app/hub/page.tsx`) ให้ React remount เมื่อ "ผู้ใช้เปลี่ยน" · อย่าแก้ด้วย useEffect sync props→state (ชน race/กระพริบ)

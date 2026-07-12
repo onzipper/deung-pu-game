@@ -51,6 +51,32 @@ export const DEFAULT_CHANNEL_ID = channelLabel(1);
  */
 export const DEFAULT_PARTY_ID = "";
 
+/**
+ * WebSocket close code (P2-04, Storage §4.1/§4.2) — server เตะ session เดิมเมื่อ **account เดียวกัน**
+ * เข้าเล่นจาก device/tab ใหม่ (takeover-wins). ตัวใหม่ยึด session lease → server เรียก client.leave(code)
+ * ของตัวเก่าด้วยรหัสนี้. ต้องอยู่ช่วง custom 4000–4999 และเลี่ยงรหัสสงวนของ Colyseus
+ * (4000=consented, 4002=with_error, 4010=devmode_restart). client แยกจาก reconnect-grace ได้ด้วยรหัสนี้.
+ */
+export const WS_CLOSE_SESSION_TAKEN_OVER = 4001;
+
+/**
+ * key ของ sessionStorage ที่ Game Hub เขียน characterId ที่ผู้เล่นเลือก "เข้าเกม" (P2-05, Storage §5/§7)
+ * แล้ว /game (net-client) อ่านมาแนบใน joinOptions.characterId → server load state + ตรวจ ownership.
+ * **sessionStorage per-tab** (เหมือน reconnect token) — refresh คงตัวละครเดิม; ไปเลือกใหม่ที่ hub = overwrite.
+ * ไม่มีค่า = เล่นแบบ anonymous (dev/e2e / เข้า /game ตรง ๆ) — flow เดิมไม่พัง.
+ */
+export const SELECTED_CHARACTER_STORAGE_KEY = "deungpu.selectedCharacterId";
+
+/**
+ * key ของ sessionStorage คู่กับ {@link SELECTED_CHARACTER_STORAGE_KEY} — mapId ล่าสุดที่ตัวละครที่เลือก
+ * persist ไว้ (P2-05 owner-report#6 fix, Storage §5/§7). Game Hub เขียนคู่กันตอน "เข้าเกม"
+ * (`CharacterView.lastMapId`); /game boot อ่านค่านี้เพื่อ mount map เดียวกับที่ save ไว้แทน DEFAULT_MAP_ID
+ * เสมอ (ก่อนหน้านี้ mismatch กับ `pickLoadPosition` ฝั่ง server ทำให้ตำแหน่ง save ถูกทิ้ง). ไม่มีค่า/null =
+ * ตัวละครใหม่ยังไม่เคย save → boot DEFAULT_MAP_ID ตามเดิม. engine เขียนทับค่านี้เองตอน transition ข้าม map
+ * ระหว่างเล่น (กัน refresh กลาง /game แล้วได้ map เก่าตอนออกจาก hub).
+ */
+export const SELECTED_CHARACTER_MAP_STORAGE_KEY = "deungpu.selectedCharacterMapId";
+
 /** message type: client → server ส่งตำแหน่ง/ทิศ/anim ปัจจุบัน (throttled ~10–15Hz, tech §6). */
 export const MSG_MOVE = "move";
 
@@ -200,6 +226,12 @@ export interface JoinOptions {
   ty: number;
   direction: WirePlayerDirection;
   anim: WirePlayerAnim;
+  /**
+   * P2-05 (Storage §5/§7 · §22): ตัวละครที่ผู้เล่นเลือกเข้าเกม (จาก Game Hub Continue). server (onAuth)
+   * ตรวจ ownership กับ accountId ที่ verify จาก token — ไม่ใช่ของบัญชี = reject (กัน load state คนอื่น).
+   * omit = anonymous (dev bypass ไม่มี account / เข้า /game ตรง ๆ) → spawn default, ไม่ persist. optional.
+   */
+  characterId?: string;
 }
 
 /**

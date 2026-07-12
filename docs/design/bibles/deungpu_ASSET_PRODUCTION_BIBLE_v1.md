@@ -1,10 +1,21 @@
 # ดึ๋งปุ๊ — Asset Production Bible
 
 > ไฟล์: `deungpu_ASSET_PRODUCTION_BIBLE_v1.md`  
-> สถานะ: **v1.0 — Owner-delegated production baseline**  
+> สถานะ: **v1.1 — Owner-delegated production baseline (amended 2026-07-12: SVG-first)**  
 > โปรเจกต์: **ดึ๋งปุ๊ — True 2D Isometric Web MMORPG**  
 > Canonical references: `deungpu_project_checkpoint_v15_p0_scope_lock_ready.md`, `deungpu_technical_architecture_v1_5_p0_scope_lock.md`, `deungpu_ENGINE_FOUNDATION_DECISIONS_v1.md`, `deungpu_MAP_LAYOUT_BIBLE_v1.md`, `deungpu_MAP_SCALE_AND_SPAWN_DENSITY_SPEC_v1.md`  
 > วัตถุประสงค์: กำหนดมาตรฐานวาด SVG placeholder และ pixel-art final สำหรับตัวละคร มอน เมือง แผนที่ ของสวมใส่ VFX และ UI โดยไม่ต้องเดา scale/pivot/frame/file format
+
+## 0.0 Amendment Log — v1.1 (2026-07-12): SVG-first supersede
+
+Owner เคาะเปลี่ยน art direction เป็น **SVG-first ถาวร — pixel art เลื่อนไม่มีกำหนด** (ดู `../deungpu_TECH_TEAM_DECISIONS_SVG_FIRST_NO_FIGMA_v1.md` + decision-index แถว SVG-first/V1–V4, 2026-07-12) — ผลต่อเล่มนี้ (additive; เนื้อเดิมคงไว้เพื่อประวัติ):
+
+**ถูก supersede:**
+1. ทุกส่วนที่ตั้งอยู่บนสมมติฐาน "SVG = placeholder รอ pixel art มาแทน" (aseprite/layered PNG/final pixel art conversion) — ไม่เป็น production path อีกต่อไป
+2. ข้อบังคับ pixel-grid: integer coordinates, `shape-rendering=crispEdges` เป็น default, rasterize nearest-neighbor — เลิกเป็นกติกากลาง (ใช้ได้เฉพาะ asset ที่จงใจ hard-edge เช่น combat telegraph)
+3. ข้อห้าม gradient/blur/soft shadow/filter **แบบเด็ดขาด** — แทนด้วย **effect matrix ตาม visual style ทาง C** (decision-index V4): UI หลัก flat ล้วน · ตัวละคร/มอน สีแบน 2–3 tone · environment gradient/baked shadow ได้ · VFX glow ได้ใน budget · telegraph solid edge เสมอ · ห้าม runtime SVG filter บน world entities
+
+**ยังมีผลเต็ม (ไม่เปลี่ยน):** canvas standards §2 ทั้งชุด (64×64, footPivot [32,54], boss 160–192) · direction standard 5-dir+mirror · silhouette-first + 3-second test · master palette 32 สี (rarity ใช้ alias mapping — decision-index V3, ห้าม Corruption กับ rarity) · animation manifest concept (merge กับ SVG contract ของเล่มใหม่) · mobile readability · naming เดิมของ runtime frame (SVG source naming ใหม่ = คนละชั้น, mapping อยู่ที่ pipeline)
 
 ---
 

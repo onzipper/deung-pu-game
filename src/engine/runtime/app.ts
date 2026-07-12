@@ -15,7 +15,7 @@
 
 import { Application, Container, Text, type Ticker } from "pixi.js";
 import { type EngineConfig, resolveResolution } from "../config";
-import { requireMap, getMap } from "../map/registry";
+import { requireMap, getMap, hasMap } from "../map/registry";
 import { findExitAt, type MapConfig } from "../map/types";
 import { createMapScene, type MapSceneHandle } from "../render/scene";
 import { buildExitMarkerPolygons } from "../render/exit-marker";
@@ -43,6 +43,12 @@ import {
 } from "../net/sync";
 import { DEFAULT_MAP_ID, type PlayerSnapshot } from "@/shared/net-protocol";
 import { partyIdFromLocation } from "../net/party";
+import {
+  readSelectedCharacterId,
+  readSelectedCharacterMapId,
+  rememberSelectedCharacterMapId,
+  pickBootMapId,
+} from "../net/character-session";
 import { createTransitionController } from "./transition";
 import { attachResize } from "./resize";
 import { screenToTile, snapToTile, type TilePoint } from "../iso/coords";
@@ -140,6 +146,10 @@ export async function createEngine(
   // P1-08: partyId ของ local player (URL `?party=xyz` > config default) — คงที่ทั้ง session (ทุก world).
   const localPartyId = partyIdFromLocation(config.net.partyId);
 
+  // P2-05 (Storage §5/§7): characterId ที่เลือกจาก Game Hub (sessionStorage) — แนบใน joinOptions ทุก world.
+  // undefined = anonymous (เข้า /game ตรง ๆ / dev) → server spawn default, ไม่ persist. คงที่ทั้ง session.
+  const localCharacterId = readSelectedCharacterId();
+
   // P1-07-fix (§59.1): per-tab reconnect token store (sessionStorage) — คงข้าม refresh/reopen เพื่อ
   // reconnect เข้า seat เดิม (token in-memory หายตอน reload). ตัวเดียวทั้ง session (ทุก world/map ใช้ key
   // เดียว — token ตามหลัง map ปัจจุบัน; transition = consented leave ล้าง token → world ใหม่ fresh join).
@@ -162,6 +172,9 @@ export async function createEngine(
         console.warn(`[transition] ไม่รู้จัก map "${targetMapId}" — ยกเลิก transition`);
         return;
       }
+      // owner-report#6 fix: จำ map ปลายทางไว้ (คู่กับ characterId ที่ hub เขียน) — refresh กลาง /game
+      // หลังข้าม map ต้อง boot map ล่าสุดนี้ ไม่ใช่ map ตอนออกจาก hub
+      rememberSelectedCharacterMapId(targetMapId);
       currentWorld.destroy();
       currentWorld = mountWorld(targetMap, targetSpawn);
       currentWorld.resize(viewW, viewH);
@@ -239,7 +252,7 @@ export async function createEngine(
           graceSeconds: config.reconnect.graceSeconds,
           store: reconnectStore,
         },
-        { mapId: map.mapId, ...initial, partyId: localPartyId },
+        { mapId: map.mapId, ...initial, partyId: localPartyId, characterId: localCharacterId },
         {
           onPlayerAdd: (id, snap) => remotes?.onPlayerAdd(id, snap),
           onPlayerChange: (id, snap) => remotes?.onPlayerChange(id, snap),
@@ -531,8 +544,11 @@ export async function createEngine(
     };
   }
 
-  // --- boot world แรก (DEFAULT_MAP_ID จาก registry) ---
-  const initialMap = requireMap(DEFAULT_MAP_ID);
+  // --- boot world แรก (owner-report#6 fix: map ที่ตัวละครที่เลือก save ไว้ล่าสุด แทน DEFAULT_MAP_ID
+  //     เสมอ — ไม่งั้น server pickLoadPosition mismatch mapId แล้วทิ้งตำแหน่ง save. ตำแหน่งจริงยังมาจาก
+  //     server ผ่าน onSelfSpawn adoption เหมือนเดิม — ที่นี่แค่เลือก "map ไหน" ให้ join ถูกห้อง) ---
+  const bootMapId = pickBootMapId(readSelectedCharacterMapId(), hasMap, DEFAULT_MAP_ID);
+  const initialMap = requireMap(bootMapId);
   currentWorld = mountWorld(initialMap, {
     x: initialMap.spawnPoint.x,
     y: initialMap.spawnPoint.y,
