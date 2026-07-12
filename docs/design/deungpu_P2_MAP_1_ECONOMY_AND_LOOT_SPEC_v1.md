@@ -9,6 +9,20 @@
 
 ---
 
+> ## ⚠ AMENDED 2026-07-12 — ระบบตีบวก/แกร่ง ถูกยกเครื่องเป็น "เสริมแกร่งการันตี"
+>
+> owner เคาะ (2026-07-12) เปลี่ยนระบบตีบวกทั้งหมด → ดู **`docs/design/deungpu_REINFORCEMENT_SYSTEM_DECISION_v1.md`** (LOCKED) · decision-index แถว E2/Reinforcement 2026-07-12
+>
+> **ส่วนที่ถูก SUPERSEDED ในเล่มนี้** (เนื้อเดิมคงไว้เพื่อ history — อย่าใช้ implement):
+> - §0.1 ข้อ 8–9, §15, §16.1–16.5, §17, §18.1 (Kraeng grants), §26.5, §30 DoD ข้อ Enhancement/Crack — **RNG/Fail/Crack/Repair/Protection/Gold cost ตัดทิ้งทั้งหมด**
+> - §11.2–11.6 rows `upg_kraeng` (normal/elite/boss/first-kill drop) — Kraeng drop model ใหม่ = boss-only 8% + pity 15 (ดูเอกสารใหม่ §4)
+> - **rename ทั้งเล่ม:** `แกร่ง`/`upg_kraeng` → `เสริมแกร่ง`/`upg_reinforcement` · เพดานตีบวก **+5 → +15 ทุกเฟส**
+> - เศษเสริมแกร่ง (สูตร 5→1) กลับมา — supersede §15.3 "No fragment decision"
+>
+> **ยังใช้ได้ตามเดิม:** item master/equipment slots, EXP/gold/drop ของ material+equipment (ที่ไม่ใช่ Kraeng), starter shop, loot ownership, telemetry โครง
+
+---
+
 # 0. Executive Decisions
 
 ## 0.1 สิ่งที่ล็อกในเอกสารนี้
@@ -20,8 +34,8 @@
 5. Monster EXP, Gold และ Drop Tables
 6. Starter Shop และราคาซื้อ/ขาย
 7. EXP Curve Level 1–10
-8. แหล่งและ Sink ของ `แกร่ง`
-9. Enhancement +0 ถึง +5
+8. แหล่งและ Sink ของ `แกร่ง` — ⚠ SUPERSEDED → เสริมแกร่ง (boss-only drop) ดูเอกสาร Reinforcement
+9. Enhancement +0 ถึง +5 — ⚠ SUPERSEDED → **+0 ถึง +15 การันตี** (no RNG/crack) ดูเอกสาร Reinforcement
 10. Loot Ownership, Auto Loot และ Ground Timeout
 11. Default Rate Config
 12. No-Figma Screen Contracts
@@ -470,7 +484,7 @@ equipmentInstance:
 | `mat_coarse_hide` | หนังหยาบพอง | MATERIAL | Common | 1 | 999 | UNBOUND | — | 5 | Vendor material |
 | `mat_sharp_tusk` | เขี้ยวแข็ง | MATERIAL | Uncommon | 1 | 999 | UNBOUND | — | 8 | Elite/Boar material |
 | `mat_resonance_dust` | ผงสะท้อน | MATERIAL | Uncommon | 1 | 999 | UNBOUND | — | 12 | Elite material |
-| `upg_kraeng` | แกร่ง | UPGRADE_MATERIAL | Common | 1 | 999 | ACCOUNT_BOUND | — | — | ใช้ตีบวก, ฝากคลังได้ |
+| `upg_kraeng` | แกร่ง | UPGRADE_MATERIAL | Common | 1 | 999 | ACCOUNT_BOUND | — | — | ใช้ตีบวก, ฝากคลังได้ ⚠ SUPERSEDED 2026-07-12 → rename `upg_reinforcement`/เสริมแกร่ง; ขาย+trade ได้ (bindType รอเคาะ R1/R2) — ดู Reinforcement doc |
 | `mat_boss_resonance_core` | แกนสะท้อนแห่งป่า | MATERIAL | Uncommon | 1 | 999 | ACCOUNT_BOUND | — | 20 | P2B Boss material |
 
 ## 7.2 Weapons
@@ -725,6 +739,8 @@ P2 Primary Class ใช้ Damage Contribution ก่อน
 ---
 
 # 11. Drop Tables
+
+> **⚠ SUPERSEDED (2026-07-12) เฉพาะแถว `upg_kraeng`** → `docs/design/deungpu_REINFORCEMENT_SYSTEM_DECISION_v1.md` §4. Kraeng drop จาก **normal mob (Slime 0.15% / Bird 0.25% / Boar 0.45%), Elite Boar guaranteed ×1, Boss guaranteed ×2, Boss First Kill ×1 = ตัดทั้งหมด**. โมเดลใหม่: normal/elite = 0%, special elite = 0.5% (Map 1 ยังไม่มี → 0%), **boss-only 8% + pity ถึงรอบ 15**, first-kill ไม่การันตี. Roll ข้อ 6 "Kraeng roll" ใน §11.1 ตัดออก. แถว material/equipment/potion อื่น ๆ ใช้ได้ตามเดิม.
 
 ## 11.1 Drop roll semantics
 
@@ -1151,6 +1167,8 @@ Gold Sink ไม่ต้องเท่ากับ Source ใน P2 Early Game
 
 # 15. Kraeng Economy
 
+> **⚠ SUPERSEDED ทั้ง section (2026-07-12)** → `docs/design/deungpu_REINFORCEMENT_SYSTEM_DECISION_v1.md`. `แกร่ง` → `เสริมแกร่ง` (`upg_reinforcement`); **ขาย+trade ได้** (supersede §15.1 "ไม่ Trade/Account-bound" — bindType ใหม่รอเคาะ R1/R2); source table §15.2 (income/ชั่วโมง จาก normal mob) → **boss-only, target 0–3 ชิ้น/สัปดาห์** (§4.5 เอกสารใหม่); §15.3 "No fragment decision" **พลิกกลับ — เศษเสริมแกร่ง + สูตร 5→1 กลับมา** (phase รอเคาะ R7); §15.4 income "2–4/ชั่วโมง" ไม่ใช้แล้ว.
+
 ## 15.1 Semantic
 
 ```txt
@@ -1222,6 +1240,8 @@ P2 ใช้ `แกร่ง` เป็นหน่วยเดียว
 ---
 
 # 16. Enhancement Economy
+
+> **⚠ SUPERSEDED ทั้ง section (2026-07-12)** → `docs/design/deungpu_REINFORCEMENT_SYSTEM_DECISION_v1.md` §2. ระบบใหม่ = **เสริมแกร่ง ×1 → +1 การันตี 100%** ไม่มี Success Rate / Fail / Crack / Repair / Protection / Gold cost / RNG / previewToken / preview chance. `maximumLevel: 5` → **15** (§16.1). ตาราง §16.2 (Success/Gold/Crack/Failure), §16.4 (Cracked/Repair cost), §16.5 (Roll transaction) = **ยกเลิก**. §16.3 multiplier นิยามแค่ +0..+5 → ต้องมี +6..+15 (Design Knob, รอเคาะ R9). Transaction ใหม่ = Consume ×1 → +1 → Persist Atomically (ยังต้อง idempotency/item lock/transaction id/reconciliation).
 
 ## 16.1 Scope
 
@@ -1340,6 +1360,8 @@ Preview
 
 # 17. Enhancement UI — No-Figma Contract
 
+> **⚠ SUPERSEDED (2026-07-12)** → `docs/design/deungpu_REINFORCEMENT_SYSTEM_DECISION_v1.md` §2.4. จอใหม่ **ไม่แสดง** Success Chance / Failure / Crack / Protection / Gold — แสดงแค่ `+N → +N+1` / `ใช้: เสริมแกร่ง ×1` / "เพิ่มระดับสำเร็จแน่นอน" / `[ ยืนยันเสริมแกร่ง ]`. States ใหม่ = `NO_ITEM · READY · NO_REINFORCEMENT · MAX_LEVEL · ITEM_LOCKED · PROCESSING · SUCCESS · UNKNOWN_RECONCILING` (แทน §17.3 เดิมที่มี Insufficient Gold/Cracked/Failure/Failure+Crack/Max +5).
+
 อ้าง Layout หลักจาก Tech Decision และ UI Spec
 
 ## 17.1 Desktop
@@ -1387,6 +1409,8 @@ Preview
 ---
 
 # 18. Quest and Milestone Rewards
+
+> **⚠ SUPERSEDED เฉพาะรางวัล Kraeng (2026-07-12)** → `docs/design/deungpu_REINFORCEMENT_SYSTEM_DECISION_v1.md` §3.2 + R5. Philosophy ใหม่ "ไม่แจกเสริมแกร่งตาม Tutorial/Main Quest" → **5 แถวที่แจก `Kraeng ×1`** (`ms_enhancement_ready` · `ach_first_upgrade` · `ms_first_elite` · `ms_map1_complete` · `ms_boss_first_kill`) + `bossFirstKillBonus.kraeng: 1` = **ต้องเปลี่ยนรางวัล** (รอเคาะ R5 — อาจคง 1 ชิ้น "learning grant" ครั้งเดียวเป็นข้อยกเว้น). รางวัล EXP/Gold/Potion แถวอื่นใช้ได้ตามเดิม.
 
 ## 18.1 Baseline reward table
 
@@ -2037,8 +2061,8 @@ Change record ต้องมี:
 - [ ] Starter Shop ทำงาน
 - [ ] Gold source/sink telemetry ทำงาน
 - [ ] Kraeng source/sink ทำงาน
-- [ ] Enhancement +0 ถึง +5 ทำงาน
-- [ ] Crack/Repair ทำงาน
+- [ ] ~~Enhancement +0 ถึง +5 ทำงาน~~ → **เสริมแกร่งการันตี +0 ถึง +15** (ดู Reinforcement doc §2)
+- [ ] ~~Crack/Repair ทำงาน~~ → **ตัดออก** (ไม่มี crack/repair แล้ว)
 - [ ] Personal Loot ทำงาน
 - [ ] Ground Timeout ทำงาน
 - [ ] Inventory Full ไม่ทำ Item หายเงียบ

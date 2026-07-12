@@ -1,9 +1,9 @@
-# ดึ๋งปุ๊ — Project Checkpoint v15.2 P0 Scope Lock Ready
+# ดึ๋งปุ๊ — Project Checkpoint v15.3 P0 Scope Lock Ready
 
-> สถานะเอกสาร: **P0 Scope Lock Ready / Current Source of Truth v15.2**  
+> สถานะเอกสาร: **P0 Scope Lock Ready / Current Source of Truth v15.3**  
 > จุดประสงค์: ปิดงานการขึ้นโปรเจกต์รอบแรกให้ครบ ไม่มีงานค้างจากเฟส design setup  
 > ใช้ต่อจาก: `deungpu_project_checkpoint_v8.md`  
-> สถานะงาน: **Design Phase 1 + Phase 2 + Combat Juice Layer + Audio Direction + Tech Handoff Readiness + Map Scale/Spawn Density + Engine Foundation Decisions + Runtime/Bot/Channel/Schema Ownership + P0 Scope Lock + v15.1 Amendment (P0/P1 retest) + v15.2 Amendment (Production Bible Set v1) ปิดครบแล้ว**
+> สถานะงาน: **Design Phase 1 + Phase 2 + Combat Juice Layer + Audio Direction + Tech Handoff Readiness + Map Scale/Spawn Density + Engine Foundation Decisions + Runtime/Bot/Channel/Schema Ownership + P0 Scope Lock + v15.1 Amendment (P0/P1 retest) + v15.2 Amendment (Production Bible Set v1) + v15.3 Amendment (Reinforcement System) ปิดครบแล้ว**
 
 ---
 
@@ -30,6 +30,20 @@ Delta:
 5. **§59.3** — เพิ่ม 59.3.1: ยืนยัน party model = public shared channel ตาม §59.3 เดิม; private-party-channel ที่ implement ใน P1 = fallback ชั่วคราว (Bible 2.2)
 6. **จุดเริ่มเกม production** = เมืองนครอรุณผนึก (สร้างตัวละคร → starter district → tutorial 5–10 นาที → Map 1) · **Test Field = dev-only ถาวร** · milestone ใหม่ **P2B Boss & Encounter Foundation** · mobile polish = ท้าย P2 เป็น gate ก่อน external closed alpha (Bible 3.1–3.5 — โครง roadmap เต็มดู `docs/design/bibles/deungpu_GAME_PRODUCTION_ROADMAP_v1.md`)
 7. **Art/asset standards** ล็อกตาม Bible 4.1–4.4 + `deungpu_ASSET_PRODUCTION_BIBLE_v1.md` / `deungpu_VISUAL_LANGUAGE_BIBLE_v1.md` (Vertical Slice First, canvas/pivot/palette, SVG placeholder → PNG atlas)
+
+## 0.0.2 Amendment Log — v15.3 (2026-07-12) — Reinforcement System (guaranteed)
+
+Owner เคาะยกเครื่อง **ระบบตีบวก → เสริมแกร่งการันตี** + **E1 ชื่อบอส Map 1** + **E3 monster stat (open)** ในวันเดียว 2026-07-12 (2 ข้อความ, ข้อความที่ 2 ชนะเมื่อขัด). decision record เต็ม + คำถามค้าง R1–R10 = **`docs/design/deungpu_REINFORCEMENT_SYSTEM_DECISION_v1.md`** (LOCKED). checkpoint นี้บันทึกเฉพาะจุด supersede — **additive, เนื้อเดิมคงไว้เพื่อ history**.
+
+Delta:
+
+1. **§"Success Rate Draft" (ตาราง +1..+15) + §"Failure Result"** — **SUPERSEDED**: ไม่มี RNG/Success Rate/Fail/-1/รอยร้าวจากการกดตีบวกอีก · ตีบวก = **เสริมแกร่ง ×1 → +1 การันตี 100%** · เพดาน **+15 ทุกเฟส** (เดิม draft สูงสุด +15 ยังเป็นเพดานที่ถูก — แต่กลไกถึงเพดานเปลี่ยนจาก RNG → วัสดุการันตี)
+2. **§"Item ตีบวก → แกร่ง/เศษแกร่ง"** — **rename**: `แกร่ง` → `เสริมแกร่ง` (`upg_reinforcement`), `เศษแกร่ง` → `เศษเสริมแกร่ง` · แกร่งเดิม "ได้จาก World Boss/Endgame/Raid/Rift/Celestial/HoF/contribution event" = ยังตรงทิศ (แหล่งพิเศษ/hard content) · สูตร **5→1 คงไว้** (v15 pillar ข้อ 31, ไม่เคาะใหม่) · **ขาย+trade ได้** (bindType เดิม account-bound รอเคาะใหม่ — R1/R2)
+3. **Design pillar ข้อ 30–32** — rename `แกร่ง`→`เสริมแกร่ง`; ข้อ 30 "+1 แบบ 100%" ยังจริง (ตอนนี้เป็นกลไกหลักไม่ใช่ item ลับเสริม); ข้อ 32 "ไม่ขายตรงด้วยเพชร" ยังจริง · ข้อ 27–29 (ไม่แตก/-1/รอยร้าว) = ไม่มีผลกับ path เสริมแกร่งการันตีแล้ว
+4. **One-liner "ตีบวกมีเรื่องขิง"** — ถ้อยคำไม่เปลี่ยน แต่ **นิยามภายในเปลี่ยน**: จุดลุ้น/ขิงย้ายจาก "กดตีบวก (RNG)" → "**ล่าเสริมแกร่งจากบอส (drop 8% + pity 15) + สะสมดัน +15**" (owner เคาะให้บันทึกโดยตั้งใจ — ข้อความที่ 2 ข้อ 4)
+5. **§33 Enhancement Audio** — §33.1 เสียงลุ้น / §33.3 ล้มเหลว / §33.4 รอยร้าว = **superseded-for-reinforcement** (ไม่มีเหตุการณ์ให้เล่น) · §33.5 "แกร่ง" = ยังใช้ (พิธีสำเร็จทุกครั้ง) · re-spec audio เต็มเลื่อนไปเฟสผลิตเสียง (รอเคาะ R6)
+6. **E1 บอส Map 1** = `boss_map1_resonant_guardian` / "ผู้พิทักษ์เสียงสะท้อน" / lv8 / P2B (Canonical ID ล็อกหลัง save data; `boss_m1_boar_pot` = legacy placeholder)
+7. **E3 monster combat stat** = OPEN — Pending Design Item "Map 1 Monster Combat Stat Table" (blocks: production tuning + final combat QA; doesNotBlock: schema/loader/placeholder/test)
 
 ---
 
@@ -477,6 +491,8 @@ Drop:
 - Legendary material
 - โอกาสต่ำมากได้ **แกร่ง**
 
+> ⚠ rename (v15.3): `เศษแกร่ง`→`เศษเสริมแกร่ง`, `แกร่ง`→`เสริมแกร่ง` · World Boss = แหล่ง hard-content ที่ยังตรงทิศ philosophy ใหม่ (ดู Reinforcement doc §4.1 hard boss 20–25%)
+
 ## Monster Family
 
 ตระกูลหลัก 7 กลุ่ม:
@@ -508,8 +524,8 @@ Raid Reward:
 
 - ตราสั่นพ้อง
 - Legendary material
-- เศษแกร่ง
-- โอกาสได้แกร่ง
+- เศษแกร่ง  <!-- ⚠ rename v15.3 → เศษเสริมแกร่ง -->
+- โอกาสได้แกร่ง  <!-- ⚠ rename v15.3 → เสริมแกร่ง; Raid = hard-content แหล่งที่ยังตรงทิศ -->
 - Cosmetic
 - Hall of Fame record
 - Weekly title
@@ -681,6 +697,8 @@ Alert สำคัญ:
 
 ## Success Rate Draft
 
+> **⚠ SUPERSEDED (v15.3, 2026-07-12)** — ตาราง Success Rate + Failure Result ด้านล่าง **ไม่ใช้แล้ว**: ระบบตีบวกไม่มี RNG/Fail/รอยร้าว · ตีบวก = **เสริมแกร่ง ×1 → +1 การันตี 100%** (เพดาน +15 ทุกเฟส) · เนื้อเดิมคงไว้เพื่อ history · ดู `docs/design/deungpu_REINFORCEMENT_SYSTEM_DECISION_v1.md` §2
+
 | ระดับเป้าหมาย | Success Rate |
 |---|---:|
 | +1 | 100% |
@@ -709,6 +727,8 @@ Alert สำคัญ:
 | +13 ถึง +15 | มีโอกาส -1 สูง และร้าวได้ |
 
 ## Item ตีบวก
+
+> **⚠ RENAMED + AMENDED (v15.3, 2026-07-12)** — `แกร่ง` → **เสริมแกร่ง** (`upg_reinforcement`) · `เศษแกร่ง` → **เศษเสริมแกร่ง** (สูตร 5→1 คงไว้) · **ขาย+trade ได้** (supersede "ไม่ขายตรงด้วยเพชร" ยังจริง แต่ trade/ขายผู้เล่นได้แล้ว — bindType รอเคาะ R1/R2) · เสริมแกร่งกลายเป็น **กลไกตีบวกหลัก** (ไม่ใช่ item ลับเสริม): +1 การันตี 100%, ได้จากบอส 8%+pity 15 · ดู `docs/design/deungpu_REINFORCEMENT_SYSTEM_DECISION_v1.md` §3
 
 ### แกร่ง
 
@@ -1432,6 +1452,7 @@ Prototype scene ควรมี:
 30. มี item ลับ **แกร่ง** สำหรับ +1 แบบ 100%
 31. เศษแกร่ง 5 ชิ้นแลกแกร่ง 1 ชิ้น
 32. แกร่งไม่ขายตรงด้วยเพชร
+> ⚠ AMENDED v15.3 (2026-07-12): ข้อ 27–32 · `แกร่ง`→**เสริมแกร่ง**, `เศษแกร่ง`→**เศษเสริมแกร่ง** (5→1 คงไว้) · ข้อ 30 "+1 100%" = กลไกตีบวกหลักแล้ว (ไม่ใช่ item ลับเสริม) · ข้อ 27–29 (ไม่แตก/-1/รอยร้าว) ไม่มีผลกับ path การันตี · ข้อ 32 "ไม่ขายเพชร" ยังจริง **แต่ ขาย+trade ผู้เล่นได้แล้ว** (ข้อความที่ 2; bindType รอเคาะ) · ดู Reinforcement doc
 33. Hall of Fame เป็นระบบขิงหลักของเกม
 34. Weekly Hall of Fame ให้ฉายา 7 วัน + buff utility เล็ก ๆ + cosmetic/showcase
 35. Eternal Hall of Fame จารึกความสำเร็จถาวร
@@ -1523,6 +1544,8 @@ Prototype scene ควรมี:
 คำจำกัดความสุดท้าย:
 
 > **ดึ๋งปุ๊ = MMORPG ฟาร์มสะใจ บอทถูกระบบ ตลาดมีชีวิต ตีบวกมีเรื่องขิง โลกมีความลับ และท้ายเกมยกระดับจากมุกชาวบ้านไปถึงผนึกจักรวาล**
+
+> ⚠ นิยาม v15.3 (2026-07-12): **"ตีบวกมีเรื่องขิง"** — ถ้อยคำคงเดิม แต่จุดลุ้น/ขิงย้ายจาก "การกดตีบวก (RNG)" → "**การล่าเสริมแกร่งจากบอส (drop + pity) + สะสมดัน +15**" (การกดตีบวกเอง = การันตี 100% ไม่มี RNG แล้ว) — owner เคาะให้บันทึกโดยตั้งใจ · ดู Reinforcement doc §8
 ---
 
 # 22. Audio Direction & Soundscape Layer
@@ -2472,6 +2495,8 @@ Signature:
 ---
 
 # 33. Enhancement / แกร่ง / Hall of Fame Audio
+
+> **⚠ SUPERSEDED-FOR-REINFORCEMENT (v15.3, 2026-07-12)** — ระบบตีบวกไม่มี RNG/Fail/รอยร้าวแล้ว → **§33.1 "เสียงลุ้นก่อนผลออก" · §33.3 ล้มเหลว · §33.4 รอยร้าว = ไม่มีเหตุการณ์ให้เล่น** · §33.5 "แกร่ง" (พิธี "นี่คือแกร่ง") = ยังใช้ (ทุกครั้ง = พิธีสำเร็จ), rename → เสริมแกร่ง · จุดลุ้นย้ายไป **เสียง drop เสริมแกร่งจากบอส** · re-spec audio เต็มเลื่อนไปเฟสผลิตเสียง (รอเคาะ R6) · ดู `docs/design/deungpu_REINFORCEMENT_SYSTEM_DECISION_v1.md` §11 R6
 
 ## 33.1 ตีบวกปกติ
 
