@@ -139,6 +139,25 @@ export interface MobSnapshot {
 export const MSG_POSITION_CORRECTION = "position_correction";
 
 /**
+ * message type: server → **client เดียว** (P1-10, GS §57.3) — player เดินเข้า exit area (ตรวจ
+ * server-authoritative จาก findExitAt ใน MSG_MOVE) → สั่ง client ข้าม map (separated rooms + fade).
+ * client leave room เดิม (consented) → fade out → join room ปลายทาง (mapId=targetMapId, spawn=targetSpawn)
+ * → fade in. ยิงครั้งเดียวต่อการเข้า exit (server track lastExitId กัน spam). payload = MapTransitionMessage.
+ */
+export const MSG_MAP_TRANSITION = "map_transition";
+
+/**
+ * payload ของ MSG_MAP_TRANSITION (server → client เดียว, P1-10).
+ * targetSpawn = จุดเกิดใน target map (tile coord) — server เอามาจาก MapExit ที่ validate แล้ว (registry
+ * cross-ref: targetMapId มีจริง + targetSpawn เดินได้). client ใช้ join room ใหม่ที่ตำแหน่งนี้.
+ */
+export interface MapTransitionMessage {
+  exitId: string;
+  targetMapId: string;
+  targetSpawn: { x: number; y: number };
+}
+
+/**
  * payload ของ MSG_POSITION_CORRECTION (server → client เดียว, P1-02).
  * tx/ty = ตำแหน่ง authoritative (valid ล่าสุดฝั่ง server, tile coord) ที่ client ต้อง snap กลับไป.
  * direction/anim = state ล่าสุดฝั่ง server (คงจาก valid ล่าสุด). reason = debug เท่านั้น (ไม่ผูก gameplay).

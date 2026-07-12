@@ -128,6 +128,26 @@ export interface MobPocket {
 }
 
 /**
+ * Transition point (P1-10, GS §57.3 "separated rooms + loading/fade") — พื้นที่ (rect) บน map นี้
+ * ที่เดินเข้าไปแล้ว **ข้าม map** (โหลดฉากใหม่ ไม่ seamless). ทุกพิกัดเป็น tile space เหมือน field อื่น.
+ *
+ * detection = server-authoritative ตอน online (findExitAt ใน MSG_MOVE → ส่ง MSG_MAP_TRANSITION),
+ * และ client-side ตอน offline (mirror pure fn เดียวกัน — ไม่มี server ก็ข้าม map ได้). targetSpawn อยู่
+ * ใน **coordinate space ของ targetMapId** (ไม่ใช่ map นี้) → loader ตรวจแค่ shape; registry ตรวจ
+ * cross-ref (targetMapId มีจริง + targetSpawn เดินได้ใน target map).
+ */
+export interface MapExit {
+  /** id ไม่ซ้ำภายใน map */
+  exitId: string;
+  /** พื้นที่ trigger (rect tile) — player snap tile อยู่ใน rect นี้ → ข้าม map */
+  area: TileRect;
+  /** mapId ปลายทาง (ต้องมีใน registry — validate ที่ registry ไม่ใช่ loader) */
+  targetMapId: string;
+  /** จุดเกิดใน target map (tile coord, float ได้) — **ต้องอยู่นอก exit area ปลายทาง** กัน re-trigger ทันที */
+  targetSpawn: SpawnPoint;
+}
+
+/**
  * Authoring/raw form ของ map config — สิ่งที่ author เขียน (p0-test-field.ts)
  * และสิ่งที่ loadMapConfig รับเข้ามา validate. collision เป็น data ล้วน (ยังไม่มี blockedSet).
  */
@@ -146,6 +166,8 @@ export interface MapConfigInput {
   collision: CollisionLayerInput;
   props: PropSpawn[];
   mobPockets: MobPocket[];
+  /** transition points (P1-10, §57.3) — optional; ไม่ระบุ → [] (map ปลายทาง/dev). */
+  exits?: MapExit[];
 }
 
 /**
@@ -163,6 +185,8 @@ export interface MapConfig {
   collision: CollisionLayer;
   readonly props: readonly PropSpawn[];
   readonly mobPockets: readonly MobPocket[];
+  /** transition points (P1-10, §57.3) — always present (default [] เมื่อ map ไม่มี exit). */
+  readonly exits: readonly MapExit[];
 }
 
 /**
@@ -212,4 +236,32 @@ export function isWalkableTile(
   ty: number,
 ): boolean {
   return isWithinBounds(map, tx, ty) && !isBlockedTile(map, tx, ty);
+}
+
+/**
+ * integer tile (tx,ty) อยู่ใน rect หรือไม่ — ครอบ [tx, tx+width) × [ty, ty+height). คาดหวัง integer tile.
+ */
+export function isTileInRect(rect: TileRect, tx: number, ty: number): boolean {
+  return (
+    tx >= rect.tx &&
+    ty >= rect.ty &&
+    tx < rect.tx + rect.width &&
+    ty < rect.ty + rect.height
+  );
+}
+
+/**
+ * exit ที่ integer tile นี้อยู่ในพื้นที่ (P1-10) — คืน exit แรกที่ตรง (map ออกแบบให้ area ไม่ทับกัน)
+ * หรือ null. **pure + mirror ทั้ง server/client** (server-authoritative detection ตอน online, client
+ * offline fallback ใช้ตัวเดียวกัน). คาดหวัง integer tile จาก snapToTile.
+ */
+export function findExitAt(
+  map: MapConfig,
+  tx: number,
+  ty: number,
+): MapExit | null {
+  for (const exit of map.exits) {
+    if (isTileInRect(exit.area, tx, ty)) return exit;
+  }
+  return null;
 }

@@ -52,12 +52,14 @@ import {
   DEFAULT_MAP_ID,
   MSG_CAST_SKILL,
   MSG_CAST_REJECTED,
+  MSG_MAP_TRANSITION,
   MSG_MOVE,
   MSG_POSITION_CORRECTION,
   MSG_SKILL_RESULT,
   type CastRejectedMessage,
   type CastSkillMessage,
   type JoinOptions,
+  type MapTransitionMessage,
   type MoveMessage,
   type PositionCorrectionMessage,
   type SkillHit,
@@ -68,9 +70,13 @@ import {
   type MoveValidationParams,
   type WalkableAtFn,
 } from "../../src/shared/movement-validation";
-import { loadMapConfig } from "../../src/engine/map/loader";
-import { P0_TEST_FIELD } from "../../src/engine/map/p0-test-field";
-import { isWalkableTile, safeCampOf, type MapConfig } from "../../src/engine/map/types";
+import { requireMap } from "../../src/engine/map/registry";
+import {
+  findExitAt,
+  isWalkableTile,
+  safeCampOf,
+  type MapConfig,
+} from "../../src/engine/map/types";
 import { resolveSpawnPosition, type ReconnectVec2 } from "../../src/shared/reconnect";
 import { snapToTile } from "../../src/engine/iso/coords";
 import { DEFAULT_ENGINE_CONFIG, type CombatBalanceConfig } from "../../src/engine/config";
@@ -151,6 +157,11 @@ interface MoveTracker {
   lastMoveTime: number;
   /** เวลา (ms) ที่ส่ง correction ครั้งล่าสุด — บังคับ correctionCooldownMs กัน flood */
   lastCorrectionTime: number;
+  /**
+   * P1-10: exitId ที่ player อยู่ในพื้นที่ล่าสุด (null = ไม่อยู่ใน exit ใด). ยิง MSG_MAP_TRANSITION
+   * เฉพาะตอน "เพิ่งเข้า" exit (เปลี่ยนจาก null/other → exitId นี้) — กัน spam ทุก MSG_MOVE ระหว่างยืนใน area.
+   */
+  lastExitId: string | null;
 }
 
 export class MapRoom extends Room<MapRoomState> {
@@ -199,9 +210,10 @@ export class MapRoom extends Room<MapRoomState> {
         `${this.partyId ? ` party=${this.partyId}` : " (solo)"} cap=${this.maxClients}`,
     );
 
-    // P1-02: server โหลด map เอง (loader pure เดิม) → รู้ collision/bounds. reuse engine collision:
-    // snapToTile ตำแหน่งต่อเนื่อง → integer tile → isWalkableTile (bounds + block). ไม่ copy สูตร.
-    this.map = loadMapConfig(P0_TEST_FIELD);
+    // P1-02/P1-10: server โหลด map จาก registry ตาม mapId (ไม่ hardcode test field) → รองรับหลาย map.
+    // registry validate แล้ว (collision/bounds/exits cross-ref). reuse engine collision: snapToTile →
+    // integer tile → isWalkableTile (bounds + block). ไม่ copy สูตร.
+    this.map = requireMap(state.mapId);
     this.isWalkableAt = (tx: number, ty: number): boolean => {
       const cell = snapToTile({ tx, ty });
       return isWalkableTile(this.map, cell.tx, cell.ty);
@@ -265,6 +277,8 @@ export class MapRoom extends Room<MapRoomState> {
         player.anim = message.anim;
         tracker.tx = message.tx;
         tracker.ty = message.ty;
+        // P1-10: ตำแหน่ง valid ปัจจุบันเข้า exit area → สั่ง client ข้าม map (server-authoritative detection).
+        this.checkExit(client, tracker);
         return;
       }
 
@@ -285,6 +299,31 @@ export class MapRoom extends Room<MapRoomState> {
         );
       }
     });
+  }
+
+  /**
+   * P1-10 (GS §57.3): ตรวจว่า valid position ของ player อยู่ใน exit area ไหม (server-authoritative).
+   * ยิง MSG_MAP_TRANSITION เฉพาะตอน "เพิ่งเข้า" exit (lastExitId เปลี่ยน) — กัน spam ระหว่างยืนใน area.
+   * client รับแล้ว leave room เดิม (consented → onLeave ลบทันที, client อื่นเห็นหาย) → join room ปลายทาง.
+   * server **ไม่** ย้าย/ลบ player เอง (separated rooms = client re-join) — แค่บอกทาง.
+   */
+  private checkExit(client: Client, tracker: MoveTracker): void {
+    const cell = snapToTile({ tx: tracker.tx, ty: tracker.ty });
+    const exit = findExitAt(this.map, cell.tx, cell.ty);
+    const exitId = exit?.exitId ?? null;
+    if (exit && exitId !== tracker.lastExitId) {
+      const msg: MapTransitionMessage = {
+        exitId: exit.exitId,
+        targetMapId: exit.targetMapId,
+        targetSpawn: { x: exit.targetSpawn.x, y: exit.targetSpawn.y },
+      };
+      client.send(MSG_MAP_TRANSITION, msg);
+      console.log(
+        `[MapRoom ${this.roomId}] ${client.sessionId} เข้า exit "${exit.exitId}" → ` +
+          `transition ไป ${exit.targetMapId} @(${exit.targetSpawn.x},${exit.targetSpawn.y})`,
+      );
+    }
+    tracker.lastExitId = exitId;
   }
 
   /**
@@ -455,6 +494,8 @@ export class MapRoom extends Room<MapRoomState> {
       ty: player.ty,
       lastMoveTime: Date.now(),
       lastCorrectionTime: 0,
+      // P1-10: spawn อยู่นอก exit area (targetSpawn ออกแบบมานอก exit ปลายทาง) → เริ่ม null.
+      lastExitId: null,
     });
     if (spawn.usedSafeCamp) {
       console.log(

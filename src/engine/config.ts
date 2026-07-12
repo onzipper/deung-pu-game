@@ -674,6 +674,20 @@ export interface DebugOverlayConfig {
   depthLabelOffsetY: number;
 }
 
+/**
+ * Map transition knob (P1-10, GS §57.3 "loading/fade") — fade overlay ตอนข้าม map (separated rooms).
+ * timing (fadeOutMs/fadeInMs) ป้อน state machine pure (transition-state.ts); fadeColor = สี overlay (visual).
+ * ทุกค่าเป็น Design Knob.
+ */
+export interface TransitionConfig {
+  /** สี overlay ที่ fade (0xRRGGBB) — ปกติดำ */
+  fadeColor: number;
+  /** ระยะเวลาจอค่อย ๆ มืดก่อน swap map (ms) */
+  fadeOutMs: number;
+  /** ระยะเวลาเผยฉาก map ใหม่ (ms) */
+  fadeInMs: number;
+}
+
 /** renderer preference ที่ pixi autoDetect รองรับ */
 export type RendererPreference = "webgl" | "webgpu";
 
@@ -711,6 +725,8 @@ export interface EngineConfig {
   player: PlayerConfig;
   /** pathfinding + click-to-move + touch knob (P1-09, TA §17.3 · L11) */
   pathfinding: PathfindingConfig;
+  /** map transition fade knob (P1-10, GS §57.3) — fade overlay ตอนข้าม map */
+  transition: TransitionConfig;
   /** server-authoritative movement validation knob (P1-02) — mirror client/server */
   movementValidation: MovementValidationConfig;
   /** dummy mob pocket spawn + wander + placeholder style (P0-09) */
@@ -763,6 +779,13 @@ export const DEFAULT_MOVEMENT_VALIDATION_CONFIG: MovementValidationConfig = {
 export const DEFAULT_CAMERA_CONFIG: CameraConfig = {
   followLerp: 0.12,
   edgeMargin: 96,
+};
+
+/** Map transition defaults (P1-10, §57.3) — fade สั้น ๆ (§57.3 "fade/loading สั้น"). */
+export const DEFAULT_TRANSITION_CONFIG: TransitionConfig = {
+  fadeColor: 0x000000, // ดำ
+  fadeOutMs: 260,
+  fadeInMs: 260,
 };
 
 export const DEFAULT_PLAYER_ANIMATION_CONFIG: PlayerAnimationConfig = {
@@ -1045,6 +1068,7 @@ export const DEFAULT_ENGINE_CONFIG: EngineConfig = {
   camera: DEFAULT_CAMERA_CONFIG,
   player: DEFAULT_PLAYER_CONFIG,
   pathfinding: DEFAULT_PATHFINDING_CONFIG,
+  transition: DEFAULT_TRANSITION_CONFIG,
   movementValidation: DEFAULT_MOVEMENT_VALIDATION_CONFIG,
   mob: DEFAULT_MOB_CONFIG,
   net: DEFAULT_NET_CONFIG,
@@ -1073,6 +1097,10 @@ export function createEngineConfig(
     camera: {
       ...DEFAULT_ENGINE_CONFIG.camera,
       ...overrides.camera,
+    },
+    transition: {
+      ...DEFAULT_ENGINE_CONFIG.transition,
+      ...overrides.transition,
     },
     // theme/player/mob มี nested object — override ทั้งก้อนเมื่อกำหนด, ไม่งั้นใช้ default
     theme: overrides.theme ?? DEFAULT_ENGINE_CONFIG.theme,

@@ -23,12 +23,14 @@ import {
   MAP_ROOM_NAME,
   MSG_CAST_SKILL,
   MSG_CAST_REJECTED,
+  MSG_MAP_TRANSITION,
   MSG_MOVE,
   MSG_POSITION_CORRECTION,
   MSG_SKILL_RESULT,
   type CastRejectedMessage,
   type CastSkillMessage,
   type JoinOptions,
+  type MapTransitionMessage,
   type MobSnapshot,
   type MoveMessage,
   type PlayerSnapshot,
@@ -97,6 +99,11 @@ export interface NetClientHandlers {
   onSkillResult?(result: SkillResultMessage): void;
   /** cast ถูกปฏิเสธ (P1-05, ถึง caster เท่านั้น) — debug/UX เท่านั้น. optional. */
   onCastRejected?(rejected: CastRejectedMessage): void;
+  /**
+   * P1-10 (§57.3): server สั่งข้าม map (player เดินเข้า exit area, server-authoritative) → caller
+   * teardown world เดิม + join room map ปลายทางที่ targetSpawn (fade). optional.
+   */
+  onMapTransition?(msg: MapTransitionMessage): void;
 }
 
 /** อ่าน MobState schema (reflection → any) → MobSnapshot (coerce state). */
@@ -278,6 +285,11 @@ export function createNetClient(
     // P1-05: server → caster เดียว cast ถูกปฏิเสธ (cooldown/skill มั่ว/range) — debug/UX
     joinedRoom.onMessage(MSG_CAST_REJECTED, (rejected: CastRejectedMessage) => {
       handlers.onCastRejected?.(rejected);
+    });
+
+    // P1-10: server สั่งข้าม map (player เข้า exit area) → caller ทำ transition (leave + join room ใหม่)
+    joinedRoom.onMessage(MSG_MAP_TRANSITION, (msg: MapTransitionMessage) => {
+      handlers.onMapTransition?.(msg);
     });
 
     // channel/map อาจถูก set หลัง state แรก → sync ค่าล่าสุด

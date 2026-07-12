@@ -74,4 +74,16 @@ export const P0_TEST_FIELD: MapConfigInput = {
       activeCap: 8,
     },
   ],
+
+  // P1-10: dev exit ไป Map 1. test field = dev map (ไม่มีทิศเชื่อมใน bible) → วาง exit ที่ขอบเหนือ (row 0–1,
+  // tx 10–13, พื้นโล่งเดินได้). เดินชนขอบเหนือ = ข้ามไป map1. targetSpawn = ใต้ประตู map1 (นอก exit area
+  // map1 กัน re-trigger). map1 มี exit กลับ (map1-north-gate → p0-test-field) ครบวง.
+  exits: [
+    {
+      exitId: "testfield-north-to-map1",
+      area: { tx: 10, ty: 0, width: 4, height: 2 },
+      targetMapId: "map1",
+      targetSpawn: { x: 20.5, y: 5.5 },
+    },
+  ],
 };

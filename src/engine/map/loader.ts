@@ -13,6 +13,7 @@ import {
   type CollisionLayer,
   type MapBounds,
   type MapConfig,
+  type MapExit,
   type MobPocket,
   type PropSpawn,
   type SpawnPoint,
@@ -235,6 +236,25 @@ function parsePocket(
 }
 
 /**
+ * parse exit 1 จุด (P1-10) — **intrinsic validation เท่านั้น** (สิ่งที่ map นี้รู้เอง):
+ *   exitId ไม่ว่าง · area = rect integer ในขอบเขต map นี้ · targetMapId ไม่ว่าง · targetSpawn = {x,y} finite.
+ * **ไม่** ตรวจ targetMapId มีจริง / targetSpawn เดินได้ — นั่นเป็น cross-map (targetSpawn อยู่ใน coordinate
+ * space ของ map อื่น) → ตรวจที่ registry (validateMapCrossRefs) ที่รู้ทุก map. fail-loud เหมือน field อื่น.
+ */
+function parseExit(v: unknown, path: string, bounds: MapBounds): MapExit {
+  const o = asRecord(v, path);
+  const exitId = reqString(o.exitId, `${path}.exitId`);
+  const area = parseRect(o.area, `${path}.area`, bounds);
+  const targetMapId = reqString(o.targetMapId, `${path}.targetMapId`);
+  const ts = asRecord(o.targetSpawn, `${path}.targetSpawn`);
+  const targetSpawn: SpawnPoint = {
+    x: reqFinite(ts.x, `${path}.targetSpawn.x`),
+    y: reqFinite(ts.y, `${path}.targetSpawn.y`),
+  };
+  return { exitId, area, targetMapId, targetSpawn };
+}
+
+/**
  * Validate + build map config จาก raw (unknown). throw MapConfigError ถ้าผิด.
  *
  * Invariant ที่คุ้ม:
@@ -245,6 +265,8 @@ function parsePocket(
  *  • spawnPoint (snap เป็น cell) อยู่ในขอบเขต และ **ไม่ทับ collision**
  *  • props: propId ไม่ว่าง, tile finite (float ได้), zLayer integer ถ้ามี
  *  • mobPockets: id ไม่ซ้ำ, area อยู่ในขอบเขต, packSize 1≤min≤max, activeCap ≥ 1
+ *  • exits (optional): id ไม่ซ้ำ, area อยู่ในขอบเขต, targetMapId/targetSpawn shape ถูก
+ *    (cross-ref target มีจริง + เดินได้ = registry.validateMapCrossRefs, ไม่ใช่ที่นี่)
  */
 export function loadMapConfig(raw: unknown): MapConfig {
   const o = asRecord(raw, "root");
@@ -276,6 +298,21 @@ export function loadMapConfig(raw: unknown): MapConfig {
     return pocket;
   });
 
+  // P1-10: exits (optional) — intrinsic validate + id ไม่ซ้ำ. cross-ref (target มีจริง/เดินได้) = registry.
+  const exits: MapExit[] = [];
+  if (o.exits !== undefined) {
+    const rawExits = asArray(o.exits, "exits");
+    const seenExitIds = new Set<string>();
+    rawExits.forEach((e, i) => {
+      const exit = parseExit(e, `exits[${i}]`, bounds);
+      if (seenExitIds.has(exit.exitId)) {
+        fail(`exits[${i}].exitId ซ้ำ ("${exit.exitId}")`);
+      }
+      seenExitIds.add(exit.exitId);
+      exits.push(exit);
+    });
+  }
+
   return {
     mapId,
     name,
@@ -286,5 +323,6 @@ export function loadMapConfig(raw: unknown): MapConfig {
     collision,
     props,
     mobPockets,
+    exits,
   };
 }
