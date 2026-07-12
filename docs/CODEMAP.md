@@ -8,6 +8,7 @@
 - `src/app/layout.tsx` — root layout (font + globals)
 - `src/app/page.tsx` — landing page (ยัง default create-next-app)
 - `src/app/game/page.tsx` — route /game: server shell → render GameCanvas เต็มจอ
+- `src/app/game/boot-gate.ts` — **pure DI** `resolveGameEntry(deps)` (owner-report รอบ 2, Storage §5/§5.3): เช็คข้อมูลสดจาก session+characters API (ดู src/app/api/auth/session/route.ts, src/app/api/characters/route.ts) ก่อน mount เสมอ (เลิกเชื่อ hub-time `lastMapId` ค้าง) → `{action:"mount"}` (sync `rememberSelectedCharacterMapId`/เคลียร์ map key ด้วย) หรือ `{action:"redirect-hub"}`; ทุก fetch fail/network error = best-effort mount (กัน dev/offline solo flow พัง) — เทสต์: `tests/app-game-boot-gate.test.ts`
 - `src/app/globals.css` — Tailwind v4 entry + theme vars
 - `src/app/favicon.ico` — favicon
 
@@ -105,7 +106,7 @@
 - `tests/server-security.test.ts` — 26 asserts: handshake ทุกทาง (prod/dev × token/secret/origin) + rate limiter + takeover decision
 - `server/characters/persistence-decision.ts` — **pure** (P2-05): pickLoadPosition (ใช้ตำแหน่ง save เมื่อ mapId ตรง room + walkable, ไม่งั้น default) + pickSavePosition (safe-valid เสมอ) + save-interval throttle decision
 - `server/characters/character-state.ts` — CharacterState load/upsert + lastPlayedCharacterId (**best-effort** — ไม่มี DB → เกมเดินต่อ in-memory, pattern เดียวกับ session-lease)
-- `src/engine/net/character-session.ts` + `src/app/hub/enter-game.ts` — อ่าน/เขียน characterId ที่เลือกผ่าน sessionStorage (`SELECTED_CHARACTER_STORAGE_KEY` ใน net-protocol) → แนบ joinOptions · hub Continue = ทางเข้า · **owner-report#6 fix**: คู่กันเขียน/อ่าน mapId ล่าสุด (`SELECTED_CHARACTER_MAP_STORAGE_KEY`) — `rememberSelectedCharacter(id,lastMapId)` (enter-game.ts) เขียนตอน hub "เข้าเกม", `readSelectedCharacterMapId`/`rememberSelectedCharacterMapId` (character-session.ts) อ่านตอน boot + เขียนทับตอน transition ข้าม map (app.ts); `pickBootMapId(stored,hasMap,defaultMapId)` = **pure** decision เลือก boot map (เทสต์: `tests/engine-net-character-session.test.ts`)
+- `src/engine/net/character-session.ts` + `src/app/hub/enter-game.ts` — อ่าน/เขียน characterId ที่เลือกผ่าน sessionStorage (`SELECTED_CHARACTER_STORAGE_KEY` ใน net-protocol) → แนบ joinOptions · hub Continue = ทางเข้า · **owner-report#6 fix**: คู่กันเขียน/อ่าน mapId ล่าสุด (`SELECTED_CHARACTER_MAP_STORAGE_KEY`) — `rememberSelectedCharacter(id,lastMapId)` (enter-game.ts) เขียนตอน hub "เข้าเกม", `readSelectedCharacterMapId`/`rememberSelectedCharacterMapId` (character-session.ts) อ่านตอน boot + เขียนทับตอน transition ข้าม map (app.ts); `pickBootMapId(stored,hasMap,defaultMapId)` = **pure** decision เลือก boot map · **owner-report รอบ 2**: `clearSelectedCharacter`/`clearSelectedCharacterMapId` (best-effort removeItem) ใช้โดย `src/app/game/boot-gate.ts` ตอนเจอ characterId ที่ตายแล้ว (เทสต์: `tests/engine-net-character-session.test.ts`)
 - `tests/server-characters-persistence.test.ts` — 10 เคส: load/save decision + ownership + **transition-save invariant** (ดู known-traps)
 
 ## Auth (P2-03 — custom lightweight, decision-index 2026-07-12 · src/server/** = Next server-only)
@@ -140,7 +141,7 @@
 
 ## UI (React overlay)
 
-- `src/ui/GameCanvas.tsx` — "use client" bridge: mount/unmount engine (กัน StrictMode double-mount); เก็บ EngineHandle ใน ref (ไม่ใช่ React state) + render `<DebugOverlay>` (P0-11)
+- `src/ui/GameCanvas.tsx` — "use client" bridge: mount/unmount engine (กัน StrictMode double-mount); เก็บ EngineHandle ใน ref (ไม่ใช่ React state) + render `<DebugOverlay>` (P0-11) · **owner-report รอบ 2**: เรียก `resolveGameEntry` (boot-gate.ts) ก่อน `createEngine` เสมอ (ในตัว setTimeout(0) เดิม, await แล้วเช็ค cancelled) — redirect-hub ผลลัพธ์ → router.replace ไป /hub (next/navigation), mount ผลลัพธ์ → createEngine ตามเดิม
 - `src/ui/DebugOverlay.tsx` — "use client" (P0-11 → **P2-01 ย้ายเข้า Zustand แล้ว**): panel มุมขวาบน subscribe `useGameStore(selectDebugInfo)` (แทน poll เดิม) แสดง fps/player tile/pointer tile/entityCount/net(status·mapId·roomId·channelId·party·playerCount) + ปุ่ม toggle depth debug (คำสั่ง imperative ยังผ่าน EngineHandle accessor) + ซ่อน/แสดง (ปุ่ม + F3)
 - `src/ui/debug-overlay-logic.ts` — **pure** (P0-11): DebugOverlayState + `isDebugToggleKey`/`toggleVisible`/`toggleDepthDebug` (reducer, แยกจาก component ให้เทสต์ได้โดยไม่ต้อง render)
 - `src/ui/store/game-store.ts` — **Zustand vanilla store bridge** (P2-01, contract `docs/context/ui.md`): HudState + gameStore singleton + `createHudPublisher` (throttled ~4Hz, thunk build เฉพาะตอนถึงคิว, inject clock/writer ได้ = testable) + `resetHudState` (engine teardown/StrictMode) — **ห้ามมี React import ในไฟล์นี้** (engine `src/engine/runtime/app.ts` import ตรงเพื่อ publish)

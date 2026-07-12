@@ -47,6 +47,27 @@ export function rememberSelectedCharacterMapId(mapId: string): void {
 }
 
 /**
+ * เคลียร์ characterId ที่เลือกไว้ (best-effort) — ใช้ตอน `/game` boot gate เจอว่าตัวละครที่ sessionStorage
+ * ชี้ไปหาไม่เจอแล้ว (ถูกลบ/ของบัญชีอื่น) กัน redirect ไป hub วนซ้ำด้วยค่าเก่าที่ตายแล้ว (src/app/game/boot-gate.ts).
+ */
+export function clearSelectedCharacter(): void {
+  try {
+    window.sessionStorage.removeItem(SELECTED_CHARACTER_STORAGE_KEY);
+  } catch {
+    // sessionStorage ใช้ไม่ได้ — เงียบ
+  }
+}
+
+/** เคลียร์ mapId ที่เลือกไว้ (best-effort) — คู่กับ {@link clearSelectedCharacter} หรือเรียกเดี่ยวตอนตัวละครยังไม่เคย save. */
+export function clearSelectedCharacterMapId(): void {
+  try {
+    window.sessionStorage.removeItem(SELECTED_CHARACTER_MAP_STORAGE_KEY);
+  } catch {
+    // sessionStorage ใช้ไม่ได้ — เงียบ
+  }
+}
+
+/**
  * **pure** decision: เลือก mapId ที่จะ boot world แรก (owner-report#6 fix) — `stored` มี + registry รู้จัก
  * (`hasMap(stored)` true) → boot map นั้น (server จะโหลดตำแหน่ง save จริงผ่าน pickLoadPosition +
  * onSelfSpawn adoption ที่มีอยู่แล้ว); ไม่มี/registry ไม่รู้จัก (mapId เก่าค้างจาก build ก่อนหน้า/map ถูกถอด)

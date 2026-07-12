@@ -11,9 +11,17 @@
 //   ถูกสร้าง **ครั้งเดียวจริง** ไม่มี engine1 ให้ churn. refresh/close = page reload → effect รันครบปกติ.
 
 import { useEffect, useRef } from "react";
+import { useRouter } from "next/navigation";
 import { createEngine, type EngineHandle } from "@/engine/runtime/app";
 import { DEFAULT_ENGINE_CONFIG, createEngineConfig } from "@/engine/config";
 import { DebugOverlay } from "@/ui/DebugOverlay";
+import { resolveGameEntry } from "@/app/game/boot-gate";
+import {
+  readSelectedCharacterId,
+  rememberSelectedCharacterMapId,
+  clearSelectedCharacter,
+  clearSelectedCharacterMapId,
+} from "@/engine/net/character-session";
 
 // P0-07: realtime server url override ผ่าน env (default = ws://localhost:2567 ใน DEFAULT_NET_CONFIG).
 // NEXT_PUBLIC_ = inline ตอน build (ฝั่ง client). ไม่ตั้ง = ใช้ default local dev.
@@ -29,6 +37,7 @@ export function GameCanvas() {
   // engine handle เก็บใน ref (ไม่ใช่ React state) — DebugOverlay (P0-11) อ่านผ่าน getHandle()
   // ตอน poll เท่านั้น ไม่ trigger re-render ของ GameCanvas เอง (world state ห้ามเข้า React state, tech §2).
   const engineRef = useRef<EngineHandle | null>(null);
+  const router = useRouter();
 
   useEffect(() => {
     const container = containerRef.current;
@@ -37,22 +46,37 @@ export function GameCanvas() {
     let cancelled = false;
     let handle: EngineHandle | null = null;
 
-    // เลื่อน createEngine ไป macrotask ถัดไป — StrictMode double-invoke จะ cleanup (clearTimeout) ก่อน
+    // เลื่อน gate+createEngine ไป macrotask ถัดไป — StrictMode double-invoke จะ cleanup (clearTimeout) ก่อน
     // timer ยิง → engine ไม่ถูกสร้างในรอบ transient (ดู header). refresh จริง = effect เดียว → timer ยิงปกติ.
+    // gate (owner-report รอบ 2, src/app/game/boot-gate.ts): เช็คด้วยข้อมูลสดก่อน mount เสมอ — await แล้ว
+    // เช็ค cancelled ก่อนไปต่อ (กัน unmount จริงมาก่อน gate resolve).
     const startId = setTimeout(() => {
-      createEngine(container, ENGINE_CONFIG)
-        .then((created) => {
-          if (cancelled) {
-            // เผื่อ unmount จริงมาก่อน promise resolve → ทิ้งทันที
-            created.destroy();
-            return;
-          }
-          handle = created;
-          engineRef.current = created;
-        })
-        .catch((err) => {
-          console.error("[GameCanvas] engine init failed", err);
-        });
+      void resolveGameEntry({
+        readCharacterId: readSelectedCharacterId,
+        fetchFn: fetch,
+        rememberMapId: rememberSelectedCharacterMapId,
+        clearCharacterId: clearSelectedCharacter,
+        clearMapId: clearSelectedCharacterMapId,
+      }).then((entry) => {
+        if (cancelled) return;
+        if (entry.action === "redirect-hub") {
+          router.replace("/hub");
+          return;
+        }
+        createEngine(container, ENGINE_CONFIG)
+          .then((created) => {
+            if (cancelled) {
+              // เผื่อ unmount จริงมาก่อน promise resolve → ทิ้งทันที
+              created.destroy();
+              return;
+            }
+            handle = created;
+            engineRef.current = created;
+          })
+          .catch((err) => {
+            console.error("[GameCanvas] engine init failed", err);
+          });
+      });
     }, 0);
 
     return () => {
@@ -61,7 +85,9 @@ export function GameCanvas() {
       handle?.destroy();
       engineRef.current = null;
     };
-  }, []);
+    // router (next/navigation useRouter) = stable reference ข้าม render ใน App Router — ใส่ใน deps
+    // ปลอดภัย ไม่ทำให้ effect รันซ้ำ (แค่ satisfy exhaustive-deps)
+  }, [router]);
 
   return (
     <>
