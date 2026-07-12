@@ -119,7 +119,7 @@
 - `src/shared/character-class.ts` — CLASS_IDS whitelist (**ตอนนี้ `swordsman` ตัวเดียว** — classId อังกฤษของอีก 4 อาชีพยังไม่ถูกเคาะ ห้ามเดา; เพิ่มตอน P2B archer)
 - `src/server/characters/` — repository contract + memory (เทสต์) + prisma (P2002→name_taken) + service (slot cap จาก account.characterSlots, cross-account guard, duplicate class ได้) + http helper — pattern เดียวกับ src/server/auth
 - `src/app/api/characters/route.ts` — GET list / POST create (session-gated 401, `{ok:false,reason,nameError}`)
-- `src/app/hub/page.tsx` + `HubShell/AuthPanel/ContinueCard/CharacterGrid/CharacterCreate/messages` (โฟลเดอร์เดียวกัน) — **Game Hub**: guest/login/register → Continue Card + ตาราง 5 ช่อง → จอสร้างตัวละคร (validation realtime, 4 อาชีพ disabled "เร็วๆ นี้") — ใช้ token V1 (radius 6/10/16, hit ≥48px) · ปุ่มเข้าเกม = link `/game` เฉยๆ (integration ตัวละคร = issue ถัดไป)
+- `src/app/hub/page.tsx` + components ในโฟลเดอร์เดียวกัน (`src/app/hub/HubShell.tsx`, AuthPanel, ContinueCard, CharacterGrid, CharacterCreate, messages) — **Game Hub**: guest/login/register → Continue Card + ตาราง 5 ช่อง → จอสร้างตัวละคร (validation realtime, 4 อาชีพ disabled "เร็วๆ นี้") — ใช้ token V1 (radius 6/10/16, hit ≥48px) · ปุ่มเข้าเกม = link ไป /game เฉยๆ (integration ตัวละคร = issue ถัดไป)
 - `tests/shared-character-name.test.ts` + `tests/server-characters-service.test.ts` — validator ทุก code + service ครบเส้นทาง (memory repo, ไม่ยิง DB)
 
 ## Persistence foundation (P2-02 — prisma/ + server/db/**)
