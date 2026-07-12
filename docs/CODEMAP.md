@@ -100,6 +100,19 @@
 - `server/schema/MapRoomState.ts` — @colyseus/schema state: PlayerState{tx,ty,direction,anim,**partyId** P1-08} + **MobState{mobId,mobType,tx,ty,state,hp}** (hp update จริง P1-05) + MapRoomState{mapId,channelId(server-assigned),**partyId** P1-08,roomId,players,**mobs**}
 - `server/tsconfig.json` — tsconfig แยกของ server (legacy decorators, node env; แยกจาก Next tsconfig)
 
+## Auth (P2-03 — custom lightweight, decision-index 2026-07-12 · src/server/** = Next server-only)
+
+- `src/server/db.ts` — Prisma client singleton ฝั่ง Next API (แยกจาก `server/db/client.ts` ของ realtime process) — server-only ห้ามเข้า client bundle
+- `src/server/auth/signed-token.ts` — **pure** HS256 compact JWS บน node:crypto (pin header กัน alg-confusion, timingSafeEqual, inject nowSec) — ใช้ทั้ง session cookie (SESSION_SECRET) + realtime token (JWT_SECRET)
+- `src/server/auth/realtime-token.ts` + `src/server/auth/session-cookie.ts` — ออก/verify JWT ~60s (sub+jti, aud realtime → P2-04 ใช้) · session = stateless httpOnly cookie
+- `src/server/auth/password.ts` + `src/server/auth/password-policy.ts` + `src/server/auth/common-passwords.ts` — scrypt hash (self-describing `scrypt$N$r$p$salt$hash` → migrate argon2id ได้) + policy + blocklist
+- `src/server/auth/email.ts` — normalize (lowercase ทั้ง address = uniqueness key L-doc §1.3) + validate + double-entry confirm
+- `src/server/auth/service.ts` + `src/server/auth/upgrade.ts` — auth state machine: guest → register/login → **guest upgrade คง accountId เดิม** (idempotent, reason ไม่ leak ว่า email มีอยู่ — กัน user enumeration)
+- `src/server/auth/repository.ts` — contract + EmailTakenError · `src/server/auth/memory-repository.ts` (เทสต์) · `src/server/auth/prisma-repository.ts` (จริง — P2002→EmailTakenError, upgrade = update id เดิม + upgradedAt)
+- `src/server/auth/http.ts` + `src/server/auth/secret.ts` — http util + อ่าน secret จาก env (throw ถ้าว่าง/สั้น)
+- `src/app/api/auth/guest/route.ts` (+ `register`,`login`,`upgrade`,`session`,`rt-token` ใต้ `src/app/api/auth/`) — 6 endpoints: POST guest/register/login/upgrade · GET+DELETE session · POST rt-token
+- `tests/server-auth-service.test.ts` (+ email/password-policy/password/token) — pure unit ทั้งหมดผ่าน in-memory repo (**ห้ามยิง DB จริง**)
+
 ## Persistence foundation (P2-02 — prisma/ + server/db/**)
 
 - `prisma/schema.prisma` — **MySQL schema ชุดแรก 10 ตาราง** (TA §7/§8 + AJ §4.3/§20, Prisma 6.x pinned — v7 breaking): accounts (guest+email upgrade) · characters (**name @unique — pending owner: กติกาชื่อซ้ำ**) · character_state (hot write แยกตาราง) · items (id อ้าง config ไม่เก็บ definition) · inventory (version = optimistic lock) · **currency_ledger (double-entry — ไม่มี balance column, idempotencyKey unique, append-only)** · enhancement_logs · drop_audit (RNG audit) · config_versions (key+version+payload+active) · **game_events (append-only, eventId unique dedup, index เผื่อ retention — เคาะ A4)** — **never-downgrade zone (DB schema)**

@@ -1,7 +1,10 @@
--- CreateTable
+﻿-- CreateTable
 CREATE TABLE `accounts` (
     `id` CHAR(36) NOT NULL,
     `email` VARCHAR(191) NULL,
+    `email_normalized` VARCHAR(191) NULL,
+    `password_hash` VARCHAR(191) NULL,
+    `upgraded_at` DATETIME(3) NULL,
     `is_guest` BOOLEAN NOT NULL DEFAULT true,
     `display_name` VARCHAR(191) NULL,
     `character_slots` INTEGER NOT NULL DEFAULT 5,
@@ -11,6 +14,7 @@ CREATE TABLE `accounts` (
     `updated_at` DATETIME(3) NOT NULL,
 
     UNIQUE INDEX `accounts_email_key`(`email`),
+    UNIQUE INDEX `accounts_email_normalized_key`(`email_normalized`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
