@@ -8,6 +8,9 @@ _Last updated: 2026-07-12_
 
 **P0 + P1 ปิดแล้ว** — merge เข้า `main` ผ่าน PR #6 (2026-07-12, `develop` → `main`); **623 tests เขียว** (docs path-guard รวมอยู่ในนั้น). **Test deploy live**: server บน **Render free tier + UptimeRobot** (`https://deung-pu-game.onrender.com`, `/healthz` = monitor endpoint) — พิสูจน์แล้วว่า matchmake + wss join + state sync + mob sim ทำงานบน production จริง. Client ฝั่ง **Hostinger** ยังไม่ deploy — รอ owner build ด้วย `NEXT_PUBLIC_RT_URL=wss://deung-pu-game.onrender.com` (ตาม `docs/deploy-checklist.md`) แล้ว smoke test ร่วมกัน. ถัดไป = ร่าง **P2 issue breakdown** (persistence/save, inventory, bot & report §59.2/TA §9, resync-on-refocus, start map จริง + จำ map ข้ามรีเฟรช, mobile polish, NPC/market) เมื่อ owner สั่งเริ่ม.
 
+### Latest work
+- **prod stutter fix (2026-07-12, owner เคาะ)** branch `fix/prod-move-stutter`: บน production (Render free-tier + เน็ตจริง) click-to-move "เดินกระตุกแล้วหยุด ไม่ถึงจุดที่คลิก". Root cause: MSG_MOVE 12Hz (ก้าวละ 0.333 tile) มาถึง server ชิดกันเป็นก้อน (arrival compression) → elapsed≈0 → clamp floor `minElapsedMs` เดิม 50ms → allowance 0.30 < 0.333 → reject speed → correction → snap+ทิ้ง path. **A**: `minElapsedMs` 50→**90** (floor ต้อง ≥ 1 send interval 83ms; allowance@floor=0.54≥0.333; anti-teleport ยังคุมด้วย `teleportThresholdTiles=3`). **B**: `applyCorrection` ไม่ทิ้ง goal — replan A* ไป goal เดิม (`correction-resume.ts` `planCorrectionResume`, reuse findPath) เดินต่อเอง; WASD/fresh join=no-op; reconnect กลาง walk=resume; unreachable=cancel. เทสต์ใหม่ + regression ใน `tests/shared-movement-validation.test.ts` + `tests/engine-player-correction-resume.test.ts`. รายละเอียด: `docs/known-traps.md`.
+
 ### วิธีรัน realtime local (2 terminal)
 - Terminal 1: `npm run dev:server` (Colyseus บน ws://localhost:2567; env `PORT` override ได้)
 - Terminal 2: `npm run dev` (Next client; env `NEXT_PUBLIC_RT_URL` override server url ได้)

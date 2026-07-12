@@ -21,6 +21,7 @@ import { attachKeyboard } from "@/engine/input/keyboard";
 import { stepMovement } from "@/engine/movement/mover";
 import { resolveDirection, type Direction } from "@/engine/movement/direction";
 import { findPath } from "@/engine/pathfinding/astar";
+import { planCorrectionResume } from "@/engine/player/correction-resume";
 import {
   advancePathFollower,
   type PathFollowParams,
@@ -193,20 +194,19 @@ export function createLocalPlayer(
     return true;
   };
 
-  /** replan A* ไป goal เดิมจากตำแหน่งปัจจุบัน (ตอน blocked). null/ถึงแล้ว → เลิกเดิน. */
+  /**
+   * replan A* ไป goal เดิมจากตำแหน่งปัจจุบัน (ตอน blocked mid-path หรือหลัง server correction).
+   * "walk" → เดินต่อ (คง pathGoal เดิม) · "idle"/"stop" → เลิกเดิน. reuse planCorrectionResume (pure).
+   */
   const replanToGoal = (): void => {
-    if (!pathGoal) {
-      clearPath();
-      return;
-    }
-    const path = findPath(pos, pathGoal, isWalkable, {
+    const plan = planCorrectionResume(pos, pathGoal, isWalkable, {
       maxSearchNodes: pathfinding.maxSearchNodes,
     });
-    if (!path || path.length === 0) {
-      clearPath();
-      return;
+    if (plan.action === "walk") {
+      follow = { waypoints: plan.waypoints, index: 0 };
+    } else {
+      clearPath(); // idle (ไม่มี goal) / stop (goal เดินไม่ถึง) → หยุด
     }
-    follow = { waypoints: path, index: 0 };
   };
 
   return {
@@ -271,11 +271,15 @@ export function createLocalPlayer(
 
     applyCorrection(tx: number, ty: number): void {
       // P1-02: server สั่ง snap กลับ — เขียนทับ position ทันที (ไม่ interpolate: correction = truth)
-      clearPath(); // path เดิมอิงตำแหน่งเก่า — ทิ้ง (server = authority)
       pos.tx = tx;
       pos.ty = ty;
       scene.moveEntity(LOCAL_PLAYER_ID, pos);
       scene.setCameraTarget(pos, true); // snap กล้องตาม (ไม่ lerp ไปหาตำแหน่งใหม่)
+      // Prod fix 2026-07-12: correction แล้ว **ไม่ทิ้ง goal** — ถ้ากำลังเดินตาม path (click-to-move /
+      // walk-to-attack chase) → replan A* จากตำแหน่งใหม่ไป goal เดิม → เดินต่อ (แก้ "กระตุกแล้วหยุด ไม่
+      // ถึงจุดที่คลิก"). ไม่มี goal (WASD/manual / fresh join) → no-op ล้าง path. reconnect กลาง walk →
+      // resume goal เดิม (สอดคล้อง decision "ค้างออนไลน์"). replan ไม่ถึง → clearPath (เหมือนเดิม).
+      replanToGoal();
     },
 
     update(dtSeconds: number): void {

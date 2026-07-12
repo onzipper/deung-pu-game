@@ -90,4 +90,12 @@
 - สาเหตุ: root `tsconfig.json` `include: ["**/*.ts"]` จับไฟล์ temp ที่ root (เช่น `proof-hitbox.ts`); `exclude:["server"]` กันได้เฉพาะ root-file **แต่ไม่กันไฟล์ที่ถูก import** — temp script `import "./server/rooms/MapRoom"` ดึง `server/**` (legacy-decorator schema) เข้า program ของ root tsconfig (ซึ่งไม่มี experimentalDecorators) → TS1240. (ตรวจด้วย `tsc --explainFiles | grep -A2 MapRoomState`)
 - วิธีเลี่ยง: proof/integration script ที่ import server/** ต้อง **ลบทิ้งก่อนรัน build/tsc gate เสมอ** (temp เท่านั้น ไม่ commit อยู่แล้ว) — วางที่ root ได้ตอนรัน (tsx-resolve-trap #41) แต่ห้ามค้างตอน typecheck. ยืนยัน `git status` สะอาดจาก temp ก่อนปิดงาน
 
+## Movement validation floor ต้อง ≥ 1 send interval ไม่งั้น 1 ก้าวเต็มโดน reject = เดินกระตุกแล้วหยุด (prod, 2026-07-12)
+
+- อาการ (owner เจอบน **production** จริง — free-tier Render + เน็ตจริง; local ปกติ): click-to-move แล้ว "เดินกระตุก ๆ แล้วหยุด ไม่ถึงจุดที่คลิก"
+- สาเหตุ (พิสูจน์บน prod): client ส่ง MSG_MOVE 12Hz = ก้าวละ `speed/sendHz = 4/12 ≈ 0.333 tile`. บนเน็ตจริง/free-tier CPU สะดุด message หลายอันมาถึง server **ชิดกันเป็นก้อน** (arrival compression) → `elapsedMs` ที่ server วัดระหว่างสองก้อน ≈ 0 → `clamp` ขึ้น floor `minElapsedMs`. ที่ floor เดิม **50ms**: allowance = `4 × 0.05 × 1.5 = 0.30 < 0.333` → 1 ก้าวเต็ม **โดน reject reason=speed** → MSG_POSITION_CORRECTION → client snap + (เดิม) ทิ้ง path = กระตุกแล้วหยุด. พิสูจน์: ส่งคู่ชิดกันแม้ความเร็วเฉลี่ยถูกกติกา → โดน 8/15; จังหวะสะอาด → 0
+- วิธีเลี่ยง (fix ใช้): **`minElapsedMs` floor ต้อง ≥ 1 send interval** (83ms @12Hz). ตั้ง **90** → allowance@floor = `4 × 0.09 × 1.5 = 0.54 ≥ 0.333` → 1 ก้าวเต็มที่มาถึงชิดกันยังผ่านเสมอ. anti-teleport ยังคุมด้วย `teleportThresholdTiles=3` (absolute cap อิสระจาก elapsed) → เพิ่ม floor **ไม่** เปิดช่อง speed hack (โกงจริง delta 1.0 ยัง reject). **หลักการ:** speed-cap floor ห้ามต่ำกว่า send interval — ไม่งั้น burst arrival ทำ 1 ก้าวปกติดูเหมือน teleport
+- ชั้นสอง (ทำคู่กัน): `applyCorrection` เดิมทิ้ง path เสมอ → correction ระหว่าง click-to-move = คลิกหาย. Fix: correction แล้ว **replan A* ไป goal เดิม** จากตำแหน่งใหม่ (`src/engine/player/correction-resume.ts` `planCorrectionResume`, reuse findPath) → เดินต่อเอง; ไม่มี goal (WASD/fresh join) = no-op; unreachable = cancel เหมือนเดิม
+- debug: `getNetDebugInfo().correctionCount` (F3 overlay) พุ่งตอนเดินปกติ = floor/interval mismatch (ไม่ใช่ speed hack จริง)
+
 <!-- เพิ่มกับดักใหม่ด้านล่างเมื่อเจอจริง -->

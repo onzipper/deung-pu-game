@@ -10,7 +10,8 @@ import {
 } from "@/engine/config";
 
 // พารามิเตอร์ default (mirror client/server จาก DEFAULT_ENGINE_CONFIG):
-// speed = 4 tile/s · tolerance 1.5 · teleport 3 tile · minElapsed 50ms · maxElapsed 1000ms
+// speed = 4 tile/s · tolerance 1.5 · teleport 3 tile · minElapsed 90ms · maxElapsed 1000ms
+// (floor = 90ms ≥ 1 send interval @12Hz เพื่อให้ 1 ก้าวเต็มที่มาถึงชิดกันยังผ่าน — prod fix 2026-07-12)
 const SPEED = DEFAULT_PLAYER_CONFIG.speed;
 const PARAMS: MoveValidationParams = {
   speed: SPEED,
@@ -91,18 +92,19 @@ describe("validateMove — teleport โดนจับ", () => {
 });
 
 describe("validateMove — edge: clock skew (elapsed 0/ติดลบ) ห้าม divide-by-zero", () => {
-  test("elapsed 0 → ใช้ minElapsed clamp, jitter เล็กยังผ่าน", () => {
+  test("elapsed 0 → ใช้ minElapsed clamp, 1 ก้าวเต็มยังผ่าน (prod fix floor 90ms)", () => {
     const prev = { tx: 0, ty: 0 };
-    // allowance ที่ minElapsed 50ms = 4 × 0.05 × 1.5 = 0.3
-    expect(validateMove(prev, { tx: 0.2, ty: 0 }, 0, PARAMS, alwaysWalkable).ok).toBe(true);
-    expect(validateMove(prev, { tx: 0.4, ty: 0 }, 0, PARAMS, alwaysWalkable).ok).toBe(false);
+    // allowance ที่ minElapsed 90ms = 4 × 0.09 × 1.5 = 0.54 → 1 ก้าวเต็ม (0.333) ผ่าน, เกิน 0.54 ไม่ผ่าน
+    expect(validateMove(prev, { tx: 0.333, ty: 0 }, 0, PARAMS, alwaysWalkable).ok).toBe(true);
+    expect(validateMove(prev, { tx: 0.5, ty: 0 }, 0, PARAMS, alwaysWalkable).ok).toBe(true);
+    expect(validateMove(prev, { tx: 0.6, ty: 0 }, 0, PARAMS, alwaysWalkable).ok).toBe(false);
   });
 
   test("elapsed ติดลบ (clock ถอยหลัง) → ไม่ throw, clamp เป็น min", () => {
     const prev = { tx: 0, ty: 0 };
-    const res = validateMove(prev, { tx: 0.2, ty: 0 }, -500, PARAMS, alwaysWalkable);
+    const res = validateMove(prev, { tx: 0.333, ty: 0 }, -500, PARAMS, alwaysWalkable);
     expect(res.ok).toBe(true);
-    const res2 = validateMove(prev, { tx: 0.4, ty: 0 }, -500, PARAMS, alwaysWalkable);
+    const res2 = validateMove(prev, { tx: 0.6, ty: 0 }, -500, PARAMS, alwaysWalkable);
     expect(res2.ok).toBe(false);
   });
 });
@@ -129,6 +131,26 @@ describe("validateMove — non_finite (wire เพี้ยน)", () => {
     const prev = { tx: 3, ty: 4 };
     const res = validateMove(prev, next, 83, PARAMS, alwaysWalkable);
     expect(res).toEqual({ ok: false, reason: "non_finite", correctTo: { tx: 3, ty: 4 } });
+  });
+});
+
+describe("validateMove — regression: prod stutter (arrival compression, 2026-07-12)", () => {
+  // Root cause: client ส่ง MSG_MOVE 12Hz (ก้าวละ speed/12 = 0.333 tile). บนเน็ตจริง/free-tier CPU
+  // message มาถึงชิดกันเป็นก้อน → elapsed ≈ 0 → clamp ขึ้น floor. ที่ floor เดิม 50ms allowance = 0.30 <
+  // 0.333 → reject speed → correction → เดินกระตุกแล้วหยุด. floor 90 → allowance 0.54 ≥ 0.333 → ผ่าน.
+  test("1 ก้าวเต็ม (delta 0.333) ที่ elapsed 5ms → ok (ไม่โดน false-positive speed)", () => {
+    const prev = { tx: 5, ty: 5 };
+    const next = { tx: 5 + 4 / 12, ty: 5 }; // 0.3333 tile = 1 ก้าว @speed 4, 12Hz
+    const res = validateMove(prev, next, 5, PARAMS, alwaysWalkable);
+    expect(res.ok).toBe(true);
+  });
+
+  test("โกงจริง (delta 1.0 tile ใน elapsed 5ms) → ยัง reject (floor สูงไม่เปิดช่อง speed hack)", () => {
+    const prev = { tx: 5, ty: 5 };
+    const next = { tx: 6, ty: 5 }; // 1.0 tile > allowance@floor 0.54, < teleport 3 → speed
+    const res = validateMove(prev, next, 5, PARAMS, alwaysWalkable);
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.reason).toBe("speed");
   });
 });
 
