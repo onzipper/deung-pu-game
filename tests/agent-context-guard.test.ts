@@ -42,6 +42,7 @@ describe("agent context guard", () => {
   const BYTE_CAPS: Record<string, number> = {
     "AGENTS.md": 1_024,
     "docs/decision-index.md": 6_144,
+    "docs/current-state.md": 3_072,
   };
 
   for (const [relPath, cap] of Object.entries(BYTE_CAPS)) {
