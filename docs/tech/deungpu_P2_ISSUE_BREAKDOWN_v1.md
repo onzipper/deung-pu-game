@@ -32,7 +32,7 @@
 | P2-06 | **Character creation + Game Hub + start flow + Test Field dev-gating** | **Game Hub = route ใน Next.js app เดิม** (S4): hub shell + Continue Card + Character Management 5 ช่อง (Storage §6–9) · สร้างตัวละคร: naming validation เต็มชุด (3–16, NFC, case-insensitive unique, error codes — Storage §3.3/§8) + create transaction idempotent · spawn starter district → ประตูสู่ Map 1 · Test Field เข้าได้เฉพาะ env flag/admin | Storage §3–§9 · Bible 3.2–3.3 |
 | P2-07 | **Inventory + equipment** | server-authoritative mutation ทั้งหมด (`FOR UPDATE` + optimistic lock), equip/unequip กระทบ stat จริง, UI บน Zustand bridge | TA §7 · §8 |
 | P2-08 | **Currency ledger (double-entry)** | ยอด = SUM ledger เท่านั้น, ทุกแถวมี reason+reference, raw SQL path — **never-downgrade zone (currency ledger)** | TA §7 |
-| P2-09 | **Server RNG drop** | drop table = server config (ไม่ ship ใน bundle), RNG server + drop_audit log, loot จาก mob ตาย → inventory ผ่าน transaction | TA §7 · GS §11 |
+| P2-09 | **Server RNG drop + EXP/level-up** | drop table = server config จากเล่ม Economy §11 (ไม่ ship ใน bundle), RNG server + drop_audit log, loot จาก mob ตาย → inventory ผ่าน transaction · **EXP grant ตาม Economy §9** (curve + level-diff modifier + party pool) + level-up ฝั่ง server · schema follow-up: +LedgerReason shop_buy/sell, +ItemInstance.crackedAt, dropTableVersion↔ConfigVersion mapping · ⚠ เนื้อหา (ชื่อ/stat บอส-elite-นก) รอ E1–E3 | Economy §9–§12 · TA §7 |
 | P2-10 | **Enhancement + ร้าว + แกร่ง** | ตีบวก fail/-1/ร้าว ตาม GS §12, แกร่ง = 2-step confirm token (ขอ→ยืนยัน กัน replay), enhancement_logs ทุกครั้ง | GS §12 · TA §7 |
 | P2-11 | **Starter NPC shop** | buy/sell ผ่าน ledger+inventory transaction, ราคา = config, NPC ใน starter district | Bible 3.5 · TA §12.1 |
 
