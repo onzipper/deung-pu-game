@@ -1,17 +1,18 @@
 "use client";
 
 // Debug overlay (P0-11, P0 §4.10) — React DOM panel ทับ canvas.
-// อ่าน engine ผ่าน public API เท่านั้น (`EngineHandle.getDebugInfo()`/`setDepthDebug()`) —
-// **poll แบบ snapshot ช้า ๆ ผ่าน setInterval** (config.debugOverlay.pollIntervalMs, ดีฟอลต์ 250ms)
-// ไม่ subscribe ทุก frame และไม่เอา world state (ตำแหน่ง/hp ฯลฯ) เข้า React state per-frame (tech §2).
-// FPS text เดิมในแคนวาส (per-frame, app.ts) ยังคงไว้ — overlay นี้แสดงค่าเฉลี่ยจาก poll เท่านั้น พอสำหรับ debug.
-//
-// P0 ยังไม่มี Zustand — ใช้ useState + setInterval ล้วน (Zustand bridge จริงมาตอน HUD จริง P1, ดู AI.md/ui.md).
+// P2-01: ย้ายจาก poll (setInterval + `EngineHandle.getDebugInfo()`) มา**subscribe ผ่าน Zustand bridge**
+// (`@/ui/store/use-game-store`, ดู docs/context/ui.md contract) — engine push snapshot throttled (~250ms,
+// config.debugOverlay.pollIntervalMs) เข้า store เอง (`src/engine/runtime/app.ts` hudPublisher), overlay
+// นี้แค่ subscribe เฉย ๆ ไม่ poll เอง ไม่แตะ engine handle เพื่ออ่านค่า/world state ตรง ๆ อีกต่อไป.
+// `setDepthDebug()` ยังเป็นคำสั่ง imperative ไป engine ตรง ๆ ผ่าน getHandle() (ไม่ใช่ state อ่าน — ไม่เข้า
+// เกณฑ์ bridge, เหมือน P0-11 เดิม).
 
 import { useEffect, useState } from "react";
 import type { EngineHandle } from "@/engine/runtime/app";
-import type { EngineDebugInfo } from "@/engine/runtime/debug-info";
 import { DEFAULT_ENGINE_CONFIG } from "@/engine/config";
+import { useGameStore } from "@/ui/store/use-game-store";
+import { selectDebugInfo } from "@/ui/store/game-store";
 import {
   INITIAL_DEBUG_OVERLAY_STATE,
   isDebugToggleKey,
@@ -35,7 +36,8 @@ const START_STATE: DebugOverlayState = {
 
 export function DebugOverlay({ getHandle }: DebugOverlayProps) {
   const [state, setState] = useState<DebugOverlayState>(START_STATE);
-  const [info, setInfo] = useState<EngineDebugInfo | null>(null);
+  // subscribe store (engine push throttled) แทน poll ผ่าน getHandle() — re-render เฉพาะตอนค่าจริงเปลี่ยน
+  const info = useGameStore(selectDebugInfo);
 
   // F3 = toggle panel — preventDefault กัน browser ทำอย่างอื่น (บาง browser bind F3 = find-next)
   useEffect(() => {
@@ -47,17 +49,6 @@ export function DebugOverlay({ getHandle }: DebugOverlayProps) {
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, []);
-
-  // poll snapshot ช้า ๆ — หยุด poll เมื่อ panel ซ่อนอยู่ (ไม่มีอะไรต้องแสดง)
-  useEffect(() => {
-    if (!state.visible) return;
-    const id = window.setInterval(() => {
-      const handle = getHandle();
-      if (!handle) return; // engine ยัง init ไม่เสร็จ/ถูก destroy แล้ว — ข้าม tick นี้เฉย ๆ
-      setInfo(handle.getDebugInfo());
-    }, DEFAULT_ENGINE_CONFIG.debugOverlay.pollIntervalMs);
-    return () => window.clearInterval(id);
-  }, [state.visible, getHandle]);
 
   const onToggleDepthDebug = (): void => {
     setState((prev) => {

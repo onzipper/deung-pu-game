@@ -9,7 +9,8 @@
     "start": "next start",
     "start:server": "tsx --tsconfig server/tsconfig.json server/index.ts",
     "lint": "eslint",
-    "test": "vitest run"
+    "test": "vitest run",
+    "e2e": "node scripts/e2e/smoke.mjs"
   },
   "engines": {
     "node": ">=20"
@@ -24,7 +25,8 @@
     "pixi.js": "^8.19.0",
     "react": "19.2.4",
     "react-dom": "19.2.4",
-    "tsx": "^4.23.0"
+    "tsx": "^4.23.0",
+    "zustand": "^5.0.14"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
