@@ -235,23 +235,98 @@ export async function createEngine(
     scene.resize(width, height);
   });
 
-  // --- pointer tile tracking (P0-11 debug overlay) ---
+  // --- pointer → tile helper (P0-11 debug + P1-09 click-to-move) ---
   // canvas CSS-pixel (getBoundingClientRect) อยู่ใน space เดียวกับ scene.world.position/viewport
   // (autoDensity=true → CSS size = renderer logical size, ตรงกับที่ camera.ts ใช้อยู่แล้ว).
+  // คืน foot ต่อเนื่อง (float, ไม่ snap) — space เดียวกับ player.position/mob pos (foot convention,
+  // screenToTile = inverse ของ tileToScreen/entityFootToScreen → ไม่มี +0.5 ซ้อน, ดู known-traps).
+  const footFromEvent = (e: PointerEvent): TilePoint => {
+    const rect = app.canvas.getBoundingClientRect();
+    return screenToTile(
+      {
+        sx: e.clientX - rect.left - scene.world.position.x,
+        sy: e.clientY - rect.top - scene.world.position.y,
+      },
+      config.tileSize,
+    );
+  };
+
+  // --- pointer tile tracking (P0-11 debug overlay) ---
   let pointerTile: TilePoint | null = null;
   const onPointerMove = (e: PointerEvent): void => {
-    const rect = app.canvas.getBoundingClientRect();
-    const worldLocal = {
-      sx: e.clientX - rect.left - scene.world.position.x,
-      sy: e.clientY - rect.top - scene.world.position.y,
-    };
-    pointerTile = snapToTile(screenToTile(worldLocal, config.tileSize));
+    pointerTile = snapToTile(footFromEvent(e));
   };
   const onPointerLeave = (): void => {
     pointerTile = null;
   };
   app.canvas.addEventListener("pointermove", onPointerMove);
   app.canvas.addEventListener("pointerleave", onPointerLeave);
+
+  // --- click-to-move + touch (P1-09, TA §17.3 · L11) ---
+  // pointerdown ครอบทั้ง mouse (button 0 = ซ้าย) และ touch (tap = button 0) — L11 control ครบสามแบบ
+  // (WASD ยังทำงานเดิม + manual override ชนะ path). แตะพื้น = เดินไป (A*); แตะมอน = โจมตี (walk-to-attack
+  // ถ้าไกล). **นี่คือ mobile baseline P1** ไม่ใช่ mobile polish เต็ม (virtual joystick/HUD ปุ่ม = P2).
+  const attackRange = firstWarriorSkill.range;
+  const pickRadiusSq = config.pathfinding.clickMobPickRadius ** 2;
+  /** มอนที่อยู่ใกล้จุดคลิกสุดภายใน pick radius (แตะโดนตัวไหน) — null = คลิกพื้น. */
+  const mobUnderClick = (foot: TilePoint): { id: string; pos: TilePoint } | null => {
+    let best: { id: string; pos: TilePoint } | null = null;
+    let bestSq = pickRadiusSq;
+    for (const t of mobView.getAliveTargets()) {
+      const dsq = (t.pos.tx - foot.tx) ** 2 + (t.pos.ty - foot.ty) ** 2;
+      if (dsq <= bestSq) {
+        bestSq = dsq;
+        best = { id: t.id, pos: { tx: t.pos.tx, ty: t.pos.ty } };
+      }
+    }
+    return best;
+  };
+  const distTo = (p: TilePoint): number =>
+    Math.hypot(p.tx - player.position.tx, p.ty - player.position.ty);
+  /** id ของมอนที่กำลังเดินเข้าไปตี (walk-to-attack) — null = ไม่มี. */
+  let walkAttackTargetId: string | null = null;
+
+  const onPointerDown = (e: PointerEvent): void => {
+    if (e.button !== 0) return; // ซ้าย/tap เท่านั้น (คลิกขวา = สงวนไว้ P2)
+    const foot = footFromEvent(e);
+    const mob = mobUnderClick(foot);
+    if (mob) {
+      // แตะมอน → โจมตี (เท่ากับ Space เมื่ออยู่ในระยะ; ไกล = เดินเข้าไปถึงระยะแล้วตี)
+      if (distTo(mob.pos) <= attackRange) {
+        player.faceToward(mob.pos);
+        player.requestAttack();
+        player.cancelPath();
+        walkAttackTargetId = null;
+      } else {
+        player.moveTo(mob.pos);
+        walkAttackTargetId = mob.id;
+      }
+    } else {
+      // แตะพื้น → click-to-move (A*)
+      player.moveTo(foot);
+      walkAttackTargetId = null;
+    }
+  };
+  app.canvas.addEventListener("pointerdown", onPointerDown);
+
+  // ประเมิน walk-to-attack ทุก frame (มอน server-authoritative อาจขยับ) — เรียกก่อน combat.update()
+  // เพื่อให้ requestAttack() ถูก consume ในเฟรมเดียวกัน (cooldown gate เดียวกับ Space).
+  const evaluateWalkToAttack = (): void => {
+    if (walkAttackTargetId === null) return;
+    const target = mobView.getAliveTargets().find((t) => t.id === walkAttackTargetId);
+    if (!target) {
+      walkAttackTargetId = null; // มอนตาย/หายไป
+      return;
+    }
+    if (distTo(target.pos) <= attackRange) {
+      player.faceToward(target.pos);
+      player.requestAttack();
+      player.cancelPath();
+      walkAttackTargetId = null;
+    } else if (!player.isFollowingPath) {
+      walkAttackTargetId = null; // เดินจบแล้วยังไม่ถึงระยะ (มอนหนี) — ยอมแพ้
+    }
+  };
 
   // --- stress harness toggle (P1-06 §5, dev-only) — F4, เหมือน F3 debug overlay: preventDefault กัน
   // browser ทำอย่างอื่น, key เป็น config (toggleKeyCode) ไม่ hardcode ---
@@ -270,6 +345,8 @@ export async function createEngine(
     player.update(dtSeconds);
     // calc: mobs (P1-03) — server-driven view interpolation หรือ offline local sim → scene entity
     updateMobs(dtSeconds, ticker.deltaMS);
+    // calc: walk-to-attack (P1-09) — ถึงระยะแล้ว requestAttack ก่อน combat.update() consume เฟรมเดียวกัน
+    evaluateWalkToAttack();
     // calc: combat stub (P0-10→P1-06) — attack input → hit test → damage number/hit stop/shake (juice)
     combat.update(dtSeconds);
     // calc: stress harness (P1-06 §5, dev-only) — no-op เมื่อปิดอยู่ (default)
@@ -314,6 +391,7 @@ export async function createEngine(
     detachResize();
     app.canvas.removeEventListener("pointermove", onPointerMove);
     app.canvas.removeEventListener("pointerleave", onPointerLeave);
+    app.canvas.removeEventListener("pointerdown", onPointerDown);
     window.removeEventListener("keydown", onStressToggleKeyDown);
     net?.disconnect();
     remotes?.destroy();

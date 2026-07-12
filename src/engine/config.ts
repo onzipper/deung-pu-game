@@ -613,6 +613,41 @@ export interface MovementValidationConfig {
   maxElapsedMs: number;
 }
 
+/**
+ * style ของ marker จุดหมาย click-to-move (P1-09) — Graphics เล็ก ๆ ลอยที่ปลายทางแล้ว fade หาย.
+ * cosmetic ล้วน (ไม่ใช่ balance) — สี/ขนาด/อายุเป็น Design Knob visual.
+ */
+export interface PathMarkerStyle {
+  /** สี marker (0xRRGGBB) */
+  color: number;
+  /** ความทึบเริ่มต้น 0..1 (fade ลงเหลือ 0 ตลอด fadeDurationMs) */
+  alpha: number;
+  /** รัศมี marker (px) */
+  radius: number;
+  /** อายุ (ms) ก่อน fade หมด+หาย */
+  fadeDurationMs: number;
+}
+
+/**
+ * Pathfinding + click-to-move knob (P1-09, TA §17.3 · L11). ทุกค่าเป็น Design Knob — ห้าม hardcode
+ * ใน astar/path-follower/controller. A* เดินด้วย stepMovement ตัวเดียวกับ WASD (speed/collision เดียวกัน).
+ */
+export interface PathfindingConfig {
+  /** จำนวน node สูงสุดที่ A* ยอม expand ก่อนยอมแพ้ (คืน null) — กัน frame ค้างบน map ใหญ่/เป้าเดินไม่ถึง. */
+  maxSearchNodes: number;
+  /** ระยะ (tile) ที่ถือว่า "ถึง" waypoint → ไปตัวถัดไป (ควร ≥ speed·maxStepSeconds กัน overshoot วน). */
+  arrivalRadius: number;
+  /**
+   * dynamic obstacle ขวางกลางทาง → replan A* ไป goal เดิมจากตำแหน่งปัจจุบัน (true) หรือหยุด idle (false).
+   * replan เกิดเฉพาะตอน blocked event (ไม่ทุก frame) — เบา ๆ ตามสเปก P1-09.
+   */
+  replanOnBlock: boolean;
+  /** รัศมี (tile) รอบจุดคลิกที่ถือว่า "แตะโดนมอน" (tap mob = โจมตี/walk-to-attack) — คลิกไกลกว่านี้ = เดิน. */
+  clickMobPickRadius: number;
+  /** marker จุดหมาย click-to-move (cosmetic). */
+  marker: PathMarkerStyle;
+}
+
 /** พฤติกรรมกล้อง (fixed iso · no rotation · no zoom — P0). */
 export interface CameraConfig {
   /** ความแข็งของ follow lerp ต่อ frame 0..1 (สูง=ตามเร็ว, 1=snap) */
@@ -674,6 +709,8 @@ export interface EngineConfig {
   camera: CameraConfig;
   /** local player movement + placeholder style (P0-05) */
   player: PlayerConfig;
+  /** pathfinding + click-to-move + touch knob (P1-09, TA §17.3 · L11) */
+  pathfinding: PathfindingConfig;
   /** server-authoritative movement validation knob (P1-02) — mirror client/server */
   movementValidation: MovementValidationConfig;
   /** dummy mob pocket spawn + wander + placeholder style (P0-09) */
@@ -760,6 +797,23 @@ export const DEFAULT_PLAYER_CONFIG: PlayerConfig = {
     noseReach: 14,
   },
   animation: DEFAULT_PLAYER_ANIMATION_CONFIG,
+};
+
+/**
+ * Pathfinding defaults (P1-09, TA §17.3 · L11). arrivalRadius ≥ speed·maxStepSeconds (0.4 tile @ speed 4)
+ * กัน overshoot วนรอบ waypoint; maxSearchNodes เผื่อ map ใหญ่กว่า test field (24×24=576 cell) หลายเท่า.
+ */
+export const DEFAULT_PATHFINDING_CONFIG: PathfindingConfig = {
+  maxSearchNodes: 4096, // >> 576 cell ของ test field; map production หลักพัน cell ยัง cover
+  arrivalRadius: 0.4, // = speed·maxStepSeconds (player) → ถึง waypoint พอดีไม่ overshoot
+  replanOnBlock: true, // dynamic obstacle → replan ไป goal เดิม (เบา ๆ ตอน blocked event เท่านั้น)
+  clickMobPickRadius: 0.9, // คลิกในรัศมี ~1 tile ของมอน = แตะโดน (tap-to-attack) — ไกลกว่า = เดิน
+  marker: {
+    color: 0x66e0ff, // ฟ้าอ่อน = จุดหมาย (แยกจาก hitbox debug แดง)
+    alpha: 0.7,
+    radius: 7,
+    fadeDurationMs: 600,
+  },
 };
 
 /**
@@ -990,6 +1044,7 @@ export const DEFAULT_ENGINE_CONFIG: EngineConfig = {
   theme: DEFAULT_SCENE_THEME,
   camera: DEFAULT_CAMERA_CONFIG,
   player: DEFAULT_PLAYER_CONFIG,
+  pathfinding: DEFAULT_PATHFINDING_CONFIG,
   movementValidation: DEFAULT_MOVEMENT_VALIDATION_CONFIG,
   mob: DEFAULT_MOB_CONFIG,
   net: DEFAULT_NET_CONFIG,
@@ -1022,6 +1077,7 @@ export function createEngineConfig(
     // theme/player/mob มี nested object — override ทั้งก้อนเมื่อกำหนด, ไม่งั้นใช้ default
     theme: overrides.theme ?? DEFAULT_ENGINE_CONFIG.theme,
     player: overrides.player ?? DEFAULT_ENGINE_CONFIG.player,
+    pathfinding: overrides.pathfinding ?? DEFAULT_ENGINE_CONFIG.pathfinding,
     movementValidation:
       overrides.movementValidation ?? DEFAULT_ENGINE_CONFIG.movementValidation,
     mob: overrides.mob ?? DEFAULT_ENGINE_CONFIG.mob,
