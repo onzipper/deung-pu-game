@@ -33,7 +33,9 @@ export function UpgradePanel({ onBack }: { onBack: () => void }): React.JSX.Elem
         return;
       }
       // session claim isGuest=false ถูก set โดย route แล้ว — refresh ให้ Server Component (page.tsx) re-run
+      // แล้วพากลับ hub ทันที (view เป็น client state ไม่ถูก reset ตอน refresh — ค้างหน้าฟอร์ม = ดูเหมือนนิ่ง)
       router.refresh();
+      onBack();
     } catch {
       setError(authErrorMessage("network"));
     } finally {
