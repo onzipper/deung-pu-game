@@ -81,7 +81,7 @@
 ## Game logic (combat — src/game/combat/**)
 
 - `src/game/combat/hit-test.ts` — pure combat geometry (ไม่แตะ pixi, **shared client/server**): findHits (tile-space radius + screen-space arc รอบ facing + **HitTolerance** opt: rangePadding/arcPadding/pointBlank กัน "ตีไม่โดน" จาก interp lag, P1-05.1 — default ZERO=เดิม) + ZERO_HIT_TOLERANCE, rollDummyDamage/advanceCooldown/canAttack/applyDummyDamage (offline/stub) + helper screenAngleForDirection/tileUnitVectorForScreenAngle (reuse ใน combat-stub.ts + cast-validation.ts). ชนิด HitTolerance นิยามใน engine/config.ts (แหล่ง knob)
-- `src/game/combat/formula.ts` — **PURE + SERVER-ONLY** (P1-05, TA §15.2): computeDamage/computeSkillDamage (สูตร diminishing ATK×baseMult×mitigation[k/(k+effDef)], crit, bossModifier/pvpModifier/tierReduction, hitCount aggregate) + effectiveDef/mitigationFactor (guard div-by-0/ติดลบ); RNG inject; **ห้าม client bundle import** (ดู known-traps)
+- `src/game/combat/formula.ts` — **PURE + SERVER-ONLY** (P1-05 + P2-14, TA §15.2/§15.7.1): computeDamage/computeSkillDamage (สูตร diminishing ATK×baseMult×mitigation[k/(k+effDef)], crit, bossModifier/pvpModifier/tierReduction) + **multi-hit rounding = round ยอดรวมครั้งเดียว + กระจายกลับต่อ sub-hit แบบ largest-remainder deterministic (§50.1.1 ข้อ 2 — invariant: sum(subHits)===damage, never-downgrade)** + effectiveDef/mitigationFactor (guard div-by-0/ติดลบ); RNG inject (1 call/sub-hit); **ห้าม client bundle import** (ดู known-traps)
 - `src/game/combat/cast-validation.ts` — **pure** (P1-05, TA §16.2/§16.3/§18.4): validateCast (safe_zone/unknown_skill/cooldown/out_of_range — **P1-11** safe_zone ก่อนสุด: เมืองปฏิเสธ cast ทุกกรณี GS §14) + isSkillReady/skillReadyAt + isAimInRange + skillAttackShape (§50.1→geometry) + resolveSkillHits (findHits + maxTargets cap, nearest-first; รับ HitTolerance opt ส่งต่อ findHits — P1-05.1 anti-miss)
 - `src/game/combat/damage-aggregate.ts` — damage number aggregate window (**pure**, P1-06, GS §17.10 · TA §11): createDamageAggregateState/addToAggregate (สะสมยอดต่อ bucket key เช่น mobId)/tickDamageAggregate (flush เป็นเลขก้อนเดียวทุก windowMs) — ใช้เมื่อ damage-number.ts เกิน budget/quality cap
 - `src/game/combat/hit-stop.ts` — hit stop state/timescale (**pure**, P1-06, GS §17.5): createHitStopState/triggerHitStop (level→duration, ใหม่ไม่บวกสะสม ใช้ค่ามากสุด)/advanceHitStop (real-time decay)/computeHitStopTimeScale — **visual เท่านั้น** (combat-stub.ts ใช้ scale เฉพาะ juice update, ห้ามแตะ network/sim/cooldown)
@@ -100,15 +100,30 @@
 - `server/schema/MapRoomState.ts` — @colyseus/schema state: PlayerState{tx,ty,direction,anim,**partyId** P1-08} + **MobState{mobId,mobType,tx,ty,state,hp}** (hp update จริง P1-05) + MapRoomState{mapId,channelId(server-assigned),**partyId** P1-08,roomId,players,**mobs**}
 - `server/tsconfig.json` — tsconfig แยกของ server (legacy decorators, node env; แยกจาก Next tsconfig)
 
+## Persistence foundation (P2-02 — prisma/ + server/db/**)
+
+- `prisma/schema.prisma` — **MySQL schema ชุดแรก 10 ตาราง** (TA §7/§8 + AJ §4.3/§20, Prisma 6.x pinned — v7 breaking): accounts (guest+email upgrade) · characters (**name @unique — pending owner: กติกาชื่อซ้ำ**) · character_state (hot write แยกตาราง) · items (id อ้าง config ไม่เก็บ definition) · inventory (version = optimistic lock) · **currency_ledger (double-entry — ไม่มี balance column, idempotencyKey unique, append-only)** · enhancement_logs · drop_audit (RNG audit) · config_versions (key+version+payload+active) · **game_events (append-only, eventId unique dedup, index เผื่อ retention — เคาะ A4)** — **never-downgrade zone (DB schema)**
+- `prisma/migrations/0001_init/migration.sql` — migration SQL สร้าง offline ด้วย `prisma migrate diff --from-empty` (**ยังไม่เคย apply กับ DB ใดๆ** — dev ใช้ MySQL local, Hostinger = P2-16)
+- `server/db/client.ts` — Prisma client singleton (lazy init + env guard throw ถ้าไม่มี DATABASE_URL) — **server-only ห้าม import เข้า src/engine|game|ui**
+- `server/db/ledger.ts` — ledger contract: getBalance = SUM raw SQL · appendEntry = skeleton **throw จนกว่า P2-08** (transaction FOR UPDATE + idempotency insert)
+
 ## UI (React overlay)
 
 - `src/ui/GameCanvas.tsx` — "use client" bridge: mount/unmount engine (กัน StrictMode double-mount); เก็บ EngineHandle ใน ref (ไม่ใช่ React state) + render `<DebugOverlay>` (P0-11)
-- `src/ui/DebugOverlay.tsx` — "use client" (P0-11, P0 §4.10): panel มุมจอ poll `EngineHandle.getDebugInfo()` ทุกช่วง poll interval (config debugOverlay.pollIntervalMs, ~250ms, ไม่ per-frame) แสดง fps/player tile/pointer tile/entityCount/net(status·mapId·roomId·channelId·**party** P1-08·playerCount) + ปุ่ม toggle depth debug (เรียก `setDepthDebug`) + ซ่อน/แสดง panel (ปุ่ม + คีย์ลัด F3) — ยังไม่มี Zustand ใน P0 (ใช้ useState+setInterval; TODO P1 ย้ายเข้า Zustand bridge ตอน HUD จริง)
+- `src/ui/DebugOverlay.tsx` — "use client" (P0-11 → **P2-01 ย้ายเข้า Zustand แล้ว**): panel มุมขวาบน subscribe `useGameStore(selectDebugInfo)` (แทน poll เดิม) แสดง fps/player tile/pointer tile/entityCount/net(status·mapId·roomId·channelId·party·playerCount) + ปุ่ม toggle depth debug (คำสั่ง imperative ยังผ่าน EngineHandle accessor) + ซ่อน/แสดง (ปุ่ม + F3)
 - `src/ui/debug-overlay-logic.ts` — **pure** (P0-11): DebugOverlayState + `isDebugToggleKey`/`toggleVisible`/`toggleDepthDebug` (reducer, แยกจาก component ให้เทสต์ได้โดยไม่ต้อง render)
+- `src/ui/store/game-store.ts` — **Zustand vanilla store bridge** (P2-01, contract `docs/context/ui.md`): HudState + gameStore singleton + `createHudPublisher` (throttled ~4Hz, thunk build เฉพาะตอนถึงคิว, inject clock/writer ได้ = testable) + `resetHudState` (engine teardown/StrictMode) — **ห้ามมี React import ในไฟล์นี้** (engine `src/engine/runtime/app.ts` import ตรงเพื่อ publish)
+- `src/ui/store/use-game-store.ts` — "use client" React hook `useGameStore(selector)` ครอบ gameStore (แยกไฟล์จาก vanilla โดยเจตนา — component import ตัวนี้เท่านั้น)
+
+## E2E harness (P2-00 — scripts/e2e/, ถาวร ใช้ได้ทั้ง local/prod)
+
+- `scripts/e2e/lib.mjs` — helper กลาง (plain Node ESM, ไม่ใช้ tsx): connect (Colyseus client + joinOptions), waitFor (poll+timeout+ข้อความ fail ชัด), report (สรุป+exit code), url จาก env `E2E_RT_URL` (default ws://localhost:2567)
+- `scripts/e2e/smoke.mjs` — scenario หลัก 8 ข้อ (~30 วิ): join+ROOM_STATE → **adopt self position ก่อน move แรก** (trap P1) → เดิน 12Hz ไป pocket-slime-south → assert 0 corrections → หามอน+cast → assert MSG_SKILL_RESULT · ⚠ ค่าคงที่ (MSG_*, speed, sync Hz, spawn, collision) **คัดลอกจาก config/net-protocol พร้อมคอมเมนต์เลขบรรทัด** — .mjs import .ts ไม่ได้; ถ้าแก้ config/protocol ต้องอัปเดตที่นี่ด้วย
+- `scripts/e2e/README.md` — วิธีรัน local/prod (`npm run e2e` หรือ `E2E_RT_URL=wss://... node scripts/e2e/smoke.mjs`) + ข้อควรระวัง cold start
 
 ## Config
 
-- `package.json` — scripts + dependencies (npm)
+- `package.json` — scripts + dependencies (npm) — script `e2e` = `node scripts/e2e/smoke.mjs`
 - `next.config.ts` — Next.js config
 - `tsconfig.json` — TypeScript config (alias `@/*` → `src/*`)
 - `eslint.config.mjs` — ESLint flat config
@@ -118,6 +133,7 @@
 ## Tests
 
 - `tests/docs-guard.test.ts` — path-guard: ไฟล์ที่อ้างใน CODEMAP/feature-map/context ต้องมีจริง
+- `tests/db-schema.test.ts` — schema-level guard (P2-02, ไม่ต้องมี DB จริง — อ่าน schema/migration มา assert): ตารางครบ 10 + currency_ledger **ไม่มี** column balance + idempotency_key/event_id unique + inventory.version optimistic lock + game_events index ครบ
 - `tests/engine-config.test.ts` — EngineConfig defaults / merge / resolveResolution
 - `tests/engine-resize.test.ts` — clampSize (pure resize helper)
 - `tests/engine-iso-coords.test.ts` — iso converters: known values / round-trip fuzz / snapToTile
@@ -148,7 +164,7 @@
 - `tests/game-mob-ai.test.ts` — mob AI pure logic (P1-03): selectAggroTarget (nearest ในรัศมี/ขอบ/ข้ามคน pull cap เต็ม) + shouldReturnToSpawn (null/leash/deaggro) + hasReachedSpawn + stepToward (speed·dt/normalize/blocked ไถล) + isPocketActive (AOI ขอบ rect/ใน pocket) + idleTickInterval/shouldStepPocket (LOD active/idle/asleep) + isRespawnDue (clock)
 - `tests/game-mob-simulation.test.ts` — createMobSimulation (P1-03, inject rng/clock): spawn ชุดแรก + aggro enter/chase (ระยะลด) + pull cap (มอน>cap → aggro ≤ cap) + leash/return (ล่อออก pocket → หนีไกล → return → กลับ pocket area) + respawn timer (kill→due→เกิดใหม่, ไม่เกิน activeCap) + AI LOD asleep (ไม่มี player + idleTickHz 0 → frozen)
 - `tests/game-skill-loader.test.ts` — skill schema loader (P1-04, GS §50.1 · TA §16.1): SKILL_FIELD_NAMES ครบ 37 ตรงชื่อ/ลำดับ + loadSkillDefinitions ดีผ่าน/skillId ซ้ำ→throw/ทุก field (37 ตัว) ขาด→throw ระบุชื่อ/type ผิด (string/boolean/array)→throw/ค่าติดลบที่ไม่ควร (cooldown/range/maxTargets/unlockLevel/baseMultiplier)→throw/unknown field (รวม typo)→throw ระบุชื่อ + WARRIOR_SKILLS ทั้ง 4 ผ่าน validation จริง + serverView ครบ 37/copy ใหม่ + clientView ตัด 9 server-only field ครบทุก skill
-- `tests/game-combat-formula.test.ts` — damage formula (pure, P1-05, §15.2): effectiveDef floor 0 + mitigationFactor (DEF=k→0.5/DEF=0→1.0/ตาราง proposal §1.3/guard div-by-0) + computeDamage (DEF=k ครึ่ง, Penetration, crit path, bossMod/pvpMod/tierReduction, ไม่ติดลบ, hand-calc §1.4 slime 24/mushroom 22) + computeSkillDamage (hitCount aggregate, multi-hit crit, hitCount 0)
+- `tests/game-combat-formula.test.ts` — damage formula (pure, P1-05 + P2-14, §15.2/§50.1.1): effectiveDef floor 0 + mitigationFactor (DEF=k→0.5/DEF=0→1.0/ตาราง proposal §1.3/guard div-by-0) + computeDamage (DEF=k ครึ่ง, Penetration, crit path, bossMod/pvpMod/tierReduction, ไม่ติดลบ, hand-calc §1.4 slime 24/mushroom 22) + computeSkillDamage round-once (non-divisible case, deterministic, non-negative, subHits sum===damage, property matrix 4 base × 3 crit-mode × hitCount {2,3,5,7}, multi-hit crit, hitCount 0)
 - `tests/server-cast-validation.test.ts` — cast validation (pure, P1-05/P1-11, §16.2/§16.3/§18.4 · §14): cooldown (isSkillReady/skillReadyAt) + range (isAimInRange) + skillAttackShape (cone/circle/null) + resolveSkillHits (maxTargets cap nearest-first, นอกรัศมีไม่โดน) + validateCast (safe_zone/unknown_skill/cooldown/out_of_range ตามลำดับ — **P1-11** safe zone ชนะทุก reason)
 - `tests/game-combat-hit-test.test.ts` — findHits (pure, P0-10): ระยะ+arc รอบทิศ facing (8 ทิศ, กันชน half-arc >45° กับ boundary near-tie แยกเทสต์), หลังผู้เล่นไม่โดน, ระยะ 0 โดนเสมอ + rollDummyDamage ในช่วง (seeded RNG deterministic) + advanceCooldown/canAttack (cooldown gate เต็มรอบ) + applyDummyDamage (hp/death transition)
 - `tests/engine-runtime-debug-info.test.ts` — roundTile (ปัด 2 ตำแหน่ง) + buildDebugInfo shape (fps ปัด, pointerTile null-safe) + IDLE_NET_DEBUG_INFO (P0-11, pure)

@@ -2,6 +2,10 @@
 // Plain TS + pixi เท่านั้น — ห้าม import React / Next.js (layer contract, tech §2).
 // แยก calc (update state) ออกจาก render ไว้ตั้งแต่ต้น เพื่อเตรียม server-authoritative ตอน P1.
 //
+// P2-01 (docs/context/ui.md contract): game loop → publishHudState (throttled, `@/ui/store/game-store`
+//   vanilla zustand store) → React subscribe. `game-store.ts` เป็น **vanilla** store (ไม่มี React import)
+//   จึงนำเข้าที่นี่ได้โดยไม่ผิด "ห้าม import React" ด้านบน — React hook อยู่คนละไฟล์ (use-game-store.ts, UI เท่านั้น).
+//
 // P1-10 (GS §57.3 separated rooms + loading/fade): engine รองรับ **หลาย map + transition**.
 //   โครง: outer shell (app/ui/fps/resize/transition/master tick) คงที่ · "world" (scene + player + mobs +
 //   combat + net + input) = per-map, สร้างผ่าน mountWorld(map, spawn) แล้ว teardown+rebuild ตอนข้าม map.
@@ -43,6 +47,7 @@ import { createTransitionController } from "./transition";
 import { attachResize } from "./resize";
 import { screenToTile, snapToTile, type TilePoint } from "../iso/coords";
 import { buildDebugInfo, IDLE_NET_DEBUG_INFO, type EngineDebugInfo } from "./debug-info";
+import { createHudPublisher, resetHudState } from "@/ui/store/game-store";
 
 /** handle สาธารณะที่ React (หรือ caller อื่น) ใช้คุมกับ engine — ห้ามให้ caller แตะ pixi ตรง ๆ นอกจากผ่าน app */
 export interface EngineHandle {
@@ -542,7 +547,9 @@ export async function createEngine(
     transition.resize(width, height);
   });
 
-  // --- master update loop: world tick → transition step → fps ---
+  // --- master update loop: world tick → transition step → fps → HUD publish (P2-01) ---
+  // publisher cadence = debugOverlay.pollIntervalMs เดิม (~250ms/4Hz, P0-11) — ไม่ push ทุก frame เข้า store.
+  const hudPublisher = createHudPublisher(config.debugOverlay.pollIntervalMs);
   let fpsSampleMs = 0;
   const onTick = (ticker: Ticker): void => {
     const dtSeconds = ticker.deltaMS / 1000;
@@ -556,6 +563,11 @@ export async function createEngine(
       fpsText.text = `FPS ${Math.round(app.ticker.FPS)}`;
       fpsSampleMs = 0;
     }
+
+    // build() เป็น thunk — publisher เรียกเฉพาะตอนถึงคิว throttle จริง (กันประกอบ EngineDebugInfo ทุก frame)
+    hudPublisher.publish(performance.now(), () => ({
+      debugInfo: currentWorld.getDebugInfo(app.ticker.FPS),
+    }));
   };
   app.ticker.add(onTick);
 
@@ -567,6 +579,7 @@ export async function createEngine(
     detachResize();
     transition.destroy();
     currentWorld.destroy();
+    resetHudState(); // engine ถูก destroy (unmount/StrictMode/transient) — เคลียร์ store กัน overlay ค้างค่าเก่า
     // removeView: true → เอา canvas ออกจาก DOM ด้วย; ล้าง GPU/texture/context ให้หมด
     app.destroy(
       { removeView: true },
