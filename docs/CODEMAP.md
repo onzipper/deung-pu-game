@@ -110,12 +110,20 @@
 ## UI (React overlay)
 
 - `src/ui/GameCanvas.tsx` — "use client" bridge: mount/unmount engine (กัน StrictMode double-mount); เก็บ EngineHandle ใน ref (ไม่ใช่ React state) + render `<DebugOverlay>` (P0-11)
-- `src/ui/DebugOverlay.tsx` — "use client" (P0-11, P0 §4.10): panel มุมจอ poll `EngineHandle.getDebugInfo()` ทุกช่วง poll interval (config debugOverlay.pollIntervalMs, ~250ms, ไม่ per-frame) แสดง fps/player tile/pointer tile/entityCount/net(status·mapId·roomId·channelId·**party** P1-08·playerCount) + ปุ่ม toggle depth debug (เรียก `setDepthDebug`) + ซ่อน/แสดง panel (ปุ่ม + คีย์ลัด F3) — ยังไม่มี Zustand ใน P0 (ใช้ useState+setInterval; TODO P1 ย้ายเข้า Zustand bridge ตอน HUD จริง)
+- `src/ui/DebugOverlay.tsx` — "use client" (P0-11 → **P2-01 ย้ายเข้า Zustand แล้ว**): panel มุมขวาบน subscribe `useGameStore(selectDebugInfo)` (แทน poll เดิม) แสดง fps/player tile/pointer tile/entityCount/net(status·mapId·roomId·channelId·party·playerCount) + ปุ่ม toggle depth debug (คำสั่ง imperative ยังผ่าน EngineHandle accessor) + ซ่อน/แสดง (ปุ่ม + F3)
 - `src/ui/debug-overlay-logic.ts` — **pure** (P0-11): DebugOverlayState + `isDebugToggleKey`/`toggleVisible`/`toggleDepthDebug` (reducer, แยกจาก component ให้เทสต์ได้โดยไม่ต้อง render)
+- `src/ui/store/game-store.ts` — **Zustand vanilla store bridge** (P2-01, contract `docs/context/ui.md`): HudState + gameStore singleton + `createHudPublisher` (throttled ~4Hz, thunk build เฉพาะตอนถึงคิว, inject clock/writer ได้ = testable) + `resetHudState` (engine teardown/StrictMode) — **ห้ามมี React import ในไฟล์นี้** (engine `src/engine/runtime/app.ts` import ตรงเพื่อ publish)
+- `src/ui/store/use-game-store.ts` — "use client" React hook `useGameStore(selector)` ครอบ gameStore (แยกไฟล์จาก vanilla โดยเจตนา — component import ตัวนี้เท่านั้น)
+
+## E2E harness (P2-00 — scripts/e2e/, ถาวร ใช้ได้ทั้ง local/prod)
+
+- `scripts/e2e/lib.mjs` — helper กลาง (plain Node ESM, ไม่ใช้ tsx): connect (Colyseus client + joinOptions), waitFor (poll+timeout+ข้อความ fail ชัด), report (สรุป+exit code), url จาก env `E2E_RT_URL` (default ws://localhost:2567)
+- `scripts/e2e/smoke.mjs` — scenario หลัก 8 ข้อ (~30 วิ): join+ROOM_STATE → **adopt self position ก่อน move แรก** (trap P1) → เดิน 12Hz ไป pocket-slime-south → assert 0 corrections → หามอน+cast → assert MSG_SKILL_RESULT · ⚠ ค่าคงที่ (MSG_*, speed, sync Hz, spawn, collision) **คัดลอกจาก config/net-protocol พร้อมคอมเมนต์เลขบรรทัด** — .mjs import .ts ไม่ได้; ถ้าแก้ config/protocol ต้องอัปเดตที่นี่ด้วย
+- `scripts/e2e/README.md` — วิธีรัน local/prod (`npm run e2e` หรือ `E2E_RT_URL=wss://... node scripts/e2e/smoke.mjs`) + ข้อควรระวัง cold start
 
 ## Config
 
-- `package.json` — scripts + dependencies (npm)
+- `package.json` — scripts + dependencies (npm) — script `e2e` = `node scripts/e2e/smoke.mjs`
 - `next.config.ts` — Next.js config
 - `tsconfig.json` — TypeScript config (alias `@/*` → `src/*`)
 - `eslint.config.mjs` — ESLint flat config
