@@ -17,10 +17,14 @@ import {
 import type { SkillDefinition } from "@/game/skill/types";
 import type { TilePoint } from "@/engine/iso/coords";
 import type { Direction } from "@/engine/movement/direction";
-import type { TileSize } from "@/engine/config";
+import type { MapZoneType, TileSize } from "@/engine/config";
 
 /** เหตุผลที่ cast ถูกปฏิเสธ (ส่งกลับ client เพื่อ debug/UX — ไม่ผูก punishment). */
-export type CastRejectReason = "unknown_skill" | "cooldown" | "out_of_range";
+export type CastRejectReason =
+  | "safe_zone"
+  | "unknown_skill"
+  | "cooldown"
+  | "out_of_range";
 
 /** cooldown ผ่านหรือยัง — readyAtMs = เวลา (ms) ที่สกิลพร้อมใช้อีกครั้ง (undefined = ยังไม่เคยใช้ = พร้อม). */
 export function isSkillReady(readyAtMs: number | undefined, nowMs: number): boolean {
@@ -99,6 +103,11 @@ export function resolveSkillHits(
 /** input ของ validateCast — skill = undefined หมายถึง skillId ที่ client ส่งมาไม่รู้จัก. */
 export interface CastValidationInput {
   skill: SkillDefinition | undefined;
+  /**
+   * P1-11 (GS §14 Safe Zone): zone ของ map ที่ cast — "safe" (เมือง) → ปฏิเสธเสมอ (ไม่มี combat ในเมือง).
+   * optional; ไม่ระบุ → ถือว่า "field" (combat ปกติ). server ส่ง map.zoneType เข้ามา.
+   */
+  zoneType?: MapZoneType;
   /** cooldown state ปัจจุบันของ (player, skill) — undefined = ยังไม่เคยใช้ */
   readyAtMs: number | undefined;
   nowMs: number;
@@ -111,10 +120,12 @@ export interface CastValidationInput {
 export type CastValidation = { ok: true } | { ok: false; reason: CastRejectReason };
 
 /**
- * ตัดสินว่า cast ผ่านไหม (pure) — ลำดับ: รู้จัก skillId → cooldown → range.
+ * ตัดสินว่า cast ผ่านไหม (pure) — ลำดับ: safe zone → รู้จัก skillId → cooldown → range.
+ * safe zone (เมือง, GS §14) ปฏิเสธ **ทุก** cast ก่อนเช็คอื่น (ไม่มี combat ในเมือง — reason เด่นที่สุด).
  * ผ่าน = caller apply (set cooldown + resolveSkillHits + damage). ไม่ผ่าน = ตอบ reason (ไม่ apply).
  */
 export function validateCast(input: CastValidationInput): CastValidation {
+  if (input.zoneType === "safe") return { ok: false, reason: "safe_zone" };
   if (!input.skill) return { ok: false, reason: "unknown_skill" };
   if (!isSkillReady(input.readyAtMs, input.nowMs)) {
     return { ok: false, reason: "cooldown" };

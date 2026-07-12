@@ -9,15 +9,17 @@ import {
 } from "@/engine/map/registry";
 import { MAP1, MAP1_ID } from "@/engine/map/map1";
 import { P0_TEST_FIELD } from "@/engine/map/p0-test-field";
+import { CITY_HUB, CITY_HUB_ID } from "@/engine/map/city-hub";
 import { findExitAt, isWalkableTile } from "@/engine/map/types";
 import type { MapConfigInput } from "@/engine/map/types";
 
-describe("MAP_REGISTRY — registry จริงของเกม (P1-10)", () => {
-  test("มี p0-test-field + map1", () => {
+describe("MAP_REGISTRY — registry จริงของเกม (P1-10/P1-11)", () => {
+  test("มี p0-test-field + map1 + city-hub", () => {
     expect(hasMap("p0-test-field")).toBe(true);
     expect(hasMap(MAP1_ID)).toBe(true);
+    expect(hasMap(CITY_HUB_ID)).toBe(true);
     expect(hasMap("nope")).toBe(false);
-    expect(MAP_REGISTRY.size).toBe(2);
+    expect(MAP_REGISTRY.size).toBe(3);
   });
 
   test("getMap/requireMap คืน map ที่ validate แล้ว, requireMap throw เมื่อไม่มี", () => {
@@ -27,25 +29,47 @@ describe("MAP_REGISTRY — registry จริงของเกม (P1-10)", () 
     expect(() => requireMap("nope")).toThrow(MapRegistryError);
   });
 
-  test("exit ทั้งสองทางเชื่อมกันครบวง + targetSpawn เดินได้ในปลายทาง", () => {
-    const testField = requireMap("p0-test-field");
-    const map1 = requireMap(MAP1_ID);
+  /** helper: exit จาก a→b มี targetSpawn เดินได้ในปลายทาง + อยู่นอก exit area ปลายทาง (กัน re-trigger). */
+  function assertExitLands(fromMapId: string, targetMapId: string): void {
+    const from = requireMap(fromMapId);
+    const target = requireMap(targetMapId);
+    const exit = from.exits.find((e) => e.targetMapId === targetMapId);
+    expect(exit).toBeDefined();
+    const s = exit!.targetSpawn;
+    expect(isWalkableTile(target, Math.floor(s.x), Math.floor(s.y))).toBe(true);
+    expect(findExitAt(target, Math.floor(s.x), Math.floor(s.y))).toBeNull();
+  }
 
-    // test field → map1
-    const tfExit = testField.exits.find((e) => e.targetMapId === MAP1_ID);
-    expect(tfExit).toBeDefined();
-    const s1 = tfExit!.targetSpawn;
-    expect(isWalkableTile(map1, Math.floor(s1.x), Math.floor(s1.y))).toBe(true);
+  test("topology P1-11: testfield→map1, map1↔city-hub (targetSpawn เดินได้+นอก exit ปลายทาง)", () => {
+    // dev boot map: test field → map1 (คงไว้)
+    assertExitLands("p0-test-field", MAP1_ID);
+    // production: Map 1 ประตูเหนือ → เมือง (เมืองอยู่เหนือ Map 1, bible)
+    assertExitLands(MAP1_ID, CITY_HUB_ID);
+    // เมือง ประตูใต้ → Map 1 (ครบวงกับ map1-north-gate)
+    assertExitLands(CITY_HUB_ID, MAP1_ID);
+  });
+});
 
-    // map1 → test field
-    const m1Exit = map1.exits.find((e) => e.targetMapId === "p0-test-field");
-    expect(m1Exit).toBeDefined();
-    const s2 = m1Exit!.targetSpawn;
-    expect(isWalkableTile(testField, Math.floor(s2.x), Math.floor(s2.y))).toBe(true);
+describe("CITY_HUB — นครอรุณผนึก (P1-11, GS §3.3 · §14 Safe Zone)", () => {
+  test("โหลดผ่าน + ขนาดกลาง 32×32 + zoneType safe + ไม่มี pocket + 1 exit", () => {
+    const city = requireMap(CITY_HUB_ID);
+    expect(city.name).toBe("นครอรุณผนึก"); // ชื่อ locked GS §3.3
+    expect(city.bounds).toEqual({ width: 32, height: 32 });
+    expect(city.zoneType).toBe("safe");
+    expect(city.mobPockets).toHaveLength(0); // Safe Zone = ไม่มี combat → ไม่มีมอน
+    expect(city.exits).toHaveLength(1);
+    expect(city.exits[0].exitId).toBe("city-hub-south-gate");
+    expect(city.safeCamp).toBeDefined();
+  });
 
-    // targetSpawn ต้องไม่อยู่ใน exit area ปลายทาง (กัน re-trigger ทันที)
-    expect(findExitAt(map1, Math.floor(s1.x), Math.floor(s1.y))).toBeNull();
-    expect(findExitAt(testField, Math.floor(s2.x), Math.floor(s2.y))).toBeNull();
+  test("spawn point (ลานกลางเมือง) เดินได้ + ประตูใต้เดินเข้าได้", () => {
+    const city = requireMap(CITY_HUB_ID);
+    expect(
+      isWalkableTile(city, Math.floor(city.spawnPoint.x), Math.floor(city.spawnPoint.y)),
+    ).toBe(true);
+    // exit area (ช่องประตูใต้) ต้องเดินเข้าได้ (ไม่ทับกำแพง)
+    const a = city.exits[0].area;
+    expect(isWalkableTile(city, a.tx, a.ty)).toBe(true);
   });
 });
 
@@ -120,7 +144,7 @@ describe("buildMapRegistry — cross-ref validation (P1-10)", () => {
     expect(() => buildMapRegistry([a, b])).toThrow(/เดินไม่ได้/);
   });
 
-  test("real MAP1 + P0_TEST_FIELD ผ่าน buildMapRegistry", () => {
-    expect(() => buildMapRegistry([P0_TEST_FIELD, MAP1])).not.toThrow();
+  test("real P0_TEST_FIELD + MAP1 + CITY_HUB ผ่าน buildMapRegistry", () => {
+    expect(() => buildMapRegistry([P0_TEST_FIELD, MAP1, CITY_HUB])).not.toThrow();
   });
 });

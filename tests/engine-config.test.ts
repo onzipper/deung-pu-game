@@ -3,6 +3,7 @@ import {
   DEFAULT_ENGINE_CONFIG,
   createEngineConfig,
   resolveResolution,
+  soloChannelCapacityForZone,
 } from "@/engine/config";
 import { DEFAULT_PARTY_ID } from "@/shared/net-protocol";
 
@@ -45,6 +46,18 @@ describe("engine config", () => {
   test("net channel capacity knobs default (P1-08 auto-assign) — solo cap > 0, party cap ≥ solo", () => {
     expect(DEFAULT_ENGINE_CONFIG.net.channelCapacity).toBeGreaterThan(0);
     expect(DEFAULT_ENGINE_CONFIG.net.partyChannelCapacity).toBeGreaterThan(0);
+  });
+
+  test("cityHubCapacity default (P1-11, TA §6) — safe zone รับได้มากกว่า field", () => {
+    expect(DEFAULT_ENGINE_CONFIG.net.cityHubCapacity).toBeGreaterThan(
+      DEFAULT_ENGINE_CONFIG.net.channelCapacity,
+    );
+    expect(DEFAULT_ENGINE_CONFIG.net.cityHubCapacity).toBeGreaterThanOrEqual(80); // TA §6 ~80–100
+  });
+
+  test("soloChannelCapacityForZone (P1-11) — safe→cityHub, field→channel", () => {
+    expect(soloChannelCapacityForZone("safe", 8, 80)).toBe(80);
+    expect(soloChannelCapacityForZone("field", 8, 80)).toBe(8);
   });
 
   test("createEngineConfig() override net.partyId โดยคง net knob อื่น (shallow-merge)", () => {

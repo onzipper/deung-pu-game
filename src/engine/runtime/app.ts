@@ -164,12 +164,15 @@ export async function createEngine(
     const mobView: MobViewHandle = createMobViewManager(scene, config, app.renderer);
 
     // --- combat (P1-05 server-authoritative): S1 นักดาบจาก client manifest ---
+    // P1-11 (GS §14): ปิด combat ในโซน safe (เมือง) — disable ปุ่มโจมตี client (server ปฏิเสธ cast ซ้ำอีกชั้น).
+    const combatAllowed = map.zoneType !== "safe";
     const firstWarriorSkill = WARRIOR_SKILLS_CLIENT[0];
     let net: NetClientHandle | null = null;
     const combat: CombatStubHandle = createCombatStub(scene, player, mobView, config, {
       skill: firstWarriorSkill,
       castSkill: (msg) => net?.sendCast(msg),
       isOnline: () => net?.status.state === "online",
+      combatEnabled: combatAllowed,
     });
 
     // --- stress harness (P1-06 §5, dev-only) — F4 synthetic load ---
@@ -324,7 +327,8 @@ export async function createEngine(
       if (e.button !== 0) return;
       if (transition.isLocked()) return; // P1-10: input lock ระหว่างข้าม map
       const foot = footFromEvent(e);
-      const mob = mobUnderClick(foot);
+      // P1-11: safe zone (เมือง) ไม่มี combat → คลิกมอน = เดินเฉย ๆ (ไม่ tap-to-attack). เมืองไม่มีมอนอยู่แล้ว.
+      const mob = combatAllowed ? mobUnderClick(foot) : null;
       if (mob) {
         if (distTo(mob.pos) <= attackRange) {
           player.faceToward(mob.pos);

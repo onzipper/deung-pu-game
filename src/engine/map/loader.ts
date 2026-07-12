@@ -8,6 +8,7 @@
 // ไม่ใช้ zod (ไม่เพิ่ม dependency) — validate ด้วยมือ, helper เล็ก ๆ ด้านล่าง.
 
 import { snapToTile, type TilePoint } from "@/engine/iso/coords";
+import type { MapZoneType } from "@/engine/config";
 import {
   packTile,
   type CollisionLayer,
@@ -87,6 +88,15 @@ function parseTileSize(v: unknown): { width: number; height: number } {
   if (width <= 0) fail(`tileSize.width ต้อง > 0 (got ${width})`);
   if (height <= 0) fail(`tileSize.height ต้อง > 0 (got ${height})`);
   return { width, height };
+}
+
+/** P1-11: zoneType (optional) — ไม่ระบุ → "field" (default combat); ต้องเป็น "safe" | "field" เท่านั้น. */
+function parseZoneType(v: unknown): MapZoneType {
+  if (v === undefined) return "field";
+  if (v !== "safe" && v !== "field") {
+    fail(`zoneType ต้องเป็น "safe" | "field" (got ${describe(v)})`);
+  }
+  return v;
 }
 
 function parseBounds(v: unknown): MapBounds {
@@ -259,6 +269,7 @@ function parseExit(v: unknown, path: string, bounds: MapBounds): MapExit {
  *
  * Invariant ที่คุ้ม:
  *  • mapId/name = string ไม่ว่าง
+ *  • zoneType (optional) = "safe" | "field" (default "field")
  *  • tileSize.width/height > 0
  *  • bounds.width/height = integer > 0
  *  • collision rect/tile = integer อยู่ในขอบเขต → build blockedSet (lookup O(1))
@@ -274,6 +285,7 @@ export function loadMapConfig(raw: unknown): MapConfig {
   const mapId = reqString(o.mapId, "mapId");
   const name = reqString(o.name, "name");
   const tileSize = parseTileSize(o.tileSize);
+  const zoneType = parseZoneType(o.zoneType);
   const bounds = parseBounds(o.bounds);
 
   const { layer: collision, blockedSet } = parseCollision(o.collision, bounds);
@@ -317,6 +329,7 @@ export function loadMapConfig(raw: unknown): MapConfig {
     mapId,
     name,
     tileSize,
+    zoneType,
     bounds,
     spawnPoint,
     ...(safeCamp !== undefined ? { safeCamp } : {}),

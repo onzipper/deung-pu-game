@@ -157,10 +157,42 @@ describe("validateCast (composite, §16.2/§16.3)", () => {
     expect(validateCast({ ...base, skill: makeSkill() })).toEqual({ ok: true });
   });
 
+  test("zoneType 'field' / undefined → ไม่กระทบ (combat ปกติ)", () => {
+    expect(validateCast({ ...base, skill: makeSkill(), zoneType: "field" })).toEqual({ ok: true });
+    expect(validateCast({ ...base, skill: makeSkill() })).toEqual({ ok: true });
+  });
+
   test("ลำดับตรวจ: unknown ก่อน cooldown ก่อน range", () => {
     // unknown ชนะแม้ cooldown ยังไม่ครบ
     expect(
       validateCast({ ...base, skill: undefined, readyAtMs: 9999, nowMs: 0 }),
     ).toEqual({ ok: false, reason: "unknown_skill" });
+  });
+});
+
+describe("safe zone (P1-11, GS §14) — เมืองปฏิเสธ cast ทุกกรณี", () => {
+  const base = {
+    readyAtMs: undefined,
+    nowMs: 1000,
+    casterPos: { tx: 0, ty: 0 },
+    aimPos: { tx: 1, ty: 0 },
+    rangeToleranceFactor: 1.5,
+  };
+
+  test("zoneType 'safe' + สกิลปกติ → safe_zone (ไม่มี combat ในเมือง)", () => {
+    expect(
+      validateCast({ ...base, skill: makeSkill(), zoneType: "safe" }),
+    ).toEqual({ ok: false, reason: "safe_zone" });
+  });
+
+  test("safe_zone ชนะทุก reason (แม้ skill มั่ว / cooldown ยังไม่ครบ)", () => {
+    // skill undefined ปกติ → unknown_skill; แต่ safe zone ชนะก่อน
+    expect(
+      validateCast({ ...base, skill: undefined, zoneType: "safe" }),
+    ).toEqual({ ok: false, reason: "safe_zone" });
+    // cooldown ยังไม่ครบ ปกติ → cooldown; แต่ safe zone ชนะก่อน
+    expect(
+      validateCast({ ...base, skill: makeSkill(), zoneType: "safe", readyAtMs: 9999, nowMs: 0 }),
+    ).toEqual({ ok: false, reason: "safe_zone" });
   });
 });

@@ -12,14 +12,17 @@ import { snapToTile } from "@/engine/iso/coords";
 import { loadMapConfig } from "@/engine/map/loader";
 import { P0_TEST_FIELD } from "@/engine/map/p0-test-field";
 import { MAP1 } from "@/engine/map/map1";
+import { CITY_HUB } from "@/engine/map/city-hub";
 import {
   isWalkableTile,
   type MapConfig,
   type MapConfigInput,
 } from "@/engine/map/types";
 
-/** raw map ทุกตัวใน launch registry (P1 = test field + Map 1). เพิ่ม Map 2+ ที่นี่เมื่อถึง phase. */
-const RAW_MAPS: readonly MapConfigInput[] = [P0_TEST_FIELD, MAP1];
+/**
+ * raw map ทุกตัวใน launch registry (P1 = test field + Map 1 + City Hub). เพิ่ม Map 2+ ที่นี่เมื่อถึง phase.
+ */
+const RAW_MAPS: readonly MapConfigInput[] = [P0_TEST_FIELD, MAP1, CITY_HUB];
 
 /** error ของ registry (cross-ref) — แยกจาก MapConfigError (intrinsic ของ loader). */
 export class MapRegistryError extends Error {

@@ -79,7 +79,11 @@ import {
 } from "../../src/engine/map/types";
 import { resolveSpawnPosition, type ReconnectVec2 } from "../../src/shared/reconnect";
 import { snapToTile } from "../../src/engine/iso/coords";
-import { DEFAULT_ENGINE_CONFIG, type CombatBalanceConfig } from "../../src/engine/config";
+import {
+  DEFAULT_ENGINE_CONFIG,
+  soloChannelCapacityForZone,
+  type CombatBalanceConfig,
+} from "../../src/engine/config";
 import {
   createMobSimulation,
   type MobSimulation,
@@ -121,6 +125,16 @@ function resolveChannelCapacity(): number {
   const env = Number(process.env.CHANNEL_CAPACITY);
   if (Number.isFinite(env) && env > 0) return env;
   return DEFAULT_ENGINE_CONFIG.net.channelCapacity;
+}
+
+/**
+ * P1-11: capacity ต่อ solo channel ของ **safe zone (เมือง)** — สูงกว่า field (TA §6, ไม่มี combat).
+ * knob = DEFAULT_ENGINE_CONFIG.net.cityHubCapacity; env `CITY_HUB_CAPACITY` override เฉพาะ dev/test.
+ */
+function resolveCityHubCapacity(): number {
+  const env = Number(process.env.CITY_HUB_CAPACITY);
+  if (Number.isFinite(env) && env > 0) return env;
+  return DEFAULT_ENGINE_CONFIG.net.cityHubCapacity;
 }
 
 /**
@@ -196,10 +210,22 @@ export class MapRoom extends Room<MapRoomState> {
     // filterBy(['mapId','partyId']) การันตีว่าทุกคนใน room นี้ partyId ตรงกัน → เก็บระดับ room ได้เลย.
     this.partyId = typeof options.partyId === "string" ? options.partyId : DEFAULT_PARTY_ID;
     state.partyId = this.partyId;
-    // P1-08: channelId = **server-assigned display label** (auto-assign, §59.3) — ไม่ใช่ค่าจาก client.
-    // solo channel cap = channelCapacity (เต็ม → matchmaking เปิด CH ใหม่); party channel cap = partyChannelCapacity.
+
+    // P1-02/P1-10/P1-11: server โหลด map จาก registry ตาม mapId (ไม่ hardcode) → รู้ collision/bounds/zoneType.
+    // ต้องโหลดก่อนคำนวณ maxClients (P1-11: cap ต่างตาม zone). registry validate แล้ว (cross-ref/exits).
+    this.map = requireMap(state.mapId);
+
+    // P1-08/P1-11: channelId = **server-assigned display label** (auto-assign, §59.3) — ไม่ใช่ค่าจาก client.
+    // solo channel cap = ตาม zone (P1-11: safe zone เมือง = cityHubCapacity สูงกว่า field = channelCapacity,
+    // เต็ม → matchmaking เปิด CH ใหม่); party channel cap = partyChannelCapacity.
     this.maxClients =
-      this.partyId === DEFAULT_PARTY_ID ? resolveChannelCapacity() : resolvePartyChannelCapacity();
+      this.partyId === DEFAULT_PARTY_ID
+        ? soloChannelCapacityForZone(
+            this.map.zoneType,
+            resolveChannelCapacity(),
+            resolveCityHubCapacity(),
+          )
+        : resolvePartyChannelCapacity();
     const assignment = channelRegistry.assign(state.mapId);
     this.assignedChannelId = assignment.channelId;
     state.channelId = assignment.channelId;
@@ -210,10 +236,8 @@ export class MapRoom extends Room<MapRoomState> {
         `${this.partyId ? ` party=${this.partyId}` : " (solo)"} cap=${this.maxClients}`,
     );
 
-    // P1-02/P1-10: server โหลด map จาก registry ตาม mapId (ไม่ hardcode test field) → รองรับหลาย map.
-    // registry validate แล้ว (collision/bounds/exits cross-ref). reuse engine collision: snapToTile →
-    // integer tile → isWalkableTile (bounds + block). ไม่ copy สูตร.
-    this.map = requireMap(state.mapId);
+    // reuse engine collision: snapToTile → integer tile → isWalkableTile (bounds + block). ไม่ copy สูตร.
+    // (this.map โหลดไว้ด้านบนแล้ว — ต้องมีก่อนคำนวณ maxClients ตาม zone, P1-11.)
     this.isWalkableAt = (tx: number, ty: number): boolean => {
       const cell = snapToTile({ tx, ty });
       return isWalkableTile(this.map, cell.tx, cell.ty);
@@ -401,6 +425,8 @@ export class MapRoom extends Room<MapRoomState> {
     //   player.level ≥ skill.unlockLevel + สกิลอยู่ใน loadout ที่ผู้เล่นปลด (§8 branch).
     const verdict = validateCast({
       skill,
+      // P1-11 (GS §14): safe zone (เมือง) ปฏิเสธ cast ทุกกรณี — server-authoritative (client disable ปุ่มด้วย).
+      zoneType: this.map.zoneType,
       readyAtMs: cds?.get(skillId),
       nowMs: now,
       casterPos,

@@ -12,7 +12,7 @@
 //   • spawnPoint ใช้ชื่อ field {x,y} ตาม spec (P0 §4.3) แต่ค่าเป็น tile coord (float ได้)
 //   • bounds {width,height} = จำนวน tile ต่อแกน → grid ครอบ tile [0,width) × [0,height)
 
-import type { TileSize } from "@/engine/config";
+import type { MapZoneType, TileSize } from "@/engine/config";
 import type { TilePoint } from "@/engine/iso/coords";
 
 /**
@@ -156,6 +156,11 @@ export interface MapConfigInput {
   name: string;
   tileSize: TileSize;
   bounds: MapBounds;
+  /**
+   * ประเภทโซน (P1-11, GS §14) — optional; ไม่ระบุ → "field" (Safe Field, combat ปกติ). "safe" = เมือง
+   * (ไม่มี combat: server ปฏิเสธ cast, client disable ปุ่มโจมตี) + cap สูงกว่า. loader validate enum.
+   */
+  zoneType?: MapZoneType;
   spawnPoint: SpawnPoint;
   /**
    * จุด safe camp ของ map (P1-07, §59.1 reconnect fallback / จุดวาป). **optional** — ไม่ระบุ →
@@ -179,6 +184,8 @@ export interface MapConfig {
   name: string;
   tileSize: TileSize;
   bounds: MapBounds;
+  /** ประเภทโซน (P1-11, GS §14) — always present (default "field" เมื่อ input ไม่ระบุ). */
+  zoneType: MapZoneType;
   spawnPoint: SpawnPoint;
   /** safe camp / reconnect fallback (P1-07, §59.1) — optional; ไม่มี → ใช้ spawnPoint (ดู safeCampOf) */
   safeCamp?: SpawnPoint;

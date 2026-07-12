@@ -262,6 +262,25 @@ describe("exits (P1-10, §57.3) — optional field + intrinsic validation", () =
   });
 });
 
+describe("zoneType (P1-11, GS §14) — optional enum + default", () => {
+  test("ไม่ระบุ → default 'field'", () => {
+    const map = loadMapConfig(validConfig());
+    expect(map.zoneType).toBe("field");
+  });
+
+  test("ระบุ 'safe' / 'field' → ผ่าน", () => {
+    const safe = { ...validConfig(), zoneType: "safe" as const };
+    expect(loadMapConfig(safe).zoneType).toBe("safe");
+    const field = { ...validConfig(), zoneType: "field" as const };
+    expect(loadMapConfig(field).zoneType).toBe("field");
+  });
+
+  test("ค่า enum ผิด → throw", () => {
+    const cfg = { ...validConfig(), zoneType: "town" as unknown as "safe" };
+    expect(() => loadMapConfig(cfg)).toThrow(/zoneType/);
+  });
+});
+
 describe("findExitAt / isTileInRect (P1-10)", () => {
   test("findExitAt คืน exit เมื่อ tile อยู่ในพื้นที่, null เมื่อไม่อยู่", () => {
     const cfg = validConfig();

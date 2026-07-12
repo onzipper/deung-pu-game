@@ -76,6 +76,11 @@ export interface CombatStubDeps {
   castSkill: (msg: CastSkillMessage) => void;
   /** true = online (server authority) → ส่ง intent; false = offline → dummy playground. */
   isOnline: () => boolean;
+  /**
+   * P1-11 (GS §14 Safe Zone): false = **ไม่มี combat ในโซนนี้** (เมือง) → กด Space/แตะมอน = no-op
+   * (client disable ปุ่มโจมตี; server ก็ปฏิเสธ cast ซ้ำอีกชั้น). default (ไม่ส่ง) = true (field ปกติ).
+   */
+  combatEnabled?: boolean;
   /** RNG inject (offline dummy damage เท่านั้น; default Math.random). */
   rng?: RngFn;
 }
@@ -143,6 +148,8 @@ export function createCombatStub(
 ): CombatStubHandle {
   const { combat, combatFeel, tileSize } = config;
   const { skill } = deps;
+  // P1-11: combat ปิดในโซน safe (เมือง) → gate การกดโจมตี (Space/tap) — default = เปิด (field).
+  const combatEnabled = deps.combatEnabled !== false;
   const rng: RngFn = deps.rng ?? defaultRng;
   const damageNumbers: DamageNumberLayerHandle = createDamageNumberLayer(
     scene,
@@ -200,7 +207,9 @@ export function createCombatStub(
         lastMobPos.set(t.id, { tx: t.pos.tx, ty: t.pos.ty });
       }
 
-      if (player.consumeAttackPressed() && canAttack(cooldownRemainingMs)) {
+      // consume เสมอ (เคลียร์ edge กันค้าง) แต่ยิงจริงเฉพาะเมื่อ combat เปิด (P1-11: safe zone → ไม่ยิง).
+      const attackPressed = player.consumeAttackPressed();
+      if (combatEnabled && attackPressed && canAttack(cooldownRemainingMs)) {
         cooldownRemainingMs = cooldownMs; // client-side predictive gate (server = authority จริง)
         player.triggerAttack(); // anticipation ทันที — ไม่รอ server (TA §6)
 

@@ -13,6 +13,16 @@ export interface TileSize {
 }
 
 /**
+ * ประเภทโซนของ map (P1-11, GS §14 Zone types) — P1 ใช้แค่ 2 ค่า:
+ *   • "safe"  = Safe Zone (เมือง/ค่าย, GS §787 "ปลอดภัย 100%") → **ไม่มี combat** (server ปฏิเสธ cast_skill,
+ *               client ซ่อน/disable ปุ่มโจมตี) + cap สูงกว่า (ไม่มี combat load, TA §6).
+ *   • "field" = Safe Field (Map 1–4, GS §792 ฟาร์มได้ ไม่มี PvP) — combat ปกติ (default).
+ * โซนอื่น (Contested/Risk/Arena, GS §783–785) = P2+ (ยังไม่ implement). ค่านี้อยู่ใน MapConfig (registry)
+ * ไม่ sync ผ่าน wire — ทั้ง client/server derive จาก map config เดียวกัน (single source of truth).
+ */
+export type MapZoneType = "safe" | "field";
+
+/**
  * Style ของ prop placeholder 1 ชนิด (ยังไม่มี texture จริง — P0-06 จะแทนด้วย sprite).
  * วาดโดย "เท้า" (foot) อยู่ที่ local (0,0) แล้วตัวสูงขึ้นไปทาง −y (anchor ที่ฐาน).
  */
@@ -530,6 +540,12 @@ export interface NetConfig {
    */
   channelCapacity: number;
   /**
+   * **server knob** (P1-11, TA §6) — cap ของ solo channel สำหรับ **safe zone (เมือง)** — สูงกว่า field
+   * เพราะไม่มี combat load (TA §6 "cap สูงกว่า ~80–100"). MapRoom เลือก cap นี้เมื่อ map.zoneType==="safe"
+   * (แทน channelCapacity). env `CITY_HUB_CAPACITY` override เฉพาะ dev/test.
+   */
+  cityHubCapacity: number;
+  /**
    * **server knob** (P1-08) — cap ของ party channel (room ที่ partyId ≠ "") — party สำคัญกว่า solo
    * auto-assign (§59.3) → cap = ขนาด party สูงสุด (GS §16 = 6) เพื่อไม่ให้สมาชิกถูกแยก channel.
    * env `PARTY_CHANNEL_CAPACITY` override เฉพาะ dev/test.
@@ -1027,6 +1043,7 @@ export const DEFAULT_NET_CONFIG: NetConfig = {
   roomName: MAP_ROOM_NAME,
   partyId: DEFAULT_PARTY_ID, // "" = solo (dev override ผ่าน ?party=xyz)
   channelCapacity: 8, // dev default (§59.3 auto-assign) — production tune ทีหลัง; proof ตั้ง 2 ผ่าน env
+  cityHubCapacity: 80, // P1-11 (TA §6): safe zone (เมือง) รับได้มากกว่า field เพราะไม่มี combat (~80–100)
   partyChannelCapacity: 6, // = ขนาด party สูงสุด (GS §16) → party ไม่ถูกแยก channel
   positionSyncHz: 12, // 10–15Hz (tech §6) — 12 = กลางช่วง
   sendEpsilon: 0.02, // tile — ต่ำกว่านี้ = ผู้เล่นแทบไม่ขยับ, ไม่ต้องส่ง
@@ -1120,6 +1137,19 @@ export function createEngineConfig(
     // debugOverlay = shallow-merge (override เช่น defaultVisible โดยคง poll interval เดิม)
     debugOverlay: { ...DEFAULT_ENGINE_CONFIG.debugOverlay, ...overrides.debugOverlay },
   };
+}
+
+/**
+ * capacity ต่อ solo channel ตาม zone ของ map (P1-11, TA §6) — **pure decision** (แยกจาก env override glue
+ * ใน MapRoom): safe zone (เมือง — ไม่มี combat) ใช้ cityHubCapacity; field ใช้ channelCapacity.
+ * MapRoom ส่งค่าที่ resolve env แล้วเข้ามา (dev/test override) — logic เลือก knob = ตรงนี้ (testable).
+ */
+export function soloChannelCapacityForZone(
+  zoneType: MapZoneType,
+  channelCapacity: number,
+  cityHubCapacity: number,
+): number {
+  return zoneType === "safe" ? cityHubCapacity : channelCapacity;
 }
 
 /** resolve resolution จริงตอน runtime: config.resolution ?? devicePixelRatio ?? 1 */

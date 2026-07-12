@@ -103,14 +103,14 @@ export const MAP1: MapConfigInput = {
   ],
 
   // Exit: N ประตูเมือง (ช่องประตู tx 18–22, row 0–1) — bible = "จุดวาปกลับนครอรุณผนึก".
-  // **Production**: เชื่อม city hub / Map 2 (bible Map 2 NW = "Exit Map 1"). **P1 dev**: wire กลับ p0-test-field
-  // เพื่อพิสูจน์ transition (มีแค่ 2 map ใน registry ตอนนี้). targetSpawn อยู่นอก exit area ปลายทาง (กัน re-trigger).
+  // **P1-11**: เชื่อม city hub "นครอรุณผนึก" (production target จริงตาม bible — เมืองอยู่เหนือ Map 1) แทน
+  //   dev wire กลับ p0-test-field เดิม (P1-10). targetSpawn = เหนือประตูใต้ของเมือง (นอก exit area เมือง กัน re-trigger).
   exits: [
     {
       exitId: "map1-north-gate",
       area: { tx: 18, ty: 0, width: 5, height: 2 },
-      targetMapId: "p0-test-field",
-      targetSpawn: { x: 11.5, y: 4.5 },
+      targetMapId: "city-hub",
+      targetSpawn: { x: 16.5, y: 27.5 },
     },
   ],
 };
