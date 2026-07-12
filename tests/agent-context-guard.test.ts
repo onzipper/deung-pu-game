@@ -7,7 +7,7 @@
 // Byte caps use Buffer.byteLength (UTF-8 on-disk size), never string length.
 
 import { describe, expect, test } from "vitest";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 const ROOT = join(__dirname, "..");
@@ -41,6 +41,7 @@ describe("agent context guard", () => {
   // content to docs/history/ — do NOT raise the cap without owner approval.
   const BYTE_CAPS: Record<string, number> = {
     "AGENTS.md": 1_024,
+    "docs/decision-index.md": 6_144,
   };
 
   for (const [relPath, cap] of Object.entries(BYTE_CAPS)) {
@@ -49,4 +50,32 @@ describe("agent context guard", () => {
       expect(bytesOf(relPath)).toBeLessThanOrEqual(cap);
     });
   }
+
+  // decision index <-> decisions/ integrity (chore/agent-context-optimization, 2026-07-13):
+  // the thin English decision-index.md is navigation only; docs/decisions/D-NNN-*.md files
+  // are the rationale authority. Every reference must resolve, and every file must be linked
+  // exactly once, or the index and the directory have silently drifted apart.
+  describe("decision index <-> decisions/ integrity", () => {
+    const DECISIONS_DIR = join(ROOT, "docs", "decisions");
+    const PATH_RE = /docs\/decisions\/(D-\d{3}-[a-z0-9-]+\.md)/g;
+
+    test("every referenced docs/decisions/D-NNN-*.md path exists on disk", () => {
+      const indexText = textOf("docs/decision-index.md");
+      const referenced = [...indexText.matchAll(PATH_RE)].map((m) => m[1]);
+      expect(referenced.length).toBeGreaterThan(0);
+      for (const fname of referenced) {
+        expect(existsSync(join(DECISIONS_DIR, fname))).toBe(true);
+      }
+    });
+
+    test("every file in docs/decisions/ (except README.md) is referenced exactly once", () => {
+      const indexText = textOf("docs/decision-index.md");
+      const referenced = [...indexText.matchAll(PATH_RE)].map((m) => m[1]);
+      const files = readdirSync(DECISIONS_DIR).filter((f) => f !== "README.md");
+      for (const fname of files) {
+        const occurrences = referenced.filter((r) => r === fname).length;
+        expect(occurrences).toBe(1);
+      }
+    });
+  });
 });

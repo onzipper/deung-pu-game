@@ -6,8 +6,8 @@
 ## Language policy
 
 - Effective 2026-07-13, approved by the owner.
-- **English**: AI-facing internal docs (known-traps, CODEMAP, agent-rules, playbooks, context packs, token-budget, deploy-checklist, future tech notes), agent briefs, and internal agent reports.
-- **Thai**: everything the owner reads or approves — `docs/design/**` (specs/bibles/decisions), decision-index, current-state, the P2 breakdown and other owner-reviewed tech docs, PR titles/bodies, commit messages, questions to the owner, and ALL in-game content. Canonical Thai game terms stay Thai even inside English text.
+- **English**: AI-facing internal docs (known-traps, CODEMAP, agent-rules, playbooks, context packs, token-budget, deploy-checklist, future tech notes), agent briefs, internal agent reports, and decision-index (thin navigation table — owner-approved 2026-07-13, rationale moved to `docs/decisions/`).
+- **Thai**: everything the owner reads or approves — `docs/design/**` (specs/bibles/decisions), `docs/decisions/` (decision rationale, verbatim), current-state, the P2 breakdown and other owner-reviewed tech docs, PR titles/bodies, commit messages, questions to the owner, and ALL in-game content. Canonical Thai game terms stay Thai even inside English text.
 - Existing Thai files other than the 3 translated here are **not** retro-translated (specs/bibles must stay owner-auditable).
 
 ## Proposals & questions placement (owner rule, 2026-07-13)
