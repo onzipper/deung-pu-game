@@ -1,4 +1,4 @@
-﻿-- CreateTable
+-- CreateTable
 CREATE TABLE `accounts` (
     `id` CHAR(36) NOT NULL,
     `email` VARCHAR(191) NULL,
