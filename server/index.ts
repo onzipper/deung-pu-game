@@ -16,13 +16,30 @@
 //   key แล้ว (ต่างจาก P0-08 stub ที่ client ส่ง channelId). ยัง single-process/instance เดียว (cap 30 CCU,
 //   TA §6) — สเกลหลาย node ย้าย channel allocation ไป Redis (TA §8, TODO ใน channel-registry.ts).
 
+import http from "http";
 import { Server } from "colyseus";
+import { WebSocketTransport } from "@colyseus/ws-transport";
 import { MapRoom } from "./rooms/MapRoom";
 import { MAP_ROOM_NAME } from "../src/shared/net-protocol";
 
 const port = Number(process.env.PORT) || 2567;
 
-const gameServer = new Server();
+// HTTP handler ของเราเอง — @colyseus/core `attachMatchMakingRoutes` จะห่อ listener นี้:
+// เส้นทาง /matchmake/* core ตอบเองก่อน แล้ว delegate เส้นทางอื่นทั้งหมดมาที่นี่ (ตรวจจาก
+// Server.mjs ของ 0.16.24 แล้ว — ตอบ 404 เองได้ ไม่ชน matchmaking)
+// /healthz = ให้ uptime monitor (UptimeRobot) ping ได้ 200 จริง แทน root ที่เดิมไม่มีใครตอบ (ค้างจน timeout)
+const httpServer = http.createServer((req, res) => {
+  if (req.method === "GET" && req.url === "/healthz") {
+    res.writeHead(200, { "content-type": "text/plain" });
+    res.end("ok");
+    return;
+  }
+  res.writeHead(404, { "content-type": "text/plain" });
+  res.end("not found");
+});
+
+// ส่ง transport explicit (ใส่ `server` ตรงๆ ใน Server options = โดน deprecation warning ของ 0.16)
+const gameServer = new Server({ transport: new WebSocketTransport({ server: httpServer }) });
 gameServer.define(MAP_ROOM_NAME, MapRoom).filterBy(["mapId", "partyId"]);
 
 gameServer

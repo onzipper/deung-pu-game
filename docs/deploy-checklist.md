@@ -8,6 +8,7 @@
 2. เชื่อม repo `onzipper/deung-pu-game`, branch **`develop`**
 3. Region: **Singapore**
 4. Instance type: **paid (Starter หรือสูงกว่า) — ต้อง always-on** (free tier spin down หลัง idle ~15 นาที = server หลับ/state หาย ตาม spec L4)
+   - **สถานะจริง 2026-07-12 (decision-index)**: ช่วงทดสอบ owner ใช้ **free tier + UptimeRobot ping** ไปก่อน (`https://deung-pu-game.onrender.com`) — ตั้ง UptimeRobot monitor ชี้ที่ **`https://deung-pu-game.onrender.com/healthz`** (ตอบ 200 "ok"; path อื่นตอบ 404, root ไม่ใช่ endpoint) · ข้อจำกัด: free tier ยัง restart เป็นระยะ = ห้อง/ตำแหน่งหาย (state in-memory) · **ก่อนเปิดผู้เล่นจริงต้องกลับมา paid always-on**
 5. Build command: `npm install`
 6. Start command: `npm run start:server`
 7. Environment variables: **ไม่ต้องตั้งอะไร** — `PORT` ถูก Render inject ให้เองอัตโนมัติ (ดู `.env.example`)
