@@ -324,23 +324,31 @@ One-liner v15: *"…ตลาดมีชีวิต **ตีบวกมีเ
 ## 11. คำถามให้ owner เคาะ (R1–R10)
 
 > ทุกข้อ = ยังไม่เคาะ/คลุมเครือ — **ไม่มีการตัดสินแทน owner** · ข้อที่แตะ economy/monetization = ผ่าน v15 §53 (หยุดถาม)
+> · แต่ละข้อปิดท้ายด้วย **แนะนำ + เหตุผล** (ข้อเสนอทีมออกแบบ + trade-off) — ยังเป็น **PROPOSAL** ทั้งหมด owner เป็นผู้เคาะ
 
 **R1 — bindType ขัดกับ "trade ได้" (บังคับเคาะ)**
 ข้อความที่ 1 ตั้ง `bindType: ACCOUNT_BOUND` แต่ข้อความที่ 2 บอก "trade ได้" → ขัดกันตรง ๆ (account-bound = trade ไม่ได้) เสนอเลือก:
 - (ก) `bindType: NONE` (unbound เต็ม — tradable+sellable+marketable ตรงตามคำว่า "trade ได้") — **ผลข้างเคียง:** เสริมแกร่งกลายเป็นสินค้าโภคภัณฑ์ที่ผู้เล่นซื้อขายกันได้ = คันโยก economy/RMT ใหญ่ (v15 §53)
 - (ข) `bindType: TRADE_LIMITED` (trade ตรงตัวผู้เล่นได้ แต่ห้าม list ตลาด) — คุมการปั่นราคาได้บ้าง
-- **ข้อเสนอแนะ:** ถ้าเป้าคือ "หายากมีคุณค่า" การ trade เต็มรูป (ก) จะกดความหายากลง — แนะนำเคาะเจตนาก่อนว่าอยากให้เสริมแกร่งเป็น "ของล่าเฉพาะตัว" หรือ "สินค้าตลาด"
+
+**แนะนำ:** (ข) `bindType: TRADE_LIMITED` — เทรดตรงตัวผู้เล่นได้ (ตรงคำว่า "trade ได้") แต่ห้าม list ขึ้นตลาดกลาง
+**เหตุผล:** เปิดกว้างทีหลังง่าย (ปลดเป็น NONE ได้ทุกเมื่อ) แต่ปิดทีหลังผู้เล่นด่า — เริ่มแบบคุมไว้ก่อนเสี่ยงต่ำสุด · TRADE_LIMITED กันปั่นราคา/RMT ผ่านตลาดกลาง (v15 §53) ขณะรักษา "หายากมีคุณค่า" ไว้ได้ · ถ้า owner ตั้งใจให้เสริมแกร่งเป็น "สินค้าตลาด" เต็มตัว ค่อยเลื่อนเป็น (ก) NONE ทีหลังตอนตลาด/เทรด ship จริง (P2B+)
 
 **R2 — "ขายได้" = ขาย NPC ด้วยหรือเฉพาะตลาดผู้เล่น?**
 ข้อความที่ 1 Philosophy บอก "ไม่ขาย NPC" แต่ข้อความที่ 2 บอก "ขายได้" (supersede) เสนอ:
 - (ก) **ขายเฉพาะตลาดผู้เล่น** — NPC sell ปิดต่อ (การขาย NPC = gold faucet + ตั้ง floor price ให้ของหายาก ขัดกับ "มีคุณค่า")
 - (ข) **ขาย NPC ได้** — ต้องเคาะราคา (ขาย NPC = ผู้เล่นได้ gold = faucet ต้องคุมด้วยราคาต่ำ) → ขอค่าราคา NPC sell
-- **ข้อเสนอแนะ:** (ก) — สอดคล้อง Philosophy "หายาก/มีคุณค่า" มากกว่า
+
+**แนะนำ:** (ก) ขายเฉพาะตลาดผู้เล่น/เทรด — ปิดขายเข้า NPC
+**เหตุผล:** ราคารับซื้อ NPC = gold faucet ถาวร + ตั้ง price floor ให้ของหายาก (ถอนคืนยากเมื่อ ship ไปแล้ว) ขัด Philosophy "มีคุณค่า" · เปิดขาย NPC ทีหลังง่ายกว่าถอน — เริ่มปิดไว้เสี่ยงต่ำสุด
 
 **R3 — เศษเสริมแกร่ง: แหล่งดรอป + อัตรา + id (บังคับเคาะก่อนทำ P2-09 config)**
 - **แหล่งดรอป owner ยังไม่ระบุ** · Philosophy "ไม่ได้จาก Monster ทั่วไป/Elite ทั่วไป" ใช้กับ **เศษ** ด้วยไหม? v15 เดิมให้เศษดรอปจาก World Boss/Raid (ของหายาก) เสนอ: (ก) เศษดรอปจากแหล่งพิเศษเดียวกับตัวเต็มแต่ rate สูงกว่า (ให้ path สะสม 5→1 สำหรับคนดวงไม่ดี) · (ข) เศษก็ 0% จาก normal/elite ทั่วไป — เฉพาะ special/boss/secret เท่านั้น
 - **อัตรา 5→1** สืบทอด v15 pillar ข้อ 31 (ข้อความที่ 2 บอก "ไม่ได้เคาะใหม่ ถือของ v15") → ขอ **ยืนยัน** ว่าใช้ 5→1 ต่อ
 - **materialId** เสนอ `upg_reinforcement_fragment` (owner ยังไม่ให้ id) → ขอเคาะ id
+
+**แนะนำ:** (ก) เศษดรอปจาก hard content เดียวกับตัวเต็ม (special elite/boss/secret/world boss/raid) แต่ **rate สูงกว่า** ให้เป็น catch-up path 5→1 สำหรับคนดวงไม่ดี · คง 0% จาก normal/elite ทั่วไป (ไม่ขัด philosophy) · **ยืนยัน 5→1** (สืบทอด v15) · **ยืนยัน id `upg_reinforcement_fragment`** · ค่า rate = `PENDING OWNER`
+**เหตุผล:** เศษมีเหตุผลดำรงอยู่แค่ตอนเป็น catch-up path — ถ้า rate เท่าตัวเต็มก็ไร้ประโยชน์ (รอตัวเต็มดีกว่า) จึงต้องสูงกว่า · จำกัด hard content = เพิ่มแหล่งทีหลังง่ายกว่าถอน + ไม่พังความหายาก · **guardrail:** ต้อง tune ให้ fragment-path ได้ reinforcement-equivalent **น้อยกว่า** full-item-path (เป็นของปลอบใจ ไม่ใช่เพิ่ม supply เท่าตัว) → จึง mark rate PENDING OWNER
 
 **R4 — คณิตเพดานใหม่ +15: flat 1 ชิ้น/ขั้น หรือ escalate ขั้นสูง? (กระทบ balance โดยตรง)**
 เพดาน +15 × การันตี 1 ชิ้น/ขั้น (flat):
@@ -352,34 +360,51 @@ One-liner v15: *"…ตลาดมีชีวิต **ตีบวกมีเ
 
 - เดิม RNG เป็นตัวเบรกความเร็ว +สูง · ตอนนี้ **ตัวเบรกเดียว = ความหายากของดรอป** (flat cost) → +15 เป็น long-term chase ~6 เดือน–1.4 ปี/ครบชุด
 - เสนอเลือก: (ก) **flat 1 ชิ้น/ขั้นทุกระดับ** (ตามคำเคาะปัจจุบัน — ยืนยัน intended long-term chase) · (ข) **escalate ขั้นสูง** (+11..+15 ใช้ 2–3 ชิ้น/ขั้น หรือมี material tier สูงกว่า) เพื่อให้ +สูงยัง "แพง" โดยไม่พึ่ง RNG
-- **ข้อเสนอแนะ:** ถ้าอยากคง "ตีบวกสูง = ความสำเร็จที่อวดได้" ควรพิจารณา (ข) — flat cost ทำให้ +15 เป็นแค่เรื่องเวลา ไม่ใช่ความทุ่มเทที่ต่างระดับ
+
+**แนะนำ:** (ก) flat 1 ชิ้น/ขั้นทุกระดับ (ตามคำเคาะ) + ประกาศชัดว่า long-term chase = intended สำหรับ launch แล้ว **ทบทวน curve ที่ P2B ด้วย telemetry** (§5.1) — *เปลี่ยนจากที่เอกสารเคยโน้ม (ข)*
+**เหตุผล:** (1) เคารพค่าที่ owner ล็อกแล้ว (`quantityPerUpgrade: 1`) — (ข) escalate = แก้ค่าที่เพิ่งล็อกทั้งที่ยังไม่มีข้อมูลจริง · (2) เรามี "อัตราดรอป" เป็นคันเร่ง/เบรกความเร็ว +15 อยู่แล้ว (PENDING OWNER, R3) → escalate = คันโยกซ้ำงานเดียวกัน เพิ่มความซับซ้อนเปล่า · (3) reversible: เพิ่ม tier/escalation ทีหลังได้ถ้า telemetry บอก +15 ง่ายไป แต่ปลด escalate ทีหลัง = ผู้เล่นด่า · trade-off ที่ยอมแลก: (ข) จะทำให้ +สูง "แพงต่างระดับ/อวดได้" กว่า — แต่ความหายากของดรอป boss-only ก็ให้ prestige นั้นอยู่แล้ว
 
 **R5 — milestone/one-time Kraeng grants เปลี่ยนรางวัลเป็นอะไร? (พบ 5 จุด ไม่ใช่ 2)**
 Philosophy "ไม่แจกตาม Tutorial/Main Quest ปกติ" supersede grant เสริมแกร่งจาก milestone · **ตรวจพบจริง 5 แถวใน Economy §18.1** (ไม่ใช่ 2): `ms_enhancement_ready` (Kraeng×1) · `ach_first_upgrade` (×1) · `ms_first_elite` (×1) · `ms_map1_complete` (×1) · `ms_boss_first_kill` (×1) — บวก §15.2 source table (Tutorial/First upgraded/First Elite/Map1 = 1 ทุกอัน) และ §11.6 Boss First Kill bonus (×1)
 - เสนอเปลี่ยนรางวัลทั้ง 5 เป็น: Gold/EXP/Potion/cosmetic (ไม่ใช่เสริมแกร่ง) — **แต่ดู R8**: ถ้าตัดทุก grant ผู้เล่นใหม่จะไม่มีทางได้เสริมแกร่งชิ้นแรกมาลองระบบตีบวกเลยจนถึงบอส P2B
-- **ข้อเสนอแนะ:** พิจารณาคง **grant สอนระบบ 1 ชิ้นครั้งเดียว** (`ms_enhancement_ready`) เป็นข้อยกเว้น "learning grant" (ไม่นับใน target output) เพื่อให้ tutorial ตีบวกใช้งานได้ — หรือยอมรับว่าระบบตีบวก P2 inert จนถึง P2B (R8)
+
+**แนะนำ:** แทนทั้ง 5 grant ด้วย **Gold** (จำนวน = `PENDING OWNER`, placeholder เทียบมูลค่าเสริมแกร่งคร่าว ๆ) — ไม่แจกเสริมแกร่งจาก milestone เลย · *fallback ถ้า owner ให้น้ำหนัก onboarding มากกว่า:* คง `ms_enhancement_ready` เป็น learning grant 1 ชิ้นครั้งเดียว (ไม่นับ target output)
+**เหตุผล:** Gold = ใช้ faucet ที่คุมอยู่แล้ว ไม่รั่ว rarity + ไม่สร้าง P2-only source + ตรง philosophy "ไม่แจกตาม tutorial/main quest" · learning grant โชว์แค่ปุ่มการันตี (interaction ง่ายสุด) แต่ **ไม่สื่อ pillar จริงคือ "การล่า"** (§8) — hint panel "ของหายากมากับบอส" (R8) สื่อ pillar ตรงกว่า + สร้าง desire ให้ไปล่า · reversible: เพิ่ม learning grant ทีหลังง่าย (config flag) แต่ถอนของที่แจกไปแล้ว = ผู้เล่นได้ไม่เท่ากัน แก้กลับยาก
 
 **R6 — v15 §33 Enhancement Audio: fail/crack/เสียงลุ้น หมดความหมาย — amend เมื่อไหร่?**
 §33.1 "เสียงลุ้นก่อนผลออก" · §33.3 ล้มเหลว · §33.4 รอยร้าว = ไม่มีเหตุการณ์ให้เล่นแล้ว (ไม่มี fail/crack/ลุ้น) · §33.5 "แกร่ง" (พิธี "นี่คือแกร่ง") = ยิ่งสำคัญขึ้น (ทุกครั้ง = พิธีสำเร็จ) · จุดลุ้นย้ายไป **เสียง drop เสริมแกร่งจากบอส** (§8)
 - เสนอ: mark §33.1/33.3/33.4 superseded-for-reinforcement ตอนนี้ (ทำแล้วในเอกสารนี้) · **re-spec audio เต็ม เลื่อนไปเฟสผลิตเสียง** (L5 งบ audio 50,000฿) — ขอ **ยืนยัน timing** ว่ารอเฟส audio production หรืออยากให้ร่าง audio brief ใหม่ก่อน
 
+**แนะนำ:** คง mark §33.1/33.3/33.4 = superseded-for-reinforcement (ทำแล้ว) ไว้ก่อน · **เลื่อน re-spec audio เต็มไปเฟสผลิตเสียง (P2B audio pass, L5)** — ยังไม่ร่าง audio brief ใหม่ตอนนี้
+**เหตุผล:** codebase ยังไม่มี audio implementation เลย — re-spec ตอนนี้ = ออกแบบเสียงบนอากาศ เปลี่ยนอีกแน่ตอนลงมือ · mark superseded พอสำหรับตอนนี้ (กัน dev ไปสร้างเสียง fail/crack/ลุ้นที่ไม่มีเหตุการณ์ให้เล่นแล้ว) · banner ใน v15 ครอบคลุมพอจนถึง audio pass
+
 **R7 — เศษเสริมแกร่ง (item+exchange UI+recipe) อยู่เฟสไหน? P2 หรือ P2B?**
 Economy §15.3 ตัด fragment ออกจาก P2 เพื่อลด scope · ข้อความที่ 2 พลิกกลับ = เพิ่ม item + หน้าแลก + recipe เข้ามาใหม่
 - เสนอ: **P2B** (คู่กับบอส เพราะแหล่งดรอปเศษน่าจะผูกกับ content พิเศษที่มาตอน P2B อยู่แล้ว — R3) · P2 ทำแค่ config/flag ของ item ไว้ก่อน
-- **ข้อเสนอแนะ:** ยืนยัน P2B เพื่อไม่ขยาย scope P2-10/P2-11 กลางคัน
+
+**แนะนำ:** **P2B** (item + exchange UI + recipe) · P2 = ทำแค่ config/flag ของ item ไว้ก่อน
+**เหตุผล:** แหล่งดรอปเศษผูกกับ hard content ที่มาตอน P2B (R3) — สร้างหน้าแลก 5→1 ใน P2 ทั้งที่ยังไม่มีเศษให้แลก = scope creep + เสี่ยงรื้อตอน P2B · ไม่ขยาย scope P2-10/P2-11 กลางคัน
 
 **R8 — P2 ไม่มีแหล่งเสริมแกร่งเลย (บอส=P2B): ระบบตีบวก "มีจอแต่ใช้ไม่ได้" ใน P2 — intended? (สำคัญ กระทบ scope P2-10)**
 Map 1 baseline: normal/elite = 0%, special elite = 0% (Map 1 ยังไม่มี), boss = P2B → **ก่อน P2B ไม่มีทางได้เสริมแกร่งบน Map 1** · ถ้าตัด milestone grant (R5) ด้วย = ระบบตีบวกใน P2 ไม่มีวัสดุ input เลย
 - เสนอเลือก: (ก) ยอมรับว่า **enhancement UI ship ใน P2 แต่ยัง "ใช้ไม่ได้จริง" จนถึง P2B** (มีจอ + NO_REINFORCEMENT state ตลอด) · (ข) ให้ **learning grant 1 ชิ้น** (R5) เป็น bootstrap เดียวใน P2 · (ค) เปิด special elite Map 1 เร็วขึ้นให้มี source ใน P2
-- **ข้อเสนอแนะ:** (ข) ปลอดภัยสุดต่อ UX (ผู้เล่นได้ลองระบบ) โดยไม่แตะความหายากของ end-game
+
+**แนะนำ:** (ก) ยอมรับว่า enhancement UI ship ใน P2 แต่ inert (สถานะ `NO_REINFORCEMENT` ตลอดจนถึง P2B) + **สื่อสารเชิงรุกผ่าน hint panel/ดึ๋งๆ**: "เสริมแกร่ง = ของหายากที่ดรอปจากบอส/ความท้าทาย — ล่าเอาที่ content ยากขึ้น" — *เปลี่ยนจากที่เอกสารเคยโน้ม (ข)*
+**เหตุผล:** ตาม §8 ความ "ขิง/ลุ้น" ของตีบวกถูกย้ายไปที่ **การล่าเสริมแกร่งจากบอส** (P2B) — ปุ่มตีบวกเองการันตี 100% ไม่มีอะไรให้ลุ้น · ดังนั้น P2 ที่ยังไม่มีบอส = ตีบวกยังไม่ครบ pillar เป็นเรื่อง **design-consistent** ไม่ใช่ช่องโหว่ · hint "ของนี้มากับบอส" สื่อ pillar จริง (การล่า) + สร้าง desire ได้ดีกว่า learning grant ที่โชว์แค่ปุ่ม · protects rarity + reversible (เพิ่ม bootstrap ทีหลังได้ถ้า telemetry บอก P2 retention ตก)
 
 **R9 — Enhancement stat multiplier +6..+15 ยังไม่มี (เพดาน +15 ไม่มีความหมายเชิงพลังจนกว่าเคาะ)**
 Economy §16.3 นิยาม multiplier แค่ +0..+5 (1.00→1.35) · เพดานใหม่ +15 ต้องมี multiplier +6..+15 → เป็น Design Knob ต้องผ่าน §59.4
 - เสนอ: ให้ทีม balance ร่าง curve +6..+15 เป็น spec-update proposal (mark PENDING OWNER) — ขอ owner **ยืนยันว่าต้องการ balance table นี้ตอน P2B (คู่บอส)** หรือเร็วกว่า
 
+**แนะนำ:** ใส่ placeholder แบบ **linear** ต่อจาก +1..+5 (delta เดิม ≈ 0.07/ระดับ; +15 ≈ ×2.05) สำหรับ +6..+15, mark `PENDING OWNER BALANCE`, รวมเข้า **bucket เดียวกับ E3** (monster combat balance) — ร่าง production curve ตอน P2B พร้อม telemetry
+**เหตุผล:** placeholder linear ปลดล็อก schema/loader/UI ของเพดาน +15 ให้เดินได้ทันทีโดยไม่ต้องรอเคาะตัวเลข (มีที่เก็บค่า multiplier ครบทุกระดับ) · mark PENDING + เข้า E3 bucket = ตัวเลขไม่ถูกเข้าใจผิดว่าเป็น production, ตัดสิน curve จริงเมื่อมีข้อมูล (ห้าม code เป็น source of truth — §9.2)
+
 **R10 — ยืนยัน rename materialId `upg_kraeng` → `upg_reinforcement` (ปักธงก่อน P2-16 apply DB)**
 owner ให้ id ใหม่ `upg_reinforcement` ชัดในข้อความที่ 1 · ตอนนี้ยังไม่มี production save data (DB ว่างถึง P2-16) = เปลี่ยน id ได้ฟรี · หลัง apply DB จริง = id ล็อก (กฎ E1/persona)
 - ขอ **ยืนยัน** ว่าใช้ `upg_reinforcement` เป็น canonical materialId ตั้งแต่ P2-09/P2-10 (แทน `upg_kraeng` เดิมทุกที่) — งาน rename ต้องเสร็จ **ก่อน** P2-16
+
+**แนะนำ:** ยืนยัน `upg_reinforcement` เป็น canonical materialId **ทันที** (แทน `upg_kraeng` ทุกที่ตั้งแต่ P2-09/P2-10) — ปิดงาน rename **ก่อน** P2-16 apply DB
+**เหตุผล:** owner ให้ id นี้เองในข้อความแรก + DB จริงยังว่างถึง P2-16 = เปลี่ยน id ตอนนี้ฟรี ไม่มี save data ให้ชน · หลัง apply DB = id ล็อกตามกฎ (E1/persona) แก้ไม่ได้ → ปักธงตอนนี้เสี่ยงต่ำสุด
 
 ---
 
