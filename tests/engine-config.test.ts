@@ -4,7 +4,7 @@ import {
   createEngineConfig,
   resolveResolution,
 } from "@/engine/config";
-import { DEFAULT_CHANNEL_ID } from "@/shared/net-protocol";
+import { DEFAULT_PARTY_ID } from "@/shared/net-protocol";
 
 describe("engine config", () => {
   test("default tile size = diamond 64×32 (locked, tech §17)", () => {
@@ -37,14 +37,21 @@ describe("engine config", () => {
     expect(DEFAULT_ENGINE_CONFIG.tileSize).toEqual({ width: 64, height: 32 });
   });
 
-  test("net.channelId default = DEFAULT_CHANNEL_ID (P0-08, ไม่ hardcode ซ้ำ)", () => {
-    expect(DEFAULT_ENGINE_CONFIG.net.channelId).toBe(DEFAULT_CHANNEL_ID);
+  test("net.partyId default = DEFAULT_PARTY_ID (solo) (P1-08 §59.3)", () => {
+    expect(DEFAULT_ENGINE_CONFIG.net.partyId).toBe(DEFAULT_PARTY_ID);
+    expect(DEFAULT_ENGINE_CONFIG.net.partyId).toBe("");
   });
 
-  test("createEngineConfig() override net.channelId โดยคง net knob อื่น (shallow-merge)", () => {
-    const cfg = createEngineConfig({ net: { ...DEFAULT_ENGINE_CONFIG.net, channelId: "CH.2" } });
-    expect(cfg.net.channelId).toBe("CH.2");
+  test("net channel capacity knobs default (P1-08 auto-assign) — solo cap > 0, party cap ≥ solo", () => {
+    expect(DEFAULT_ENGINE_CONFIG.net.channelCapacity).toBeGreaterThan(0);
+    expect(DEFAULT_ENGINE_CONFIG.net.partyChannelCapacity).toBeGreaterThan(0);
+  });
+
+  test("createEngineConfig() override net.partyId โดยคง net knob อื่น (shallow-merge)", () => {
+    const cfg = createEngineConfig({ net: { ...DEFAULT_ENGINE_CONFIG.net, partyId: "party-x" } });
+    expect(cfg.net.partyId).toBe("party-x");
     expect(cfg.net.serverUrl).toBe(DEFAULT_ENGINE_CONFIG.net.serverUrl);
+    expect(cfg.net.channelCapacity).toBe(DEFAULT_ENGINE_CONFIG.net.channelCapacity);
   });
 
   test("debugOverlay default: poll interval ~200–300ms (P0 §4.10, ไม่ per-frame)", () => {

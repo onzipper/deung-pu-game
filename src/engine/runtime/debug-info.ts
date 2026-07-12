@@ -37,6 +37,7 @@ export const IDLE_NET_DEBUG_INFO: NetDebugInfo = {
   mapId: null,
   roomId: null,
   channelId: null,
+  partyId: null,
   playerCount: 0,
   correctionCount: 0,
 };

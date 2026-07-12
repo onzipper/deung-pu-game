@@ -47,10 +47,12 @@ export type NetConnectionState = ConnectionState;
 export interface NetStatus {
   state: NetConnectionState;
   serverUrl: string;
-  /** room/channel/map จริงจาก server state (channelId = P0-08 first-class filter key) — null ก่อน join สำเร็จ */
+  /** room/channel/map จริงจาก server state (channelId = P1-08 server-assigned display label) — null ก่อน join สำเร็จ */
   roomId: string | null;
   channelId: string | null;
   mapId: string | null;
+  /** partyId ของ channel ที่อยู่ (P1-08) — "" = solo channel, ≠"" = party channel. null ก่อน join. */
+  partyId: string | null;
   selfSessionId: string | null;
   /** จำนวนผู้เล่นอื่น (ไม่รวมตัวเอง) ที่กำลัง render */
   remoteCount: number;
@@ -68,6 +70,8 @@ export interface NetDebugInfo {
   mapId: string | null;
   roomId: string | null;
   channelId: string | null;
+  /** partyId ของ channel ที่อยู่ (P1-08) — "" = solo, ≠"" = party channel. null ก่อน online. */
+  partyId: string | null;
   /** จำนวนผู้เล่นทั้งหมดที่เห็นในห้องนี้ (รวมตัวเอง) — 0 ถ้ายังไม่ online */
   playerCount: number;
   /** จำนวน position correction สะสมจาก server (P1-02) — >0 = server ตี move กลับ */
@@ -143,12 +147,14 @@ function snapshotOf(player: {
   ty: number;
   direction: string;
   anim: string;
+  partyId?: string;
 }): PlayerSnapshot {
   return {
     tx: player.tx,
     ty: player.ty,
     direction: coerceDirection(player.direction),
     anim: coerceAnim(player.anim),
+    partyId: typeof player.partyId === "string" ? player.partyId : "",
   };
 }
 
@@ -169,6 +175,7 @@ export function createNetClient(
     roomId: null,
     channelId: null,
     mapId: null,
+    partyId: null,
     selfSessionId: null,
     remoteCount: 0,
     correctionCount: 0,
@@ -211,9 +218,11 @@ export function createNetClient(
     const state = joinedRoom.state as {
       mapId: string;
       channelId: string;
+      partyId: string;
     };
     status.mapId = state.mapId ?? null;
     status.channelId = state.channelId ?? null;
+    status.partyId = state.partyId ?? null;
 
     // players map: onAdd/onChange/onRemove (ข้าม self — local player render เองแล้ว)
     $(joinedRoom.state).players.onAdd(
@@ -277,6 +286,9 @@ export function createNetClient(
     });
     $(joinedRoom.state).listen("mapId", (v: string) => {
       status.mapId = v;
+    });
+    $(joinedRoom.state).listen("partyId", (v: string) => {
+      status.partyId = v;
     });
 
     joinedRoom.onLeave((code: number) => {
@@ -382,6 +394,7 @@ export function createNetClient(
         mapId: status.mapId,
         roomId: status.roomId,
         channelId: status.channelId,
+        partyId: status.partyId,
         playerCount: computePlayerCount(status.state, status.remoteCount),
         correctionCount: status.correctionCount,
       };

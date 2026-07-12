@@ -22,6 +22,7 @@ import {
   toMoveMessage,
 } from "../net/sync";
 import { DEFAULT_MAP_ID, type PlayerSnapshot } from "@/shared/net-protocol";
+import { partyIdFromLocation } from "../net/party";
 import { attachResize } from "./resize";
 import { screenToTile, snapToTile, type TilePoint } from "../iso/coords";
 import { buildDebugInfo, IDLE_NET_DEBUG_INFO, type EngineDebugInfo } from "./debug-info";
@@ -119,11 +120,15 @@ export async function createEngine(
 
   // --- realtime net (P0-07): remote players + position sync ---
   // Graceful offline: connect ล้ม = เล่น solo ต่อ (net.status = "offline"); ไม่ block boot.
+  // P1-08: partyId ของ local player (URL `?party=xyz` > config default) — ค่าเดียวใช้ทั้ง joinOptions
+  // และ snapshot ที่ส่งขึ้น server (สมาชิก party รู้กันผ่าน filterBy + PlayerState.partyId).
+  const localPartyId = partyIdFromLocation(config.net.partyId);
   const localSnapshot = (): PlayerSnapshot => ({
     tx: player.position.tx,
     ty: player.position.ty,
     direction: player.facing,
     anim: coerceAnim(player.animation),
+    partyId: localPartyId,
   });
   let remotes: ReturnType<typeof createRemotePlayerManager> | null = null;
   let sendAccumMs = 0;
@@ -138,7 +143,9 @@ export async function createEngine(
         // P1-07: auto-reconnect retry/backoff (§59.1) — mirror knob จาก config.reconnect
         retry: config.reconnect.clientRetry,
       },
-      { mapId: DEFAULT_MAP_ID, channelId: config.net.channelId, ...initial },
+      // P1-08: client ไม่ส่ง channelId (server auto-assign) — ส่ง partyId (URL `?party=xyz` > config default)
+      // ให้ server จับ party sync ผ่าน filterBy(['mapId','partyId']). (...initial มี partyId = localPartyId ตรงกัน)
+      { mapId: DEFAULT_MAP_ID, ...initial, partyId: localPartyId },
       {
         onPlayerAdd: (id, snap) => remotes?.onPlayerAdd(id, snap),
         onPlayerChange: (id, snap) => remotes?.onPlayerChange(id, snap),

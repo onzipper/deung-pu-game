@@ -12,6 +12,8 @@ export class PlayerState extends Schema {
   @type("number") ty = 0;
   @type("string") direction = "S";
   @type("string") anim = "idle";
+  /** partyId (P1-08) — "" = solo. สมาชิก party เดียวกันใน room นี้ share ค่าเดียวกัน (filterBy). */
+  @type("string") partyId = "";
 }
 
 /**
@@ -28,10 +30,16 @@ export class MobState extends Schema {
   @type("number") hp = 0;
 }
 
-/** สถานะ room = map instance. channelId = placeholder (P0_SCOPE_LOCK §4.7). */
+/**
+ * สถานะ room = map+channel instance. channelId = **server-assigned display label** (P1-08 auto-assign,
+ * §59.3) — CH.1/CH.2/... จาก channel registry. partyId = "" สำหรับ solo channel, ≠"" ถ้าเป็น party channel
+ * (filterBy(['mapId','partyId'])). client อ่าน channelId/partyId โชว์ overlay.
+ */
 export class MapRoomState extends Schema {
   @type("string") mapId = "";
   @type("string") channelId = "";
+  /** partyId ของ channel นี้ (P1-08) — "" = solo channel; ≠"" = channel เฉพาะ party นั้น. */
+  @type("string") partyId = "";
   @type("string") roomId = "";
   @type({ map: PlayerState }) players = new MapSchema<PlayerState>();
   /** มอนทุกตัวในห้อง (P1-03) — key = mobId. **AOI filter ยังไม่บังคับ P1** (§18.2, ดู MapRoom TODO). */

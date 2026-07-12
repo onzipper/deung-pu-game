@@ -7,6 +7,7 @@ const onlineNet: NetDebugInfo = {
   mapId: "p0-test-field",
   roomId: "room1",
   channelId: "CH.1",
+  partyId: "",
   playerCount: 2,
   correctionCount: 0,
 };
@@ -56,6 +57,7 @@ describe("debug-info — buildDebugInfo shape (P0-11, P0 §4.10)", () => {
       mapId: null,
       roomId: null,
       channelId: null,
+      partyId: null,
       playerCount: 0,
       correctionCount: 0,
     });

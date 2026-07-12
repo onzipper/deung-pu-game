@@ -27,12 +27,29 @@ export const MAP_ROOM_NAME = "map_room";
 export const DEFAULT_MAP_ID = "p0-test-field";
 
 /**
- * default channelId (P0_SCOPE_LOCK §4.7, P0-08). client ส่งค่านี้ใน JoinOptions.channelId
- * เว้นแต่ override (NetConfig) — server ใช้ค่าจาก options จริง (ไม่ hardcode ซ้ำฝั่ง server).
- * P0 ยังไม่มี UI เลือก channel/auto-assign (P1, tech §6, RUNTIME §4) — architecture ไม่ผูก map↔room ถาวร
- * (พิสูจน์ด้วย filterBy(['mapId','channelId']): map+channel เดียวกัน = room เดียวกัน, channel ต่างกัน = room ต่างกัน).
+ * prefix ของ channel display label (§59.3 "แสดง channel ปัจจุบัน เช่น CH.1"). channelId = `${prefix}${n}`
+ * โดย n = เลข channel 1-based ที่ **server** จ่ายให้ตอน auto-assign (P1-08, ไม่ใช่ client เลือก).
  */
-export const DEFAULT_CHANNEL_ID = "CH.1";
+export const CHANNEL_LABEL_PREFIX = "CH.";
+
+/** สร้าง channel display label จากเลข channel (1-based) → "CH.1", "CH.2", ... (single source ของ format). */
+export function channelLabel(channelNumber: number): string {
+  return `${CHANNEL_LABEL_PREFIX}${channelNumber}`;
+}
+
+/**
+ * channel แรกของทุก map (= channelLabel(1)). **P1-08: channelId เป็น server-assigned display label**
+ * (auto-assign ตาม load/population, §59.3) — client **ไม่ส่ง** channelId อีกต่อไป (ต่างจาก P0-08 stub).
+ * client อ่านค่านี้จาก room state เพื่อโชว์ overlay เท่านั้น.
+ */
+export const DEFAULT_CHANNEL_ID = channelLabel(1);
+
+/**
+ * default partyId = "" (solo). P1-08: client ส่ง partyId ใน JoinOptions → server ใช้เป็นมิติ filter
+ * (filterBy(['mapId','partyId'])) ให้สมาชิก party เดียวกันลง room/channel เดียวกันอัตโนมัติ (§59.3 party sync).
+ * "" = solo pool (auto-assign ตาม capacity); ค่าไม่ว่าง = party affinity. dev ตั้งผ่าน URL `?party=xyz`.
+ */
+export const DEFAULT_PARTY_ID = "";
 
 /** message type: client → server ส่งตำแหน่ง/ทิศ/anim ปัจจุบัน (throttled ~10–15Hz, tech §6). */
 export const MSG_MOVE = "move";
@@ -151,13 +168,15 @@ export interface MoveMessage {
  * option ที่ client ส่งตอน joinOrCreate → server ใช้ spawn player ตำแหน่งถูกตั้งแต่เฟรมแรก
  * (กัน flash ที่ default tile). mapId เผื่อ P1 แยกหลาย map/room.
  *
- * channelId (P0-08, P0_SCOPE_LOCK §4.7): ส่งจาก client เพื่อให้ server ใช้
- * `filterBy(['mapId','channelId'])` แยก room instance — map เดียวกัน + channel ต่างกัน
- * = คนละ room instance, map+channel เดียวกัน = room เดียวกันเสมอ (ยังไม่มี auto-assign, P1).
+ * partyId (P1-08, §59.3 party sync): มิติ filter ที่ client ส่ง → server ใช้
+ * `filterBy(['mapId','partyId'])` ให้สมาชิก party เดียวกัน (partyId เดียวกัน) ลง room/channel เดียวกัน
+ * อัตโนมัติ; solo = "" (DEFAULT_PARTY_ID) → เข้า pool auto-assign ตาม capacity. **channelId ไม่อยู่ใน
+ * JoinOptions แล้ว** — เป็น server-assigned display label (P0-08 stub → P1-08 auto-assign). client อ่าน
+ * channelId ที่ได้จริงจาก room state (§59.3 "แสดง channel ปัจจุบัน").
  */
 export interface JoinOptions {
   mapId: string;
-  channelId: string;
+  partyId: string;
   tx: number;
   ty: number;
   direction: WirePlayerDirection;
@@ -173,4 +192,6 @@ export interface PlayerSnapshot {
   ty: number;
   direction: WirePlayerDirection;
   anim: WirePlayerAnim;
+  /** partyId ของผู้เล่นนี้ (P1-08) — "" = solo. client ใช้รู้ว่าใครอยู่ party เดียวกัน (สีต่างใน P2). */
+  partyId: string;
 }

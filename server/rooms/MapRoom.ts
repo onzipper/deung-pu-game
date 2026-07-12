@@ -11,8 +11,10 @@
 //   **Single source of truth**: reuse engine pure fn (loadMapConfig/snapToTile/isWalkableTile) +
 //   อ่าน knob เดียวกับ client จาก DEFAULT_ENGINE_CONFIG (compile ร่วม — ไม่ copy สูตร/ค่า).
 //
-// channelId (P0-08): มาจาก client joinOptions ตรง ๆ (default = DEFAULT_CHANNEL_ID). server.define ผูก
-// `.filterBy(['mapId','channelId'])` (server/index.ts) แยก room instance ตาม (mapId, channelId).
+// channel (P1-08 auto-assign + party sync, §59.3): server.define ผูก `.filterBy(['mapId','partyId'])`
+//   (server/index.ts) — solo (partyId="") auto-assign ตาม load ผ่าน maxClients auto-lock (เต็ม→CH ใหม่);
+//   party (partyId≠"") ลง channel เดียวกันอัตโนมัติ. channelId = server-assigned display label (CH.n)
+//   จาก channel-registry ตอน onCreate (release ตอน onDispose) — client ไม่ส่ง channelId แล้ว.
 //
 // P1-03 server-side mob simulation (TA §18 + §6 monster sync + §11 LOD):
 //   onCreate สร้าง MobSimulation (pure, src/game/mob/simulation.ts — spawn/respawn/AI/LOD) แล้ว
@@ -42,7 +44,11 @@
 import { Room, type Client } from "colyseus";
 import { MapRoomState, MobState, PlayerState } from "../schema/MapRoomState";
 import {
-  DEFAULT_CHANNEL_ID,
+  createChannelRegistry,
+  type ChannelRegistry,
+} from "../matchmaking/channel-registry";
+import {
+  DEFAULT_PARTY_ID,
   DEFAULT_MAP_ID,
   MSG_CAST_SKILL,
   MSG_CAST_REJECTED,
@@ -86,10 +92,40 @@ import type { HitTestTarget } from "../../src/game/combat/hit-test";
 import { coerceDirection } from "../../src/engine/net/sync";
 import { defaultRng } from "../../src/game/mob/rng";
 
-/** onCreate options = merge ของ options ที่ define() ตั้ง (ว่างใน P0) + clientOptions ของคนแรกที่ join. */
+/** onCreate options = merge ของ options ที่ define() ตั้ง (ว่างใน P1) + clientOptions ของคนแรกที่ join. */
 interface MapRoomCreateOptions {
   mapId?: string;
-  channelId?: string;
+  /** P1-08: partyId ของคนแรกที่ทำให้ room นี้เกิด (filter dimension) — "" = solo channel. */
+  partyId?: string;
+}
+
+/**
+ * P1-08: channel number registry (display label CH.n ต่อ mapId) — **module-level singleton** ใช้ร่วมทุก
+ * MapRoom ใน process นี้ (single Colyseus instance, TA §6). assign ตอน onCreate / release ตอน onDispose.
+ * ไม่ใช่ matchmaking filter — filterBy(['mapId','partyId']) ต่างหากที่ทำ auto-assign/party sync จริง.
+ */
+const channelRegistry: ChannelRegistry = createChannelRegistry();
+
+/**
+ * P1-08: capacity ต่อ solo channel (§59.3 auto-assign) — เต็ม → matchmaking เปิด channel ใหม่.
+ * ค่าหลัก = knob (DEFAULT_ENGINE_CONFIG.net.channelCapacity); env `CHANNEL_CAPACITY` override เฉพาะ dev/test
+ * (proof ตั้ง 2 พิสูจน์ overflow → CH.2). > 0 เท่านั้น ไม่งั้นใช้ค่า knob.
+ */
+function resolveChannelCapacity(): number {
+  const env = Number(process.env.CHANNEL_CAPACITY);
+  if (Number.isFinite(env) && env > 0) return env;
+  return DEFAULT_ENGINE_CONFIG.net.channelCapacity;
+}
+
+/**
+ * P1-08: capacity ต่อ party channel (partyId≠"") — party สำคัญกว่า solo auto-assign (§59.3) → cap =
+ * ขนาด party สูงสุด เพื่อไม่ให้สมาชิกถูกแยก. knob = DEFAULT_ENGINE_CONFIG.net.partyChannelCapacity;
+ * env `PARTY_CHANNEL_CAPACITY` override เฉพาะ dev/test.
+ */
+function resolvePartyChannelCapacity(): number {
+  const env = Number(process.env.PARTY_CHANNEL_CAPACITY);
+  if (Number.isFinite(env) && env > 0) return env;
+  return DEFAULT_ENGINE_CONFIG.net.partyChannelCapacity;
 }
 
 /**
@@ -133,6 +169,10 @@ export class MapRoom extends Room<MapRoomState> {
   private balance!: CombatBalanceConfig;
   /** cooldown state ต่อ (sessionId → skillId → readyAtMs) — server clock authority (§16.3). ไม่ broadcast. */
   private readonly cooldowns = new Map<string, Map<string, number>>();
+  /** P1-08: partyId ของ channel นี้ ("" = solo channel, ≠"" = party channel) — จาก options คนแรก */
+  private partyId = DEFAULT_PARTY_ID;
+  /** P1-08: display channelId (CH.n) ที่ registry จ่ายให้ตอน onCreate — release ตอน onDispose */
+  private assignedChannelId = "";
   /** P1-07: grace window (วินาที) สำหรับ allowReconnection (§59.1) — set ตอน onCreate */
   private graceSeconds = 30;
   /** P1-07: safe camp ของ map (§59.1 reconnect fallback) = map.safeCamp ?? spawnPoint (tile coord) */
@@ -141,9 +181,23 @@ export class MapRoom extends Room<MapRoomState> {
   onCreate(options: MapRoomCreateOptions = {}): void {
     const state = new MapRoomState();
     state.mapId = options.mapId ?? DEFAULT_MAP_ID;
-    state.channelId = options.channelId ?? DEFAULT_CHANNEL_ID;
+    // P1-08: partyId = filter dimension (มาจาก client คนแรกที่ทำให้ room เกิด). "" = solo channel.
+    // filterBy(['mapId','partyId']) การันตีว่าทุกคนใน room นี้ partyId ตรงกัน → เก็บระดับ room ได้เลย.
+    this.partyId = typeof options.partyId === "string" ? options.partyId : DEFAULT_PARTY_ID;
+    state.partyId = this.partyId;
+    // P1-08: channelId = **server-assigned display label** (auto-assign, §59.3) — ไม่ใช่ค่าจาก client.
+    // solo channel cap = channelCapacity (เต็ม → matchmaking เปิด CH ใหม่); party channel cap = partyChannelCapacity.
+    this.maxClients =
+      this.partyId === DEFAULT_PARTY_ID ? resolveChannelCapacity() : resolvePartyChannelCapacity();
+    const assignment = channelRegistry.assign(state.mapId);
+    this.assignedChannelId = assignment.channelId;
+    state.channelId = assignment.channelId;
     state.roomId = this.roomId;
     this.setState(state);
+    console.log(
+      `[MapRoom ${this.roomId}] create ${state.mapId} ${assignment.channelId}` +
+        `${this.partyId ? ` party=${this.partyId}` : " (solo)"} cap=${this.maxClients}`,
+    );
 
     // P1-02: server โหลด map เอง (loader pure เดิม) → รู้ collision/bounds. reuse engine collision:
     // snapToTile ตำแหน่งต่อเนื่อง → integer tile → isWalkableTile (bounds + block). ไม่ copy สูตร.
@@ -392,6 +446,8 @@ export class MapRoom extends Room<MapRoomState> {
     player.ty = spawn.pos.ty;
     player.direction = options?.direction ?? "S";
     player.anim = options?.anim ?? "idle";
+    // P1-08: partyId ระดับ room (filterBy การันตีตรงกันทุก client ในห้อง) — ให้ client อื่นรู้ party membership.
+    player.partyId = this.partyId;
     this.state.players.set(client.sessionId, player);
     // valid position เริ่มต้น = จุด spawn (หลัง resolve safe camp); เวลาเริ่ม = now
     this.trackers.set(client.sessionId, {
@@ -456,5 +512,16 @@ export class MapRoom extends Room<MapRoomState> {
     } catch {
       this.removePlayer(sessionId, "grace_expired");
     }
+  }
+
+  /**
+   * P1-08: คืนเลข channel เข้า pool ตอน room ถูกทำลาย (ไม่มี client แล้ว) → เลข CH ถูก reuse
+   * (ไม่พุ่งไม่รู้จบเมื่อ channel เกิด-ดับ). single-process (channelRegistry = module-level singleton).
+   */
+  onDispose(): void {
+    channelRegistry.release(this.state.mapId, this.assignedChannelId);
+    console.log(
+      `[MapRoom ${this.roomId}] dispose ${this.state.mapId} ${this.assignedChannelId} — release channel`,
+    );
   }
 }

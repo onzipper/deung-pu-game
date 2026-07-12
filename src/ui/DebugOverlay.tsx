@@ -106,6 +106,7 @@ export function DebugOverlay({ getHandle }: DebugOverlayProps) {
           <div>mapId: {info.net.mapId ?? "-"}</div>
           <div>roomId: {info.net.roomId ?? "-"}</div>
           <div>channelId: {info.net.channelId ?? "-"}</div>
+          <div>party: {info.net.partyId ? info.net.partyId : "solo"}</div>
           <div>players: {info.net.playerCount}</div>
           <div>corrections: {info.net.correctionCount}</div>
         </div>

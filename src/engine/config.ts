@@ -2,7 +2,7 @@
 // Plain TS only — ห้าม import React / Next.js / pixi.js runtime ที่นี่ (type-only ได้ถ้าจำเป็น).
 // ทุกค่าที่ปรับได้ต้องอยู่ในนี้ (Design Knob discipline, AI.md §กฎเหล็ก) — ห้าม hardcode กระจายในโค้ด render.
 
-import { DEFAULT_CHANNEL_ID, MAP_ROOM_NAME } from "@/shared/net-protocol";
+import { DEFAULT_PARTY_ID, MAP_ROOM_NAME } from "@/shared/net-protocol";
 
 /** ขนาด diamond tile ของ iso grid (locked ~64×32, tech §17). ยังไม่ใช้จริงใน P0-01 — วางไว้ให้ layer ถัดไป. */
 export interface TileSize {
@@ -519,11 +519,22 @@ export interface NetConfig {
   /** ชื่อ room (ต้องตรง server) — default = MAP_ROOM_NAME */
   roomName: string;
   /**
-   * channel identity (P0-08, P0_SCOPE_LOCK §4.7) — ส่งใน joinOptions ให้ server ใช้
-   * filterBy(['mapId','channelId']) แยก room instance ตาม channel; default = DEFAULT_CHANNEL_ID.
-   * P0 ยังไม่มี UI เลือก channel/auto-assign (P1).
+   * partyId ที่ client ส่งใน joinOptions (P1-08, §59.3) — "" = solo. server ใช้ filterBy(['mapId','partyId'])
+   * ให้สมาชิก party เดียวกันลง channel เดียวกันอัตโนมัติ. dev override ผ่าน URL `?party=xyz` (app.ts).
    */
-  channelId: string;
+  partyId: string;
+  /**
+   * **server knob** (P1-08) — จำนวนผู้เล่นสูงสุดต่อ solo channel ก่อน auto-assign เปิด channel ใหม่
+   * (Colyseus maxClients → room auto-lock ที่ cap → matchmaking สร้าง room ใหม่ = CH.2). อ่านฝั่ง server
+   * (MapRoom.onCreate) เป็น single source of truth; env `CHANNEL_CAPACITY` override เฉพาะ dev/test.
+   */
+  channelCapacity: number;
+  /**
+   * **server knob** (P1-08) — cap ของ party channel (room ที่ partyId ≠ "") — party สำคัญกว่า solo
+   * auto-assign (§59.3) → cap = ขนาด party สูงสุด (GS §16 = 6) เพื่อไม่ให้สมาชิกถูกแยก channel.
+   * env `PARTY_CHANNEL_CAPACITY` override เฉพาะ dev/test.
+   */
+  partyChannelCapacity: number;
   /** อัตราส่ง position ขึ้น server (Hz) — tech §6 แนะนำ 10–15Hz */
   positionSyncHz: number;
   /** ระยะ (tile) ที่ต้องขยับเกินถึงจะส่ง — กัน spam idle frame */
@@ -937,7 +948,9 @@ export const DEFAULT_NET_CONFIG: NetConfig = {
   enabled: true,
   serverUrl: "ws://localhost:2567",
   roomName: MAP_ROOM_NAME,
-  channelId: DEFAULT_CHANNEL_ID,
+  partyId: DEFAULT_PARTY_ID, // "" = solo (dev override ผ่าน ?party=xyz)
+  channelCapacity: 8, // dev default (§59.3 auto-assign) — production tune ทีหลัง; proof ตั้ง 2 ผ่าน env
+  partyChannelCapacity: 6, // = ขนาด party สูงสุด (GS §16) → party ไม่ถูกแยก channel
   positionSyncHz: 12, // 10–15Hz (tech §6) — 12 = กลางช่วง
   sendEpsilon: 0.02, // tile — ต่ำกว่านี้ = ผู้เล่นแทบไม่ขยับ, ไม่ต้องส่ง
   interpolation: {
