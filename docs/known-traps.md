@@ -111,3 +111,7 @@
 - วิธีเลี่ยง (fix ใช้): (a) net-client `onLeave`: `code === WS_CLOSE_SESSION_TAKEN_OVER` → **terminal** (ล้าง token+store, offline, `lastError="session_taken_over"`) ห้าม reconnect. (b) server `onLeave`: sessionId ที่ถูก takeover ต้อง **ลบทันที ไม่เข้า grace** (ตั้งใจเตะ ≠ หลุดเน็ต) — mark ใน set ก่อน `client.leave` เพราะ onLeave ได้แค่ `consented:boolean` (= code===4000) ไม่เห็น code จริง (Colyseus `_onLeave` แปลง code→consented). release lease/registry ทำแบบ session-scoped (`deleteMany where sessionId`) → ตัวเก่าที่ถูกเตะไม่ลบ lease ของตัวใหม่ (takeover-wins)
 
 <!-- เพิ่มกับดักใหม่ด้านล่างเมื่อเจอจริง -->
+
+## P2-05: save ตอน map transition ต้องกัน onLeave เขียนทับ
+
+checkExit (ข้าม map) save ตำแหน่ง**ปลายทาง**ไปแล้ว แต่ transition ทำให้ client leave room เก่าแบบ consented → ถ้า onLeave save ตามปกติจะเขียนตำแหน่ง **map เก่า** ทับจุดหมายทันที (ผู้เล่น refresh แล้วเด้งกลับ map เก่า). MapRoom จึง mark `transitioningSessions` ตอน checkExit แล้ว onLeave ข้าม save สำหรับ session นั้น (เคลียร์ตอน removePlayer). ใครแตะ save cycle/transition ต้องรักษา invariant นี้ — มีเทสต์คุมใน `tests/server-characters-persistence.test.ts`.

@@ -103,6 +103,10 @@
 - `server/security/origin-allowlist.ts` + `server/security/rate-limiter.ts` — allowlist จาก env `ALLOWED_ORIGINS` (ว่าง=dev อนุญาตทุก origin+warn) · sliding window 10 fail/60s ต่อ IP (in-memory, TODO Redis)
 - `server/security/session-registry.ts` + `server/security/session-lease.ts` — takeover-wins ในโปรเซส (`WS_CLOSE_SESSION_TAKEN_OVER`=4001, เตะตัวเก่าไม่เข้า grace) · lease ใน DB best-effort (ไม่มี DB → ข้าม+warn ครั้งเดียว **ห้ามให้ join พัง**)
 - `tests/server-security.test.ts` — 26 asserts: handshake ทุกทาง (prod/dev × token/secret/origin) + rate limiter + takeover decision
+- `server/characters/persistence-decision.ts` — **pure** (P2-05): pickLoadPosition (ใช้ตำแหน่ง save เมื่อ mapId ตรง room + walkable, ไม่งั้น default) + pickSavePosition (safe-valid เสมอ) + save-interval throttle decision
+- `server/characters/character-state.ts` — CharacterState load/upsert + lastPlayedCharacterId (**best-effort** — ไม่มี DB → เกมเดินต่อ in-memory, pattern เดียวกับ session-lease)
+- `src/engine/net/character-session.ts` + `src/app/hub/enter-game.ts` — อ่าน/เขียน characterId ที่เลือกผ่าน sessionStorage (`SELECTED_CHARACTER_STORAGE_KEY` ใน net-protocol) → แนบ joinOptions · hub Continue = ทางเข้า
+- `tests/server-characters-persistence.test.ts` — 10 เคส: load/save decision + ownership + **transition-save invariant** (ดู known-traps)
 
 ## Auth (P2-03 — custom lightweight, decision-index 2026-07-12 · src/server/** = Next server-only)
 

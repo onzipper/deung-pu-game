@@ -3,10 +3,11 @@
 import Link from "next/link";
 import type { CharacterView } from "@/server/characters/service";
 import { classLabel } from "./messages";
+import { rememberSelectedCharacter } from "./enter-game";
 
 // UI spec v1 §7 (Continue Card) — Continue = primary CTA (single-click), Change Character = secondary.
-// P2-06a scope: "เข้าเกม" แค่ลิงก์ไป /game เฉย ๆ — integration ตัวจริง (join room ด้วยตัวละครนี้) = issue ถัดไป.
-// lastPlayedCharacterId ยังไม่ persist (TODO P2-05) → ใช้ตัวแรกในลิสต์ไปก่อน (caller ส่ง character มาให้แล้ว).
+// P2-05: "เข้าเกม" จำ characterId ลง sessionStorage ก่อน navigate → /game join ด้วยตัวละครนี้ (server load state).
+// lastPlayedCharacterId ยังไม่ persist ฝั่ง hub (TODO) → ใช้ตัวแรกในลิสต์ไปก่อน (caller ส่ง character มาให้แล้ว).
 export function ContinueCard({
   character,
   onManageClick,
@@ -33,6 +34,7 @@ export function ContinueCard({
       <div className="flex flex-col gap-3 sm:flex-row">
         <Link
           href="/game"
+          onClick={() => rememberSelectedCharacter(character.id)}
           className="flex min-h-[48px] flex-1 items-center justify-center rounded-[10px] bg-[#35C6B0] px-5 text-[16px] font-semibold text-[#171820] transition-colors hover:bg-[#7CE9D0]"
         >
           เข้าเกม

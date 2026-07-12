@@ -59,6 +59,14 @@ export const DEFAULT_PARTY_ID = "";
  */
 export const WS_CLOSE_SESSION_TAKEN_OVER = 4001;
 
+/**
+ * key ของ sessionStorage ที่ Game Hub เขียน characterId ที่ผู้เล่นเลือก "เข้าเกม" (P2-05, Storage §5/§7)
+ * แล้ว /game (net-client) อ่านมาแนบใน joinOptions.characterId → server load state + ตรวจ ownership.
+ * **sessionStorage per-tab** (เหมือน reconnect token) — refresh คงตัวละครเดิม; ไปเลือกใหม่ที่ hub = overwrite.
+ * ไม่มีค่า = เล่นแบบ anonymous (dev/e2e / เข้า /game ตรง ๆ) — flow เดิมไม่พัง.
+ */
+export const SELECTED_CHARACTER_STORAGE_KEY = "deungpu.selectedCharacterId";
+
 /** message type: client → server ส่งตำแหน่ง/ทิศ/anim ปัจจุบัน (throttled ~10–15Hz, tech §6). */
 export const MSG_MOVE = "move";
 
@@ -208,6 +216,12 @@ export interface JoinOptions {
   ty: number;
   direction: WirePlayerDirection;
   anim: WirePlayerAnim;
+  /**
+   * P2-05 (Storage §5/§7 · §22): ตัวละครที่ผู้เล่นเลือกเข้าเกม (จาก Game Hub Continue). server (onAuth)
+   * ตรวจ ownership กับ accountId ที่ verify จาก token — ไม่ใช่ของบัญชี = reject (กัน load state คนอื่น).
+   * omit = anonymous (dev bypass ไม่มี account / เข้า /game ตรง ๆ) → spawn default, ไม่ persist. optional.
+   */
+  characterId?: string;
 }
 
 /**

@@ -43,6 +43,7 @@ import {
 } from "../net/sync";
 import { DEFAULT_MAP_ID, type PlayerSnapshot } from "@/shared/net-protocol";
 import { partyIdFromLocation } from "../net/party";
+import { readSelectedCharacterId } from "../net/character-session";
 import { createTransitionController } from "./transition";
 import { attachResize } from "./resize";
 import { screenToTile, snapToTile, type TilePoint } from "../iso/coords";
@@ -139,6 +140,10 @@ export async function createEngine(
 
   // P1-08: partyId ของ local player (URL `?party=xyz` > config default) — คงที่ทั้ง session (ทุก world).
   const localPartyId = partyIdFromLocation(config.net.partyId);
+
+  // P2-05 (Storage §5/§7): characterId ที่เลือกจาก Game Hub (sessionStorage) — แนบใน joinOptions ทุก world.
+  // undefined = anonymous (เข้า /game ตรง ๆ / dev) → server spawn default, ไม่ persist. คงที่ทั้ง session.
+  const localCharacterId = readSelectedCharacterId();
 
   // P1-07-fix (§59.1): per-tab reconnect token store (sessionStorage) — คงข้าม refresh/reopen เพื่อ
   // reconnect เข้า seat เดิม (token in-memory หายตอน reload). ตัวเดียวทั้ง session (ทุก world/map ใช้ key
@@ -239,7 +244,7 @@ export async function createEngine(
           graceSeconds: config.reconnect.graceSeconds,
           store: reconnectStore,
         },
-        { mapId: map.mapId, ...initial, partyId: localPartyId },
+        { mapId: map.mapId, ...initial, partyId: localPartyId, characterId: localCharacterId },
         {
           onPlayerAdd: (id, snap) => remotes?.onPlayerAdd(id, snap),
           onPlayerChange: (id, snap) => remotes?.onPlayerChange(id, snap),
