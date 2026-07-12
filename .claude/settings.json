@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "deny": [
+      "Read(./node_modules/**)",
+      "Read(**/node_modules/**)",
+      "Read(./.next/**)",
+      "Read(./.claude/worktrees/**)"
+    ],
+    "ask": [
+      "Read(./docs/history/**)",
+      "Read(./docs/design/art-reference/**)"
+    ]
+  }
+}
