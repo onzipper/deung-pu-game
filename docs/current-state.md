@@ -14,8 +14,9 @@ _Last updated: 2026-07-12_
 - Import Production Bible Set v1 → `docs/design/bibles/` — ลำดับ source of truth: Bible ชนะพฤติกรรม/ความหมาย, tech architecture ชนะวิธี implement (INDEX §2)
 - decision-index: +12 แถว (Bible 1.1–5.3 + Q1–Q5 resolutions + caveman-code ไม่ใช้) · owner-decision-queue ปิด → `docs/history/2026-07-12-owner-decision-queue-closed.md`
 - Spec amendments: game v15.2 (§0.0.1 log, §8.1 ลำดับอาชีพ, §50.1.1 resource/rounding/DEF/grouping, §59.1.2 background tab, §59.3.1 party model) · tech v1.5.2 (§6.2 realtime/ops, §12.1 P2 scope+P2B, §15.7.1 combat baseline, §17.3 click radius+Map 1 ratified, L12 asset canvas) · balance proposal → **APPROVED baseline**
-- `docs/agent-rules.md` ใหม่ (efficiency #3 — กติกากลาง brief + terse internal report; brief ต่อไปอ้างไฟล์นี้แทน paste ซ้ำ)
-- `docs/tech/deungpu_P2_ISSUE_BREAKDOWN_v1.md` ใหม่ (**DRAFT รอ owner**) — 17 issues 3 คลื่น (รวม e2e harness = efficiency #2 เป็น P2-00) + done definition 13 ข้อ + P2B outline + content track C0/C1 + คำถามถึง owner 4 ข้อ
+- `docs/agent-rules.md` ใหม่ (efficiency #3 — กติกากลาง brief + terse internal report + docs routing tier §7; brief ต่อไปอ้างไฟล์นี้แทน paste ซ้ำ)
+- `docs/tech/deungpu_P2_ISSUE_BREAKDOWN_v1.md` ใหม่ — 17 issues 3 คลื่น (e2e harness = P2-00) + done definition + P2B outline + content track; **owner ตอบคำถามครบแล้ว: PR ต่อคลื่น / นักธนู→P2B / Remote MySQL เปิดแล้ว**
+- **Spec ใหม่ 2 เล่มจาก owner (locked design)** → `docs/design/`: **เล่มดึ๋งๆ** (`deungpu_DUNG_DUNG_COMPANION_GUIDE_SYSTEM_SPEC_v1.md` — companion + "เล่นยังไง"/"ทำอะไรต่อดี" = คำตอบการบ้าน Q4) + **เล่ม Achievement/Journal** (`deungpu_ACHIEVEMENT_AND_ADVENTURE_JOURNAL_SPEC_v1.md`) · เคาะครบ 12 ข้อ (C1–C2, D1–D5, A1–A4 — ดู decision-index): P2 = DG lite (P2-12 เขียนใหม่), P2B = ตัวดึ๋งๆ + Achievement v1, ดึ๋งๆ ≠ Bot A + start flow แก้ (Bot A intro ย้ายไปตอนปลดล็อก), asset priority ใหม่ (ดึ๋งๆ อันดับ 2, bespoke placeholder + 12 animations), companion local-only, Auto Pilot ≠ bot, credit = participation, GameEvent log เริ่ม P2
 
 ### วิธีรัน realtime local (2 terminal)
 - Terminal 1: `npm run dev:server` (Colyseus บน ws://localhost:2567; env `PORT` override ได้)

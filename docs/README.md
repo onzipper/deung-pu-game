@@ -36,6 +36,8 @@
 |---|---|
 | `design/deungpu_project_checkpoint_v15_p0_scope_lock_ready.md` | **Canonical game spec v15.2** (amendment in-place, ดู §0.0/§0.0.1 Amendment Log ในไฟล์) — §48 Design Knobs · §50.1 Skill Schema (field naming source of truth) · §57 engine decisions · §59 runtime decisions · §61 P0 scope lock |
 | `design/bibles/` | **Production Bible Set v1 (owner, 2026-07-12)** — 10 เล่ม: Owner Decisions (ปิด decision queue ทุกข้อ — เล่มแรกที่ต้องเปิด), Roadmap P0–P6+C0–C6, Combat, Living World, Lore, Visual Language, Asset Production, Content Pipeline, Design Principles, Index · ลำดับ source of truth ดู `design/bibles/deungpu_PRODUCTION_BIBLE_INDEX_v1.md` §2 — **Bible ชนะเรื่องพฤติกรรม/ความหมาย, tech architecture ชนะวิธี implement** |
+| `design/deungpu_DUNG_DUNG_COMPANION_GUIDE_SYSTEM_SPEC_v1.md` | **ระบบดึ๋งๆ (locked design, 2026-07-12)** — companion + voluntary guidance: "เล่นยังไง"/"ทำอะไรต่อดี", guidance modes, stuck detection, state machine, UI spec ครบไม่ต้องมี Figma · P2 = DG lite (ไม่มีตัว companion), P2B = companion เต็ม |
+| `design/deungpu_ACHIEVEMENT_AND_ADVENTURE_JOURNAL_SPEC_v1.md` | **Achievement + สมุดบันทึกนักผจญภัย (locked design, 2026-07-12)** — rule engine 6 แบบ, hidden/meme/Server First, journal 7 แท็บ, event taxonomy, anti-exploit · เริ่ม v1 ที่ P2B (GameEvent log เริ่มเก็บตั้งแต่ P2) |
 | `design/deungpu_P0_SCOPE_LOCK_v1.md` | **P0 Scope Lock** — Engine Foundation Vertical Slice · P0-01→12 issues · done definition · non-goals |
 | `design/deungpu_MAP_LAYOUT_BIBLE_v1.md` | Map 1–10 layout: จุดวาง spawn/boss/secret/route |
 | `design/deungpu_MAP_SCALE_AND_SPAWN_DENSITY_SPEC_v1.md` | ขนาด map, density, AoE target, spawn pack/pocket, telemetry |
