@@ -119,7 +119,7 @@
 | ORM | **Prisma** (ธุรกรรม/CRUD) + raw SQL (hot path, ledger) | Drizzle | Prisma ห้ามอยู่ใน combat tick loop |
 | Cache / PubSub | **Redis (Render Key Value — region เดียวกับ worker)** | Upstash | ที่ 30 CCU บทบาทหลักคือ BullMQ backend + pubsub; rate limit ทำ in-memory ได้; **ออกแบบ bot run ให้ resume จาก MySQL state เสมอ** เผื่อ Redis tier ไม่ persist |
 | Queue / Jobs | **BullMQ** (บน Redis) | — | bot sim, report, economy rollup, weekly cron (repeatable jobs) |
-| Auth | **Auth.js (NextAuth)** ออก JWT สั้นอายุสำหรับ WS handshake | Lucia | social login + guest→register upgrade path |
+| Auth | ~~Auth.js (NextAuth)~~ **Amended v1.5.2 (P2-03, owner เคาะ 2026-07-12): custom lightweight auth บน `node:crypto` ล้วน** — HS256 signed token + scrypt hash (self-describing, migrate เป็น argon2id ได้) + stateless httpOnly session cookie · เหตุผล: NextAuth v5 ยัง beta/เสี่ยงชน Next รุ่นใหม่, guest→upgrade ไม่ใช่ provider-centric flow, trust boundary ต้อง auditable/deps น้อย · ออก JWT สั้นอายุ (~60s + jti) สำหรับ WS handshake เหมือนเดิม | Auth.js (เมื่อ stable + ต้องการ social login) | guest→register upgrade path + auditable |
 | Asset storage | **เสิร์ฟ static จาก Next.js/Hostinger ไปก่อน** | R2+CDN เมื่อผู้เล่นโต | ที่ 30 CCU ไม่ต้อง CDN แต่**คง pattern content-hash filename ตั้งแต่วันแรก** เพื่อย้ายออกได้โดยไม่แตะ code |
 | Observability | **Sentry** (error) + **pino → Axiom/Grafana Loki** (log) + Colyseus monitor | — | ต้องมีตั้งแต่ P1 ไม่ใช่ทีหลัง |
 | Admin/Backoffice | Next.js app แยก (หรือ route group `/admin` + RBAC) | Retool ชั่วคราว | ดูข้อ 10 |
