@@ -41,8 +41,14 @@
 //   - AOI filter บังคับ (P1+/map ใหญ่, §18.2) · resource/mana pool (proposal §5 [8] PENDING OWNER)
 //   - progression/EXP/loot (P2) — P1 ผู้เล่นทุกคน lv1 นักดาบ (stat จาก combatBalance)
 
-import { Room, type Client } from "colyseus";
+import { Room, ServerError, type AuthContext, type Client } from "colyseus";
 import { MapRoomState, MobState, PlayerState } from "../schema/MapRoomState";
+import { authorizeHandshake } from "../security/handshake";
+import { parseAllowedOrigins } from "../security/origin-allowlist";
+import { createRateLimiter } from "../security/rate-limiter";
+import { claimSession, releaseSession } from "../security/session-registry";
+import { acquireLease, releaseLease } from "../security/session-lease";
+import { verifyRealtimeToken } from "../../src/server/auth/realtime-token";
 import {
   createChannelRegistry,
   type ChannelRegistry,
@@ -56,6 +62,7 @@ import {
   MSG_MOVE,
   MSG_POSITION_CORRECTION,
   MSG_SKILL_RESULT,
+  WS_CLOSE_SESSION_TAKEN_OVER,
   type CastRejectedMessage,
   type CastSkillMessage,
   type JoinOptions,
@@ -115,6 +122,40 @@ interface MapRoomCreateOptions {
  * ไม่ใช่ matchmaking filter — filterBy(['mapId','partyId']) ต่างหากที่ทำ auto-assign/party sync จริง.
  */
 const channelRegistry: ChannelRegistry = createChannelRegistry();
+
+/**
+ * P2-04 (Bible 5.2): rate limit join/auth failure ต่อ IP — sliding window in-memory (single-process, TA §6.2).
+ * เพดาน = 10 fail / 60s → ปฏิเสธ handshake ชั่วคราว. เป็น module-level singleton (ทุก MapRoom ใน process นี้
+ * แชร์ตัวเดียว) เพราะ onAuth เป็น static (เรียกตอน matchmaking ก่อน room instance). knob ตรงนี้ (ยังไม่ config).
+ */
+const AUTH_RATE_LIMIT_MAX_FAILURES = 10;
+const AUTH_RATE_LIMIT_WINDOW_MS = 60_000;
+const handshakeRateLimiter = createRateLimiter({
+  maxFailures: AUTH_RATE_LIMIT_MAX_FAILURES,
+  windowMs: AUTH_RATE_LIMIT_WINDOW_MS,
+});
+
+/** P2-04: เตือนครั้งเดียวเมื่อ ALLOWED_ORIGINS ว่าง (dev mode = เปิดทุก origin) — production ต้องตั้ง. */
+let openOriginWarned = false;
+
+/** P2-04: อ่าน accountId ที่ static onAuth ผูกไว้ใน client.auth (null = dev bypass / ไม่ผูกบัญชี). */
+function accountIdOf(client: Client): string | null {
+  const auth = client.auth as { accountId?: string | null } | undefined;
+  return typeof auth?.accountId === "string" && auth.accountId.length > 0 ? auth.accountId : null;
+}
+
+/** P2-04: normalize IP จาก AuthContext (x-real-ip/x-forwarded-for อาจเป็น list/array) → key เดียวสำหรับ rate limit. */
+function ipOf(context: AuthContext): string {
+  const raw = context.ip;
+  const first = Array.isArray(raw) ? raw[0] : raw;
+  return (typeof first === "string" ? first.split(",")[0]?.trim() : "") || "unknown";
+}
+
+/** P2-04: normalize Origin header (อาจเป็น string[] ในบางกรณี). */
+function originOf(context: AuthContext): string | undefined {
+  const origin = context.headers?.origin;
+  return Array.isArray(origin) ? origin[0] : origin;
+}
 
 /**
  * P1-08: capacity ต่อ solo channel (§59.3 auto-assign) — เต็ม → matchmaking เปิด channel ใหม่.
@@ -202,6 +243,57 @@ export class MapRoom extends Room<MapRoomState> {
   private graceSeconds = 30;
   /** P1-07: safe camp ของ map (§59.1 reconnect fallback) = map.safeCamp ?? spawnPoint (tile coord) */
   private safeCamp: ReconnectVec2 = { tx: 0, ty: 0 };
+  /**
+   * P2-04 (Storage §4.2): sessionId ที่ถูกเตะด้วย SESSION_TAKEN_OVER (account เดียวกันเข้าจาก tab/device ใหม่).
+   * onLeave เช็ค set นี้เพื่อ **ลบทันที ไม่เข้า grace** (takeover = ตั้งใจเตะ ไม่ใช่หลุดเน็ต ไม่ควร hold seat).
+   */
+  private readonly takenOverSessions = new Set<string>();
+
+  /**
+   * P2-04 (Bible 5.2, TA §6.2): **static** onAuth — Colyseus เรียกตอน matchmaking (fresh join/create) ก่อน
+   * สร้าง seat. reconnect ภายใน grace **ไม่ผ่าน** onAuth (reuse seat เดิม) → token ต้องแนบเฉพาะ fresh join.
+   *   ด่าน: rate limit (ต่อ IP) → origin allowlist → verify JWT (signature/exp/aud, §6.2 ข้อ 3).
+   *   production = บังคับ token เสมอ · dev/e2e (NODE_ENV≠production) = ไม่มี token ผ่านได้ (guest bypass)
+   *   เพื่อไม่พัง harness/flow local เดิม. คืน { accountId } (truthy=อนุญาต) → เก็บใน client.auth ให้ onJoin ใช้
+   *   ทำ session lease/takeover. ปฏิเสธ = throw ServerError (matchmaker ส่ง error กลับ client).
+   */
+  static async onAuth(_token: string, options: unknown, context: AuthContext): Promise<unknown> {
+    const ip = ipOf(context);
+    const nowMs = Date.now();
+    // rate limit ก่อน (ถูกที่สุด) — เกินเพดานแล้วปฏิเสธเลย ไม่ต้องทำ crypto
+    if (handshakeRateLimiter.isLimited(ip, nowMs)) {
+      throw new ServerError(4215 /* AUTH_FAILED */, "rate_limited");
+    }
+    // token: brief กำหนดให้ client แนบใน joinOptions (options.token); fallback context.token (_authToken/Bearer)
+    const opt = (options ?? {}) as { token?: unknown };
+    const token =
+      typeof opt.token === "string" ? opt.token : typeof _token === "string" ? _token : undefined;
+
+    const allowlist = parseAllowedOrigins(process.env.ALLOWED_ORIGINS);
+    if (allowlist.length === 0 && !openOriginWarned) {
+      console.warn(
+        "[MapRoom] ALLOWED_ORIGINS ว่าง — เปิด WS handshake ทุก origin (dev mode). " +
+          "⛔ production ต้องตั้ง ALLOWED_ORIGINS (เช่น https://deung-pu.softrock.space).",
+      );
+      openOriginWarned = true;
+    }
+
+    const decision = authorizeHandshake({
+      token,
+      origin: originOf(context),
+      isProduction: process.env.NODE_ENV === "production",
+      allowlist,
+      jwtSecret: process.env.JWT_SECRET,
+      nowSec: Math.floor(nowMs / 1000),
+      verify: verifyRealtimeToken,
+    });
+    if (!decision.ok) {
+      handshakeRateLimiter.recordFailure(ip, nowMs);
+      throw new ServerError(4215 /* AUTH_FAILED */, decision.reason);
+    }
+    handshakeRateLimiter.reset(ip); // handshake ผ่าน → ล้าง failure ที่สะสมของ IP นี้
+    return { accountId: decision.accountId };
+  }
 
   onCreate(options: MapRoomCreateOptions = {}): void {
     const state = new MapRoomState();
@@ -539,9 +631,49 @@ export class MapRoom extends Room<MapRoomState> {
     }
     // P1-05: cooldown state ต่อ player (ว่างตอน join → ทุกสกิลพร้อมใช้)
     this.cooldowns.set(client.sessionId, new Map());
+
+    // P2-04 (Storage §4.1/§4.2): มี accountId (verified token) → ยึด 1-active-session ต่อบัญชี.
+    //   in-process registry เตะ session เดิมของ account เดียวกัน (SESSION_TAKEN_OVER, takeover-wins);
+    //   DB lease = authority ข้าม process (best-effort — dev/e2e ไม่มี accountId/DB → ข้าม ไม่พัง join).
+    const accountId = accountIdOf(client);
+    if (accountId) {
+      const tookOver = claimSession(accountId, client.sessionId, () => this.forceTakeover(client));
+      if (tookOver) {
+        console.log(
+          `[MapRoom ${this.roomId}] account ${accountId} takeover — เตะ session เดิม (§4.2)`,
+        );
+      }
+      void acquireLease(accountId, client.sessionId);
+    }
+
     console.log(
       `[MapRoom ${this.roomId}] join ${client.sessionId} @(${player.tx.toFixed(1)},${player.ty.toFixed(1)}) — ${this.clients.length} online`,
     );
+  }
+
+  /**
+   * P2-04 (§4.2): เตะ session เก่าเมื่อ account เดียวกันเข้าเล่นจาก tab/device ใหม่. mark sessionId ไว้ก่อน
+   * (onLeave จะเห็น → ลบทันทีไม่เข้า grace) แล้วสั่ง client.leave(SESSION_TAKEN_OVER). best-effort (client
+   * อาจหลุดไปแล้วถ้ากำลังอยู่ใน grace ตัวเอง).
+   */
+  private forceTakeover(client: Client): void {
+    this.takenOverSessions.add(client.sessionId);
+    try {
+      client.leave(WS_CLOSE_SESSION_TAKEN_OVER);
+    } catch {
+      // client ปิดไปแล้ว — grace/dispose จะเก็บกวาดเอง
+    }
+  }
+
+  /**
+   * P2-04: ปล่อย session ระดับบัญชี (registry + DB lease) เมื่อ player ถูกลบจริง — เฉพาะถ้ายังเป็นของ session
+   * ตัวเอง (takeover-wins: ตัวเก่าที่เพิ่งถูกเตะจะไม่ปล่อย lease/registry ของตัวใหม่). no-op ถ้าไม่มี accountId.
+   */
+  private releaseAccountSession(client: Client): void {
+    const accountId = accountIdOf(client);
+    if (!accountId) return;
+    releaseSession(accountId, client.sessionId);
+    void releaseLease(accountId, client.sessionId);
   }
 
   /**
@@ -567,7 +699,17 @@ export class MapRoom extends Room<MapRoomState> {
   async onLeave(client: Client, consented?: boolean): Promise<void> {
     const sessionId = client.sessionId;
 
+    // P2-04 (§4.2): ถูกเตะด้วย SESSION_TAKEN_OVER → ลบทันที ไม่เข้า grace (ตั้งใจเตะ ไม่ใช่หลุดเน็ต).
+    //   ไม่ releaseAccountSession — registry/lease เป็นของ session ใหม่ที่ยึดไปแล้ว (releaseSession scope ด้วย
+    //   sessionId ก็ no-op อยู่ดี แต่ข้ามไปเลยชัดกว่า).
+    const wasTakenOver = this.takenOverSessions.delete(sessionId);
+    if (wasTakenOver) {
+      this.removePlayer(sessionId, "taken_over");
+      return;
+    }
+
     if (consented) {
+      this.releaseAccountSession(client);
       this.removePlayer(sessionId, "consented");
       return;
     }
@@ -585,6 +727,10 @@ export class MapRoom extends Room<MapRoomState> {
         `[MapRoom ${this.roomId}] ${sessionId} reconnect สำเร็จใน grace — resume ตำแหน่ง/channel เดิม`,
       );
     } catch {
+      // grace หมด → ลบจริง + ปล่อย session ระดับบัญชี (registry/DB lease). ถ้าระหว่าง grace ถูก account
+      // เดียวกัน takeover (forceTakeover mark sessionId ตอน await กำลังรอ) → เก็บกวาด set ที่นี่ด้วย.
+      this.takenOverSessions.delete(sessionId);
+      this.releaseAccountSession(client);
       this.removePlayer(sessionId, "grace_expired");
     }
   }

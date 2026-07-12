@@ -98,4 +98,16 @@
 - ชั้นสอง (ทำคู่กัน): `applyCorrection` เดิมทิ้ง path เสมอ → correction ระหว่าง click-to-move = คลิกหาย. Fix: correction แล้ว **replan A* ไป goal เดิม** จากตำแหน่งใหม่ (`src/engine/player/correction-resume.ts` `planCorrectionResume`, reuse findPath) → เดินต่อเอง; ไม่มี goal (WASD/fresh join) = no-op; unreachable = cancel เหมือนเดิม
 - debug: `getNetDebugInfo().correctionCount` (F3 overlay) พุ่งตอนเดินปกติ = floor/interval mismatch (ไม่ใช่ speed hack จริง)
 
+## Colyseus onAuth ต้องเป็น **static** + reconnect ไม่เรียก onAuth (P2-04 WS handshake)
+
+- อาการที่จะเกิดถ้าเดา: เขียน `onAuth()` เป็น instance method บน Room → Colyseus **ignore เงียบ** (log `❌ onAuth() defined at the instance level will be ignored`) → token ไม่เคยถูก verify, security ไม่ทำงานเลย แต่เกมยัง join ได้ = ดูเหมือนผ่าน
+- สาเหตุ (ยืนยันจาก `@colyseus/core/build/MatchMaker.js` 0.16): `callOnAuth` เรียก `roomClass["onAuth"]` (**static**) ตอน **matchmaking** ก่อนสร้าง seat — `authContext = { token, headers, ip }` (token จาก query `_authToken`/Bearer header; **ไม่ใช่** joinOptions โดยตรง). ผล return truthy → เก็บใน `client.auth` (instance `onJoin(client, opts, client.auth)` อ่านต่อได้); falsy/throw ServerError → reject join
+- **reconnect (allowReconnection) ไม่ผ่าน onAuth** — reuse seat เดิม + `previousClient.auth` → token ต้องแนบเฉพาะ **fresh join** เท่านั้น (net-client แนบใน `freshJoin` ไม่ใช่ `beginReconnect`/`boot.reconnect`)
+- วิธีที่ P2-04 ใช้: อ่าน token จาก `options.token` (brief กำหนดให้แนบใน joinOptions) fallback `context.token`; verify ด้วย `verifyRealtimeToken` (reuse `src/server/auth/**` ตรง ๆ — server/tsconfig import ข้าม `../src/**` ได้, ไฟล์ pure node:crypto ไม่มี Next dep, **ไม่ต้องทำ shared module**). rate-limit/origin/decision = pure module ใน `server/security/**` (มี unit test); DB session lease = best-effort (DATABASE_URL ไม่ตั้ง → ข้าม, ห้ามให้ join พัง — dev/e2e ไม่มี DB)
+
+## Session takeover close code = terminal ฝั่ง client (ห้าม auto-reconnect วน) (P2-04, Storage §4.2)
+
+- อาการที่จะเกิดถ้าเดา: server เตะ session เก่าด้วย `client.leave(4001)` (SESSION_TAKEN_OVER) แต่ client เห็น code≠4000 → เข้า auto-reconnect path (P1-07) → reconnect/fresh-join → **takeover ตัวใหม่กลับ** → 2 แท็บแย่ง seat วนไม่จบ
+- วิธีเลี่ยง (fix ใช้): (a) net-client `onLeave`: `code === WS_CLOSE_SESSION_TAKEN_OVER` → **terminal** (ล้าง token+store, offline, `lastError="session_taken_over"`) ห้าม reconnect. (b) server `onLeave`: sessionId ที่ถูก takeover ต้อง **ลบทันที ไม่เข้า grace** (ตั้งใจเตะ ≠ หลุดเน็ต) — mark ใน set ก่อน `client.leave` เพราะ onLeave ได้แค่ `consented:boolean` (= code===4000) ไม่เห็น code จริง (Colyseus `_onLeave` แปลง code→consented). release lease/registry ทำแบบ session-scoped (`deleteMany where sessionId`) → ตัวเก่าที่ถูกเตะไม่ลบ lease ของตัวใหม่ (takeover-wins)
+
 <!-- เพิ่มกับดักใหม่ด้านล่างเมื่อเจอจริง -->

@@ -51,6 +51,14 @@ export const DEFAULT_CHANNEL_ID = channelLabel(1);
  */
 export const DEFAULT_PARTY_ID = "";
 
+/**
+ * WebSocket close code (P2-04, Storage §4.1/§4.2) — server เตะ session เดิมเมื่อ **account เดียวกัน**
+ * เข้าเล่นจาก device/tab ใหม่ (takeover-wins). ตัวใหม่ยึด session lease → server เรียก client.leave(code)
+ * ของตัวเก่าด้วยรหัสนี้. ต้องอยู่ช่วง custom 4000–4999 และเลี่ยงรหัสสงวนของ Colyseus
+ * (4000=consented, 4002=with_error, 4010=devmode_restart). client แยกจาก reconnect-grace ได้ด้วยรหัสนี้.
+ */
+export const WS_CLOSE_SESSION_TAKEN_OVER = 4001;
+
 /** message type: client → server ส่งตำแหน่ง/ทิศ/anim ปัจจุบัน (throttled ~10–15Hz, tech §6). */
 export const MSG_MOVE = "move";
 

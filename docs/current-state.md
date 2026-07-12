@@ -14,6 +14,12 @@ _Last updated: 2026-07-12_
 
 **Owner ปิด decision queue ทุกข้อแล้ว (2026-07-12)** ผ่าน **Production Bible Set v1** → อยู่ใน repo ที่ `docs/design/bibles/` (10 เล่ม — เล่มแรกที่ต้องเปิด: `deungpu_OWNER_DECISIONS_v1.md`) · spec เป็น **game v15.2 / tech v1.5.2** แล้ว (balance เลิกสถานะ PENDING — k=50, นักธนู=อาชีพที่ 2, party = public shared (final), background tab = safe-disconnect flow, milestone P2B ใหม่, asset canvas standards) · **P2 breakdown ร่างเสร็จ รอ owner review**: `docs/tech/deungpu_P2_ISSUE_BREAKDOWN_v1.md`
 
+### Latest work (2026-07-12, branch `feat/p2-wave2` — P2-04 WS security)
+- **Trust boundary ที่ Colyseus handshake** (Bible 5.2 + TA §6.2 + Storage §4). เพิ่ม `server/security/**` (pure + unit-tested): `origin-allowlist.ts` (env `ALLOWED_ORIGINS`, ว่าง=dev อนุญาตทุก origin+warn), `rate-limiter.ts` (sliding window 10 fail/60s ต่อ IP; TODO Redis multi-node), `handshake.ts` (`authorizeHandshake` = pure decision), `session-registry.ts` (in-process takeover, `shouldTakeOverSession`), `session-lease.ts` (DB `session_lease` best-effort — ไม่มี DATABASE_URL/ต่อไม่ได้ → ข้าม+warn ครั้งเดียว, **ห้ามให้ join พัง**)
+- `server/rooms/MapRoom.ts`: **static** `onAuth` (Colyseus เรียกตอน matchmaking — reuse `verifyRealtimeToken` จาก `src/server/auth/**` ตรง ๆ ไม่ทำ shared module) — **production บังคับ token เสมอ · dev/e2e ไม่มี token = guest bypass** (flow local + `npm run e2e` ยังใช้ได้); session takeover-wins (§4.2, `WS_CLOSE_SESSION_TAKEN_OVER`=4001, ลบทันทีไม่เข้า grace)
+- Client `src/engine/net/net-client.ts`: fetch `/api/auth/rt-token` (401→`/api/auth/guest`→retry; offline/dev fetch fail → join ไม่มี token) แนบใน joinOptions **ตอน fresh join เท่านั้น** (reconnect ไม่ผ่าน onAuth); takeover = terminal (ล้าง token/store, ไม่ auto-reconnect วน) · `.env.example` +`ALLOWED_ORIGINS`/`NODE_ENV`
+- Gate: **793 tests เขียว** (+`tests/server-security.test.ts` 26 assert) · lint/`next build`/`tsc -p server/tsconfig.json` เขียว · **e2e smoke 8/8 PASS** (dev bypass ยืนยันทำงาน) · traps ใหม่ 2 อัน (onAuth static, takeover terminal) → `docs/known-traps.md`
+
 ### Latest work (2026-07-12, branch `docs/p2-prep-bible-import`)
 - Import Production Bible Set v1 → `docs/design/bibles/` — ลำดับ source of truth: Bible ชนะพฤติกรรม/ความหมาย, tech architecture ชนะวิธี implement (INDEX §2)
 - decision-index: +12 แถว (Bible 1.1–5.3 + Q1–Q5 resolutions + caveman-code ไม่ใช้) · owner-decision-queue ปิด → `docs/history/2026-07-12-owner-decision-queue-closed.md`

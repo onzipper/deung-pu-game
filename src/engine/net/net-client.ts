@@ -38,6 +38,7 @@ import {
   MSG_MOVE,
   MSG_POSITION_CORRECTION,
   MSG_SKILL_RESULT,
+  WS_CLOSE_SESSION_TAKEN_OVER,
   type CastRejectedMessage,
   type CastSkillMessage,
   type JoinOptions,
@@ -159,6 +160,40 @@ const WS_CLOSE_CONSENTED = 4000;
 /** await ได้ (cancel เองด้วย disposed check ฝั่ง caller) — ใช้เว้นช่วง backoff ระหว่าง reconnect. */
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * P2-04: ขอ short-lived realtime token (~60s) จาก Next API ก่อน join (แนบใน joinOptions.token → server
+ * verify ใน onAuth). ยังไม่มี session (401) → สร้าง guest ก่อนแล้วขอใหม่ (§5.1). fetch ล้ม/ไม่มี Next
+ * (dev เปิดเฉพาะ client, offline) → คืน null → join แบบไม่มี token (server dev bypass รับได้). ไม่ throw.
+ * **fresh join เท่านั้น** — reconnect ภายใน grace ไม่ผ่าน onAuth จึงไม่ต้องมี token.
+ */
+async function fetchRealtimeToken(): Promise<string | null> {
+  if (typeof fetch === "undefined") return null;
+  const ask = async (): Promise<Response | null> => {
+    try {
+      return await fetch("/api/auth/rt-token", { method: "POST" });
+    } catch {
+      return null; // Next ไม่ได้รัน (offline/dev client-only)
+    }
+  };
+  try {
+    let res = await ask();
+    if (res && res.status === 401) {
+      // ยังไม่มี session → สร้าง guest แล้วขอ token ใหม่ (§5.1 first-time guest)
+      try {
+        await fetch("/api/auth/guest", { method: "POST" });
+      } catch {
+        return null;
+      }
+      res = await ask();
+    }
+    if (!res || !res.ok) return null;
+    const data = (await res.json()) as { token?: unknown };
+    return typeof data.token === "string" ? data.token : null;
+  } catch {
+    return null;
+  }
 }
 
 export interface NetClientHandle {
@@ -382,6 +417,15 @@ export function createNetClient(
 
     joinedRoom.onLeave((code: number) => {
       if (disposed) return;
+      // P2-04 (§4.2): ถูกเตะเพราะ account เดียวกันเข้าเล่นที่อื่น (takeover) → **terminal**: ห้าม reconnect
+      // (ไม่งั้น 2 แท็บจะแย่ง seat วนไม่จบ). ล้าง token/store + offline. UI แจ้งผ่าน lastError.
+      if (code === WS_CLOSE_SESSION_TAKEN_OVER) {
+        reconnectionToken = null;
+        config.store.clear();
+        status.state = "offline";
+        status.lastError = "session_taken_over";
+        return;
+      }
       // P1-07: consented leave (เราเรียก leave() เอง) → offline จริง. หลุดไม่ตั้งใจ (code ≠ 4000) →
       // พยายาม auto-reconnect เข้า seat เดิม (server hold state ใน grace, §59.1).
       if (code === WS_CLOSE_CONSENTED || reconnectionToken === null) {
@@ -441,9 +485,14 @@ export function createNetClient(
   const freshJoin = async (): Promise<void> => {
     status.state = "connecting";
     try {
+      // P2-04: แนบ realtime token (ถ้าขอได้) ใน joinOptions → server onAuth verify. null (offline/dev
+      // client-only) = join ไม่มี token (server dev bypass รับ). token คนละเรื่องกับ reconnectionToken.
+      const authToken = await fetchRealtimeToken();
+      if (disposed) return;
+      const opts = authToken ? { ...joinOptions, token: authToken } : joinOptions;
       const joined = await client.joinOrCreate<unknown>(
         config.roomName ?? MAP_ROOM_NAME,
-        joinOptions,
+        opts,
       );
       if (disposed) {
         void joined.leave();
