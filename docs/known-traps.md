@@ -115,3 +115,8 @@
 ## P2-05: save ตอน map transition ต้องกัน onLeave เขียนทับ
 
 checkExit (ข้าม map) save ตำแหน่ง**ปลายทาง**ไปแล้ว แต่ transition ทำให้ client leave room เก่าแบบ consented → ถ้า onLeave save ตามปกติจะเขียนตำแหน่ง **map เก่า** ทับจุดหมายทันที (ผู้เล่น refresh แล้วเด้งกลับ map เก่า). MapRoom จึง mark `transitioningSessions` ตอน checkExit แล้ว onLeave ข้าม save สำหรับ session นั้น (เคลียร์ตอน removePlayer). ใครแตะ save cycle/transition ต้องรักษา invariant นี้ — มีเทสต์คุมใน `tests/server-characters-persistence.test.ts`.
+
+## PowerShell เขียนไฟล์ = BOM → migration SQL พัง + DB จริงเป็น MariaDB
+
+- `Out-File -Encoding utf8` บน PowerShell 5.1 เขียน **UTF-8 มี BOM** → MySQL/MariaDB อ่าน migration.sql ไม่ได้ (error 1064 ตรง `﻿-- CreateTable`) — เขียนไฟล์ที่ tool อื่นอ่านให้ใช้ Bash/Write tool หรือ strip BOM (`sed -i '1s/^\xEF\xBB\xBF//'`) · เจอจริงตอน `prisma migrate deploy` ครั้งแรก (2026-07-12); แก้ด้วย `prisma migrate resolve --rolled-back` แล้ว deploy ใหม่
+- **DB จริงบน Hostinger = MariaDB ไม่ใช่ MySQL 8** (TA L3 เขียน MySQL 8) — Prisma provider `mysql` ใช้ได้, collation `utf8mb4_unicode_ci` ที่เราใช้รองรับ; **ห้ามใช้ feature เฉพาะ MySQL 8** (เช่น collation ตระกูล `utf8mb4_0900_*`, CHECK constraint บางแบบ) — เจออะไรแปลกให้เช็คคู่มือ MariaDB ก่อน

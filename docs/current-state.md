@@ -14,7 +14,14 @@ _Last updated: 2026-07-12_
 
 **Owner ปิด decision queue ทุกข้อแล้ว (2026-07-12)** ผ่าน **Production Bible Set v1** → อยู่ใน repo ที่ `docs/design/bibles/` (10 เล่ม — เล่มแรกที่ต้องเปิด: `deungpu_OWNER_DECISIONS_v1.md`) · spec เป็น **game v15.2 / tech v1.5.2** แล้ว (balance เลิกสถานะ PENDING — k=50, นักธนู=อาชีพที่ 2, party = public shared (final), background tab = safe-disconnect flow, milestone P2B ใหม่, asset canvas standards) · **P2 breakdown ร่างเสร็จ รอ owner review**: `docs/tech/deungpu_P2_ISSUE_BREAKDOWN_v1.md`
 
-### สถานะคลื่น 2 (2026-07-12, branch `feat/p2-wave2` — **ครบ 6 issue, PR รอ owner review**)
+### 🔴 จุดที่ session ใหม่ต้องรู้ก่อน (handoff 2026-07-12)
+1. **PR #10 (คลื่น 2) เปิดรอ owner review + ทดสอบ** — ลิสต์ทดสอบชุด A/B อยู่ใน PR body (https://github.com/onzipper/deung-pu-game/pull/10)
+2. **DB ทดสอบพร้อมแล้ว**: migration `0001_init` apply ลง Hostinger DB แล้ว (13 ตาราง, `prisma migrate status` = up to date) — owner สั่ง "เตรียม DB ทดสอบ" เอง 2026-07-12 → ทดสอบชุด B ได้เต็ม flow · ⚠ **DB จริง = MariaDB ไม่ใช่ MySQL 8** (ดู known-traps ท้ายไฟล์ — BOM trap ด้วย)
+3. **คำถามค้างถึง owner: E1–E3** (ดู decision-index แถว Economy) — ชื่อบอส/elite vs canon · ตาราง % ตีบวก + นิยาม "แกร่ง" ชน GS §12 · stat row นกจิกปุ๊/หมูป่า — **block เนื้อหา P2-09/10 ของคลื่น 3** ไม่ block อย่างอื่น
+4. **คลื่น 3 ถัดไป (หลัง merge PR #10)**: P2-07 inventory/equipment UI → P2-08 ledger → P2-09 drop+EXP → P2-10 ตีบวก → P2-11 ร้านค้า → P2-12 DG lite → P2-13 tab policy → P2-15 mobile → P2-17 storage/delivery + SVG-01 pipeline — spec ครบทุกเล่มแล้ว (UI/Storage/Economy/SVG-first ใน docs/design/) ยกเว้น E1–E3
+5. กติกาทำงาน: อ่าน `docs/agent-rules.md` + decision-index ก่อนเสมอ · PR ต่อคลื่น · never-downgrade zones รีวิวไขว้ · brief ทุกตัวอ้าง agent-rules แทน paste
+
+### สถานะคลื่น 2 (2026-07-12, branch `feat/p2-wave2` — **ครบ 6 issue, PR #10 รอ owner review**)
 P2-02b schema v2 (14 ตาราง location model) · P2-03 custom auth (6 endpoints, owner ratify แทน Auth.js) · P2-04 WS security (JWT+origin+rate limit+takeover) · P2-05 save/load + join ด้วยตัวละครจริง (best-effort DB, transition-save trap ลง known-traps) · P2-06a Game Hub + creation (5 ช่อง, validator ไทย realtime) · docs: SVG-first/V1–V4/Economy integrate ครบ · **805 tests เขียว + e2e 8/8 ตลอดสาย** · เหลือของคลื่น 3: P2-07/08/09/10/11/12/13/15/17 + SVG-01 (P2-09/10 รอ E1–E3)
 
 ### Latest work (2026-07-12, branch `feat/p2-wave2` — P2-04 WS security)
