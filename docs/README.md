@@ -9,6 +9,7 @@
 | `current-state.md` | ตอนนี้อยู่ไหน/ติด/ค้าง/ห้ามแตะ — อัปเดตทุกรอบ |
 | `decision-index.md` | decision ที่ล็อกแล้ว — ห้าม re-propose |
 | `known-traps.md` | คลังบั๊กที่เคยเจอ — อ่านก่อนแตะโค้ด |
+| `deploy-checklist.md` | ขั้นตอน deploy จริง — Render (server) + Hostinger (client) + smoke test |
 | `history/` | archive (off-budget — อ่านเฉพาะตอนถูกชี้) |
 
 ## Routing maps

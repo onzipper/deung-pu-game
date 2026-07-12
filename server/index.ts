@@ -28,7 +28,7 @@ gameServer.define(MAP_ROOM_NAME, MapRoom).filterBy(["mapId", "partyId"]);
 gameServer
   .listen(port)
   .then(() => {
-    console.log(`[server] Colyseus listening on ws://localhost:${port}`);
+    console.log(`[server] Colyseus listening on port ${port}`);
     console.log(`[server] room "${MAP_ROOM_NAME}" registered`);
   })
   .catch((err: unknown) => {
