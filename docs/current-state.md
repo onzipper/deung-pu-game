@@ -10,6 +10,8 @@ _Last updated: 2026-07-12_
 
 **P0 + P1 ปิดแล้ว** (merge `main` ผ่าน PR #6, 2026-07-12) + **prod stutter fix แล้ว** (PR #7 — minElapsedMs 50→90 + correction-resume; verify บน prod = 0 corrections; รายละเอียด `docs/history/2026-07-12-p0-p1-worklog.md` + `docs/known-traps.md`). **Deploy live ทั้งสองฝั่ง**: server = Render free tier + UptimeRobot (`https://deung-pu-game.onrender.com`, `/healthz`), client = Hostinger (`https://deung-pu.softrock.space/game`).
 
+**Art direction เปลี่ยนเป็น SVG-first ถาวร (2026-07-12)** — pixel art เลื่อนไม่มีกำหนด · เล่ม `docs/design/deungpu_TECH_TEAM_DECISIONS_SVG_FIRST_NO_FIGMA_v1.md` ปิด U1–U4 + L1–L7 ครบ · V1–V4 เคาะแล้ว (tokens 6/10/16+48px hit area, hybrid art ฉบับ SVG + gate 7 ข้อ, rarity map บน palette เดิมห้าม Corruption, visual style ทาง C + effect matrix) — Asset Bible amended v1.1, เล่ม UI ยกเป็น LOCKED, +issue SVG-01 pipeline foundation
+
 **Owner ปิด decision queue ทุกข้อแล้ว (2026-07-12)** ผ่าน **Production Bible Set v1** → อยู่ใน repo ที่ `docs/design/bibles/` (10 เล่ม — เล่มแรกที่ต้องเปิด: `deungpu_OWNER_DECISIONS_v1.md`) · spec เป็น **game v15.2 / tech v1.5.2** แล้ว (balance เลิกสถานะ PENDING — k=50, นักธนู=อาชีพที่ 2, party = public shared (final), background tab = safe-disconnect flow, milestone P2B ใหม่, asset canvas standards) · **P2 breakdown ร่างเสร็จ รอ owner review**: `docs/tech/deungpu_P2_ISSUE_BREAKDOWN_v1.md`
 
 ### Latest work (2026-07-12, branch `docs/p2-prep-bible-import`)

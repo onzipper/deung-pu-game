@@ -1,7 +1,10 @@
 # ดึ๋งปุ๊ — P2 UI Visual Implementation Specification
 
 > **ไฟล์:** `deungpu_P2_UI_VISUAL_IMPLEMENTATION_SPEC_v1.md`  
-> **สถานะ:** `DRAFT — OWNER REVIEW REQUIRED`  
+> **สถานะ:** `LOCKED (2026-07-12)` — จุด `PENDING OWNER` ทุกจุดถูกเคาะครบผ่านเล่มอื่นแล้ว (ดู decision-index):
+> §7.1 กติกาตัวละคร → supersede โดย `deungpu_ACCOUNT_CHARACTER_STORAGE_FLOW_SPEC_v1.md` (5 ช่อง/บัญชี ฯลฯ) ·
+> §10.1 + U1เศษ/U2/U3/U4 → เคาะใน `deungpu_TECH_TEAM_DECISIONS_SVG_FIRST_NO_FIGMA_v1.md` ·
+> **design tokens ที่ขัด**: radius 4/8/12 + touch 44px ในเล่มนี้ **ถูก supersede เป็น 6/10/16 + hit area ≥48px** (V1; `radius-pill=999` ยังใช้)  
 > **ขอบเขต:** Login / Guest / Character Creation / HUD / Inventory / Equipment / NPC Shop / Upgrade / Death / Settings  
 > **เป้าหมาย:** ให้ทีมพัฒนา UI ได้ใกล้เคียงกันโดยไม่ต้องมี Figma และไม่ต้องเดาพฤติกรรม สี ขนาด ระยะ หรือ State  
 > **Source of truth ที่ต้องอ่านร่วม:**  

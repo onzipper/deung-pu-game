@@ -72,7 +72,11 @@
 - **Achievement/Journal v1** (AJ spec + A1–A4): definition schema + rule evaluator (counter/distinct/streak/window/sequence/composite) · consume จาก game_events ของ P2 + event ใหม่ · idempotent + dedup · credit policy default = **participation** · seed catalog เฉพาะหมวดที่ระบบมีจริง (A2) — ที่เหลือ `draft` · **Server First minimal** (atomic claim + audit + ประกาศ room/channel + rate limit + เก็บส่งต่อ P5) · Journal UI (แท็บที่มีข้อมูลจริง: วันนี้ของฉัน/Achievement/โลก/มอน/สถิติ) · pin ≤3 + HUD tracking · hidden ไม่ spoil · retroactive จาก game_events ตาม policy
 - **งานต่อคิวจาก P2**: นักธนู 3 สกิล (เคาะแล้ว → P2B) · party public shared channel model · remote juice "เบากว่า 1 ระดับ" · Bot A intro micro tutorial (30–60 วิ ตอนปลดล็อก — D1) เมื่อระบบ bot เริ่มมี surface จริง (P3)
 
-## Content track (คู่ขนาน — ตาม ROADMAP C0/C1 + กลยุทธ์ Playable-Without-Artist)
+## Content track (คู่ขนาน — ตาม ROADMAP C0/C1 + **SVG-first ถาวร** ตั้งแต่ 2026-07-12)
+
+| # | Issue | Scope ย่อ | Spec |
+|---|---|---|---|
+| SVG-01 | **SVG asset pipeline foundation** (ก่อนผลิต asset จริงชุดแรก / ก่อน C-track P2B) | โฟลเดอร์ `svg/` ตาม contract ใหม่ · sanitizer + optimizer เข้า build · raster→atlas build step (world entities ห้าม inline SVG runtime) · manifest generator (merge SVG contract + animation manifest เดิม + เพิ่ม direction/mirror field ที่ contract ใหม่ขาด) · palette lint (32 สี + rarity alias V3) · golden samples 3–5 ชิ้นตาม visual style ทาง C | SVG-first doc §2/§16–17 · decision-index V2/V4 |
 
 - **ลำดับ asset ใหม่ (D3, supersede Bible 4.1):** (1) player base + นักดาบ (2) **ดึ๋งๆ mascot** (3) อีก 4 อาชีพ (4) มอน Map 1 (5) เมือง/props (6) skill VFX (7) boss
 - **C0 (เหลือปิด):** SVG placeholder kit แบบ parameterized (shape grammar + semantic colors + master palette 32 สี) · sword set บน canvas 64×64 footPivot [32,54] มาตรฐานใหม่ · content gate = "3-second test" (ผู้เล่นดู 3 วิแล้วรู้ว่าคืออะไร)
