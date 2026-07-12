@@ -2,43 +2,56 @@
 // Plain TS + pixi เท่านั้น — ห้าม import React / Next.js (layer contract, tech §2).
 // แยก calc (update state) ออกจาก render ไว้ตั้งแต่ต้น เพื่อเตรียม server-authoritative ตอน P1.
 
-import { Application, Container, Graphics, Text, type Ticker } from "pixi.js";
+import { Application, Container, Text, type Ticker } from "pixi.js";
+import { type EngineConfig, resolveResolution } from "../config";
+import { loadMapConfig } from "../map/loader";
+import { P0_TEST_FIELD } from "../map/p0-test-field";
+import { createMapScene, type MapSceneHandle } from "../render/scene";
+import { createLocalPlayer, type LocalPlayerHandle } from "../player/local-player";
+import { createMobManager, type MobManagerHandle } from "@/game/mob/manager";
+import { createCombatStub, type CombatStubHandle } from "@/game/combat/combat-stub";
+import { createNetClient, type NetClientHandle } from "../net/net-client";
+import { createRemotePlayerManager } from "../net/remote-player-manager";
 import {
-  type EngineConfig,
-  type TileSize,
-  resolveResolution,
-} from "../config";
+  advanceSendTimer,
+  coerceAnim,
+  snapshotChanged,
+  toMoveMessage,
+} from "../net/sync";
+import { DEFAULT_MAP_ID, type PlayerSnapshot } from "@/shared/net-protocol";
 import { attachResize } from "./resize";
+import { screenToTile, snapToTile, type TilePoint } from "../iso/coords";
+import { buildDebugInfo, IDLE_NET_DEBUG_INFO, type EngineDebugInfo } from "./debug-info";
 
 /** handle สาธารณะที่ React (หรือ caller อื่น) ใช้คุมกับ engine — ห้ามให้ caller แตะ pixi ตรง ๆ นอกจากผ่าน app */
 export interface EngineHandle {
   /** pixi Application instance (read-only ต่อ caller โดยมารยาท) */
   readonly app: Application;
+  /** map scene ปัจจุบัน — layer ถัดไป (P0-06/09) ใช้ entity API ผ่านนี้ */
+  readonly scene: MapSceneHandle;
+  /** local player controller (P0-05) — keyboard movement + collision + camera follow */
+  readonly player: LocalPlayerHandle;
+  /**
+   * realtime net client (P0-07) — null ถ้า config.net.enabled=false.
+   * connect เป็น best-effort/async: status.state = connecting → online/offline.
+   * P0-11 debug overlay อ่านผ่าน `net.getNetDebugInfo()` (status/mapId/roomId/channelId/playerCount).
+   */
+  readonly net: NetClientHandle | null;
+  /**
+   * snapshot ข้อมูล debug (P0-11, P0 §4.10): fps/player tile/pointer tile/entity count/net status.
+   * **caller ต้อง poll ช้า ๆ เอง** (~200–300ms, ห้ามอ่านทุก frame เข้า React state — tech §2).
+   */
+  getDebugInfo(): EngineDebugInfo;
+  /** เปิด/ปิด depth-rank text เหนือ entity ทุกตัว (debug tool, P0-11) — passthrough ไปที่ scene */
+  setDepthDebug(enabled: boolean): void;
   /** เก็บกวาดครบ: ticker, resize observer, canvas, GPU resources */
   destroy(): void;
 }
 
-/** state ของ placeholder scene — calc ล้วน แยกจาก object ที่ render (พิสูจน์ว่า loop เดิน) */
-interface PlaceholderState {
-  rotation: number;
-  fpsSampleMs: number;
-}
-
-const ROTATION_PER_FRAME = 0.02;
 const FPS_SAMPLE_INTERVAL_MS = 250;
-const PLACEHOLDER_SCALE = 3;
-
-function drawDiamond(g: Graphics, tile: TileSize): void {
-  const hw = tile.width / 2;
-  const hh = tile.height / 2;
-  g.clear();
-  g.poly([0, -hh, hw, 0, 0, hh, -hw, 0])
-    .fill({ color: 0x6ee7ff, alpha: 0.9 })
-    .stroke({ color: 0xffffff, width: 1 });
-}
 
 /**
- * สร้าง engine + placeholder scene ที่พิสูจน์ว่า render loop ทำงาน.
+ * สร้าง engine + render P0 Test Field (iso map จริง: grid + props + depth sort + camera).
  * PixiJS 8: ต้อง `await app.init(...)` (async) — ห้ามส่ง options เข้า constructor.
  */
 export async function createEngine(
@@ -67,48 +80,114 @@ export async function createEngine(
 
   container.appendChild(app.canvas);
 
-  // --- placeholder scene (P0-01 เท่านั้น; P0-02 จะแทนด้วย iso grid) ---
-  const scene = new Container();
-  app.stage.addChild(scene);
+  // --- map scene: load P0 Test Field ผ่าน loader (validate) แล้ว render ---
+  const map = loadMapConfig(P0_TEST_FIELD);
+  const scene = createMapScene(app, map, config);
 
-  const diamond = new Graphics();
-  drawDiamond(diamond, config.tileSize);
-  diamond.scale.set(PLACEHOLDER_SCALE);
-  scene.addChild(diamond);
+  // --- local player (P0-05): keyboard movement + collision slide + camera follow ---
+  // spawn + snap กล้องมาที่ player + attach keyboard เกิดภายใน createLocalPlayer
+  const player = createLocalPlayer(scene, map, config, app.renderer);
 
+  // --- dummy mob pockets (P0-09): client/local spawn เท่านั้น — mob AI จริงเป็น P1 (TA §18) ---
+  const mobs: MobManagerHandle = createMobManager(scene, map, config, app.renderer);
+
+  // --- combat stub (P0-10): Space → attack anim → hit test → dummy damage + feedback ---
+  const combat: CombatStubHandle = createCombatStub(scene, player, mobs, config);
+
+  // --- realtime net (P0-07): remote players + position sync ---
+  // Graceful offline: connect ล้ม = เล่น solo ต่อ (net.status = "offline"); ไม่ block boot.
+  const localSnapshot = (): PlayerSnapshot => ({
+    tx: player.position.tx,
+    ty: player.position.ty,
+    direction: player.facing,
+    anim: coerceAnim(player.animation),
+  });
+  let net: NetClientHandle | null = null;
+  let remotes: ReturnType<typeof createRemotePlayerManager> | null = null;
+  let sendAccumMs = 0;
+  let lastSent: PlayerSnapshot | null = null;
+  if (config.net.enabled) {
+    remotes = createRemotePlayerManager(scene, config, app.renderer);
+    const initial = localSnapshot();
+    net = createNetClient(
+      { serverUrl: config.net.serverUrl, roomName: config.net.roomName },
+      { mapId: DEFAULT_MAP_ID, channelId: config.net.channelId, ...initial },
+      {
+        onPlayerAdd: (id, snap) => remotes?.onPlayerAdd(id, snap),
+        onPlayerChange: (id, snap) => remotes?.onPlayerChange(id, snap),
+        onPlayerRemove: (id) => remotes?.onPlayerRemove(id),
+      },
+    );
+  }
+
+  // --- ui layer (screen-space, ไม่โดน camera pan) — P0-11 จะทำ overlay เต็ม ---
+  const ui = new Container();
+  app.stage.addChild(ui); // เพิ่มหลัง world → อยู่บนสุด
   const fpsText = new Text({
     text: "FPS —",
-    style: {
-      fill: 0xffffff,
-      fontSize: 14,
-      fontFamily: "monospace",
-    },
+    style: { fill: 0xffffff, fontSize: 14, fontFamily: "monospace" },
   });
   fpsText.position.set(12, 12);
-  scene.addChild(fpsText);
-
-  const layout = (width: number, height: number): void => {
-    diamond.position.set(width / 2, height / 2);
-  };
-  layout(app.renderer.width, app.renderer.height);
+  ui.addChild(fpsText);
 
   const detachResize = attachResize(container, (width, height) => {
     app.renderer.resize(width, height);
-    layout(width, height);
+    scene.resize(width, height);
   });
 
-  // --- update loop: calc → render (แยกกันชัด) ---
-  const state: PlaceholderState = { rotation: 0, fpsSampleMs: 0 };
+  // --- pointer tile tracking (P0-11 debug overlay) ---
+  // canvas CSS-pixel (getBoundingClientRect) อยู่ใน space เดียวกับ scene.world.position/viewport
+  // (autoDensity=true → CSS size = renderer logical size, ตรงกับที่ camera.ts ใช้อยู่แล้ว).
+  let pointerTile: TilePoint | null = null;
+  const onPointerMove = (e: PointerEvent): void => {
+    const rect = app.canvas.getBoundingClientRect();
+    const worldLocal = {
+      sx: e.clientX - rect.left - scene.world.position.x,
+      sy: e.clientY - rect.top - scene.world.position.y,
+    };
+    pointerTile = snapToTile(screenToTile(worldLocal, config.tileSize));
+  };
+  const onPointerLeave = (): void => {
+    pointerTile = null;
+  };
+  app.canvas.addEventListener("pointermove", onPointerMove);
+  app.canvas.addEventListener("pointerleave", onPointerLeave);
 
+  // --- update loop: calc → render (แยกกันชัด) ---
+  let fpsSampleMs = 0;
   const onTick = (ticker: Ticker): void => {
-    // calc
-    state.rotation += ROTATION_PER_FRAME * ticker.deltaTime;
-    state.fpsSampleMs += ticker.deltaMS;
-    // render (apply state → display objects)
-    diamond.rotation = state.rotation;
-    if (state.fpsSampleMs >= FPS_SAMPLE_INTERVAL_MS) {
+    const dtSeconds = ticker.deltaMS / 1000;
+    // calc: player intent → movement (dt เป็นวินาที) → scene entity + camera target
+    player.update(dtSeconds);
+    // calc: mob wander step (P0-09) → scene entity + animator
+    mobs.update(dtSeconds);
+    // calc: combat stub (P0-10) — attack input → hit test → dummy damage + feedback
+    combat.update(dtSeconds);
+
+    // net (P0-07): throttle ส่ง local position + lerp remote players
+    if (net && remotes) {
+      const timer = advanceSendTimer(
+        sendAccumMs,
+        ticker.deltaMS,
+        1000 / config.net.positionSyncHz,
+      );
+      sendAccumMs = timer.remainderMs;
+      if (timer.fire) {
+        const snap = localSnapshot();
+        if (snapshotChanged(lastSent, snap, config.net.sendEpsilon)) {
+          net.sendMove(toMoveMessage(snap.tx, snap.ty, snap.direction, snap.anim));
+          lastSent = snap;
+        }
+      }
+      remotes.update(dtSeconds);
+    }
+
+    // render: camera follow (lerp) + depth resort ถ้า dirty
+    scene.update(ticker.deltaTime);
+    fpsSampleMs += ticker.deltaMS;
+    if (fpsSampleMs >= FPS_SAMPLE_INTERVAL_MS) {
       fpsText.text = `FPS ${Math.round(app.ticker.FPS)}`;
-      state.fpsSampleMs = 0;
+      fpsSampleMs = 0;
     }
   };
   app.ticker.add(onTick);
@@ -119,6 +198,14 @@ export async function createEngine(
     destroyed = true;
     app.ticker.remove(onTick);
     detachResize();
+    app.canvas.removeEventListener("pointermove", onPointerMove);
+    app.canvas.removeEventListener("pointerleave", onPointerLeave);
+    net?.disconnect();
+    remotes?.destroy();
+    combat.destroy();
+    mobs.destroy();
+    player.destroy();
+    scene.destroy();
     // removeView: true → เอา canvas ออกจาก DOM ด้วย; ล้าง GPU/texture/context ให้หมด
     app.destroy(
       { removeView: true },
@@ -126,5 +213,23 @@ export async function createEngine(
     );
   };
 
-  return { app, destroy };
+  return {
+    app,
+    scene,
+    player,
+    net,
+    getDebugInfo(): EngineDebugInfo {
+      return buildDebugInfo({
+        fps: app.ticker.FPS,
+        playerTile: player.position,
+        pointerTile,
+        entityCount: scene.entityCount,
+        net: net ? net.getNetDebugInfo() : IDLE_NET_DEBUG_INFO,
+      });
+    },
+    setDepthDebug(enabled: boolean): void {
+      scene.setDepthDebug(enabled);
+    },
+    destroy,
+  };
 }

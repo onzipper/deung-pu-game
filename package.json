@@ -4,12 +4,16 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "dev:server": "tsx watch --tsconfig server/tsconfig.json server/index.ts",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
     "test": "vitest run"
   },
   "dependencies": {
+    "@colyseus/schema": "^3.0.76",
+    "colyseus": "^0.16.5",
+    "colyseus.js": "^0.16.22",
     "next": "16.2.10",
     "pixi.js": "^8.19.0",
     "react": "19.2.4",
@@ -23,6 +27,7 @@
     "eslint": "^9",
     "eslint-config-next": "16.2.10",
     "tailwindcss": "^4",
+    "tsx": "^4.23.0",
     "typescript": "^5",
     "vitest": "^4.1.10"
   }

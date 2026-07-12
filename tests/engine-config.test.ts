@@ -4,6 +4,7 @@ import {
   createEngineConfig,
   resolveResolution,
 } from "@/engine/config";
+import { DEFAULT_CHANNEL_ID } from "@/shared/net-protocol";
 
 describe("engine config", () => {
   test("default tile size = diamond 64×32 (locked, tech §17)", () => {
@@ -34,6 +35,29 @@ describe("engine config", () => {
   test("createEngineConfig() ไม่ mutate DEFAULT_ENGINE_CONFIG", () => {
     createEngineConfig({ tileSize: { width: 999 } as never });
     expect(DEFAULT_ENGINE_CONFIG.tileSize).toEqual({ width: 64, height: 32 });
+  });
+
+  test("net.channelId default = DEFAULT_CHANNEL_ID (P0-08, ไม่ hardcode ซ้ำ)", () => {
+    expect(DEFAULT_ENGINE_CONFIG.net.channelId).toBe(DEFAULT_CHANNEL_ID);
+  });
+
+  test("createEngineConfig() override net.channelId โดยคง net knob อื่น (shallow-merge)", () => {
+    const cfg = createEngineConfig({ net: { ...DEFAULT_ENGINE_CONFIG.net, channelId: "CH.2" } });
+    expect(cfg.net.channelId).toBe("CH.2");
+    expect(cfg.net.serverUrl).toBe(DEFAULT_ENGINE_CONFIG.net.serverUrl);
+  });
+
+  test("debugOverlay default: poll interval ~200–300ms (P0 §4.10, ไม่ per-frame)", () => {
+    expect(DEFAULT_ENGINE_CONFIG.debugOverlay.pollIntervalMs).toBeGreaterThanOrEqual(200);
+    expect(DEFAULT_ENGINE_CONFIG.debugOverlay.pollIntervalMs).toBeLessThanOrEqual(300);
+  });
+
+  test("createEngineConfig() override debugOverlay.defaultVisible โดยคง knob อื่น (shallow-merge)", () => {
+    const cfg = createEngineConfig({
+      debugOverlay: { ...DEFAULT_ENGINE_CONFIG.debugOverlay, defaultVisible: false },
+    });
+    expect(cfg.debugOverlay.defaultVisible).toBe(false);
+    expect(cfg.debugOverlay.pollIntervalMs).toBe(DEFAULT_ENGINE_CONFIG.debugOverlay.pollIntervalMs);
   });
 
   test("resolveResolution ใช้ค่า config ถ้ากำหนด, มิฉะนั้น fallback devicePixelRatio", () => {

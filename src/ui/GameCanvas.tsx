@@ -6,26 +6,38 @@
 
 import { useEffect, useRef } from "react";
 import { createEngine, type EngineHandle } from "@/engine/runtime/app";
-import { DEFAULT_ENGINE_CONFIG } from "@/engine/config";
+import { DEFAULT_ENGINE_CONFIG, createEngineConfig } from "@/engine/config";
+import { DebugOverlay } from "@/ui/DebugOverlay";
+
+// P0-07: realtime server url override ผ่าน env (default = ws://localhost:2567 ใน DEFAULT_NET_CONFIG).
+// NEXT_PUBLIC_ = inline ตอน build (ฝั่ง client). ไม่ตั้ง = ใช้ default local dev.
+const RT_URL = process.env.NEXT_PUBLIC_RT_URL;
+const ENGINE_CONFIG = RT_URL
+  ? createEngineConfig({
+      net: { ...DEFAULT_ENGINE_CONFIG.net, serverUrl: RT_URL },
+    })
+  : DEFAULT_ENGINE_CONFIG;
 
 export function GameCanvas() {
   const containerRef = useRef<HTMLDivElement>(null);
+  // engine handle เก็บใน ref (ไม่ใช่ React state) — DebugOverlay (P0-11) อ่านผ่าน getHandle()
+  // ตอน poll เท่านั้น ไม่ trigger re-render ของ GameCanvas เอง (world state ห้ามเข้า React state, tech §2).
+  const engineRef = useRef<EngineHandle | null>(null);
 
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
 
-    let handle: EngineHandle | null = null;
     let cancelled = false;
 
-    createEngine(container, DEFAULT_ENGINE_CONFIG)
+    createEngine(container, ENGINE_CONFIG)
       .then((created) => {
         if (cancelled) {
           // effect ถูก cleanup ไปแล้วก่อน init เสร็จ (StrictMode) → ทิ้งทันที
           created.destroy();
           return;
         }
-        handle = created;
+        engineRef.current = created;
       })
       .catch((err) => {
         console.error("[GameCanvas] engine init failed", err);
@@ -33,16 +45,19 @@ export function GameCanvas() {
 
     return () => {
       cancelled = true;
-      handle?.destroy();
-      handle = null;
+      engineRef.current?.destroy();
+      engineRef.current = null;
     };
   }, []);
 
   return (
-    <div
-      ref={containerRef}
-      className="h-screen w-screen overflow-hidden"
-      aria-label="game viewport"
-    />
+    <>
+      <div
+        ref={containerRef}
+        className="h-screen w-screen overflow-hidden"
+        aria-label="game viewport"
+      />
+      <DebugOverlay getHandle={() => engineRef.current} />
+    </>
   );
 }

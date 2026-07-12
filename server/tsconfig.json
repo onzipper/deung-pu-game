@@ -1,0 +1,23 @@
+{
+  "//": "tsconfig แยกของ Colyseus server — legacy decorators (@type) + node env. ไม่ผูกกับ Next tsconfig.",
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "lib": ["ES2022"],
+    "types": ["node"],
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true,
+    "useDefineForClassFields": false,
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "noEmit": true,
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["../src/*"]
+    }
+  },
+  "include": ["**/*.ts", "../src/shared/**/*.ts"]
+}
