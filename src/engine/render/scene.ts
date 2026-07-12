@@ -10,7 +10,8 @@
 // scene.ts เป็นแค่ "glue" ที่ apply ผล pure → pixi display objects.
 
 import { Application, Container, Graphics, Text } from "pixi.js";
-import type { EngineConfig, PropStyle } from "@/engine/config";
+import type { EngineConfig, ExitMarkerConfig, PropStyle } from "@/engine/config";
+import type { DiamondPolygon } from "@/engine/render/exit-marker";
 import type { ScreenPoint, TilePoint } from "@/engine/iso/coords";
 import { tileToScreen } from "@/engine/iso/coords";
 import { entityFootToScreen } from "@/engine/render/placement";
@@ -19,6 +20,7 @@ import {
   type MapConfig,
 } from "@/engine/map/types";
 import {
+  applyShakeOffset,
   clampCameraScreen,
   computeMapScreenBounds,
   lerpTile,
@@ -36,6 +38,23 @@ export interface MapSceneHandle {
   resize(width: number, height: number): void;
   /** ตั้งเป้ากล้อง (tile space); snap=true = กระโดดทันทีไม่ lerp */
   setCameraTarget(tile: TilePoint, snap?: boolean): void;
+  /**
+   * ตั้ง shake offset (px) ของเฟรมนี้ (P1-06, GS §17.5) — บวกเข้ากล้อง **หลัง** clamp ขอบ map เสมอ
+   * (ดู camera.ts applyShakeOffset). caller (game/combat) คำนวณ offset จาก engine/render/screen-shake.ts
+   * แล้วเรียกก่อน update() ทุก frame; {sx:0,sy:0} (ค่าเริ่มต้น) = ไม่มี shake.
+   */
+  setCameraShakeOffset(offset: ScreenPoint): void;
+
+  /**
+   * วาด exit marker (P1 fix) — highlight พื้นของทุก tile ใน exit area (polygon จาก
+   * exit-marker.ts) ลง **ground-level layer** (เหนือ ground, ใต้ entity ทั้งหมด — ไม่เข้า depth-sort
+   * เลย). เรียกซ้ำได้ (ล้างของเก่าก่อนวาดใหม่). style.enabled=false หรือ polygons ว่าง = ล้างทิ้ง.
+   * placeholder จนกว่าจะมี art จริง (ประตู/ป้าย sprite).
+   */
+  setExitMarkers(
+    polygons: readonly DiamondPolygon[],
+    style: ExitMarkerConfig,
+  ): void;
 
   // --- entity layer API (P0-05/06/09) ---
   /**
@@ -137,6 +156,9 @@ export function createMapScene(
   // ── layer tree ─────────────────────────────────────────────────────────
   const world = new Container();
   const ground = buildGround(map, config);
+  // exit marker layer (P1 fix): ground-level overlay — เหนือ ground, ใต้ entityLayer (วาดก่อน entity
+  // = อยู่ข้างหลัง entity ในลำดับ paint). ไม่ depth-sort (พื้นราบ coplanar เหมือน ground).
+  const exitMarkerLayer = new Container();
   const entityLayer = new Container();
   // unique zIndex rank ต่อ entity → pixi sort ตรงลำดับ DepthRegistry เป๊ะ (sort เมื่อ zIndex เปลี่ยนเท่านั้น)
   entityLayer.sortableChildren = true;
@@ -145,6 +167,7 @@ export function createMapScene(
   // — ไม่ใช้ zIndex ร่วมกับระบบ depth sort จริง กัน conflict กับ rank ที่ assign ให้ entity.
   const depthDebugLayer = new Container();
   world.addChild(ground);
+  world.addChild(exitMarkerLayer);
   world.addChild(entityLayer);
   world.addChild(depthDebugLayer);
   app.stage.addChild(world);
@@ -156,9 +179,12 @@ export function createMapScene(
   const camCurrent: TilePoint = { tx: map.spawnPoint.x, ty: map.spawnPoint.y };
   const camTarget: TilePoint = { tx: map.spawnPoint.x, ty: map.spawnPoint.y };
   let viewport = { width: app.renderer.width, height: app.renderer.height };
+  // P1-06 screen shake (GS §17.5): offset px บวกเข้า **หลัง** clamp เสมอ — caller เซ็ตทุก frame
+  // ผ่าน setCameraShakeOffset ก่อนเรียก update(); ค่าเริ่มต้น {0,0} = ไม่มีผลต่อกล้องเลย.
+  let shakeOffset: ScreenPoint = { sx: 0, sy: 0 };
 
   const applyCamera = (): void => {
-    // world-screen ของจุดที่กล้องเล็ง → clamp ไม่ให้หลุดขอบ → วาง worldContainer
+    // world-screen ของจุดที่กล้องเล็ง → clamp ไม่ให้หลุดขอบ → บวก shake (หลัง clamp) → วาง worldContainer
     const raw: ScreenPoint = tileToScreen(camCurrent, tileSize);
     const clamped = clampCameraScreen(
       raw,
@@ -166,9 +192,10 @@ export function createMapScene(
       viewport,
       config.camera.edgeMargin,
     );
+    const final = applyShakeOffset(clamped, shakeOffset);
     world.position.set(
-      viewport.width / 2 - clamped.sx,
-      viewport.height / 2 - clamped.sy,
+      viewport.width / 2 - final.sx,
+      viewport.height / 2 - final.sy,
     );
   };
 
@@ -304,6 +331,28 @@ export function createMapScene(
         camCurrent.ty = tile.ty;
         applyCamera();
       }
+    },
+
+    setCameraShakeOffset(offset: ScreenPoint): void {
+      shakeOffset = offset;
+      // ไม่เรียก applyCamera()/syncDepth() ที่นี่ตรง ๆ — caller เรียกก่อน update() เสมอในเฟรมเดียวกัน
+      // (pattern เดียวกับ setCameraTarget ที่ snap=false), กัน apply ซ้ำสองรอบต่อ frame.
+    },
+
+    setExitMarkers(polygons, style): void {
+      // ล้างของเก่าก่อน (idempotent — mount map ใหม่/toggle) แล้ววาดลง Graphics เดียว (ทั้ง area แชร์ก้อนเดียว)
+      exitMarkerLayer.removeChildren().forEach((c) => c.destroy());
+      if (!style.enabled || polygons.length === 0) return;
+      const g = new Graphics();
+      for (const poly of polygons) {
+        g.poly(poly as number[]).fill({ color: style.fillColor, alpha: style.fillAlpha });
+        g.poly(poly as number[]).stroke({
+          color: style.lineColor,
+          width: style.lineWidth,
+          alpha: style.lineAlpha,
+        });
+      }
+      exitMarkerLayer.addChild(g);
     },
 
     addEntity,

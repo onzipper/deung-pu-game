@@ -8,11 +8,13 @@
 // ไม่ใช้ zod (ไม่เพิ่ม dependency) — validate ด้วยมือ, helper เล็ก ๆ ด้านล่าง.
 
 import { snapToTile, type TilePoint } from "@/engine/iso/coords";
+import type { MapZoneType } from "@/engine/config";
 import {
   packTile,
   type CollisionLayer,
   type MapBounds,
   type MapConfig,
+  type MapExit,
   type MobPocket,
   type PropSpawn,
   type SpawnPoint,
@@ -86,6 +88,15 @@ function parseTileSize(v: unknown): { width: number; height: number } {
   if (width <= 0) fail(`tileSize.width ต้อง > 0 (got ${width})`);
   if (height <= 0) fail(`tileSize.height ต้อง > 0 (got ${height})`);
   return { width, height };
+}
+
+/** P1-11: zoneType (optional) — ไม่ระบุ → "field" (default combat); ต้องเป็น "safe" | "field" เท่านั้น. */
+function parseZoneType(v: unknown): MapZoneType {
+  if (v === undefined) return "field";
+  if (v !== "safe" && v !== "field") {
+    fail(`zoneType ต้องเป็น "safe" | "field" (got ${describe(v)})`);
+  }
+  return v;
 }
 
 function parseBounds(v: unknown): MapBounds {
@@ -178,16 +189,17 @@ function parseSpawnPoint(
   v: unknown,
   bounds: MapBounds,
   blockedSet: ReadonlySet<number>,
+  path = "spawnPoint",
 ): SpawnPoint {
-  const o = asRecord(v, "spawnPoint");
-  const x = reqFinite(o.x, "spawnPoint.x");
-  const y = reqFinite(o.y, "spawnPoint.y");
+  const o = asRecord(v, path);
+  const x = reqFinite(o.x, `${path}.x`);
+  const y = reqFinite(o.y, `${path}.y`);
   // spawn เป็น tile coord (float ได้) → snap ก่อนเช็ค cell.
   const cell = snapToTile({ tx: x, ty: y });
-  requireIntTileInBounds(cell, "spawnPoint", bounds);
+  requireIntTileInBounds(cell, path, bounds);
   if (blockedSet.has(packTile(cell.tx, cell.ty, bounds.width))) {
     fail(
-      `spawnPoint (${x},${y}) → cell (${cell.tx},${cell.ty}) ทับ collision — ` +
+      `${path} (${x},${y}) → cell (${cell.tx},${cell.ty}) ทับ collision — ` +
         `จุดเกิดต้องเดินได้`,
     );
   }
@@ -223,7 +235,33 @@ function parsePocket(
   const activeCap = reqInt(o.activeCap, `${path}.activeCap`);
   if (activeCap < 1) fail(`${path}.activeCap ต้อง ≥ 1 (got ${activeCap})`);
 
-  return { pocketId, mobType, area, packSize: { min, max }, activeCap };
+  const pocket: MobPocket = { pocketId, mobType, area, packSize: { min, max }, activeCap };
+  // P1-03: respawn delay override ต่อ pocket (optional) — ไม่ระบุ → global default (MobConfig.respawnDelayMs)
+  if (o.respawnDelayMs !== undefined) {
+    const d = reqFinite(o.respawnDelayMs, `${path}.respawnDelayMs`);
+    if (d < 0) fail(`${path}.respawnDelayMs ต้อง ≥ 0 (got ${d})`);
+    pocket.respawnDelayMs = d;
+  }
+  return pocket;
+}
+
+/**
+ * parse exit 1 จุด (P1-10) — **intrinsic validation เท่านั้น** (สิ่งที่ map นี้รู้เอง):
+ *   exitId ไม่ว่าง · area = rect integer ในขอบเขต map นี้ · targetMapId ไม่ว่าง · targetSpawn = {x,y} finite.
+ * **ไม่** ตรวจ targetMapId มีจริง / targetSpawn เดินได้ — นั่นเป็น cross-map (targetSpawn อยู่ใน coordinate
+ * space ของ map อื่น) → ตรวจที่ registry (validateMapCrossRefs) ที่รู้ทุก map. fail-loud เหมือน field อื่น.
+ */
+function parseExit(v: unknown, path: string, bounds: MapBounds): MapExit {
+  const o = asRecord(v, path);
+  const exitId = reqString(o.exitId, `${path}.exitId`);
+  const area = parseRect(o.area, `${path}.area`, bounds);
+  const targetMapId = reqString(o.targetMapId, `${path}.targetMapId`);
+  const ts = asRecord(o.targetSpawn, `${path}.targetSpawn`);
+  const targetSpawn: SpawnPoint = {
+    x: reqFinite(ts.x, `${path}.targetSpawn.x`),
+    y: reqFinite(ts.y, `${path}.targetSpawn.y`),
+  };
+  return { exitId, area, targetMapId, targetSpawn };
 }
 
 /**
@@ -231,12 +269,15 @@ function parsePocket(
  *
  * Invariant ที่คุ้ม:
  *  • mapId/name = string ไม่ว่าง
+ *  • zoneType (optional) = "safe" | "field" (default "field")
  *  • tileSize.width/height > 0
  *  • bounds.width/height = integer > 0
  *  • collision rect/tile = integer อยู่ในขอบเขต → build blockedSet (lookup O(1))
  *  • spawnPoint (snap เป็น cell) อยู่ในขอบเขต และ **ไม่ทับ collision**
  *  • props: propId ไม่ว่าง, tile finite (float ได้), zLayer integer ถ้ามี
  *  • mobPockets: id ไม่ซ้ำ, area อยู่ในขอบเขต, packSize 1≤min≤max, activeCap ≥ 1
+ *  • exits (optional): id ไม่ซ้ำ, area อยู่ในขอบเขต, targetMapId/targetSpawn shape ถูก
+ *    (cross-ref target มีจริง + เดินได้ = registry.validateMapCrossRefs, ไม่ใช่ที่นี่)
  */
 export function loadMapConfig(raw: unknown): MapConfig {
   const o = asRecord(raw, "root");
@@ -244,10 +285,16 @@ export function loadMapConfig(raw: unknown): MapConfig {
   const mapId = reqString(o.mapId, "mapId");
   const name = reqString(o.name, "name");
   const tileSize = parseTileSize(o.tileSize);
+  const zoneType = parseZoneType(o.zoneType);
   const bounds = parseBounds(o.bounds);
 
   const { layer: collision, blockedSet } = parseCollision(o.collision, bounds);
   const spawnPoint = parseSpawnPoint(o.spawnPoint, bounds, blockedSet);
+  // P1-07 (§59.1): safe camp optional — validate เหมือน spawnPoint (ในขอบเขต + เดินได้) ถ้าระบุ.
+  const safeCamp =
+    o.safeCamp !== undefined
+      ? parseSpawnPoint(o.safeCamp, bounds, blockedSet, "safeCamp")
+      : undefined;
 
   const rawProps = asArray(o.props, "props");
   const props = rawProps.map((p, i) => parseProp(p, `props[${i}]`));
@@ -263,14 +310,32 @@ export function loadMapConfig(raw: unknown): MapConfig {
     return pocket;
   });
 
+  // P1-10: exits (optional) — intrinsic validate + id ไม่ซ้ำ. cross-ref (target มีจริง/เดินได้) = registry.
+  const exits: MapExit[] = [];
+  if (o.exits !== undefined) {
+    const rawExits = asArray(o.exits, "exits");
+    const seenExitIds = new Set<string>();
+    rawExits.forEach((e, i) => {
+      const exit = parseExit(e, `exits[${i}]`, bounds);
+      if (seenExitIds.has(exit.exitId)) {
+        fail(`exits[${i}].exitId ซ้ำ ("${exit.exitId}")`);
+      }
+      seenExitIds.add(exit.exitId);
+      exits.push(exit);
+    });
+  }
+
   return {
     mapId,
     name,
     tileSize,
+    zoneType,
     bounds,
     spawnPoint,
+    ...(safeCamp !== undefined ? { safeCamp } : {}),
     collision,
     props,
     mobPockets,
+    exits,
   };
 }

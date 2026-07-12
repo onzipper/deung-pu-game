@@ -67,12 +67,14 @@ export function DebugOverlay({ getHandle }: DebugOverlayProps) {
     });
   };
 
+  // Panel มุมขวาบน — canvas FPS text (app.ts, per-frame, ห้ามแตะ) อยู่มุมซ้ายบน (12,12) ของ world layer
+  // เดิม panel นี้อยู่ left-2 top-2 ทับ FPS text พอดี (ทั้งคู่เป็น top-left corner) → ย้ายมาขวาบนกันชนกัน.
   if (!state.visible) {
     return (
       <button
         type="button"
         onClick={() => setState(toggleVisible)}
-        className="pointer-events-auto fixed left-2 top-2 z-50 rounded bg-black/50 px-2 py-1 font-mono text-[10px] text-white/70 hover:bg-black/70"
+        className="pointer-events-auto fixed right-2 top-2 z-50 rounded bg-black/50 px-2 py-1 font-mono text-[10px] text-white/70 hover:bg-black/70"
       >
         debug (F3)
       </button>
@@ -80,13 +82,13 @@ export function DebugOverlay({ getHandle }: DebugOverlayProps) {
   }
 
   return (
-    <div className="pointer-events-auto fixed left-2 top-2 z-50 w-64 rounded bg-black/70 p-2 font-mono text-[11px] leading-tight text-white/90 shadow-lg">
+    <div className="pointer-events-auto fixed right-2 top-2 z-50 w-64 rounded bg-black/70 p-2 font-mono text-[11px] leading-tight text-white/90 shadow-lg">
       <div className="mb-1 flex items-center justify-between gap-2">
         <span className="font-bold">Debug (F3)</span>
         <button
           type="button"
           onClick={() => setState(toggleVisible)}
-          className="rounded bg-white/10 px-1.5 hover:bg-white/20"
+          className="shrink-0 rounded bg-white/10 px-1.5 hover:bg-white/20"
         >
           hide
         </button>
@@ -106,7 +108,10 @@ export function DebugOverlay({ getHandle }: DebugOverlayProps) {
           <div>mapId: {info.net.mapId ?? "-"}</div>
           <div>roomId: {info.net.roomId ?? "-"}</div>
           <div>channelId: {info.net.channelId ?? "-"}</div>
+          <div>party: {info.net.partyId ? info.net.partyId : "solo"}</div>
           <div>players: {info.net.playerCount}</div>
+          <div>corrections: {info.net.correctionCount}</div>
+          <div>cast rejects: {info.net.castRejectCount}</div>
         </div>
       ) : (
         <div className="text-white/50">waiting engine…</div>
@@ -114,7 +119,7 @@ export function DebugOverlay({ getHandle }: DebugOverlayProps) {
       <button
         type="button"
         onClick={onToggleDepthDebug}
-        className="mt-2 w-full rounded bg-white/10 px-2 py-1 hover:bg-white/20"
+        className="mt-2 block w-full rounded bg-white/10 px-2 py-1 text-center hover:bg-white/20"
       >
         depth debug: {state.depthDebug ? "on" : "off"}
       </button>

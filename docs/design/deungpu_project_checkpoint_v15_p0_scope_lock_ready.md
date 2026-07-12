@@ -1,9 +1,21 @@
-# ดึ๋งปุ๊ — Project Checkpoint v15 P0 Scope Lock Ready
+# ดึ๋งปุ๊ — Project Checkpoint v15.1 P0 Scope Lock Ready
 
-> สถานะเอกสาร: **P0 Scope Lock Ready / Current Source of Truth v15**  
+> สถานะเอกสาร: **P0 Scope Lock Ready / Current Source of Truth v15.1**  
 > จุดประสงค์: ปิดงานการขึ้นโปรเจกต์รอบแรกให้ครบ ไม่มีงานค้างจากเฟส design setup  
 > ใช้ต่อจาก: `deungpu_project_checkpoint_v8.md`  
-> สถานะงาน: **Design Phase 1 + Phase 2 + Combat Juice Layer + Audio Direction + Tech Handoff Readiness + Map Scale/Spawn Density + Engine Foundation Decisions + Runtime/Bot/Channel/Schema Ownership + P0 Scope Lock ปิดครบแล้ว**
+> สถานะงาน: **Design Phase 1 + Phase 2 + Combat Juice Layer + Audio Direction + Tech Handoff Readiness + Map Scale/Spawn Density + Engine Foundation Decisions + Runtime/Bot/Channel/Schema Ownership + P0 Scope Lock + v15.1 Amendment (P0/P1 retest) ปิดครบแล้ว**
+
+---
+
+## 0.0 Amendment Log — v15.1 (2026-07-12)
+
+ไฟล์นี้แก้ **in-place** (ไม่ rename/ไม่สร้างไฟล์ใหม่ — กัน reference "v15" ทั้ง repo/โค้ดพัง) สะท้อน decision ที่ owner เคาะระหว่าง P0/P1 implementation (ดู `docs/decision-index.md` แถว 2026-07-12 ท้ายตาราง). สถานะ: **amendment เท่านั้น ค่า balance ทั้งหมดยังเป็น PENDING OWNER เหมือนเดิม** (ยังไม่ถูก merge เข้า spec).
+
+Delta:
+
+1. **§59.1 Reconnect** — เพิ่มรายละเอียด reconnect token per-tab, refresh = reclaim seat เดิม (ไม่สะสมผี), และ**นโยบายแท็บเบื้องหลัง**: สลับแท็บ/พับจอ/minimize = ค้างออนไลน์ตลอด ไม่ auto-disconnect ใน P1 (ทบทวนใหม่ตอน P2 เมื่อมีความเสี่ยง combat ต่อผู้เล่น AFK) — owner เคาะ 2026-07-12
+2. **§59.1 Reconnect** — ระบุจุดเริ่มเกม (start map) + การจำ map ล่าสุดข้าม refresh = งาน P2 (persistence); ระหว่างนี้ boot เข้า P0 Test Field เสมอ (dev map นอก MAP_LAYOUT_BIBLE ทางเดียวไป Map 1 ไม่มีย้อนกลับ) — owner เคาะ 2026-07-12
+3. **§57.3 Map World Model** — เพิ่มข้อว่า exit ทุกจุดต้องมี ground marker (highlight placeholder) มองเห็นได้ จนกว่าจะมี art ประตูจริง — สะท้อนสิ่งที่ implement จริงใน P1 (ยืนยันแล้วตอน owner retest)
 
 ---
 
@@ -3767,6 +3779,10 @@ Tech ต้องรองรับ:
 - world boss / event special channel
 - spawn manager per room/channel
 
+### 57.3.1 Amendment (v15.1, 2026-07-12) — Exit Visibility
+
+- exit ทุกจุด (จุดข้าม map) ต้องมี **ground marker มองเห็นได้** (highlight placeholder) จนกว่าจะมี art ประตูจริง — กันผู้เล่นเดินหาทางออกไม่เจอระหว่างที่ยังไม่มี art จริง
+
 ---
 
 ## 57.4 Weird Map Behavior
@@ -3966,6 +3982,16 @@ Tech impact:
 - position validation
 - safe camp fallback
 - anti-exploit checks
+
+### 59.1.1 Amendment (v15.1, 2026-07-12) — Tab/Refresh Behavior
+
+เพิ่มรายละเอียดจากการ implement + retest จริงใน P0/P1:
+
+1. **Reconnect token เก็บ per-tab** (client) — refresh/reopen แท็บภายใน grace 30s = กลับ seat/ตำแหน่ง/ห้องเดิม; การ refresh คือ reclaim seat เดิม ไม่สะสม "ผี" (ตัวละครซ้อนจากแท็บเก่า)
+2. **ปิดแท็บ/ปิด browser** = การหลุดไม่ตั้งใจ → ตัวละครค้างในโลกให้ผู้เล่นอื่นเห็นสูงสุด 30s แล้วถูกเอาออก (flow เดิมของ §59.1 ด้านบน ไม่เปลี่ยน)
+3. **นโยบายแท็บเบื้องหลัง (owner เคาะ 2026-07-12)**: สลับแท็บ/พับจอ/minimize = **ค้างออนไลน์ตลอด ไม่ auto-disconnect** — browser จะหยุดแค่การวาดภาพฝั่งนั้น ตัวละครยังอยู่ในโลกจริงตามปกติ ผู้เล่นอื่นเห็นเหมือนเดิม; **ต้องทบทวนใหม่ตอน P2** เมื่อมี combat risk ต่อผู้เล่น AFK (เช่น ถูกตีตายได้ระหว่างพับจอ)
+4. **การ resync ภาพทันทีตอน refocus แท็บ** = งาน P2 (P1 ยังไม่มี fast-resync UX พิเศษ)
+5. **จุดเริ่มเกม (start map) + การจำ map ล่าสุดข้าม refresh** = งาน P2 (ต้องมี persistence) — ระหว่างนี้ boot เข้า dev **P0 Test Field** เสมอ (map ทดสอบนอก MAP_LAYOUT_BIBLE มีทางเดียวไป Map 1 ไม่มีทางย้อนกลับ)
 
 ---
 

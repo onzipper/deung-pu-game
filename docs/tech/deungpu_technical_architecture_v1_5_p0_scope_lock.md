@@ -1,8 +1,9 @@
-# ดึ๋งปุ๊ — Technical Architecture v1.5
+# ดึ๋งปุ๊ — Technical Architecture v1.5.1
 
-> **Canonical game spec:** `deungpu_project_checkpoint_v15_p0_scope_lock_ready.md` (รวมทุก layer: v9 combat + v10 audio + v11 tech handoff + v12 spawn + v13 engine + v14 runtime + v15 P0 scope lock)
+> **Canonical game spec:** `deungpu_project_checkpoint_v15_p0_scope_lock_ready.md` (รวมทุก layer: v9 combat + v10 audio + v11 tech handoff + v12 spawn + v13 engine + v14 runtime + v15 P0 scope lock + v15.1 amendment)
 > **เอกสารแยกที่อ้างอิง:** `ENGINE_FOUNDATION_DECISIONS_v1` · `RUNTIME_BOT_CHANNEL_AND_SCHEMA_OWNERSHIP_DECISIONS_v1` · `MAP_LAYOUT_BIBLE_v1` · `MAP_SCALE_AND_SPAWN_DENSITY_SPEC_v1` · `P0_SCOPE_LOCK_v1`
-> สถานะ: **P0 scope locked — เอกสารนี้คือ tech architecture ฝั่ง implementation; game semantics/balance ยึด v15**
+> สถานะ: **P0 scope locked — เอกสารนี้คือ tech architecture ฝั่ง implementation; game semantics/balance ยึด v15.1**
+> **v1.5.1 — amendment (2026-07-12, in-place ไม่ rename ไฟล์):** สะท้อน decision + finding จริงจาก P0/P1 implementation — client ต้อง adopt ตำแหน่งจาก server ก่อนส่ง move แรก (§6), reconnect token = sessionStorage per-tab (§6), นโยบายแท็บเบื้องหลัง = ค้างออนไลน์ตลอดใน P1 (§6), party channel model ที่ implement จริง = private-party-channel (§6), server-side hit tolerance สำหรับ melee ที่ระยะประชิด (§15, ตัวเลข **PENDING OWNER**), walk-to-attack ตีต่อเนื่อง (§17.3) — ดู "Amendment Log" ท้าย §6/§15/§17.3 สำหรับรายละเอียด ค่า balance ทั้งหมดยังเป็น PENDING OWNER เหมือนเดิม
 > **v1.5 — sync กับ v15:** เพิ่ม **P0 Scope Lock (§19)** และปรับ Prototype Plan/Execution Plan ให้ P0 = **Engine Foundation Vertical Slice** ไม่ใช่ full combat/local-only slice
 > **v1.4 — originally sync กับ v14 / still covered by v15:** เพิ่ม isometric engine foundation (§17), spawn/aggro system (§18), runtime decisions (reconnect/offline bot/channel); ปรับ §15/§16 ให้ **reference** v15 §48/§50.1 แทน redefine (ตาม ownership rule)
 > **v1.3** — audio stack (Howler+Tone), combat foundation, design directions
@@ -295,6 +296,13 @@ Live hub + shared farming maps + world boss = bidirectional push ตลอดเ
 - World boss: dedicated room, HP broadcast แบบ throttle (2–4Hz หรือเมื่อเปลี่ยน >0.5%), contribution นับฝั่ง server
 - Party: state ใน Redis + push ผ่าน room ที่สมาชิกอยู่ (ข้าม map ได้)
 - Guild/world announcement: Redis pubsub → ทุก room → client toast/feed — ห้าม loop ยิง HTTP
+
+### 6.1 Amendment (v1.5.1, 2026-07-12) — P0/P1 Implementation Findings
+
+1. **Client ต้อง adopt ตำแหน่งตัวเองจาก server state ก่อนส่ง move แรกเสมอ** — บั๊กจริงที่เจอ: การ join/reconnect ของ Colyseus resolve **ก่อน** `ROOM_STATE` มาถึง client; ถ้า client ส่ง move จากตำแหน่ง spawn ที่เดาไว้ทันที server จะเห็นเป็น teleport (โดน correction) และ exit/transition detection ฝั่ง server จะไม่ทำงานถูกต้อง (คำนวณจากตำแหน่งเก่า) → client ต้องรอ state sync ตำแหน่งจริงก่อน จึงเริ่มส่ง `move` ได้
+2. **Reconnect token เก็บที่ `sessionStorage` per-tab เท่านั้น** (ห้าม `localStorage`) — เหตุผล: `localStorage` แชร์ข้ามแท็บ หลายแท็บของ browser เดียวกันจะแย่ง seat เดียวกัน (race); consented leave (ผู้เล่นกดออกจากเกมตั้งใจ) ต้องล้าง token ทิ้ง; event `pagehide` **ห้าม** ส่ง consented leave (เพราะ browser อาจยิง pagehide ตอน refresh/สลับแท็บด้วย ไม่ใช่แค่ปิดจริง) — ปล่อยให้ server timeout ตาม grace ปกติ (§59.1)
+3. **นโยบายแท็บเบื้องหลัง (owner เคาะ 2026-07-12, ตรง v15 §59.1.1)**: พับจอ/สลับแท็บ/minimize = **ค้างออนไลน์ตลอดใน P1** ไม่ auto-disconnect — ทบทวนใหม่ตอน P2 เมื่อมี combat risk ต่อผู้เล่น AFK
+4. **Party channel model ที่ implement จริง (P1-08)**: **private-party-channel** ผ่าน Colyseus native `filterBy([mapId, partyId])` + capacity แยก solo (`channelCapacity`)/party (`partyChannelCapacity`) — party ได้ channel ส่วนตัวของกลุ่มเสมอ (การันตีอยู่ด้วยกัน 100% แข็งกว่าที่ §59.3 ขอ) แทน shared-population channel model ที่ระบุไว้เดิมด้านบน (ย่อหน้า "Party sync สำคัญกว่า solo auto-assign" — ยังใช้ describe **เจตนา** ได้ แต่ **ไม่ใช่กลไก implement จริง**) ผลข้างเคียง: scattered-member prompt ("ย้ายไปหา party") = **N/A ใน P1** เพราะ filter การันตี party อยู่ห้องเดียวกันเสมอ ไม่มีทางกระจัดกระจาย — **open question**: ถ้า owner อยากได้ shared-population channel model (ตามย่อหน้าเดิม) ต้องทำ custom matchmaking route เพิ่ม (มี TODO ในโค้ด, `server/matchmaking/`)
 
 ---
 
@@ -613,6 +621,25 @@ effective_DEF = max(0, target_DEF − attacker_Penetration)
 ### 15.6 ผลต่อสถาปัตยกรรม
 Stat + สูตรชุดนี้คือ input ของ **Skill Data Model (§16.1)** — server เป็นเจ้าของสูตรและการคำนวณทั้งหมด, client ไม่มีสูตร damage ใน bundle
 
+### 15.7 Amendment (v1.5.1, 2026-07-12) — Server-side Hit Tolerance
+
+**ปัญหาที่วัดได้จริง:** client เล็งตามภาพที่ interpolate ย้อนหลัง (~120ms buffer, §6) → arc melee ที่คำนวณตรงตัวไร้ความหมายที่ระยะประชิด (วัดจริงได้ angle error median 161°) ทำให้ผู้เล่นยืนตีประชิดแล้วพลาดบ่อยผิดสังเกต ทั้งที่ตาเห็นว่าโดน
+
+**กลไก (เคาะแล้ว — วิธีแก้ตัดสินแล้ว):** เพิ่ม hit tolerance ฝั่ง server เข้า `CombatBalanceConfig` เป็น sub-object ใหม่ `hitTolerance`:
+- `pointBlankRadiusTiles` — ระยะที่ถือว่า "ประชิด" ให้โดนเสมอไม่ต้องเช็ค arc
+- `rangePaddingTiles` — บวกเผื่อระยะ (กัน client/server คำนวณระยะเพี้ยนกันเล็กน้อยจาก interpolation)
+- `arcPaddingDegrees` — บวกเผื่อมุม arc (ชดเชย angle error จาก interpolated position)
+
+**ตัวเลขจริง = Design Knob PENDING OWNER** (ผูกกับ interp `bufferMs`/mob `chaseSpeed` — ต้อง tune คู่กัน ไม่ใช่ตัวเลขลอย) — **กลไกเคาะแล้ว ตัวเลขยังไม่เคาะ** ตามหลัก §16.6
+
+**Client offline** (ไม่มี server) ใช้ tolerance = 0 (ไม่มี interpolation buffer ให้ชดเชยเพราะไม่มี network)
+
+**Client feedback:** ผู้เล่นควรรู้เมื่อ cast โดนปฏิเสธ — นับ `castRejectCount` โชว์บน debug overlay (P1 ยัง dev-only; production feedback UX = P2)
+
+**Remote attack visual:** ท่าโจมตีของผู้เล่นอื่นเล่นจาก event `MSG_SKILL_RESULT` broadcast โดยตรง (มี `casterId`, ยิง broadcast แม้ `hits` ว่าง/miss) — **ห้าม** sync ท่าตีผ่าน position/animation sync 10Hz เพราะคลิปโจมตีสั้นกว่ารอบ sync (จะเห็นกระตุก/ตกเฟรม)
+
+**Juice scope:** hit stop/screen shake trigger **เฉพาะ cast ของตัวเอง** (ไม่ trigger จาก remote cast — กัน screen shake ถี่เกินตอนคนอื่นตีข้างๆ); เลขดาเมจ (damage number) โชว์จากทุก caster ตามปกติ; เพิ่ม juice floor knobs (`minLevelOnKill`/`minLevelOnCrit`) กัน skill ที่ตั้ง `hitStopLevel`/`screenShakeLevel` = 0 ไม่รู้สึกอะไรเลยตอน crit/kill
+
 ---
 
 ## 16. Design Directions (ทิศทางเคาะแล้ว — spec เต็มทำรายเฟส)
@@ -703,6 +730,8 @@ Guild war schema · Raid phase data model · Weekly scheduler เต็ม · Se
 - **บน iso grid** (คิดในพิกัด diamond/logical ไม่ใช่ screen) — spatial hash grid ใช้ logical coordinate
 - Pathfinding (A* หรือ flow-field) บน iso tile; รองรับ blocked tile, one-way connector (§57.4)
 - ใช้ spatial hash เดียวกันทั้ง collision, AoE hit test (server), และ AOI filter (network)
+
+**Amendment (v1.5.1, 2026-07-12) — Walk-to-attack ต่อเนื่อง:** คลิกมอบครั้งเดียว (หรือแตะบนมือถือ) = **ตีต่อเนื่อง** ไม่ใช่ตีครั้งเดียวแล้วหยุด — implement เป็น **engage state machine**: `chase` (เดินเข้าเป้าด้วย pathfinding ตัวเดียวกับ click-to-move) เมื่อหลุดระยะโจมตี → `attack` เมื่อเข้าระยะ → ยกเลิกเมื่อเป้าตาย/ผู้เล่นกด WASD/ผู้เล่นคลิกเป้าอื่น (**manual override ชนะเสมอ** — สอดคล้อง §16.3 ข้อ movement authority ปกติ)
 
 ### 17.4 Direction System (§57.2)
 - **5 ทิศวาดจริง: S / SW / W / NW / N** + **mirror: SE←SW, E←W, NE←NW**

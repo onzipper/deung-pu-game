@@ -5,10 +5,12 @@ import {
 } from "@/engine/map/loader";
 import { P0_TEST_FIELD } from "@/engine/map/p0-test-field";
 import {
+  findExitAt,
   isBlockedTile,
   isWalkableTile,
   isWithinBounds,
   packTile,
+  safeCampOf,
   type MapConfigInput,
 } from "@/engine/map/types";
 
@@ -182,5 +184,147 @@ describe("P0_TEST_FIELD — ข้อมูลจริงผ่าน validatio
     expect(isBlockedTile(map, 6, 4)).toBe(true); // กำแพง
     expect(isBlockedTile(map, 17, 17)).toBe(true); // บ่อน้ำ
     expect(isBlockedTile(map, 10, 5)).toBe(true); // หินเดี่ยว
+  });
+});
+
+describe("exits (P1-10, §57.3) — optional field + intrinsic validation", () => {
+  test("ไม่ระบุ exits → map.exits = []", () => {
+    const map = loadMapConfig(validConfig());
+    expect(map.exits).toEqual([]);
+  });
+
+  test("exit ถูกต้อง → parse ครบ field", () => {
+    const cfg = validConfig();
+    cfg.exits = [
+      {
+        exitId: "e1",
+        area: { tx: 0, ty: 0, width: 2, height: 1 },
+        targetMapId: "other",
+        targetSpawn: { x: 3.5, y: 4.5 },
+      },
+    ];
+    const map = loadMapConfig(cfg);
+    expect(map.exits).toHaveLength(1);
+    expect(map.exits[0].exitId).toBe("e1");
+    expect(map.exits[0].targetMapId).toBe("other");
+    expect(map.exits[0].targetSpawn).toEqual({ x: 3.5, y: 4.5 });
+  });
+
+  test("exit area หลุดขอบ → throw", () => {
+    const cfg = validConfig();
+    cfg.exits = [
+      {
+        exitId: "e1",
+        area: { tx: 8, ty: 8, width: 5, height: 5 },
+        targetMapId: "other",
+        targetSpawn: { x: 1, y: 1 },
+      },
+    ];
+    expect(() => loadMapConfig(cfg)).toThrow(/หลุดขอบ/);
+  });
+
+  test("exitId ซ้ำ → throw", () => {
+    const cfg = validConfig();
+    const e = {
+      exitId: "dup",
+      area: { tx: 0, ty: 0, width: 1, height: 1 },
+      targetMapId: "other",
+      targetSpawn: { x: 1, y: 1 },
+    };
+    cfg.exits = [e, { ...e }];
+    expect(() => loadMapConfig(cfg)).toThrow(/exitId ซ้ำ/);
+  });
+
+  test("targetMapId ว่าง → throw", () => {
+    const cfg = validConfig();
+    cfg.exits = [
+      {
+        exitId: "e1",
+        area: { tx: 0, ty: 0, width: 1, height: 1 },
+        targetMapId: "",
+        targetSpawn: { x: 1, y: 1 },
+      },
+    ];
+    expect(() => loadMapConfig(cfg)).toThrow(/targetMapId/);
+  });
+
+  test("targetSpawn ไม่ finite → throw (แต่ loader ไม่ตรวจ walkable — เป็นงานของ registry)", () => {
+    const cfg = validConfig();
+    cfg.exits = [
+      {
+        exitId: "e1",
+        area: { tx: 0, ty: 0, width: 1, height: 1 },
+        targetMapId: "other",
+        targetSpawn: { x: Number.NaN, y: 1 },
+      },
+    ];
+    expect(() => loadMapConfig(cfg)).toThrow(/targetSpawn.x/);
+  });
+});
+
+describe("zoneType (P1-11, GS §14) — optional enum + default", () => {
+  test("ไม่ระบุ → default 'field'", () => {
+    const map = loadMapConfig(validConfig());
+    expect(map.zoneType).toBe("field");
+  });
+
+  test("ระบุ 'safe' / 'field' → ผ่าน", () => {
+    const safe = { ...validConfig(), zoneType: "safe" as const };
+    expect(loadMapConfig(safe).zoneType).toBe("safe");
+    const field = { ...validConfig(), zoneType: "field" as const };
+    expect(loadMapConfig(field).zoneType).toBe("field");
+  });
+
+  test("ค่า enum ผิด → throw", () => {
+    const cfg = { ...validConfig(), zoneType: "town" as unknown as "safe" };
+    expect(() => loadMapConfig(cfg)).toThrow(/zoneType/);
+  });
+});
+
+describe("findExitAt / isTileInRect (P1-10)", () => {
+  test("findExitAt คืน exit เมื่อ tile อยู่ในพื้นที่, null เมื่อไม่อยู่", () => {
+    const cfg = validConfig();
+    cfg.exits = [
+      {
+        exitId: "e1",
+        area: { tx: 5, ty: 0, width: 2, height: 2 },
+        targetMapId: "other",
+        targetSpawn: { x: 1, y: 1 },
+      },
+    ];
+    const map = loadMapConfig(cfg);
+    expect(findExitAt(map, 5, 0)?.exitId).toBe("e1");
+    expect(findExitAt(map, 6, 1)?.exitId).toBe("e1");
+    expect(findExitAt(map, 7, 0)).toBeNull(); // นอก width [5,7)
+    expect(findExitAt(map, 5, 2)).toBeNull(); // นอก height [0,2)
+    expect(findExitAt(map, 0, 0)).toBeNull();
+  });
+});
+
+describe("safeCamp (P1-07, §59.1) — optional field + fallback", () => {
+  test("ไม่ระบุ safeCamp → safeCampOf = spawnPoint", () => {
+    const map = loadMapConfig(P0_TEST_FIELD);
+    expect(map.safeCamp).toBeUndefined();
+    expect(safeCampOf(map)).toEqual(map.spawnPoint);
+  });
+
+  test("ระบุ safeCamp เดินได้ → ผ่าน + safeCampOf คืนค่านั้น", () => {
+    const cfg = validConfig();
+    cfg.safeCamp = { x: 8.5, y: 8.5 };
+    const map = loadMapConfig(cfg);
+    expect(map.safeCamp).toEqual({ x: 8.5, y: 8.5 });
+    expect(safeCampOf(map)).toEqual({ x: 8.5, y: 8.5 });
+  });
+
+  test("safeCamp ทับ collision → throw (validate เหมือน spawnPoint)", () => {
+    const cfg = validConfig();
+    cfg.safeCamp = { x: 2.5, y: 2.5 }; // อยู่ใน blockedRect (2,2)+2×2
+    expect(() => loadMapConfig(cfg)).toThrow(MapConfigError);
+  });
+
+  test("safeCamp หลุดขอบ → throw", () => {
+    const cfg = validConfig();
+    cfg.safeCamp = { x: 99, y: 99 };
+    expect(() => loadMapConfig(cfg)).toThrow(MapConfigError);
   });
 });
