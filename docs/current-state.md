@@ -6,6 +6,8 @@ _Last updated: 2026-07-12_
 
 ## Where we are
 
+**P2 คลื่น 1 เสร็จครบ 4/4** (branch `feat/p2-wave1`, 2026-07-12 — PR รอ owner review): **P2-14** multi-hit rounding = round-total-once + subHits (ปิด debt Bible 1.8, never-downgrade รีวิวไขว้แล้ว) · **P2-02** Prisma/MySQL schema 10 ตาราง offline ทั้งหมด (ยังไม่แตะ DB จริง — Prisma pin 6.x; ⚠ pending owner: Character.name unique/กติกาชื่อ) · **P2-01** Zustand bridge จริง (`src/ui/store/`, DebugOverlay เลิก poll, contract ui.md อัปเดต) · **P2-00** e2e harness ถาวร (`npm run e2e` — 8 checks พิสูจน์กับ server จริง) · **เทสต์ 699/699 เขียว + lint + build ผ่าน** · ถัดไป = คลื่น 2 (auth → persistence → value loop) · **owner ส่ง `docs/deungpu_P2_UI_VISUAL_IMPLEMENTATION_SPEC_v1.md` เพิ่ม** (ปิดช่องว่าง UI) — กำลังวิเคราะห์/ตั้งคำถามก่อน integrate
+
 **P0 + P1 ปิดแล้ว** (merge `main` ผ่าน PR #6, 2026-07-12) + **prod stutter fix แล้ว** (PR #7 — minElapsedMs 50→90 + correction-resume; verify บน prod = 0 corrections; รายละเอียด `docs/history/2026-07-12-p0-p1-worklog.md` + `docs/known-traps.md`). **Deploy live ทั้งสองฝั่ง**: server = Render free tier + UptimeRobot (`https://deung-pu-game.onrender.com`, `/healthz`), client = Hostinger (`https://deung-pu.softrock.space/game`).
 
 **Owner ปิด decision queue ทุกข้อแล้ว (2026-07-12)** ผ่าน **Production Bible Set v1** → อยู่ใน repo ที่ `docs/design/bibles/` (10 เล่ม — เล่มแรกที่ต้องเปิด: `deungpu_OWNER_DECISIONS_v1.md`) · spec เป็น **game v15.2 / tech v1.5.2** แล้ว (balance เลิกสถานะ PENDING — k=50, นักธนู=อาชีพที่ 2, party = public shared (final), background tab = safe-disconnect flow, milestone P2B ใหม่, asset canvas standards) · **P2 breakdown ร่างเสร็จ รอ owner review**: `docs/tech/deungpu_P2_ISSUE_BREAKDOWN_v1.md`
