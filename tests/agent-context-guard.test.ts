@@ -43,6 +43,7 @@ describe("agent context guard", () => {
     "AGENTS.md": 1_024,
     "docs/decision-index.md": 6_144,
     "docs/current-state.md": 3_072,
+    "docs/feature-map.md": 6_144,
   };
 
   for (const [relPath, cap] of Object.entries(BYTE_CAPS)) {
