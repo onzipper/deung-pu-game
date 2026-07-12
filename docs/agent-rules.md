@@ -10,6 +10,12 @@
 - **Thai**: everything the owner reads or approves — `docs/design/**` (specs/bibles/decisions), decision-index, current-state, the P2 breakdown and other owner-reviewed tech docs, PR titles/bodies, commit messages, questions to the owner, and ALL in-game content. Canonical Thai game terms stay Thai even inside English text.
 - Existing Thai files other than the 3 translated here are **not** retro-translated (specs/bibles must stay owner-auditable).
 
+## Proposals & questions placement (owner rule, 2026-07-13)
+
+- Recommendations + reasons ("แนะนำ + เหตุผล") go ONLY in PR descriptions and chat questions to the owner (recommended option first, labeled "(แนะนำ)").
+- `.md` files record ONLY decided outcomes — no options, alternatives, or rationale prose left behind in docs; keep every entry as short as completeness allows (the docs are already long, and the owner reads them all).
+- Undecided design work is delivered as chat/PR text for the owner to decide first; after the decision, record only the outcome (lean) in docs.
+
 ## 1. Spec-first (summarized from AI.md — the full version always wins)
 
 - game semantics/balance follow game spec v15.2 + the Production Bible Set (`docs/design/bibles/`) · implementation follows tech architecture v1.5.2
