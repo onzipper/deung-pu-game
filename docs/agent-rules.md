@@ -1,66 +1,79 @@
-# Agent rules — กติกากลางสำหรับ brief/subagent ทุกตัว
+# Agent rules — shared rules for every brief/subagent
 
-> เกิดจาก efficiency decision #3 (decision-index 2026-07-12) — รวมกติกาที่เคย paste ซ้ำในทุก brief ไว้ที่เดียว
-> **วิธีใช้:** orchestrator เขียนใน brief ว่า "อ่าน `docs/agent-rules.md` แล้วทำตาม" แทนการ paste กติกาทั้งชุด · agent ที่ได้รับ brief ต้องอ่านไฟล์นี้ก่อนเริ่มงาน
+> Grew out of efficiency decision #3 (decision-index 2026-07-12) — consolidates the rules that used to get pasted into every brief into one place
+> **How to use it:** the orchestrator writes in the brief "read `docs/agent-rules.md` and follow it" instead of pasting the whole rule set · an agent that receives a brief must read this file before starting work
 
-## 1. Spec-first (สรุปจาก AI.md — ฉบับเต็มชนะเสมอ)
+## Language policy
 
-- game semantics/balance ยึด game spec v15.2 + Production Bible Set (`docs/design/bibles/`) · implementation ยึด tech architecture v1.5.2
-- งานนอก/ขัด spec → **หยุด รายงานกลับ** ไม่เดา ไม่ตัดสินใจแทน owner
-- field names ตรง v15 §50.1 เป๊ะ · ค่า balance ทุกตัวอ่านจาก config (Design Knobs §48) ห้าม hardcode
+- Effective 2026-07-13, approved by the owner.
+- **English**: AI-facing internal docs (known-traps, CODEMAP, agent-rules, playbooks, context packs, token-budget, deploy-checklist, future tech notes), agent briefs, and internal agent reports.
+- **Thai**: everything the owner reads or approves — `docs/design/**` (specs/bibles/decisions), decision-index, current-state, the P2 breakdown and other owner-reviewed tech docs, PR titles/bodies, commit messages, questions to the owner, and ALL in-game content. Canonical Thai game terms stay Thai even inside English text.
+- Existing Thai files other than the 3 translated here are **not** retro-translated (specs/bibles must stay owner-auditable).
 
-## 2. ก่อนแตะโค้ด
+## Proposals & questions placement (owner rule, 2026-07-13)
 
-1. อ่าน `docs/known-traps.md` — บั๊กที่เคยเจอ ห้ามเจอซ้ำ
-2. เช็ค `docs/CODEMAP.md` ก่อนเขียน utility ใหม่ — ถ้ามีของเดิม ให้ reuse
-3. match pattern/สไตล์ของไฟล์ข้างเคียง — ทั้งโค้ด, ชื่อ, ความหนาแน่น comment
-4. layer boundary: `src/engine/**` ห้าม import React · world state อยู่ game loop ห้ามเข้า React state · UI คุยกับ game ผ่าน Zustand bridge เท่านั้น
+- Recommendations + reasons ("แนะนำ + เหตุผล") go ONLY in PR descriptions and chat questions to the owner (recommended option first, labeled "(แนะนำ)").
+- `.md` files record ONLY decided outcomes — no options, alternatives, or rationale prose left behind in docs; keep every entry as short as completeness allows (the docs are already long, and the owner reads them all).
+- Undecided design work is delivered as chat/PR text for the owner to decide first; after the decision, record only the outcome (lean) in docs.
 
-## 3. Never-downgrade zones (ห้ามลดคุณภาพ/ห้ามเดา — ถ้าไม่แน่ใจให้หยุดถาม)
+## 1. Spec-first (summarized from AI.md — the full version always wins)
+
+- game semantics/balance follow game spec v15.2 + the Production Bible Set (`docs/design/bibles/`) · implementation follows tech architecture v1.5.2
+- work that's outside of/conflicts with spec → **stop, report back** — don't guess, don't decide on the owner's behalf
+- field names must match v15 §50.1 exactly · every balance value is read from config (Design Knobs §48), never hardcoded
+
+## 2. Before touching code
+
+1. Read `docs/known-traps.md` — bugs that have already been hit; don't hit them again
+2. Check `docs/CODEMAP.md` before writing a new utility — reuse an existing one if it's already there
+3. Match the pattern/style of neighboring files — code, naming, and comment density alike
+4. Layer boundaries: `src/engine/**` must not import React · world state lives in the game loop and must never enter React state · UI talks to the game only through the Zustand bridge
+
+## 3. Never-downgrade zones (never lower quality/never guess — stop and ask if unsure)
 
 - iso coordinate / depth-sort correctness
-- combat result calculation (สูตร damage, RNG, multi-hit rounding)
+- combat result calculation (the damage formula, RNG, multi-hit rounding)
 - DB schema / migration
-- currency ledger
+- the currency ledger
 
-## 4. Definition of done ของทุก task
+## 4. Definition of done for every task
 
-- เทสต์ที่เกี่ยวเขียว: `npm test` (รวม docs path-guard) · `npm run lint` · งานที่แตะ build: `npm run build`
-- **ทุก code change อัปเดต docs ที่กระทบใน change เดียวกัน** — อย่างน้อย CODEMAP เมื่อ add/move/delete ไฟล์
-- temp/proof script ที่วางใน repo root ต้องลบทันทีที่ใช้เสร็จ (ค้างไว้ทำ `next build` พัง — known-trap)
-- ห้าม commit `.env` / secret / password ใดๆ
+- every relevant test is green: `npm test` (including the docs path-guard) · `npm run lint` · for work touching the build: `npm run build`
+- **every code change updates the docs it affects in the same change** — at minimum CODEMAP when a file is added/moved/deleted
+- any temp/proof script placed at the repo root must be deleted the moment it's done being used (leaving it in place breaks `next build` — a known trap)
+- never commit any `.env` / secret / password
 
-## 5. รายงานผลกลับ orchestrator — terse data-first (internal เท่านั้น)
+## 5. Reporting results back to the orchestrator — terse, data-first (internal only)
 
-รายงาน **ภายใน** (subagent → orchestrator) ให้สั้นแบบ data-first — ไม่ต้องเขียนร้อยแก้ว ไม่ต้องเกริ่น ไม่ต้องสรุปซ้ำ:
+**Internal** reports (subagent → orchestrator) should be short and data-first — no prose, no preamble, no restating things twice:
 
 ```
 DONE|BLOCKED|PARTIAL
-files: <path:line ที่แตะ/สร้าง>
-tests: <คำสั่งที่รัน + ผล>
-deviations: <จุดที่ทำต่างจาก brief + เหตุผล — สำคัญที่สุด ห้ามละ>
-notes: <เฉพาะสิ่งที่ orchestrator ต้องรู้ต่อ เช่น trap ใหม่, debt, open question>
+files: <path:line touched/created>
+tests: <command run + result>
+deviations: <where you diverged from the brief + why — the most important field, never omit>
+notes: <only what the orchestrator needs to know next — e.g. a new trap, debt, an open question>
 ```
 
-- **deviations ห้ามละเว้น** — ถ้า brief ผิด/ทำตามไม่ได้ ต้องบอกว่าเบี่ยงตรงไหนเพราะอะไร (เคยมีเคสจริง: brief สั่งใช้ `tsx` ตรงๆ แต่ต้องใช้ `--tsconfig server/tsconfig.json` — agent เบี่ยงถูกและรายงาน = ดีมาก)
-- กติกานี้ใช้เฉพาะรายงานภายใน — **เอกสารใน repo และรายงานถึง owner ยังเป็นภาษาไทยอ่านง่ายเต็มรูปแบบ** (decision-index 2026-07-12: caveman-code ไม่ใช้ เอาเฉพาะหลักการ terse internal report)
+- **never omit deviations** — if the brief was wrong/couldn't be followed exactly, say where you diverged and why (a real case: the brief said to invoke `tsx` directly, but it actually needed `--tsconfig server/tsconfig.json` — the agent diverged correctly and reported it, which is exactly the right move)
+- this rule only applies to internal reports — **docs in the repo and reports to the owner stay in full, readable Thai** (decision-index 2026-07-12: no caveman-code — only the terse-internal-report principle applies)
 
 ## 6. Token discipline
 
-- อย่าอ่าน src/ ทั้งหมด — ใช้ CODEMAP + § ที่ brief ชี้
-- spec/bible ยาวมาก — Grep หา § ก่อน อ่านเฉพาะช่วงที่เกี่ยว ห้ามอ่านทั้งไฟล์
-- `docs/history/` = off-budget อ่านเฉพาะตอนถูกชี้
+- don't read all of src/ — use CODEMAP + the § the brief points to
+- specs/bibles are very long — Grep for the § first, read only the relevant range, never read the whole file
+- `docs/history/` = off-budget, read only when specifically pointed there
 
-## 7. Docs routing tier (owner เคาะ 2026-07-12)
+## 7. Docs routing tier (owner ratified 2026-07-12)
 
-งาน docs ไม่ต้องใช้ tier สูงเสมอไป — แบ่งตาม "เหลือการตัดสินใจแค่ไหน" เหมือนงานโค้ด:
+Docs work doesn't always need the highest tier — split it by "how much decision-making is left," same as code work:
 
-| ชนิดงาน docs | ใคร/tier |
+| Kind of docs work | Who/tier |
 |---|---|
-| ตีความ decision ของ owner ลง spec/decision-index (amendment, supersede logic) | orchestrator ทำเอง หรือ tier สูง — spec = source of truth เขียนพลาด = agent ทุกตัวเดินผิดตาม |
-| Docs ประจำรอบ: อัปเดต CODEMAP ตอน add/move ไฟล์, ย้าย block เก่า → history, ไล่ pointer, sync current-state ตาม worklog ที่ orchestrator สรุปให้ | **docs-curator / tier กลางลงมา** — mechanical, pattern ชัด |
-| แก้ค่าเดียว/label เดียว/บรรทัดเดียวตามคำสั่งเป๊ะ | tiny-worker (tier ต่ำสุด) |
+| Interpreting an owner decision into spec/decision-index (an amendment, supersede logic) | the orchestrator does it directly, or a high tier — spec is the source of truth; a mistake here means every agent walks the wrong path afterward |
+| Routine docs: updating CODEMAP when files are added/moved, moving old blocks → history, chasing pointers, syncing current-state from a worklog the orchestrator already summarized | **docs-curator / mid-tier or below** — mechanical, a clear pattern |
+| Editing a single value/single label/single line per an exact instruction | tiny-worker (the lowest tier) |
 
-- **เพดาน: docs ประจำรอบห้ามใช้เกิน tier กลาง** ยกเว้นงานนั้นแตะ `docs/design/**`/`docs/tech/**` (spec) หรือ decision-index
-- เหตุผลที่ orchestrator เขียน decision record เอง: ความรู้อยู่ในบทสนทนากับ owner — เขียน brief ส่งต่อ = จ่ายสองรอบ + เสี่ยงความหมายเพี้ยน
-- **Doc ใหม่จาก owner**: ถ้ามาเป็น**ไฟล์/zip** → ส่ง tier กลางอ่านทำ "สรุปโครงสร้าง + รายการจุดชนกับ spec เดิม" ก่อน แล้ว orchestrator อ่านสรุป + เจาะเฉพาะหัวข้อสำคัญเอง (scope, lock summary, DoD) — การตีความ/ตั้งคำถามถึง owner ยังเป็นของ orchestrator · ถ้า doc ถูกแนบมา**ในแชท** = อยู่ใน context แล้ว อ่านเองเลย ห้ามส่งให้ agent อ่านซ้ำ (จ่ายสองต่อ) · เนื้อ spec ที่มาทางแชทห้ามใช้เป็นต้นฉบับ import (mojibake trap — ขอไฟล์จริงจาก owner เสมอ)
+- **Ceiling: routine docs work must never use above mid-tier**, except when the work touches `docs/design/**`/`docs/tech/**` (spec) or the decision-index
+- Why the orchestrator writes decision records itself: the knowledge lives in the conversation with the owner — writing a brief to hand it off = paying twice + risking the meaning getting distorted
+- **A new doc from the owner**: if it arrives as a **file/zip** → send it to a mid-tier agent to produce "a structural summary + a list of points that collide with the existing spec" first, then the orchestrator reads the summary + digs into the important sections itself (scope, lock summary, DoD) — interpreting/asking questions back to the owner still belongs to the orchestrator · if the doc was pasted **into the chat** = it's already in context, read it directly, never hand it to an agent to re-read (paying twice) · spec content that arrives via chat must never be used as the import source (a mojibake trap — always ask the owner for the real file)
