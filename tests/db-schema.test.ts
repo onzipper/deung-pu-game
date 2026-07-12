@@ -25,16 +25,19 @@ const EXPECTED_TABLES = [
   "characters",
   "character_state",
   "items",
-  "inventory",
+  "item_instances", // P2-02b: rename จาก inventory → location model
   "currency_ledger",
   "enhancement_logs",
   "drop_audit",
+  "delivery_box_entries", // P2-02b
+  "storage_transaction_log", // P2-02b
+  "session_lease", // P2-02b
   "config_versions",
   "game_events",
 ];
 
 describe("P2-02 DB schema", () => {
-  test("มีครบ 10 ตารางตาม brief (ไม่ขาดไม่เกิน)", () => {
+  test("มีครบ 13 ตารางตาม brief (ไม่ขาดไม่เกิน)", () => {
     const created = [...MIGRATION.matchAll(/CREATE TABLE `([a-z_]+)`/g)].map(
       (m) => m[1],
     );
@@ -81,10 +84,86 @@ describe("P2-02 DB schema", () => {
     );
   });
 
-  // ── inventory: optimistic lock version column (TA §7) ──
-  test("inventory มี version column (optimistic lock)", () => {
-    const block = tableBlock("inventory");
+  // ── item_instances: location model + optimistic lock (P2-02b, Storage §22) ──
+  test("item_instances มี version column (optimistic lock)", () => {
+    const block = tableBlock("item_instances");
     expect(block).toMatch(/`version` INTEGER NOT NULL DEFAULT 0/);
+  });
+
+  test("item_instances: account_id required + character_id nullable (location model)", () => {
+    const block = tableBlock("item_instances");
+    expect(block).toMatch(/`account_id` CHAR\(36\) NOT NULL/); // เจ้าของจริง §22
+    expect(block).toMatch(/`character_id` CHAR\(36\) NULL/); // pointer เมื่ออยู่กับตัวละคร
+  });
+
+  test("item_instances: location enum ครบ 7 แบบ (§22 invariant)", () => {
+    const block = tableBlock("item_instances");
+    for (const loc of [
+      "CHARACTER_INVENTORY",
+      "CHARACTER_EQUIPMENT",
+      "ACCOUNT_STORAGE",
+      "DELIVERY_BOX",
+      "MARKET_ESCROW",
+      "WORLD_LOOT",
+      "DESTROYED",
+    ]) {
+      expect(block, `location enum ต้องมี ${loc}`).toMatch(
+        new RegExp("'" + loc + "'"),
+      );
+    }
+    // มี default location + per-instance fields (S3)
+    expect(block).toMatch(/`location` ENUM\([^)]*\) NOT NULL DEFAULT 'CHARACTER_INVENTORY'/);
+    expect(block).toMatch(/`expires_at` DATETIME/);
+    expect(block).toMatch(/`unique_equip_group` VARCHAR/);
+  });
+
+  // ── accounts: P2-02b fields (5 slots / 200 storage / last played) ──
+  test("accounts มี character_slots(5) + storage_capacity(200) + last_played_character_id", () => {
+    const block = tableBlock("accounts");
+    expect(block).toMatch(/`character_slots` INTEGER NOT NULL DEFAULT 5/);
+    expect(block).toMatch(/`storage_capacity` INTEGER NOT NULL DEFAULT 200/);
+    expect(block).toMatch(/`last_played_character_id` CHAR\(36\) NULL/);
+  });
+
+  // ── delivery_box_entries: source + payload + expiry + claim status (§16) ──
+  test("delivery_box_entries มี source enum + payload + expires_at + claim_status", () => {
+    const block = tableBlock("delivery_box_entries");
+    expect(block).toMatch(/`source` ENUM\(/);
+    expect(block).toMatch(/`payload` JSON NOT NULL/);
+    expect(block).toMatch(/`expires_at` DATETIME/);
+    expect(block).toMatch(/`claim_status`/);
+  });
+
+  // ── storage_transaction_log: append-only audit + idempotency unique (§22) ──
+  test("storage_transaction_log มี idempotency_key unique + from/to location", () => {
+    const block = tableBlock("storage_transaction_log");
+    expect(block).toMatch(/`from_location` ENUM\(/);
+    expect(block).toMatch(/`to_location` ENUM\(/);
+    expect(MIGRATION).toMatch(
+      /UNIQUE INDEX `storage_transaction_log_idempotency_key_key`\(`idempotency_key`\)/,
+    );
+  });
+
+  test("storage_transaction_log ไม่มี balance column (append-only audit เท่านั้น)", () => {
+    const block = tableBlock("storage_transaction_log");
+    expect(block).not.toMatch(/`balance`/i);
+  });
+
+  // ── session_lease: 1 active session/บัญชี — account_id = PK unique (§4.1) ──
+  test("session_lease: account_id เป็น PRIMARY KEY (1 lease/บัญชี) + session_id + heartbeat_at", () => {
+    const block = tableBlock("session_lease");
+    expect(block).toMatch(/`account_id` CHAR\(36\) NOT NULL/);
+    expect(block).toMatch(/`session_id` VARCHAR/);
+    expect(block).toMatch(/`heartbeat_at` DATETIME/);
+    expect(block).toMatch(/PRIMARY KEY \(`account_id`\)/);
+  });
+
+  // ── character name: case-insensitive unique (§3.3) — collation ci ยืนยันที่ตาราง ──
+  test("characters: name unique + ตาราง collation = *_ci (case-insensitive §3.3)", () => {
+    const block = tableBlock("characters");
+    expect(block).toMatch(/UNIQUE INDEX `characters_name_key`\(`name`\)/);
+    // collation _ci = case-insensitive → "Jom"/"jom" ชนกันที่ระดับ DB (ไม่ต้อง lower() เอง)
+    expect(MIGRATION).toMatch(/CREATE TABLE `characters`[\s\S]*?COLLATE utf8mb4_unicode_ci/);
   });
 
   // ── accounts: guest upgrade (email nullable + is_guest flag) ──

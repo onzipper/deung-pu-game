@@ -1,9 +1,13 @@
-// ดึ๋งปุ๊ — Prisma schema (P2-02: MySQL schema + DB foundation)
+// ดึ๋งปุ๊ — Prisma schema (P2-02 foundation + P2-02b: item location / storage / delivery / session)
 // Source of truth: tech architecture v1.5 §7 (Server Authority — double-entry ledger, optimistic lock)
 //                  + §8 (Database Model — MySQL 8, Prisma) · AJ spec v1 §4.3/§20 (game_events envelope)
+//                  + Account/Character/Storage Flow Spec v1 §1–§4/§12/§22/§24 (item location, storage, delivery, session)
 //
-// ⛔ ตารางชุดแรกของ P2 เท่านั้น (10 ตาราง). ไม่ครอบคลุมทั้งเกม — market/trade/guild/bot ฯลฯ มาใน P2 issue ถัดไป.
+// ⛔ P2 schema — 14 ตาราง (P2-02 ชุดแรก 10 + P2-02b เพิ่ม 3: delivery_box_entries, storage_transaction_log,
+//    session_lease; และ inventory → item_instances). ไม่ครอบคลุมทั้งเกม — market/trade/guild/bot ฯลฯ มา issue ถัดไป.
 // ⛔ ห้าม migrate จริงกับ production DB ที่นี่ — การต่อ Hostinger MySQL = P2-16. ค่า balance ทุกตัวอยู่ config ไม่เก็บใน DB.
+// ⛔ S3 (decision-index 2026-07-12): bind/storage/trade **policy = static ต่อชนิดใน config** ไม่เก็บใน DB.
+//    per-instance ที่เก็บใน DB มีแค่ `expiresAt` + `uniqueEquipGroup` (ต่อ item instance) — ห้ามเพิ่ม policy column.
 
 generator client {
   provider = "prisma-client-js"
@@ -45,18 +49,63 @@ enum EnhancementResult {
   crack // ร้าว
 }
 
+/// ตำแหน่งของ item instance — Storage §22 invariant: 1 instance อยู่ได้ **location เดียว** เท่านั้น.
+/// CHARACTER_* ต้องมี characterId · ACCOUNT_STORAGE/DELIVERY_BOX ผูก account (characterId = null).
+/// MARKET_ESCROW/WORLD_LOOT ใช้ `locationRef` เก็บ listingId/entityId (P4/loot). DESTROYED = tombstone (audit trail).
+enum ItemLocation {
+  CHARACTER_INVENTORY // อยู่ในกระเป๋าตัวละคร (40 ช่อง, §1.2)
+  CHARACTER_EQUIPMENT // สวมอยู่ (slot = equipment slot id) — แยกจากกระเป๋าชัด (§2 Equipment)
+  ACCOUNT_STORAGE // คลังบัญชี shared 200 ช่อง (§10) — characterId = null
+  DELIVERY_BOX // materialize จาก delivery entry แล้วยังไม่รับเข้ากระเป๋า/คลัง (§16) — characterId = null
+  MARKET_ESCROW // ล็อกอยู่ที่ประกาศขาย (P4, §18.2) — locationRef = listingId
+  WORLD_LOOT // ดรอปในโลกยังไม่เก็บ (loot future) — locationRef = entityId
+  DESTROYED // ถูกทำลาย/consume — เก็บเป็น tombstone เพื่อ audit ไม่ hard-delete
+}
+
+/// ที่มาของ delivery entry — คุม expiry policy (§16.4) ที่ transaction/config layer.
+enum DeliverySource {
+  compensation // 90 วัน (§16.4)
+  gm_gift // GM critical recovery = never
+  event_reward // 90 วัน
+  achievement_reward // never
+  market_purchase // P4 (30 วัน min)
+  paid_item // never
+  campaign_gift // promotional 30–90 วัน
+  migrated_recovery // migrated item recovery
+}
+
+/// การกระทำใน storage_transaction_log (append-only audit) — Storage §13–14/§22.
+enum StorageTxAction {
+  deposit // กระเป๋า → คลัง (§13)
+  withdraw // คลัง → กระเป๋า (§14)
+  claim_to_inventory // delivery → กระเป๋า (§16.5)
+  claim_to_storage // delivery → คลัง (§16.5)
+}
+
 // ── account / character ──────────────────────────────────────────────────────
 
-/// บัญชีผู้เล่น — guest (email = null, isGuest = true) upgrade เป็น email ได้ภายหลัง
+/// บัญชีผู้เล่น — guest (email = null, isGuest = true) upgrade เป็น email ได้ภายหลัง.
+/// Account = เจ้าของ item/คลัง/delivery/session (§1.1, §2 Data Ownership Matrix).
 model Account {
-  id          String   @id @default(uuid()) @db.Char(36)
-  email       String?  @unique
-  isGuest     Boolean  @default(true) @map("is_guest")
-  displayName String?  @map("display_name")
-  createdAt   DateTime @default(now()) @map("created_at")
-  updatedAt   DateTime @updatedAt @map("updated_at")
+  id                    String   @id @default(uuid()) @db.Char(36)
+  email                 String?  @unique
+  isGuest               Boolean  @default(true) @map("is_guest")
+  displayName           String?  @map("display_name")
+  // §1.2/§24: 5 ช่องตัวละคร (เปิดครบแต่แรก ไม่มี paid unlock — S2) · คลังบัญชี 200 ช่อง shared.
+  // เป็น per-account capacity (ปรับได้อนาคต) — ไม่ใช่ balance knob, เก็บ state ได้ตาม §24.
+  characterSlots        Int      @default(5) @map("character_slots")
+  storageCapacity       Int      @default(200) @map("storage_capacity")
+  // §2.3/§7.2: ตัวที่ Continue เข้าเป็นค่า default — pointer ไป characters.id (ไม่ทำ FK: กัน circular
+  // relation Account↔Character; ไม่มี delete character ใน P2 §1.4 → validate ที่ app layer พอ).
+  lastPlayedCharacterId String?  @map("last_played_character_id") @db.Char(36)
+  createdAt             DateTime @default(now()) @map("created_at")
+  updatedAt             DateTime @updatedAt @map("updated_at")
 
-  characters Character[]
+  characters      Character[]
+  itemInstances   ItemInstance[]
+  deliveryEntries DeliveryBoxEntry[]
+  storageLogs     StorageTransactionLog[]
+  sessionLease    SessionLease?
 
   @@map("accounts")
 }
@@ -65,6 +114,10 @@ model Account {
 model Character {
   id        String   @id @default(uuid()) @db.Char(36)
   accountId String   @map("account_id") @db.Char(36)
+  // §3.3: unique **global case-insensitive** — collation ของตาราง = utf8mb4_unicode_ci (Prisma default
+  // สำหรับ mysql) เป็น *_ci = case-insensitive อยู่แล้ว → UNIQUE(name) จับ "Jom"/"jom" ชนกัน (ยืนยันแล้ว
+  // ใน 0001_init: DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci). NFC normalization + กติกา
+  // ความยาว 3–16 + สคริปต์ไทย/อังกฤษ/เลข + block emoji = app layer (ก่อน insert) ไม่ใช่ระดับ DB.
   name      String   @unique
   classId   String   @map("class_id") // อ้าง config
   level     Int      @default(1)
@@ -73,9 +126,9 @@ model Character {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  account   Account         @relation(fields: [accountId], references: [id])
-  state     CharacterState?
-  inventory Inventory[]
+  account       Account         @relation(fields: [accountId], references: [id])
+  state         CharacterState?
+  itemInstances ItemInstance[]
 
   @@index([accountId])
   @@map("characters")
@@ -101,28 +154,51 @@ model Item {
   id        String   @id // = item definition id ใน config
   createdAt DateTime @default(now()) @map("created_at")
 
-  inventory Inventory[]
+  itemInstances ItemInstance[]
 
   @@map("items")
 }
 
-/// instance ของ item ที่ตัวละครถือ — version = optimistic lock (TA §7: inventory changes ตรวจ version)
-model Inventory {
-  id               String   @id @default(uuid()) @db.Char(36)
-  characterId      String   @map("character_id") @db.Char(36)
-  itemId           String   @map("item_id")
-  quantity         Int      @default(1)
-  slot             Int? // slot ใน bag/equipment (null = ยังไม่ระบุ)
-  enhancementLevel Int      @default(0) @map("enhancement_level")
-  version          Int      @default(0) // optimistic lock — bump ทุกครั้งที่แก้ (TA §7)
-  createdAt        DateTime @default(now()) @map("created_at")
-  updatedAt        DateTime @updatedAt @map("updated_at")
+/// instance เดี่ยวของ item — **location model** (Storage §22): แทน characterId-only เดิม.
+/// เจ้าของจริง = `accountId` (required) — Storage ห้ามรับ item ต่างบัญชี (§22). `characterId` เป็น pointer
+/// เสริม เมื่ออยู่กับตัวละคร.
+///
+/// ⚠️ INVARIANT (คุมที่ transaction layer — Prisma ใส่ CHECK ไม่ได้):
+///   • location ∈ {CHARACTER_INVENTORY, CHARACTER_EQUIPMENT} ⟹ characterId ต้อง **ไม่เป็น null**
+///     และ character.accountId ต้องเท่ากับ accountId นี้
+///   • location ∈ {ACCOUNT_STORAGE, DELIVERY_BOX} ⟹ characterId = null (ผูก account ล้วน)
+///   • location ∈ {MARKET_ESCROW, WORLD_LOOT} ⟹ locationRef = listingId/entityId ตามลำดับ
+///   • 1 instance อยู่ได้ location เดียวเท่านั้น (§22) — ทุก move = deposit/withdraw/claim ผ่าน storage_transaction_log
+///   • deposit/withdraw ตรวจ `version` (optimistic lock) + idempotency (TA §7, §22)
+///
+/// ทำไมไม่แยกตาราง personal_storage: location model รวมทุกที่อยู่ไว้ตารางเดียว → query "หา instance ของ item"
+/// ไม่ต้อง UNION หลายตาราง, move = UPDATE location เดียว (atomic), invariant "1 location" บังคับได้ตรงกว่า
+/// (ถ้าแยกตาราง instance เดียวอาจโผล่ 2 ที่). S3: policy อยู่ config — instance เก็บแค่ expiresAt/uniqueEquipGroup.
+model ItemInstance {
+  id               String       @id @default(uuid()) @db.Char(36)
+  accountId        String       @map("account_id") @db.Char(36) // เจ้าของจริง (§22/§24)
+  characterId      String?      @map("character_id") @db.Char(36) // required เมื่อ location = CHARACTER_* (invariant)
+  itemId           String       @map("item_id")
+  location         ItemLocation @default(CHARACTER_INVENTORY)
+  locationRef      String?      @map("location_ref") // listingId (MARKET_ESCROW) / entityId (WORLD_LOOT) / null
+  slot             Int? // bag slot / equipment slot id / storage index (null = ยังไม่จัดช่อง)
+  quantity         Int          @default(1)
+  enhancementLevel Int          @default(0) @map("enhancement_level")
+  // per-instance เท่านั้น (S3) — policy (bind/storage/trade) อยู่ config ต่อชนิด:
+  expiresAt        DateTime?    @map("expires_at") // null = ไม่หมดอายุ (§16.4 paid/achievement) — ตรวจ/แจ้งที่ layer อื่น
+  uniqueEquipGroup String?      @map("unique_equip_group") // กันสวม/ถือซ้ำในกลุ่มเดียวกัน (§12.1) — enforce ที่ equip logic
+  version          Int          @default(0) // optimistic lock — bump ทุกครั้งที่แก้ (TA §7, §22)
+  createdAt        DateTime     @default(now()) @map("created_at")
+  updatedAt        DateTime     @updatedAt @map("updated_at")
 
-  character Character @relation(fields: [characterId], references: [id])
-  item      Item      @relation(fields: [itemId], references: [id])
+  account   Account    @relation(fields: [accountId], references: [id])
+  character Character? @relation(fields: [characterId], references: [id])
+  item      Item       @relation(fields: [itemId], references: [id])
 
-  @@index([characterId])
-  @@map("inventory")
+  @@index([accountId, location]) // query คลัง/delivery/ของทั้งบัญชี
+  @@index([characterId]) // query กระเป๋า/equipment ของตัวละคร
+  @@index([itemId])
+  @@map("item_instances")
 }
 
 // ── ledger / audit (append-only) ─────────────────────────────────────────────
@@ -146,18 +222,18 @@ model CurrencyLedger {
 
 /// Audit ทุกครั้งที่ตีบวก (append-only, TA §7): เก็บ RNG roll + before/after เพื่อ dispute/anti-exploit
 model EnhancementLog {
-  id            BigInt            @id @default(autoincrement())
-  characterId   String            @map("character_id") @db.Char(36)
-  inventoryId   String            @map("inventory_id") @db.Char(36)
-  beforeLevel   Int               @map("before_level")
-  afterLevel    Int               @map("after_level")
-  result        EnhancementResult
-  rngRoll       Float             @map("rng_roll") // ค่า RNG ที่ server สุ่ม (0..1)
-  configVersion Int?              @map("config_version") // เวอร์ชัน enhancement config ที่ใช้ตอนนั้น
-  createdAt     DateTime          @default(now()) @map("created_at")
+  id             BigInt            @id @default(autoincrement())
+  characterId    String            @map("character_id") @db.Char(36)
+  itemInstanceId String            @map("item_instance_id") @db.Char(36) // อ้าง item_instances.id (P2-02b rename)
+  beforeLevel    Int               @map("before_level")
+  afterLevel     Int               @map("after_level")
+  result         EnhancementResult
+  rngRoll        Float             @map("rng_roll") // ค่า RNG ที่ server สุ่ม (0..1)
+  configVersion  Int?              @map("config_version") // เวอร์ชัน enhancement config ที่ใช้ตอนนั้น
+  createdAt      DateTime          @default(now()) @map("created_at")
 
   @@index([characterId])
-  @@index([inventoryId])
+  @@index([itemInstanceId])
   @@map("enhancement_logs")
 }
 
@@ -174,6 +250,71 @@ model DropAudit {
   @@index([characterId])
   @@index([mobType])
   @@map("drop_audit")
+}
+
+// ── delivery / storage / session (Storage §4/§13–14/§16/§22) ──────────────────
+
+/// Delivery Box entry (§16): reward ที่ระบบส่งมา กันหายเพราะกระเป๋าเต็ม.
+/// payload = reward bundle server-authoritative (item def ids + qty + currency, §16.6 [item][item][currency]).
+/// item จะถูก materialize เป็น ItemInstance (location = DELIVERY_BOX แล้วย้ายต่อ) ตอน claim เท่านั้น —
+/// ไม่ pre-create instance ให้ของยังไม่ claim (รองรับ currency-in-delivery ที่ไม่ใช่ instance ด้วย). §22: claim server-generated.
+model DeliveryBoxEntry {
+  id          String         @id @default(uuid()) @db.Char(36)
+  accountId   String         @map("account_id") @db.Char(36)
+  source      DeliverySource // คุม expiry policy (§16.4)
+  payload     Json // reward bundle (item list + currency) — server-authoritative
+  claimStatus String         @default("unclaimed") @map("claim_status") // unclaimed | partial | claimed (§16.8 per-entry atomic)
+  expiresAt   DateTime?      @map("expires_at") // null = ไม่หมดอายุ (paid/GM/achievement §16.4) — ห้ามหมดเงียบ (แจ้ง 7วัน/1วัน ที่ layer อื่น)
+  claimedAt   DateTime?      @map("claimed_at")
+  createdAt   DateTime       @default(now()) @map("created_at")
+  updatedAt   DateTime       @updatedAt @map("updated_at")
+
+  account Account @relation(fields: [accountId], references: [id])
+
+  @@index([accountId, claimStatus]) // list entry ของบัญชี + filter สถานะ
+  @@index([expiresAt]) // sweep ของใกล้หมดอายุ / prune
+  @@map("delivery_box_entries")
+}
+
+/// Append-only audit ของการย้าย item เข้า/ออกคลัง + claim (Storage §13–14/§22) — pattern เดียวกับ CurrencyLedger.
+/// idempotencyKey unique = กัน replay/double-move (§22 "Idempotency required"). ห้าม UPDATE/DELETE (append-only).
+/// เก็บ from/to location + version ที่ commit เพื่อ reconcile/dispute (§19.3 unknown transaction).
+model StorageTransactionLog {
+  id             BigInt          @id @default(autoincrement())
+  accountId      String          @map("account_id") @db.Char(36)
+  characterId    String?         @map("character_id") @db.Char(36) // บริบทตัวละครที่ทำ (null = delivery/system)
+  action         StorageTxAction
+  itemInstanceId String?         @map("item_instance_id") @db.Char(36) // instance ที่ย้าย (null ได้ตอน stack merge/split บันทึกสรุป)
+  itemId         String?         @map("item_id") // item def id (audit — คงไว้แม้ instance ถูกลบ)
+  quantity       Int             @default(1)
+  fromLocation   ItemLocation    @map("from_location")
+  toLocation     ItemLocation    @map("to_location")
+  refType        String?         @map("ref_type") // delivery/market ...
+  refId          String?         @map("ref_id") // delivery entry id / listing id ...
+  idempotencyKey String          @unique @map("idempotency_key") // กัน replay/double-move (§22)
+  createdAt      DateTime        @default(now()) @map("created_at")
+
+  account Account @relation(fields: [accountId], references: [id])
+
+  @@index([accountId])
+  @@index([itemInstanceId])
+  @@map("storage_transaction_log")
+}
+
+/// Session lease — **1 active gameplay session ต่อบัญชี** (§4.1). accountId = PK (unique 1 แถว/บัญชี).
+/// session ใหม่ตรวจ lease นี้: token เดิม = reclaim (reconnect §59.1) · device/tab ใหม่ = Take Over (§4.2, overwrite แถว).
+/// heartbeatAt ใช้ตรวจ lease ค้าง (stale) เพื่อให้ session ใหม่ยึดต่อได้. state จริงอยู่ Colyseus — ตารางนี้ = authority ระดับบัญชี.
+model SessionLease {
+  accountId   String   @id @map("account_id") @db.Char(36) // PK = 1 lease/บัญชี
+  sessionId   String   @map("session_id") // reconnect/room session id ที่ถืออยู่
+  characterId String?  @map("character_id") @db.Char(36) // ตัวละครที่ active
+  serverId    String?  @map("server_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+  heartbeatAt DateTime @updatedAt @map("heartbeat_at") // อัปเดตทุก heartbeat — ตรวจ lease ค้าง
+
+  account Account @relation(fields: [accountId], references: [id])
+
+  @@map("session_lease")
 }
 
 // ── config versioning ────────────────────────────────────────────────────────
