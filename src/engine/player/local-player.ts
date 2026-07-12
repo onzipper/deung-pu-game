@@ -58,6 +58,12 @@ export interface LocalPlayerHandle {
   /** true ระหว่างมี path click-to-move ที่ยังเดินไม่จบ (P1-09) — caller เช็คเพื่อ walk-to-attack. */
   readonly isFollowingPath: boolean;
   /**
+   * true เฉพาะเฟรมล่าสุดที่มี WASD/arrow intent (manual override) — caller (app.ts P1-09.1 continuous
+   * walk-to-attack) ใช้ยกเลิก target engagement ทันทีเมื่อผู้เล่นเข้าคุมเอง (manual override ชนะเสมอ,
+   * pattern เดียวกับที่ update() ใช้ยกเลิก click-to-move path).
+   */
+  readonly manualInputActive: boolean;
+  /**
    * consume การกด ATTACK_KEY (Space) หรือ requestAttack() ตั้งแต่ครั้งก่อนหน้า — edge-triggered
    * (กันกดค้างสแปม). P1-09: รวม programmatic attack (tap mob) เข้าช่องเดียวกับ Space → cooldown gate เดียว.
    */
@@ -149,6 +155,7 @@ export function createLocalPlayer(
   let pathGoal: TilePoint | null = null; // goal foot ล่าสุด (สำหรับ replan)
   let marker: Graphics | null = null;
   let markerElapsedMs = 0;
+  let manualInputActive = false; // set ทุก frame ใน update() — true = มี WASD intent เฟรมนี้
 
   const removeMarker = (): void => {
     if (!marker) return;
@@ -216,6 +223,9 @@ export function createLocalPlayer(
     get isFollowingPath() {
       return follow !== null;
     },
+    get manualInputActive() {
+      return manualInputActive;
+    },
 
     consumeAttackPressed() {
       const kb = keyboard.consumeAttackPressed();
@@ -271,6 +281,7 @@ export function createLocalPlayer(
     update(dtSeconds: number): void {
       const intent = keyboard.getIntent();
       const manual = intent.tx * intent.tx + intent.ty * intent.ty >= MOVE_EPS;
+      manualInputActive = manual;
 
       // facingIntent = เวกเตอร์ที่ใช้ตัดสิน facing; moving = จะเล่น walk anim ไหม
       let facingIntent: TilePoint = { tx: 0, ty: 0 };

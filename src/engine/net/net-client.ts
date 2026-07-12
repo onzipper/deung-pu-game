@@ -11,13 +11,24 @@
 //   (resume ตำแหน่งเดิมจาก server hold); หมดสิทธิ์/เกิน grace = fresh join ที่ safe camp (joinOptions เดิม).
 //   re-wire = reset entity ที่ track ไว้ก่อน (กัน remote/mob ซ้ำจาก onAdd immediate รอบใหม่).
 //
+// P1-07-fix **cross-reload reconnect** (refresh/reopen tab): เดิม token อยู่ใน memory เท่านั้น →
+//   refresh = token หาย → join เป็นผู้เล่นใหม่ + server hold ghost seat 30s → refresh สะสมผีจนห้องเต็ม
+//   → 2 แท็บโดนแยก channel = มองไม่เห็นกัน. แก้: persist token ลง **per-tab store** (sessionStorage,
+//   inject ผ่าน config.store) ทุกครั้งที่ wire สำเร็จ + re-persist timestamp ตอน pagehide (ไม่ leave).
+//   boot: มี token สด (planRejoin: ตรง server/map/party + อายุ < grace) → `client.reconnect(token)` ก่อน
+//   = reclaim ghost seat เดิม (ตำแหน่ง/channel เดิมกลับมา) แทนเพิ่มผู้เล่นใหม่; ล้มเหลว → ล้าง token +
+//   fresh join. consented leave (disconnect: SPA nav / map transition) = ล้าง token (ไม่ดึงกลับ map เก่า).
+//
 // P0 ยังไม่ทำ: auth/JWT, party sync — จด TODO ชี้ spec.
 
 import { Client, getStateCallbacks, type Room } from "colyseus.js";
 import {
+  planRejoin,
   reconnectBackoffMs,
   shouldRetryReconnect,
+  type StoredReconnectRecord,
 } from "@/shared/reconnect";
+import type { ReconnectStore } from "@/engine/net/reconnect-store";
 import type { ReconnectClientRetryConfig } from "@/engine/config";
 import {
   MAP_ROOM_NAME,
@@ -125,6 +136,10 @@ export interface NetClientConfig {
   roomName: string;
   /** P1-07: client auto-reconnect retry/backoff knob (จาก config.reconnect.clientRetry) */
   retry: ReconnectClientRetryConfig;
+  /** P1-07-fix: grace window (วินาที) — ประเมินว่า token ที่เก็บไว้ยังสดพอ reconnect (§59.1). */
+  graceSeconds: number;
+  /** P1-07-fix: adapter เก็บ token ข้าม page reload (sessionStorage per-tab) — inject ได้ (เทสต์/SSR). */
+  store: ReconnectStore;
 }
 
 /** colyseus WebSocket close code สำหรับ "consented leave" (client เรียก leave() ตั้งใจ) — default 4000. */
@@ -201,6 +216,41 @@ export function createNetClient(
   const client = new Client(config.serverUrl);
 
   /**
+   * P1-07-fix: persist token ล่าสุดลง store (per-tab) พร้อม timestamp + context (server/map/party) →
+   * หน้าใหม่หลัง refresh/reopen อ่านได้ แล้ว reconnect เข้า seat เดิม. เรียกทุกครั้งที่ wire สำเร็จ.
+   */
+  const persistToken = (token: string): void => {
+    reconnectionToken = token;
+    const record: StoredReconnectRecord = {
+      token,
+      savedAtMs: Date.now(),
+      serverUrl: config.serverUrl,
+      mapId: joinOptions.mapId,
+      partyId: joinOptions.partyId,
+    };
+    config.store.save(record);
+  };
+
+  /**
+   * P1-07-fix: ตอน page unload (refresh/close tab) — re-persist token พร้อม timestamp สด เพื่อให้หน้าใหม่
+   * (ถ้า refresh) reconnect ทันใน grace แม้ session ยาวเกิน graceSeconds. **ไม่ leave** (ปล่อยหลุดแบบ
+   * unconsented → server hold seat 30s → หน้าใหม่ reclaim ได้แทนเพิ่มผู้เล่นใหม่). browser เท่านั้น.
+   */
+  const onPageHide = (): void => {
+    if (disposed || reconnectionToken === null) return;
+    persistToken(reconnectionToken);
+  };
+  if (typeof window !== "undefined") {
+    window.addEventListener("pagehide", onPageHide);
+    window.addEventListener("beforeunload", onPageHide);
+  }
+  const removePageHide = (): void => {
+    if (typeof window === "undefined") return;
+    window.removeEventListener("pagehide", onPageHide);
+    window.removeEventListener("beforeunload", onPageHide);
+  };
+
+  /**
    * P1-07: เคลียร์ entity ที่ track ไว้ (เรียก caller ให้ลบ) ก่อน re-wire room ใหม่ตอน reconnect —
    * กัน remote player / mob ค้างซ้ำเมื่อ onAdd(immediate) ยิงใหม่ทั้งชุดจาก full state sync.
    */
@@ -216,7 +266,7 @@ export function createNetClient(
     // re-wire (reconnect/fresh join): ล้าง entity เดิมก่อน กันซ้ำ (first wire = no-op, set ว่าง).
     resetTrackedEntities();
     room = joinedRoom;
-    reconnectionToken = joinedRoom.reconnectionToken; // P1-07: เก็บ token ล่าสุดไว้ reconnect
+    persistToken(joinedRoom.reconnectionToken); // P1-07(-fix): เก็บ token ล่าสุด (memory + per-tab store)
     status.state = "online";
     status.roomId = joinedRoom.roomId;
     status.selfSessionId = joinedRoom.sessionId;
@@ -360,7 +410,7 @@ export function createNetClient(
     void freshJoin();
   };
 
-  /** P1-07: fresh join หลัง reconnect ล้มเหลว — spawn ที่ safe camp (joinOptions เดิม), ไม่ throw. */
+  /** P1-07: fresh join (boot ครั้งแรก / หลัง reconnect ล้มเหลว) — server spawn ที่ safe camp, ไม่ throw. */
   const freshJoin = async (): Promise<void> => {
     status.state = "connecting";
     try {
@@ -376,27 +426,46 @@ export function createNetClient(
     } catch (err) {
       status.state = "offline";
       status.lastError = err instanceof Error ? err.message : String(err);
-    }
-  };
-
-  // fire-and-forget connect — ล้มเหลว = offline, ไม่ throw (graceful solo)
-  client
-    .joinOrCreate<unknown>(config.roomName ?? MAP_ROOM_NAME, joinOptions)
-    .then((joined) => {
-      if (disposed) {
-        void joined.leave();
-        return;
-      }
-      wire(joined);
-    })
-    .catch((err: unknown) => {
-      status.state = "offline";
-      status.lastError = err instanceof Error ? err.message : String(err);
       console.warn(
         `[net] connect ล้มเหลว (${config.serverUrl}) — เล่น solo ต่อ:`,
         status.lastError,
       );
+    }
+  };
+
+  /**
+   * P1-07-fix: boot connect. ถ้ามี token สด (per-tab store, ตรง server/map/party + อายุ < grace) → ลอง
+   * reconnect เข้า seat เดิมก่อน (คืนตำแหน่ง/channel เดิมหลัง refresh/reopen = reclaim ghost ไม่เพิ่ม
+   * ผู้เล่นใหม่). ล้มเหลว/ไม่มี/ไม่ตรง → ล้าง token แล้ว fresh join. ไม่ throw (graceful solo ถ้า server ล่ม).
+   */
+  const boot = async (): Promise<void> => {
+    const plan = planRejoin(config.store.load(), {
+      nowMs: Date.now(),
+      serverUrl: config.serverUrl,
+      mapId: joinOptions.mapId,
+      partyId: joinOptions.partyId,
+      graceSeconds: config.graceSeconds,
     });
+    if (plan.action === "reconnect") {
+      try {
+        const rejoined = await client.reconnect<unknown>(plan.token);
+        if (disposed) {
+          void rejoined.leave();
+          return;
+        }
+        wire(rejoined); // reclaim seat เดิม → ตำแหน่ง/channel เดิม restore เงียบ ๆ (§59.1 resume)
+        return;
+      } catch (err) {
+        // token หมดอายุจริง / seat หาย (เกิน grace / server restart) → ล้างแล้ว fresh join
+        config.store.clear();
+        reconnectionToken = null;
+        status.lastError = err instanceof Error ? err.message : String(err);
+      }
+    }
+    await freshJoin();
+  };
+
+  void boot();
 
   return {
     status,
@@ -424,6 +493,10 @@ export function createNetClient(
       disposed = true;
       status.state = "offline";
       reconnectionToken = null; // P1-07: กัน onLeave trigger auto-reconnect หลังตั้งใจปิด
+      // P1-07-fix: consented leave (SPA nav away / map transition) → ล้าง token ไม่ให้ boot ครั้งหน้า
+      //   reconnect กลับ room/map เก่า. (refresh/close tab ไม่เรียก disconnect — ws หลุด unconsented แทน.)
+      config.store.clear();
+      removePageHide();
       if (room) void room.leave();
       room = null;
     },

@@ -380,6 +380,14 @@ export interface HitStopConfig {
   /** time-scale ระหว่าง hit stop ยัง active (0 < ค่า ≤ 1) — ใช้กับ **juice update เท่านั้น**
    *  (damage number/hitbox debug fade) ห้ามใช้กับ network send timer/mob simulation/cooldown จริง */
   timeScale: number;
+  /**
+   * feel knob (ไม่ใช่ balance — ปรับได้อิสระ, `src/game/combat/juice-level.ts` `resolveJuiceLevel`):
+   * ระดับ hit stop ต่ำสุดที่บังคับใช้เมื่อ**ฆ่ามอนสำเร็จ** แม้ skill.hitStopLevel ของสกิลนั้นต่ำกว่านี้
+   * (เช่น S1 ฟันดาบสามัญ hitStopLevel=0 → kill ยังควรรู้สึกได้บ้าง). ใช้ `Math.max(skill level, ค่านี้)`.
+   */
+  minLevelOnKill: number;
+  /** เหมือน minLevelOnKill แต่ trigger ตอน critical hit (ไม่ว่าจะฆ่าได้หรือไม่) */
+  minLevelOnCrit: number;
 }
 
 /** amplitude/duration ของ screen shake ต่อ level (P1-06, GS §17.5 — index = screenShakeLevel). */
@@ -396,6 +404,14 @@ export interface ScreenShakeConfig {
   levelsByLevel: ScreenShakeLevelConfig[];
   /** screenShakeLevel ที่สูงพอจะ shake เสมอ (ultimate-tier) แม้ hit นั้นไม่ crit/ไม่ฆ่า */
   alwaysTriggerAtLevel: number;
+  /**
+   * feel knob เดียวกับ HitStopConfig.minLevelOnKill — ป้องกัน skill juice level ต่ำ (เช่น S1=0) ทำให้
+   * ตอนตีมอนตายไม่เห็นจอสั่นเลย. `resolveJuiceLevel` เอาไปคูณกับ shakeAmplitudeScale ตามปกติ (quality tier
+   * ยังลดทอนได้เหมือนเดิม — ค่านี้แค่ยก "ระดับ" ไม่ bypass quality scale).
+   */
+  minLevelOnKill: number;
+  /** เหมือน minLevelOnKill แต่ trigger ตอน critical hit */
+  minLevelOnCrit: number;
 }
 
 /** Effect Quality tier (P1-06, GS §17.10 · TA §11 "map เป็นตัวเลขจริง") — P1 ใช้ default เดียว, UI เลือก = P2. */
@@ -594,6 +610,12 @@ export interface ReconnectConfig {
   graceSeconds: number;
   /** client auto-reconnect retry/backoff */
   clientRetry: ReconnectClientRetryConfig;
+  /**
+   * **client knob** (P1-07-fix) — key ของ per-tab sessionStorage ที่เก็บ reconnection token ข้าม page
+   * reload (refresh/reopen → reconnect เข้า seat เดิม, §59.1). **ต้องเป็น sessionStorage ไม่ใช่ localStorage**
+   * (2 แท็บจะแย่ง token กัน). เปลี่ยน key = แยก namespace ได้ (dev/staging บน origin เดียวกัน).
+   */
+  sessionStorageKey: string;
 }
 
 /**
@@ -691,6 +713,28 @@ export interface DebugOverlayConfig {
 }
 
 /**
+ * Exit marker knob (P1 fix — owner เดินหา exit ไม่เจอเพราะ placeholder art ล้วน). วาด highlight บนพื้น
+ * ของทุก tile ใน `map.exits[].area` (diamond fill โปร่งแสง + เส้นขอบ) ให้เห็นชัดว่า "ตรงนี้คือทางออก".
+ * **placeholder จนกว่าจะมี art จริง** (ป้าย/ประตู sprite) — เป็น ground-level overlay ใต้ entity ทั้งหมด
+ * (ไม่เข้า depth-sort). geometry คำนวณใน src/engine/render/exit-marker.ts (pure); glue = scene.ts.
+ * ทุกค่าเป็น Design Knob — ห้าม hardcode สีในโค้ด render.
+ */
+export interface ExitMarkerConfig {
+  /** เปิด/ปิด marker (false = ไม่วาดเลย) */
+  enabled: boolean;
+  /** สี fill ของ diamond (0xRRGGBB) — ควร pop บนพื้น placeholder เขียว/น้ำตาล */
+  fillColor: number;
+  /** ความทึบ fill 0..1 (โปร่งแสงให้เห็นพื้นใต้) */
+  fillAlpha: number;
+  /** สีเส้นขอบ diamond (0xRRGGBB) */
+  lineColor: number;
+  /** ความทึบเส้นขอบ 0..1 */
+  lineAlpha: number;
+  /** ความหนาเส้นขอบ (px) */
+  lineWidth: number;
+}
+
+/**
  * Map transition knob (P1-10, GS §57.3 "loading/fade") — fade overlay ตอนข้าม map (separated rooms).
  * timing (fadeOutMs/fadeInMs) ป้อน state machine pure (transition-state.ts); fadeColor = สี overlay (visual).
  * ทุกค่าเป็น Design Knob.
@@ -743,6 +787,8 @@ export interface EngineConfig {
   pathfinding: PathfindingConfig;
   /** map transition fade knob (P1-10, GS §57.3) — fade overlay ตอนข้าม map */
   transition: TransitionConfig;
+  /** exit marker knob (P1 fix) — highlight พื้น exit area ให้เห็นทางออก (placeholder art) */
+  exitMarker: ExitMarkerConfig;
   /** server-authoritative movement validation knob (P1-02) — mirror client/server */
   movementValidation: MovementValidationConfig;
   /** dummy mob pocket spawn + wander + placeholder style (P0-09) */
@@ -802,6 +848,19 @@ export const DEFAULT_TRANSITION_CONFIG: TransitionConfig = {
   fadeColor: 0x000000, // ดำ
   fadeOutMs: 260,
   fadeInMs: 260,
+};
+
+/**
+ * Exit marker defaults (P1 fix) — teal เรืองแสงบนพื้น placeholder เขียว/น้ำตาล (pop ชัด, แยกจาก
+ * path marker ฟ้า 0x66e0ff และ hitbox debug แดง). fill โปร่งแสงให้เห็นลาย grid ใต้ marker.
+ */
+export const DEFAULT_EXIT_MARKER_CONFIG: ExitMarkerConfig = {
+  enabled: true,
+  fillColor: 0x2ee6c0, // teal สว่าง
+  fillAlpha: 0.3,
+  lineColor: 0x8affea, // ขอบ teal อ่อน
+  lineAlpha: 0.9,
+  lineWidth: 2,
 };
 
 export const DEFAULT_PLAYER_ANIMATION_CONFIG: PlayerAnimationConfig = {
@@ -975,6 +1034,9 @@ export const DEFAULT_COMBAT_FEEL_CONFIG: CombatFeelConfig = {
     // level 0 = ไม่มี (S1 ฟันดาบสามัญ) · 1 = สั้น (S2 คลื่นดาบราชันย์) · 2 = หนักกว่า (S3 ดาบสุริยะผ่าเมือง)
     durationMsByLevel: [0, 60, 140],
     timeScale: 0.05, // แทบหยุด แต่ไม่ 0 เป๊ะ (กัน edge case หาร/สังเกตความต่างจาก "หยุดจริง")
+    // floor: S1 (hitStopLevel=0) ฆ่ามอน/ครีตแล้วยังรู้สึกได้ — บังคับอย่างน้อย level 1 (60ms)
+    minLevelOnKill: 1,
+    minLevelOnCrit: 1,
   },
   screenShake: {
     enabled: true, // ผู้เล่นปิดได้ (GS §17.5) — toggle จริงผ่าน UI settings = P2, ที่นี่คือ default
@@ -984,6 +1046,9 @@ export const DEFAULT_COMBAT_FEEL_CONFIG: CombatFeelConfig = {
       { amplitudePx: 9, durationMs: 260 },
     ],
     alwaysTriggerAtLevel: 2, // ระดับ 2+ (เช่น ultimate-tier) shake เสมอแม้ hit นั้นไม่ crit/ไม่ฆ่า
+    // floor: S1 (screenShakeLevel=0 → amplitude 0) ฆ่ามอน/ครีตแล้วยังเห็นจอสั่นบ้าง — บังคับอย่างน้อย level 1
+    minLevelOnKill: 1,
+    minLevelOnCrit: 1,
   },
   effectQuality: {
     current: "medium", // P1 default เสมอ — UI เลือกจริง = P2 settings (ดู feature-map)
@@ -1069,6 +1134,7 @@ export const DEFAULT_RECONNECT_CONFIG: ReconnectConfig = {
     backoffFactor: 2,
     maxDelayMs: 8000,
   },
+  sessionStorageKey: "deungpu:rt-reconnect", // per-tab (sessionStorage) — ห้าม localStorage (แท็บแย่ง token)
 };
 
 export const DEFAULT_ENGINE_CONFIG: EngineConfig = {
@@ -1086,6 +1152,7 @@ export const DEFAULT_ENGINE_CONFIG: EngineConfig = {
   player: DEFAULT_PLAYER_CONFIG,
   pathfinding: DEFAULT_PATHFINDING_CONFIG,
   transition: DEFAULT_TRANSITION_CONFIG,
+  exitMarker: DEFAULT_EXIT_MARKER_CONFIG,
   movementValidation: DEFAULT_MOVEMENT_VALIDATION_CONFIG,
   mob: DEFAULT_MOB_CONFIG,
   net: DEFAULT_NET_CONFIG,
@@ -1118,6 +1185,10 @@ export function createEngineConfig(
     transition: {
       ...DEFAULT_ENGINE_CONFIG.transition,
       ...overrides.transition,
+    },
+    exitMarker: {
+      ...DEFAULT_ENGINE_CONFIG.exitMarker,
+      ...overrides.exitMarker,
     },
     // theme/player/mob มี nested object — override ทั้งก้อนเมื่อกำหนด, ไม่งั้นใช้ default
     theme: overrides.theme ?? DEFAULT_ENGINE_CONFIG.theme,

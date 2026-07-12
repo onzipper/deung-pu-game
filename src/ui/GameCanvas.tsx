@@ -2,7 +2,13 @@
 
 // React ↔ engine bridge (P0-01).
 // React รู้จัก engine ผ่าน public API เท่านั้น (createEngine/destroy) — ห้ามเอา world state เข้า React state.
-// กัน StrictMode double-mount: init เป็น async, ถ้า cleanup มาก่อน promise resolve ต้อง destroy ทันทีที่ได้ handle.
+//
+// P1-07-fix — กัน StrictMode double-mount (dev) อย่างเข้ม: เดิม init async แล้ว destroy ตอน cleanup
+//   ทำให้ StrictMode สร้าง engine1 (join+persist token) → destroy1 (consented leave + ล้าง token) →
+//   engine2 fresh join → **หลัง refresh ตำแหน่งเดิมหาย** (engine1 reconnect แล้ว leave ทิ้ง seat, engine2
+//   ไม่มี token ให้ reconnect) + join/leave ซ้อน race แย่ง seat กันเอง. แก้: เลื่อน createEngine ไป
+//   macrotask (setTimeout 0) — cleanup ของ StrictMode รัน "ก่อน" timer จึง clearTimeout ทิ้ง = engine
+//   ถูกสร้าง **ครั้งเดียวจริง** ไม่มี engine1 ให้ churn. refresh/close = page reload → effect รันครบปกติ.
 
 import { useEffect, useRef } from "react";
 import { createEngine, type EngineHandle } from "@/engine/runtime/app";
@@ -29,23 +35,30 @@ export function GameCanvas() {
     if (!container) return;
 
     let cancelled = false;
+    let handle: EngineHandle | null = null;
 
-    createEngine(container, ENGINE_CONFIG)
-      .then((created) => {
-        if (cancelled) {
-          // effect ถูก cleanup ไปแล้วก่อน init เสร็จ (StrictMode) → ทิ้งทันที
-          created.destroy();
-          return;
-        }
-        engineRef.current = created;
-      })
-      .catch((err) => {
-        console.error("[GameCanvas] engine init failed", err);
-      });
+    // เลื่อน createEngine ไป macrotask ถัดไป — StrictMode double-invoke จะ cleanup (clearTimeout) ก่อน
+    // timer ยิง → engine ไม่ถูกสร้างในรอบ transient (ดู header). refresh จริง = effect เดียว → timer ยิงปกติ.
+    const startId = setTimeout(() => {
+      createEngine(container, ENGINE_CONFIG)
+        .then((created) => {
+          if (cancelled) {
+            // เผื่อ unmount จริงมาก่อน promise resolve → ทิ้งทันที
+            created.destroy();
+            return;
+          }
+          handle = created;
+          engineRef.current = created;
+        })
+        .catch((err) => {
+          console.error("[GameCanvas] engine init failed", err);
+        });
+    }, 0);
 
     return () => {
       cancelled = true;
-      engineRef.current?.destroy();
+      clearTimeout(startId);
+      handle?.destroy();
       engineRef.current = null;
     };
   }, []);

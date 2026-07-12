@@ -61,4 +61,14 @@
 - สาเหตุ: tsx default ใช้ modern (TC39) decorators ของ esbuild; @colyseus/schema `@type` = legacy PropertyDecorator ต้อง experimentalDecorators + useDefineForClassFields:false (อยู่ใน server/tsconfig.json)
 - วิธีเลี่ยง: รันด้วย `--tsconfig server/tsconfig.json` เสมอ (ตรงกับ `npm run dev:server`); proof/integration script ก็ต้องผ่าน server ที่รันแบบนี้
 
+## Reconnect token in-memory + StrictMode double-mount = refresh แล้วเป็นผู้เล่นใหม่ + 2 แท็บมองไม่เห็นกัน (P1-07-fix)
+
+- อาการ (owner เจอบน browser จริง): เปิด `/game` 2 แท็บ "เห็นกันบ้างไม่เห็นบ้าง ต้อง refresh เรื่อย ๆ ถึงจะขึ้น"; ปิดแท็บเปิดใหม่ใน 30s ไม่กลับตำแหน่งเดิม
+- สาเหตุ 3 ชั้นซ้อน:
+  1. `reconnectionToken` เก็บใน memory ของ net-client เท่านั้น → refresh/reopen = token หาย → หน้าใหม่ join เป็นผู้เล่นใหม่เสมอ (ไม่ reconnect)
+  2. refresh/close = ws หลุด **unconsented** (ไม่มี `room.leave()`) → server `allowReconnection` hold seat + PlayerState เป็น "ผี" 30s → refresh ซ้ำ ๆ สะสมผีจนห้องเต็ม (`channelCapacity` dev=8) → matchmaker แยกแท็บใหม่ไป CH.2 = 2 แท็บคนละห้อง มองไม่เห็นกัน; 30s ผ่านผี expire ห้องว่าง → refresh อีกทีเห็น = "เดี๋ยวก็ขึ้น"
+  3. **StrictMode (dev)**: createEngine async + destroy ตอน cleanup → engine1 join+persist token แล้ว engine1 destroy (consented leave + ล้าง token) ก่อน engine2 → หลัง refresh engine1 reconnect แล้ว leave ทิ้ง seat, engine2 fresh join = ตำแหน่งหาย + join/leave race แย่ง seat กันเอง
+- วิธีเลี่ยง (fix ใช้): (a) persist token ลง **sessionStorage per-tab** (`src/engine/net/reconnect-store.ts` — **ห้าม localStorage** 2 แท็บจะแย่ง token → kick กัน) + re-persist timestamp ตอน `pagehide`/`beforeunload` (ไม่ leave = ปล่อยหลุด unconsented ให้ reclaim ได้); boot ลอง `client.reconnect(token)` ก่อน (planRejoin: token สด+ตรง server/map/party) = reclaim ghost seat แทนเพิ่มผู้เล่นใหม่ → **ไม่สะสมผี ไม่แยกห้อง**; consented leave (SPA nav/map transition) = ล้าง token (กันดึงกลับ map เก่า) (b) กัน StrictMode double-mount ด้วย `setTimeout(0)` ใน `GameCanvas.tsx` — cleanup ของ StrictMode รัน (clearTimeout) ก่อน timer ยิง → engine ถูกสร้างครั้งเดียวจริง ไม่มี engine transient churn
+- หมายเหตุ semantics: ปิดแท็บ **ไม่** reopen = ผีค้างให้คนอื่นเห็นสูงสุด = grace (30s, §59.1) ตามสเปก — เลี่ยงไม่ได้ถ้าจะให้ reconnect ทำงาน (ต้อง hold seat แบบ unconsented). ห้ามแก้ด้วยการ consented-leave ตอน unload (จะทำ reconnect พังทั้งหมด)
+
 <!-- เพิ่มกับดักใหม่ด้านล่างเมื่อเจอจริง -->

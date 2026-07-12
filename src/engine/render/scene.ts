@@ -10,7 +10,8 @@
 // scene.ts เป็นแค่ "glue" ที่ apply ผล pure → pixi display objects.
 
 import { Application, Container, Graphics, Text } from "pixi.js";
-import type { EngineConfig, PropStyle } from "@/engine/config";
+import type { EngineConfig, ExitMarkerConfig, PropStyle } from "@/engine/config";
+import type { DiamondPolygon } from "@/engine/render/exit-marker";
 import type { ScreenPoint, TilePoint } from "@/engine/iso/coords";
 import { tileToScreen } from "@/engine/iso/coords";
 import { entityFootToScreen } from "@/engine/render/placement";
@@ -43,6 +44,17 @@ export interface MapSceneHandle {
    * แล้วเรียกก่อน update() ทุก frame; {sx:0,sy:0} (ค่าเริ่มต้น) = ไม่มี shake.
    */
   setCameraShakeOffset(offset: ScreenPoint): void;
+
+  /**
+   * วาด exit marker (P1 fix) — highlight พื้นของทุก tile ใน exit area (polygon จาก
+   * exit-marker.ts) ลง **ground-level layer** (เหนือ ground, ใต้ entity ทั้งหมด — ไม่เข้า depth-sort
+   * เลย). เรียกซ้ำได้ (ล้างของเก่าก่อนวาดใหม่). style.enabled=false หรือ polygons ว่าง = ล้างทิ้ง.
+   * placeholder จนกว่าจะมี art จริง (ประตู/ป้าย sprite).
+   */
+  setExitMarkers(
+    polygons: readonly DiamondPolygon[],
+    style: ExitMarkerConfig,
+  ): void;
 
   // --- entity layer API (P0-05/06/09) ---
   /**
@@ -144,6 +156,9 @@ export function createMapScene(
   // ── layer tree ─────────────────────────────────────────────────────────
   const world = new Container();
   const ground = buildGround(map, config);
+  // exit marker layer (P1 fix): ground-level overlay — เหนือ ground, ใต้ entityLayer (วาดก่อน entity
+  // = อยู่ข้างหลัง entity ในลำดับ paint). ไม่ depth-sort (พื้นราบ coplanar เหมือน ground).
+  const exitMarkerLayer = new Container();
   const entityLayer = new Container();
   // unique zIndex rank ต่อ entity → pixi sort ตรงลำดับ DepthRegistry เป๊ะ (sort เมื่อ zIndex เปลี่ยนเท่านั้น)
   entityLayer.sortableChildren = true;
@@ -152,6 +167,7 @@ export function createMapScene(
   // — ไม่ใช้ zIndex ร่วมกับระบบ depth sort จริง กัน conflict กับ rank ที่ assign ให้ entity.
   const depthDebugLayer = new Container();
   world.addChild(ground);
+  world.addChild(exitMarkerLayer);
   world.addChild(entityLayer);
   world.addChild(depthDebugLayer);
   app.stage.addChild(world);
@@ -321,6 +337,22 @@ export function createMapScene(
       shakeOffset = offset;
       // ไม่เรียก applyCamera()/syncDepth() ที่นี่ตรง ๆ — caller เรียกก่อน update() เสมอในเฟรมเดียวกัน
       // (pattern เดียวกับ setCameraTarget ที่ snap=false), กัน apply ซ้ำสองรอบต่อ frame.
+    },
+
+    setExitMarkers(polygons, style): void {
+      // ล้างของเก่าก่อน (idempotent — mount map ใหม่/toggle) แล้ววาดลง Graphics เดียว (ทั้ง area แชร์ก้อนเดียว)
+      exitMarkerLayer.removeChildren().forEach((c) => c.destroy());
+      if (!style.enabled || polygons.length === 0) return;
+      const g = new Graphics();
+      for (const poly of polygons) {
+        g.poly(poly as number[]).fill({ color: style.fillColor, alpha: style.fillAlpha });
+        g.poly(poly as number[]).stroke({
+          color: style.lineColor,
+          width: style.lineWidth,
+          alpha: style.lineAlpha,
+        });
+      }
+      exitMarkerLayer.addChild(g);
     },
 
     addEntity,

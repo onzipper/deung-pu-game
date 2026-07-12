@@ -61,6 +61,7 @@ import {
   triggerHitStop,
   type HitStopState,
 } from "@/game/combat/hit-stop";
+import { resolveJuiceLevel } from "@/game/combat/juice-level";
 
 /** zLayer ของ hitbox debug wedge — เหนือ entity ปกติ (0); damage number ไม่ใช้ scene zLayer อีกต่อไป
  *  (P1-06: อยู่ layer แยกที่เป็น child หลังสุดของ scene.world เสมอ — ดู damage-number.ts). */
@@ -281,18 +282,34 @@ export function createCombatStub(
         if (!pos) continue; // มอนไม่รู้จัก/หายไปเกิน 1 เฟรม — ข้าม
         damageNumbers.spawn(pos, hit.dmg, { crit: hit.crit, targetId: hit.mobId });
 
-        // P1-06 (GS §17.5): hit stop เมื่อ crit/kill เท่านั้น — ระดับตาม skill.hitStopLevel (client manifest)
+        // P1-06 (GS §17.5): hit stop เมื่อ crit/kill เท่านั้น — ระดับตาม skill.hitStopLevel (client manifest),
+        // ยกขึ้นด้วย minLevelOnKill/minLevelOnCrit (feel floor, ดู juice-level.ts) กัน skill level ต่ำ (S1=0)
+        // ทำให้ kill/crit ไม่รู้สึกอะไรเลย.
         if (hit.crit || hit.killed) {
-          triggerHitStop(hitStopState, skill.hitStopLevel, combatFeel.hitStop.durationMsByLevel);
+          const hitStopLevel = resolveJuiceLevel({
+            baseLevel: skill.hitStopLevel,
+            killed: hit.killed,
+            crit: hit.crit,
+            minLevelOnKill: combatFeel.hitStop.minLevelOnKill,
+            minLevelOnCrit: combatFeel.hitStop.minLevelOnCrit,
+          });
+          triggerHitStop(hitStopState, hitStopLevel, combatFeel.hitStop.durationMsByLevel);
         }
         // screen shake: crit/kill เสมอ **หรือ** skill.screenShakeLevel สูงพอ (เช่น ultimate-tier) แม้ hit
         // นั้นไม่ crit/ไม่ฆ่า (alwaysTriggerAtLevel = knob, ดู engine/config.ts)
         const shouldShake =
           hit.crit || hit.killed || skill.screenShakeLevel >= combatFeel.screenShake.alwaysTriggerAtLevel;
         if (shouldShake) {
+          const shakeLevel = resolveJuiceLevel({
+            baseLevel: skill.screenShakeLevel,
+            killed: hit.killed,
+            crit: hit.crit,
+            minLevelOnKill: combatFeel.screenShake.minLevelOnKill,
+            minLevelOnCrit: combatFeel.screenShake.minLevelOnCrit,
+          });
           triggerShake(
             shakeState,
-            skill.screenShakeLevel,
+            shakeLevel,
             combatFeel.screenShake.levelsByLevel,
             currentShakeAmplitudeScale(combatFeel),
           );

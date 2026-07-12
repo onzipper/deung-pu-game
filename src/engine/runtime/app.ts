@@ -14,13 +14,22 @@ import { type EngineConfig, resolveResolution } from "../config";
 import { requireMap, getMap } from "../map/registry";
 import { findExitAt, type MapConfig } from "../map/types";
 import { createMapScene, type MapSceneHandle } from "../render/scene";
+import { buildExitMarkerPolygons } from "../render/exit-marker";
 import { createLocalPlayer, type LocalPlayerHandle } from "../player/local-player";
 import { createMobViewManager, type MobViewHandle } from "@/game/mob/manager";
 import { createMobSimulation, type MobSimulation } from "@/game/mob/simulation";
 import { createCombatStub, type CombatStubHandle } from "@/game/combat/combat-stub";
+import {
+  cancelEngage,
+  startEngage,
+  stepEngage,
+  IDLE_ENGAGE_STATE,
+  type EngageState,
+} from "@/game/combat/target-engage";
 import { createStressHarness, type StressHarnessHandle } from "@/game/combat/stress-harness";
 import { WARRIOR_SKILLS_CLIENT } from "@/game/skill/data/warrior-skills-client";
 import { createNetClient, type NetClientHandle } from "../net/net-client";
+import { createSessionReconnectStore } from "../net/reconnect-store";
 import { createRemotePlayerManager } from "../net/remote-player-manager";
 import {
   advanceSendTimer,
@@ -126,6 +135,11 @@ export async function createEngine(
   // P1-08: partyId ของ local player (URL `?party=xyz` > config default) — คงที่ทั้ง session (ทุก world).
   const localPartyId = partyIdFromLocation(config.net.partyId);
 
+  // P1-07-fix (§59.1): per-tab reconnect token store (sessionStorage) — คงข้าม refresh/reopen เพื่อ
+  // reconnect เข้า seat เดิม (token in-memory หายตอน reload). ตัวเดียวทั้ง session (ทุก world/map ใช้ key
+  // เดียว — token ตามหลัง map ปัจจุบัน; transition = consented leave ล้าง token → world ใหม่ fresh join).
+  const reconnectStore = createSessionReconnectStore(config.reconnect.sessionStorageKey);
+
   // world ปัจจุบัน (mutable — สลับตอน transition). forward-declare ก่อน requestTransition/mountWorld.
   let currentWorld: WorldHandle;
 
@@ -155,6 +169,13 @@ export async function createEngine(
   function mountWorld(map: MapConfig, spawn: { x: number; y: number }): WorldHandle {
     // --- map scene ---
     const scene = createMapScene(app, map, config);
+    // P1 fix: highlight พื้น exit area ให้เห็น "ทางออก" (owner เดินหา exit ไม่เจอเพราะ placeholder art ล้วน).
+    // ground-level overlay ใต้ entity, ไม่แตะ depth-sort. teardown = scene.destroy() (world.destroy children)
+    // ตอนสลับ map. placeholder จนกว่าจะมี art จริง (ประตู/ป้าย sprite).
+    scene.setExitMarkers(
+      buildExitMarkerPolygons(map.exits, config.tileSize),
+      config.exitMarker,
+    );
 
     // --- local player (P0-05): spawn ที่ map.spawnPoint แล้ว snap ไป spawn จริง (targetSpawn ตอน transition) ---
     const player = createLocalPlayer(scene, map, config, app.renderer);
@@ -210,6 +231,8 @@ export async function createEngine(
           serverUrl: config.net.serverUrl,
           roomName: config.net.roomName,
           retry: config.reconnect.clientRetry,
+          graceSeconds: config.reconnect.graceSeconds,
+          store: reconnectStore,
         },
         { mapId: map.mapId, ...initial, partyId: localPartyId },
         {
@@ -321,7 +344,9 @@ export async function createEngine(
     };
     const distTo = (p: TilePoint): number =>
       Math.hypot(p.tx - player.position.tx, p.ty - player.position.ty);
-    let walkAttackTargetId: string | null = null;
+    // P1-09.1 (TA §17.3 walk-to-attack): คลิกมอบ 1 ครั้ง = engage ต่อเนื่อง (ไม่ใช่ตีทีเดียวจบ) — state
+    // machine pure ใน target-engage.ts ตัดสิน attack/chase/idle ทุก tick, ที่นี่แค่ execute action จริง.
+    let engageState: EngageState = IDLE_ENGAGE_STATE;
 
     const onPointerDown = (e: PointerEvent): void => {
       if (e.button !== 0) return;
@@ -330,36 +355,54 @@ export async function createEngine(
       // P1-11: safe zone (เมือง) ไม่มี combat → คลิกมอน = เดินเฉย ๆ (ไม่ tap-to-attack). เมืองไม่มีมอนอยู่แล้ว.
       const mob = combatAllowed ? mobUnderClick(foot) : null;
       if (mob) {
+        engageState = startEngage(mob.id);
         if (distTo(mob.pos) <= attackRange) {
           player.faceToward(mob.pos);
           player.requestAttack();
           player.cancelPath();
-          walkAttackTargetId = null;
         } else {
           player.moveTo(mob.pos);
-          walkAttackTargetId = mob.id;
         }
       } else {
+        // คลิกพื้นเปล่า = ยกเลิก engage ที่ค้างอยู่ (manual override ชนะเสมอ, เหมือน WASD)
         player.moveTo(foot);
-        walkAttackTargetId = null;
+        engageState = cancelEngage();
       }
     };
     app.canvas.addEventListener("pointerdown", onPointerDown);
 
-    const evaluateWalkToAttack = (): void => {
-      if (walkAttackTargetId === null) return;
-      const target = mobView.getAliveTargets().find((t) => t.id === walkAttackTargetId);
-      if (!target) {
-        walkAttackTargetId = null;
+    /**
+     * รันทุก frame (caller เช็ค !locked แล้ว): WASD (manual override) ยกเลิก engage ทันที; ไม่งั้นประเมิน
+     * stepEngage แล้ว execute action ที่ได้ (attack ต่อเนื่อง / chase เมื่อเป้าหลุดระยะ / เงียบเมื่อ path
+     * เดิมยังพาไปอยู่). เป้าตาย/หายไป → stepEngage คืน state idle เอง (ดู target-engage.ts).
+     */
+    const updateEngage = (): void => {
+      if (player.manualInputActive) {
+        engageState = cancelEngage();
         return;
       }
-      if (distTo(target.pos) <= attackRange) {
-        player.faceToward(target.pos);
+      if (engageState.status === "idle") return;
+      // snapshot ลง const — engageState เป็น let, TS ไม่ narrow discriminated union ข้าม closure
+      const engaged = engageState;
+      const target = mobView.getAliveTargets().find((t) => t.id === engaged.targetId) ?? null;
+      const result = stepEngage({
+        state: engaged,
+        target: target ? { id: target.id, pos: { tx: target.pos.tx, ty: target.pos.ty } } : null,
+        playerPos: player.position,
+        attackRange,
+        hasActivePath: player.isFollowingPath,
+      });
+      engageState = result.state;
+      if (result.action.type === "attack") {
+        player.faceToward(result.action.pos);
         player.requestAttack();
         player.cancelPath();
-        walkAttackTargetId = null;
-      } else if (!player.isFollowingPath) {
-        walkAttackTargetId = null;
+      } else if (result.action.type === "chase") {
+        // เป้าขยับหลุดระยะ + ไม่มี path พาไปอยู่แล้ว → replan ไปตำแหน่งใหม่. เดินไม่ถึง (เช่นเป้าติดกำแพง
+        // เข้าไม่ถึง) → ยอมแพ้ (idle) กันเรียก moveTo/A* ซ้ำทุก frame ไม่มีที่สิ้นสุด.
+        if (!player.moveTo(result.action.pos)) {
+          engageState = cancelEngage();
+        }
       }
     };
 
@@ -400,7 +443,7 @@ export async function createEngine(
         // calc: mobs (server interpolation / offline sim) — render ต่อเนื่องแม้ locked
         updateMobs(dtSeconds, deltaMs);
         if (!locked) {
-          evaluateWalkToAttack();
+          updateEngage();
         }
         // combat juice (damage number/fade) — no-op เมื่อไม่มี attack
         combat.update(dtSeconds);
