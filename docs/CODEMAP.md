@@ -113,6 +113,15 @@
 - `src/app/api/auth/guest/route.ts` (+ `register`,`login`,`upgrade`,`session`,`rt-token` ใต้ `src/app/api/auth/`) — 6 endpoints: POST guest/register/login/upgrade · GET+DELETE session · POST rt-token
 - `tests/server-auth-service.test.ts` (+ email/password-policy/password/token) — pure unit ทั้งหมดผ่าน in-memory repo (**ห้ามยิง DB จริง**)
 
+## Characters + Game Hub (P2-06a — Storage §3–§9 · S4: hub = route ใน app เดิม)
+
+- `src/shared/character-name.ts` — **pure** validator ชื่อตัวละคร (Storage §3.3): NFC normalize + 3–16 code points + ไทย/ละติน/เลข + เว้นวรรคภายใน 1 ช่อง — error codes empty/too_short/too_long/invalid_char/invalid_space · ใช้ทั้ง client (realtime feedback) + server (authoritative)
+- `src/shared/character-class.ts` — CLASS_IDS whitelist (**ตอนนี้ `swordsman` ตัวเดียว** — classId อังกฤษของอีก 4 อาชีพยังไม่ถูกเคาะ ห้ามเดา; เพิ่มตอน P2B archer)
+- `src/server/characters/` — repository contract + memory (เทสต์) + prisma (P2002→name_taken) + service (slot cap จาก account.characterSlots, cross-account guard, duplicate class ได้) + http helper — pattern เดียวกับ src/server/auth
+- `src/app/api/characters/route.ts` — GET list / POST create (session-gated 401, `{ok:false,reason,nameError}`)
+- `src/app/hub/page.tsx` + `HubShell/AuthPanel/ContinueCard/CharacterGrid/CharacterCreate/messages` (โฟลเดอร์เดียวกัน) — **Game Hub**: guest/login/register → Continue Card + ตาราง 5 ช่อง → จอสร้างตัวละคร (validation realtime, 4 อาชีพ disabled "เร็วๆ นี้") — ใช้ token V1 (radius 6/10/16, hit ≥48px) · ปุ่มเข้าเกม = link `/game` เฉยๆ (integration ตัวละคร = issue ถัดไป)
+- `tests/shared-character-name.test.ts` + `tests/server-characters-service.test.ts` — validator ทุก code + service ครบเส้นทาง (memory repo, ไม่ยิง DB)
+
 ## Persistence foundation (P2-02 — prisma/ + server/db/**)
 
 - `prisma/schema.prisma` — **MySQL schema ชุดแรก 10 ตาราง** (TA §7/§8 + AJ §4.3/§20, Prisma 6.x pinned — v7 breaking): accounts (guest+email upgrade) · characters (**name @unique — pending owner: กติกาชื่อซ้ำ**) · character_state (hot write แยกตาราง) · items (id อ้าง config ไม่เก็บ definition) · inventory (version = optimistic lock) · **currency_ledger (double-entry — ไม่มี balance column, idempotencyKey unique, append-only)** · enhancement_logs · drop_audit (RNG audit) · config_versions (key+version+payload+active) · **game_events (append-only, eventId unique dedup, index เผื่อ retention — เคาะ A4)** — **never-downgrade zone (DB schema)**
