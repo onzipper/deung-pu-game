@@ -1,9 +1,10 @@
 # ดึ๋งปุ๊ — P1 Balance Proposal v1
 
-> **สถานะ: PROPOSAL / PENDING OWNER — ไม่ใช่ spec**
-> ค่าทั้งหมดในเอกสารนี้จะเข้า **config (Design Knobs §48)** ไม่มี hardcode
-> owner เคาะแล้วค่อย merge เข้า checkpoint spec ตาม process **§59.4** (เสนอ → design เคาะ → update §48/§50.1 → tech implement → บันทึก migration)
-> ก่อนเคาะ: ใช้เป็น **draft ให้เกมเดินได้** (มติ decision-index 2026-07-12 — mark PENDING OWNER)
+> **สถานะ: ✅ APPROVED — P2 production baseline (owner เคาะ 2026-07-12 ผ่าน Production Bible Set v1, Bible 1.1–1.6)**
+> เงื่อนไขที่ owner แนบตอนรับรอง: ล็อก **progression shape** มากกว่าเลขรายเลเวล (HP/DEF เด่น, ATK กลางสูง, crit ไม่พุ่งเร็ว) · lv1 ห้ามตายง่ายจากมอนปกติ 2–3 ตัว · lv10 ต้องรู้สึกเก่งขึ้นชัดแต่ไม่ล้าง Elite ด้วย basic attack · นกจิกปุ๊/หมูป่าต้องมี stat row แยกก่อน P2 content freeze · kill time เป้าหมาย: normal 2–5s, tanky 4–8s, elite 15–30s solo, field boss แรก 2–4 นาที solo · k ขยับช่วง 40–60 ได้ไม่ถือว่าเปลี่ยนสูตร
+> ค่าทั้งหมดยังเป็น **Design Knob (§48)** ใน versioned config — tune ผ่าน telemetry + decision record, ห้ามแก้เงียบในโค้ด
+>
+> ~~สถานะเดิม: PROPOSAL / PENDING OWNER~~ (ประวัติ: ใช้เป็น draft ให้เกมเดินได้ตลอด P1 ตามมติ decision-index 2026-07-12)
 >
 > _ร่างโดย: deep-worker · วันที่ 2026-07-12 · scope: P1 (นักดาบ vertical ก่อน, อีก 4 อาชีพ draft พอเติม config)_
 

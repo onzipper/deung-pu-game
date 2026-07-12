@@ -1,8 +1,9 @@
-# ดึ๋งปุ๊ — Technical Architecture v1.5.1
+# ดึ๋งปุ๊ — Technical Architecture v1.5.2
 
-> **Canonical game spec:** `deungpu_project_checkpoint_v15_p0_scope_lock_ready.md` (รวมทุก layer: v9 combat + v10 audio + v11 tech handoff + v12 spawn + v13 engine + v14 runtime + v15 P0 scope lock + v15.1 amendment)
-> **เอกสารแยกที่อ้างอิง:** `ENGINE_FOUNDATION_DECISIONS_v1` · `RUNTIME_BOT_CHANNEL_AND_SCHEMA_OWNERSHIP_DECISIONS_v1` · `MAP_LAYOUT_BIBLE_v1` · `MAP_SCALE_AND_SPAWN_DENSITY_SPEC_v1` · `P0_SCOPE_LOCK_v1`
-> สถานะ: **P0 scope locked — เอกสารนี้คือ tech architecture ฝั่ง implementation; game semantics/balance ยึด v15.1**
+> **Canonical game spec:** `deungpu_project_checkpoint_v15_p0_scope_lock_ready.md` (รวมทุก layer: v9 combat + v10 audio + v11 tech handoff + v12 spawn + v13 engine + v14 runtime + v15 P0 scope lock + v15.1/v15.2 amendment)
+> **เอกสารแยกที่อ้างอิง:** `ENGINE_FOUNDATION_DECISIONS_v1` · `RUNTIME_BOT_CHANNEL_AND_SCHEMA_OWNERSHIP_DECISIONS_v1` · `MAP_LAYOUT_BIBLE_v1` · `MAP_SCALE_AND_SPAWN_DENSITY_SPEC_v1` · `P0_SCOPE_LOCK_v1` · **Production Bible Set v1 (`docs/design/bibles/`, 2026-07-12)** — Bible ชนะเรื่องพฤติกรรม/ความหมายที่ผู้เล่นได้รับ, เอกสารนี้ชนะเรื่องวิธี implement
+> สถานะ: **P0 scope locked — เอกสารนี้คือ tech architecture ฝั่ง implementation; game semantics/balance ยึด v15.2**
+> **v1.5.2 — amendment (2026-07-12, in-place):** สะท้อน Production Bible Set v1 (owner ปิด decision queue ทุกข้อ) — **balance เลิกสถานะ PENDING OWNER** (k=50, hit tolerance 1.40/0.35/20° ยืนยันเป็น baseline), multi-hit rounding = round-total-once (§15.7.1), party model final = public shared channel (§6.2), background tab production policy (§6.2), P2 scope + milestone P2B ใหม่ (§12.1), click radius per input mode + Map 1 ratified (§17.3), asset canvas standards ใหม่ (L12, boss 160–192)
 > **v1.5.1 — amendment (2026-07-12, in-place ไม่ rename ไฟล์):** สะท้อน decision + finding จริงจาก P0/P1 implementation — client ต้อง adopt ตำแหน่งจาก server ก่อนส่ง move แรก (§6), reconnect token = sessionStorage per-tab (§6), นโยบายแท็บเบื้องหลัง = ค้างออนไลน์ตลอดใน P1 (§6), party channel model ที่ implement จริง = private-party-channel (§6), server-side hit tolerance สำหรับ melee ที่ระยะประชิด (§15, ตัวเลข **PENDING OWNER**), walk-to-attack ตีต่อเนื่อง (§17.3) — ดู "Amendment Log" ท้าย §6/§15/§17.3 สำหรับรายละเอียด ค่า balance ทั้งหมดยังเป็น PENDING OWNER เหมือนเดิม
 > **v1.5 — sync กับ v15:** เพิ่ม **P0 Scope Lock (§19)** และปรับ Prototype Plan/Execution Plan ให้ P0 = **Engine Foundation Vertical Slice** ไม่ใช่ full combat/local-only slice
 > **v1.4 — originally sync กับ v14 / still covered by v15:** เพิ่ม isometric engine foundation (§17), spawn/aggro system (§18), runtime decisions (reconnect/offline bot/channel); ปรับ §15/§16 ให้ **reference** v15 §48/§50.1 แทน redefine (ตาม ownership rule)
@@ -45,7 +46,7 @@
 | L9 | Payment | mock ทั้ง MVP, เป็นเฟสท้ายสุด — แต่สร้าง entitlement layer จริงตั้งแต่แรก |
 | L10 | Server cap | 30 CCU เฟสแรก (ตัวเลข tune ภายหลัง) |
 | L11 | Platform / control | Web-first, PC เป็นฐานหลัก, Chrome ก่อน; **control ครบสามแบบ: WASD + เมาส์ + touch** ตั้งแต่ MVP |
-| L12 | Sprite grid | **iso diamond tile** (ฐาน ~64×32/tile) · player/มอนปกติ ~64px · elite ~96 · boss ~128+ · icon UI 64×64 — ดู §17.1 |
+| L12 | Sprite grid | **iso diamond tile** (ฐาน ~64×32/tile) · player/มอนปกติ ~64px · elite ~96 · ~~boss ~128+~~ · icon UI 64×64 — ดู §17.1 · **Amended v1.5.2 (Bible 4.2):** canvas standards ล็อก — player/NPC/small mob **64×64** (visible body 28–36w×44–52h, footPivot **[32,54]**), medium mob 96×96, elite 96/128, **field boss 160×160 ขั้นต่ำ / 192×192 preferred**, icon 64×64; silhouette ไม่ต้องเต็ม canvas — รายละเอียดเต็ม `docs/design/bibles/deungpu_ASSET_PRODUCTION_BIBLE_v1.md` |
 | L13 | Audio | **Howler.js (SFX/UI/ambience) + Tone.js (adaptive/layered music เท่านั้น)** — แบ่งหน้าที่ชัด ดู §22 |
 | **L14** | **Camera/Projection (v15 §57.1)** | **True 2D Isometric Pixel Art · diamond grid · fixed camera · no rotation** — frame-by-frame sprite |
 | **L15** | **Direction (v15 §57.2)** | **5 ทิศวาด (S/SW/W/NW/N) + mirror (SE/E/NE)** · เผื่อ 8-dir override สำหรับ boss/NPC ในอนาคต |
@@ -304,6 +305,13 @@ Live hub + shared farming maps + world boss = bidirectional push ตลอดเ
 3. **นโยบายแท็บเบื้องหลัง (owner เคาะ 2026-07-12, ตรง v15 §59.1.1)**: พับจอ/สลับแท็บ/minimize = **ค้างออนไลน์ตลอดใน P1** ไม่ auto-disconnect — ทบทวนใหม่ตอน P2 เมื่อมี combat risk ต่อผู้เล่น AFK
 4. **Party channel model ที่ implement จริง (P1-08)**: **private-party-channel** ผ่าน Colyseus native `filterBy([mapId, partyId])` + capacity แยก solo (`channelCapacity`)/party (`partyChannelCapacity`) — party ได้ channel ส่วนตัวของกลุ่มเสมอ (การันตีอยู่ด้วยกัน 100% แข็งกว่าที่ §59.3 ขอ) แทน shared-population channel model ที่ระบุไว้เดิมด้านบน (ย่อหน้า "Party sync สำคัญกว่า solo auto-assign" — ยังใช้ describe **เจตนา** ได้ แต่ **ไม่ใช่กลไก implement จริง**) ผลข้างเคียง: scattered-member prompt ("ย้ายไปหา party") = **N/A ใน P1** เพราะ filter การันตี party อยู่ห้องเดียวกันเสมอ ไม่มีทางกระจัดกระจาย — **open question**: ถ้า owner อยากได้ shared-population channel model (ตามย่อหน้าเดิม) ต้องทำ custom matchmaking route เพิ่ม (มี TODO ในโค้ด, `server/matchmaking/`)
 
+### 6.2 Amendment (v1.5.2, 2026-07-12) — Production Bible Set v1 (realtime/ops)
+
+1. **Party model — ปิด open question ของ 6.1 ข้อ 4**: owner เคาะ (Bible 2.2 + v15.2 §59.3.1) **public shared channel = final field model**; private-party-channel ของ P1 = fallback/test mode ชั่วคราว + ใช้เป็น model ของ instanced content (dungeon/raid/tutorial) ต่อได้ · การย้าย field ไป public shared (custom matchmaking route: หา/สร้าง public channel ที่รับ party ทั้งกลุ่ม + scattered-member prompt ตาม §59.3) **ไม่อยู่ P2 core** — ทำ P2B+
+2. **Background tab — supersede 6.1 ข้อ 3** ("ค้างออนไลน์ตลอด" = เฉพาะ P1): นโยบาย production ตาม **v15.2 §59.1.2** (Bible 5.3) — tab hidden → หยุด active input; field: idle 15s → countdown → 30s → safe-disconnect + save ตำแหน่ง safe-valid; ระหว่าง combat รับ damage ต่อ ไม่ auto-cast; city 60s; party member extended window ~120–180s; ตัวเลขทั้งหมด = Design Knobs (15/30/60 PENDING tune) · โหมด "ปักหลัก" = explicit toggle ยกเว้น countdown โดยไม่มี automation · **enforce ตอน P2** (ต้องมี save) — ฝั่ง tech: server ต้องแยก "hidden-idle disconnect" ออกจาก "unintentional drop" (ไม่ทิ้ง ghost 30s เพราะ save แล้วออกอย่างสะอาด)
+3. **Origin restriction + JWT handshake = งาน P2** (Bible 5.2): allowlist production/staging/local origins · WS handshake ใช้ short-lived token · rate limit join/auth failure · dev bypass เฉพาะ non-production env
+4. **Render paid always-on trigger** (Bible 5.1): อัปเกรดจาก free tier เมื่อชน hard trigger ใดก่อน — เชิญคนนอก >5 / scheduled test >60 นาที / เก็บ persistence data จริง / เริ่ม P2 integration environment — UptimeRobot ไม่นับเป็น production reliability strategy
+
 ---
 
 ## 7. Server Authority Model
@@ -502,6 +510,20 @@ currency_ledger                         # double-entry: character_id, currency(g
 
 **กติกาเรียงเฟส:** P0 อยู่แรกเพื่อพิสูจน์ engine foundation ให้เดินได้ก่อน — renderer/movement/room/channel ถ้าไม่ผ่าน จะต่อ combat/economy ไม่คุ้ม และ **อย่าข้าม P2 ไป P4** — market ที่วางบน inventory ที่ dupe ได้คือหายนะ
 
+### 12.1 Amendment (v1.5.2, 2026-07-12) — P2 scope update + milestone P2B (Bible 3.1–3.5)
+
+**P2 — Persistence & Value (scope ที่ owner ยืนยัน):** ตารางด้านบนยังถูก แต่เพิ่ม/ชี้ชัดรายการต่อไปนี้เข้า P2:
+- guest + email account + guest upgrade (L5) · character save/load · **current map + safe position persistence** (แก้ boot-to-Test-Field + จำ map ข้าม refresh ตาม v15.2 §59.1.1 ข้อ 5)
+- starter NPC shop buy/sell · resync on refocus/reconnect · **origin restriction + JWT handshake** (§6.2 ข้อ 3)
+- **จุดเริ่มเกม production**: สร้างตัวละคร → starter district ในนครอรุณผนึก → tutorial 5–10 นาที (guided checklist overlay — ไม่มี dialog system ใน P2) → ประตูสู่ Map 1 · **Test Field = dev-only ถาวร** (env flag/admin เท่านั้น production ซ่อน navigation ทั้งหมด)
+- **mobile polish = ช่วงท้าย P2 และเป็น gate ก่อน external closed alpha**: virtual joystick/drag movement, touch targeting + skill buttons, responsive HUD 2 layout, effect quality UI, large hit targets + safe-area, resync on refocus
+
+**P2 excluded (อย่าลาก scope เข้า):** market/trade · offline bot/report · guild/full party management · HoF/ranking · full quest graph · raid/world boss · การย้าย party ไป public shared channel model (§6.2 ข้อ 1)
+
+**P2B — Boss & Encounter Foundation (milestone ใหม่ ระหว่าง P2 กับ P3):** Field Boss Map 1 หนึ่งตัว · boss state machine (Idle/Intro/Combat/Break/Stagger/Enrage/Dead/Respawn) · telegraph priority · guard/break gauge · phase transition ≥2 phase · server-authoritative reward grant เชื่อม inventory/ledger จาก P2 · boss reconnect/edge cases — **ไม่ทำ**: raid finder, guild boss, weekly lockout ซับซ้อน · Gate: boss encounter เล่นซ้ำได้ ไม่มี exploit, อ่าน telegraph ได้บนมือถือ · Living World: world clock เริ่มที่ P2B; weather/NPC routines → P3; caravan/world events → P4+ (`docs/design/bibles/deungpu_LIVING_WORLD_BIBLE_v1.md`)
+
+Roadmap ฉบับเต็มรวม Content track C0–C6 + milestone gates M0–M7: `docs/design/bibles/deungpu_GAME_PRODUCTION_ROADMAP_v1.md`
+
 ---
 
 ## 13. Technical Risks & Mitigations
@@ -640,6 +662,14 @@ Stat + สูตรชุดนี้คือ input ของ **Skill Data Mode
 
 **Juice scope:** hit stop/screen shake trigger **เฉพาะ cast ของตัวเอง** (ไม่ trigger จาก remote cast — กัน screen shake ถี่เกินตอนคนอื่นตีข้างๆ); เลขดาเมจ (damage number) โชว์จากทุก caster ตามปกติ; เพิ่ม juice floor knobs (`minLevelOnKill`/`minLevelOnCrit`) กัน skill ที่ตั้ง `hitStopLevel`/`screenShakeLevel` = 0 ไม่รู้สึกอะไรเลยตอน crit/kill
 
+### 15.7.1 Amendment (v1.5.2, 2026-07-12) — Combat baseline เคาะแล้ว (Bible 1.1–1.9)
+
+1. **เลิกสถานะ PENDING OWNER ของ §15.7**: hit tolerance ยืนยันค่าปัจจุบัน — pointBlank **1.40** tile / rangePadding **0.35** / arcPadding **20°** · naming map: Bible ใช้ `pointBlankToleranceTiles` = โค้ด `pointBlankRadiusTiles` ใน `CombatBalanceConfig.hitTolerance` (ความหมายเดียวกัน — **ไม่ rename โค้ด**, จดไว้กัน drift) · guardrails ที่ owner แนบ: ค่านี้คือ server validation forgiveness ไม่ใช่ระยะสกิลที่ UI โชว์ · เก็บ telemetry rejected cast แยกตามเหตุผล · false-positive hit เกิน 3% ค่อยลด padding
+2. **k = 50** เป็น production baseline (tune ช่วง 40–60 ไม่ถือว่าเปลี่ยนสูตร) · telemetry ต้องเก็บ effective DEF, pre-mitigation, post-mitigation
+3. **Multi-hit rounding** (v15.2 §50.1.1): fixed-point ต่อ sub-hit → รวม exact total → **round ครั้งเดียว** → กระจาย integer กลับตามสัดส่วน + deterministic remainder distribution — ⚠ **implementation debt**: combat formula ปัจจุบัน (`src/shared/`/`server/` combat path) ยังปัดต่อ sub-hit — ต้องแก้ก่อน/พร้อมงานนักธนู (multi-hit อาชีพแรก) · **never-downgrade zone** (combat result calculation)
+4. **Damage type**: P2 ใช้ DEF เดียว — `damageType` ยังส่งผลแค่ VFX/animation; ไม่เพิ่ม resist stat
+5. **Juice ระดับ remote**: owner กำหนด "ผู้เล่นอื่นเห็น effect เบากว่าเจ้าของสกิลหนึ่งระดับ" (Bible 1.6) — implementation ปัจจุบัน remote juice = 0 (ตาม Juice scope ด้านบน); การขยับเป็น "หนึ่งระดับเบากว่า" = งาน combat feel รอบ P2/P2B (knob ใหม่ ไม่ใช่ hardcode)
+
 ---
 
 ## 16. Design Directions (ทิศทางเคาะแล้ว — spec เต็มทำรายเฟส)
@@ -732,6 +762,8 @@ Guild war schema · Raid phase data model · Weekly scheduler เต็ม · Se
 - ใช้ spatial hash เดียวกันทั้ง collision, AoE hit test (server), และ AOI filter (network)
 
 **Amendment (v1.5.1, 2026-07-12) — Walk-to-attack ต่อเนื่อง:** คลิกมอบครั้งเดียว (หรือแตะบนมือถือ) = **ตีต่อเนื่อง** ไม่ใช่ตีครั้งเดียวแล้วหยุด — implement เป็น **engage state machine**: `chase` (เดินเข้าเป้าด้วย pathfinding ตัวเดียวกับ click-to-move) เมื่อหลุดระยะโจมตี → `attack` เมื่อเข้าระยะ → ยกเลิกเมื่อเป้าตาย/ผู้เล่นกด WASD/ผู้เล่นคลิกเป้าอื่น (**manual override ชนะเสมอ** — สอดคล้อง §16.3 ข้อ movement authority ปกติ)
+
+**Amendment (v1.5.2, 2026-07-12) — Click radius per input mode + Map 1 baseline (Bible 2.4–2.5):** รัศมีคลิกโดนมอนแยกตาม input mode เป็น Design Knobs: `desktopMouseHitRadiusTiles: 0.60` / `touchHitRadiusTiles: 0.80` / `controllerOrKeyboardAssistRadiusTiles: 0.65` (แทนค่าเดียว 0.9 เดิมของ P1) — คลิกพื้น priority เป็น movement เมื่อจุดคลิกอยู่นอก silhouette/assist radius · เก็บ misclick telemetry จาก cancel/rapid retarget · "Target Assist" Low/Normal/High = future setting · **Map 1 baseline ratified**: 40×40 tile + zone placement + respawn midpoint ตามที่ implement — bounds ปรับ ±15% ได้หลัง art/route playtest โดยไม่ถือว่าเปลี่ยน world canon; zone coordinates ต้องอยู่ใน map config ห้าม hardcode; safe camp ห้ามติด aggro/PvP/spawn pocket; respawn สุ่มในช่วงที่อนุมัติ (midpoint = default)
 
 ### 17.4 Direction System (§57.2)
 - **5 ทิศวาดจริง: S / SW / W / NW / N** + **mirror: SE←SW, E←W, NE←NW**
