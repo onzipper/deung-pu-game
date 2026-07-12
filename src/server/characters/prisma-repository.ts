@@ -20,6 +20,8 @@ interface CharacterRow {
   classId: string;
   level: number;
   createdAt: Date;
+  /** relation ไม่ include เสมอ (เฉพาะ query ที่ต้องใช้ lastMapId — countByAccount/create ไม่ต้อง) */
+  state?: { mapId: string } | null;
 }
 
 function toRecord(row: CharacterRow): CharacterRecord {
@@ -30,6 +32,7 @@ function toRecord(row: CharacterRow): CharacterRecord {
     classId: row.classId,
     level: row.level,
     createdAt: row.createdAt,
+    lastMapId: row.state?.mapId ?? null,
   };
 }
 
@@ -59,12 +62,16 @@ export function createPrismaCharacterRepository(): CharacterRepository {
       const rows = await getPrisma().character.findMany({
         where: { accountId },
         orderBy: { createdAt: "asc" },
+        include: { state: true },
       });
       return rows.map(toRecord);
     },
 
     async findById(id: string): Promise<CharacterRecord | null> {
-      const row = await getPrisma().character.findUnique({ where: { id } });
+      const row = await getPrisma().character.findUnique({
+        where: { id },
+        include: { state: true },
+      });
       return row ? toRecord(row) : null;
     },
   };

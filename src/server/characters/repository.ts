@@ -13,6 +13,12 @@ export interface CharacterRecord {
   classId: string;
   level: number;
   createdAt: Date;
+  /**
+   * mapId ล่าสุดที่ persist ไว้ (จาก CharacterState relation — schema.prisma) — null = ยังไม่เคย save
+   * ตำแหน่ง (ตัวใหม่). ใช้บอก hub ว่าจะ boot map ไหนตอน "เข้าเกม" (P2-05 owner-report#6 fix,
+   * Storage §5/§7) — ไม่ใช่ field สำหรับ gameplay logic (server ยัง gate ด้วย pickLoadPosition เหมือนเดิม).
+   */
+  lastMapId: string | null;
 }
 
 export interface CreateCharacterInput {

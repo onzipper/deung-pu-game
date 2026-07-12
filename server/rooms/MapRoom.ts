@@ -687,7 +687,9 @@ export class MapRoom extends Room<MapRoomState> {
 
     // P2-05 (Storage §5/§7): มีตัวละคร + DB → โหลด CharacterState. ใช้ตำแหน่ง save เฉพาะเมื่ออยู่ map
     // เดียวกับ room นี้ (pickLoadPosition) — ไม่งั้นใช้ตำแหน่งที่ client ขอ (spawn/targetSpawn). best-effort:
-    // ไม่มี DB/ไม่มี row (ตัวใหม่) → null → spawn default. (start map จริงข้ามรีเฟรช = start-flow ถัดไป.)
+    // ไม่มี DB/ไม่มี row (ตัวใหม่) → null → spawn default. (client boot ด้วย mapId ที่ save ไว้ล่าสุดแล้ว
+    // — owner-report#6 fix, src/engine/net/character-session.ts pickBootMapId — ปกติ this.state.mapId
+    // ตรงกับ saved.mapId; ไม่ตรง = fallback ตามปกติ ไม่ crash.)
     const saved = accountId && characterId ? await loadCharacterState(characterId) : null;
     const requested = pickLoadPosition(saved, this.state.mapId, optionPos);
     const spawn = resolveSpawnPosition(requested, this.safeCamp, this.isWalkableAt);

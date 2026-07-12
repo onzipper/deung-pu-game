@@ -32,8 +32,10 @@ export function decideOwnership(accountId: string, ownerAccountId: string | null
  * เลือก "ตำแหน่งที่ขอ spawn" ตอน load (Storage §5 entry flow): ใช้ตำแหน่ง save ล่าสุด **เฉพาะเมื่อ**
  * อยู่ map เดียวกับ room ที่ join (mapId ตรง) + พิกัด finite — ไม่งั้นใช้ fallback (จุด default/ที่ client ขอ).
  *
- * เหตุผลที่ gate ด้วย mapId: room ถูกสร้างต่อ mapId (client เลือก map ที่ boot). ตอนนี้ client boot
- * DEFAULT_MAP เสมอ (จำ map ข้ามรีเฟรช = start-flow ถัดไป) → save ที่อยู่คนละ map ใช้ไม่ได้กับ room นี้.
+ * เหตุผลที่ gate ด้วย mapId: room ถูกสร้างต่อ mapId (client เลือก map ที่ boot). client boot ด้วย mapId
+ * ที่ตัวละครที่เลือก save ไว้ล่าสุด (owner-report#6 fix — `src/engine/net/character-session.ts`
+ * `pickBootMapId` + `SELECTED_CHARACTER_MAP_STORAGE_KEY`, ไม่ใช่ DEFAULT_MAP_ID เสมอเหมือนก่อนหน้า) →
+ * ปกติ mapId ตรงกัน; ถ้าไม่ตรง (storage ว่าง/ตัวละครใหม่/hub ยังไม่ sync) → fallback ปกติ ไม่ crash.
  * ผลลัพธ์นี้ยังต้องผ่าน resolveSpawnPosition (walkable gate → safe camp) อีกชั้นที่ caller.
  */
 export function pickLoadPosition(

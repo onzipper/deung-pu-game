@@ -39,6 +39,7 @@ export function createInMemoryCharacterRepository(): InMemoryCharacterRepository
         classId: input.classId,
         level: 1,
         createdAt: new Date(),
+        lastMapId: null, // memory repo ไม่จำลอง CharacterState relation — ตัวใหม่ = ยังไม่เคย save
       };
       byId.set(record.id, record);
       nameIndex.set(key, record.id);

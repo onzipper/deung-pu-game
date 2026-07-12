@@ -20,6 +20,8 @@ describe("createCharacter", () => {
       expect(r.character.classId).toBe("swordsman");
       expect(r.character.accountId).toBe(ACCOUNT_A);
       expect(r.character.level).toBe(1);
+      // owner-report#6 fix: ตัวละครใหม่ยังไม่เคย save ตำแหน่ง → lastMapId null (hub boot DEFAULT_MAP_ID)
+      expect(r.character.lastMapId).toBeNull();
     }
     expect(repo.count()).toBe(1);
   });

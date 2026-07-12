@@ -14,10 +14,19 @@ export interface CharacterView {
   name: string;
   classId: string;
   level: number;
+  /** mapId ล่าสุดที่ persist ไว้ (null = ตัวใหม่ ยังไม่เคย save) — hub ใช้บอก /game boot map ไหน (owner-report#6) */
+  lastMapId: string | null;
 }
 
 export function toCharacterView(c: CharacterRecord): CharacterView {
-  return { id: c.id, accountId: c.accountId, name: c.name, classId: c.classId, level: c.level };
+  return {
+    id: c.id,
+    accountId: c.accountId,
+    name: c.name,
+    classId: c.classId,
+    level: c.level,
+    lastMapId: c.lastMapId,
+  };
 }
 
 export interface CreateCharacterInput {

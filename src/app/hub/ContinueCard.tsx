@@ -34,7 +34,7 @@ export function ContinueCard({
       <div className="flex flex-col gap-3 sm:flex-row">
         <Link
           href="/game"
-          onClick={() => rememberSelectedCharacter(character.id)}
+          onClick={() => rememberSelectedCharacter(character.id, character.lastMapId)}
           className="flex min-h-[48px] flex-1 items-center justify-center rounded-[10px] bg-[#35C6B0] px-5 text-[16px] font-semibold text-[#171820] transition-colors hover:bg-[#7CE9D0]"
         >
           เข้าเกม
