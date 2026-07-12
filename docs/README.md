@@ -32,7 +32,7 @@
 
 | ไฟล์ | บทบาท |
 |---|---|
-| `design/deungpu_project_checkpoint_v15_p0_scope_lock_ready.md` | **Canonical game spec v15** — §48 Design Knobs · §50.1 Skill Schema (field naming source of truth) · §57 engine decisions · §59 runtime decisions · §61 P0 scope lock |
+| `design/deungpu_project_checkpoint_v15_p0_scope_lock_ready.md` | **Canonical game spec v15.1** (amendment in-place, ดู §0.0 Amendment Log ในไฟล์) — §48 Design Knobs · §50.1 Skill Schema (field naming source of truth) · §57 engine decisions · §59 runtime decisions · §61 P0 scope lock |
 | `design/deungpu_P0_SCOPE_LOCK_v1.md` | **P0 Scope Lock** — Engine Foundation Vertical Slice · P0-01→12 issues · done definition · non-goals |
 | `design/deungpu_MAP_LAYOUT_BIBLE_v1.md` | Map 1–10 layout: จุดวาง spawn/boss/secret/route |
 | `design/deungpu_MAP_SCALE_AND_SPAWN_DENSITY_SPEC_v1.md` | ขนาด map, density, AoE target, spawn pack/pocket, telemetry |
@@ -42,7 +42,7 @@
 
 | ไฟล์ | บทบาท |
 |---|---|
-| `tech/deungpu_technical_architecture_v1_5_p0_scope_lock.md` | **Tech architecture v1.5** — stack, locked decisions §0.1 (L1–L18), MVP plan P0–P6 §12, engine foundation §17, spawn/aggro §18, P0 scope lock §19 |
+| `tech/deungpu_technical_architecture_v1_5_p0_scope_lock.md` | **Tech architecture v1.5.1** (amendment in-place, ดู §6.1/§15.7/§17.3 amendment ในไฟล์) — stack, locked decisions §0.1 (L1–L18), MVP plan P0–P6 §12, engine foundation §17, spawn/aggro §18, P0 scope lock §19 |
 | `tech/deungpu_ENGINE_FOUNDATION_DECISIONS_v1.md` | Engine foundation lock: iso/diamond grid/5-dir+mirror/map rooms |
 | `tech/deungpu_RUNTIME_BOT_CHANNEL_AND_SCHEMA_OWNERSHIP_DECISIONS_v1.md` | Runtime lock: reconnect/offline bot/channel + skill schema ownership |
 
