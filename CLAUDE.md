@@ -7,7 +7,7 @@
 ## Project
 
 **ดึ๋งปุ๊** — 2.5D Web MMORPG (True 2D Isometric Pixel Art) บน Next.js + PixiJS 8
-Source of truth = game spec v14 (`docs/design/`) + tech architecture v1.4 (`docs/tech/`) — **spec-first, ห้ามเดา** (ดู AI.md)
+Source of truth = game spec v15 (`docs/design/`) + tech architecture v1.5 (`docs/tech/`) — **spec-first, ห้ามเดา** (ดู AI.md)
 
 ## Commands
 

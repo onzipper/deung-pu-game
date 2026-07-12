@@ -12,6 +12,8 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Colyseus server = แยก process + own tsconfig (legacy decorators, node env) — lint แยกไม่ผ่าน Next config
+    "server/**",
   ]),
 ]);
 

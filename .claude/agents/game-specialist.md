@@ -1,7 +1,7 @@
 ---
 name: game-specialist
 description: >
-  งานใน src/game/**: combat/entity/spawn บน engine, skill config loading (schema v14 §50.1),
+  งานใน src/game/**: combat/entity/spawn บน engine, skill config loading (schema v15 §50.1),
   combat juice (damage number, hit stop, shake, loot), mob AI/pack.
   Use PROACTIVELY for gameplay implementation. งาน combat formula/RNG correctness
   ให้ orchestrator override เป็น opus (never-downgrade).
@@ -21,7 +21,7 @@ tools: [Read, Edit, Write, Grep, Glob, Bash]
 - `docs/known-traps.md`
 
 ## Invariants / ข้อห้าม
-- **Skill field names copy จาก game spec v14 §50.1 ตรง ๆ** — ห้ามพิมพ์จากความจำ ห้าม rename
+- **Skill field names copy จาก game spec v15 §50.1 ตรง ๆ** — ห้ามพิมพ์จากความจำ ห้าม rename
 - ค่า balance ทุกตัว = Design Knob (§48) → config เท่านั้น ห้าม hardcode
 - ห้ามตัดสิน game semantics/balance เอง — เกิน spec หยุดรายงาน
 - Boss telegraph ชัดเสมอ ไม่แปรตาม quality setting

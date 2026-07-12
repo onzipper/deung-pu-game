@@ -4,11 +4,11 @@
 
 ## กฎเหล็กข้อ 1: Spec-first (ห้ามเดา ห้ามมั่ว ห้ามคิดเอง)
 
-- **เชื่อ spec เป็นหลัก** — game semantics/balance ยึด game spec v14, implementation ยึด tech architecture v1.4
+- **เชื่อ spec เป็นหลัก** — game semantics/balance ยึด game spec v15, implementation ยึด tech architecture v1.5
 - ถ้างานที่ทำ **นอกเหนือ/ขัดกับ spec** → **หยุด** เสนอ owner ให้อัปเดต spec ก่อน แล้วค่อย implement — ไม่มีข้อยกเว้น
 - ถ้า spec ไม่ครอบคลุมเรื่องที่ทำ → ถาม owner ไม่ใช่เดา
-- Field names ใน code/JSON ต้องตรง v14 §50.1 เป๊ะ — ห้าม rename/duplicate semantic field
-- ค่า balance ทุกตัวเป็น Design Knob (v14 §48) — อ่านจาก config ห้าม hardcode
+- Field names ใน code/JSON ต้องตรง v15 §50.1 เป๊ะ — ห้าม rename/duplicate semantic field
+- ค่า balance ทุกตัวเป็น Design Knob (v15 §48) — อ่านจาก config ห้าม hardcode
 
 ## Roles
 
@@ -31,8 +31,9 @@
 |---|---|
 | Game engine / PixiJS / iso / combat | `docs/context/engine.md` |
 | UI / React overlay / HUD | `docs/context/ui.md` |
-| Game semantics / balance / skill | game spec v14 **เฉพาะ § ที่เกี่ยว** (ดู docs/README.md) |
+| Game semantics / balance / skill | game spec v15 **เฉพาะ § ที่เกี่ยว** (ดู docs/README.md) |
 | Backend / realtime / DB (P1+) | tech architecture § ที่เกี่ยว |
+| **จะแก้/อัปเดต spec** (owner เคาะแล้วเท่านั้น) | `docs/spec-update-playbook.md` |
 | อะไรก็ตามที่แตะโค้ด | `docs/known-traps.md` |
 
 File → หน้าที่: `docs/CODEMAP.md` (แทนการ grep src/)
@@ -55,10 +56,10 @@ File → หน้าที่: `docs/CODEMAP.md` (แทนการ grep src/)
 ## Never change without owner confirmation
 
 - **อะไรก็ตามที่ spec ไม่ครอบคลุม หรือขัดกับ spec** → spec ต้องถูกอัปเดต/เคาะก่อนเสมอ
-- Merge เข้า `main` (ยืนยันทุกครั้ง)
+- Merge `develop` → `main` (ยืนยันทุกครั้ง) — งานประจำ: แตก branch จาก `develop` → PR กลับเข้า `develop` ให้ owner review
 - Schema ฐานข้อมูล / migration บน production
-- Skill schema field names (v14 §50.1) — เพิ่ม field ใหม่ต้องผ่าน process v14 §59.4
-- Design Knobs semantics (v14 §48) — tech ทำระบบให้ปรับค่าได้ แต่ไม่ตัดสิน balance เอง
+- Skill schema field names (v15 §50.1) — เพิ่ม field ใหม่ต้องผ่าน process v15 §59.4
+- Design Knobs semantics (v15 §48) — tech ทำระบบให้ปรับค่าได้ แต่ไม่ตัดสิน balance เอง
 - อะไรที่มาร์ก Locked ใน `docs/decision-index.md` และ tech architecture §0.1
 - Production deploy (owner-triggered เสมอ)
-- เรื่องที่กระทบ economy / combat / punishment / monetization / premium currency → หยุดถามก่อน (v14 §53)
+- เรื่องที่กระทบ economy / combat / punishment / monetization / premium currency → หยุดถามก่อน (v15 §53)
