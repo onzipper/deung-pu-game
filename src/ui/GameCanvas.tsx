@@ -53,7 +53,12 @@ export function GameCanvas() {
     const startId = setTimeout(() => {
       void resolveGameEntry({
         readCharacterId: readSelectedCharacterId,
-        fetchFn: fetch,
+        // ห่อ fetch ใน arrow — **ห้ามส่ง `fetch` ตรง ๆ**: boot-gate เรียกผ่าน deps.fetchFn(...) ทำให้
+        // this ผูกกับ deps object; browser `fetch` brand-check this → โยน "Illegal invocation" ทุกครั้ง
+        // → try/catch ใน gate กลืนเป็น { action: "mount" } เสมอ = gate อัมพาตในเบราว์เซอร์จริง (login อยู่
+        // แต่ไม่เด้ง /hub → เข้าเกม anonymous จุดเริ่มต้น). Node/undici ไม่ check this จึง unit test ผ่าน
+        // ทั้งที่ browser พัง (owner-report#6 รอบ 3). arrow เรียก fetch แบบ bare → this=undefined = ปลอดภัย.
+        fetchFn: (input, init) => fetch(input, init),
         rememberMapId: rememberSelectedCharacterMapId,
         clearCharacterId: clearSelectedCharacter,
         clearMapId: clearSelectedCharacterMapId,

@@ -62,8 +62,13 @@ export async function resolveGameEntry(deps: GameEntryDeps): Promise<GameEntryRe
 
 /** ไม่มี characterId ที่เลือก — authenticated ต้องผ่าน hub เสมอ (Storage §5), ไม่งั้นปล่อย anonymous mount เดิม. */
 async function resolveNoCharacterSelected(deps: GameEntryDeps): Promise<GameEntryResult> {
+  // เรียกผ่าน local binding (this=undefined) ไม่ใช่ `deps.fetchFn(...)` (this=deps): type ของ fetchFn คือ
+  // `typeof fetch` — caller มักฉีด `fetch` ตรง ๆ ตามธรรมชาติ แต่ browser fetch brand-check this แล้วโยน
+  // "Illegal invocation" ถ้าถูกเรียกเป็น method ของ object อื่น → catch ด้านล่างกลืนเงียบเป็น best-effort
+  // mount = gate อัมพาต (owner-report#6 รอบ 3; Node/undici ไม่ check this จึงหลุดถึง browser เท่านั้น).
+  const doFetch = deps.fetchFn;
   try {
-    const res = await deps.fetchFn("/api/auth/session");
+    const res = await doFetch("/api/auth/session");
     if (!res.ok) return { action: "mount" }; // error ที่ไม่ใช่ ok → best-effort ให้เล่นต่อ
     const body = (await res.json()) as SessionResponseShape;
     const authenticated = body.ok === true && body.authenticated === true;
@@ -78,8 +83,9 @@ async function resolveCharacterSelected(
   deps: GameEntryDeps,
   characterId: string,
 ): Promise<GameEntryResult> {
+  const doFetch = deps.fetchFn; // local binding (this=undefined) — ดู resolveNoCharacterSelected
   try {
-    const res = await deps.fetchFn("/api/characters");
+    const res = await doFetch("/api/characters");
     if (res.status === 401) return { action: "redirect-hub" };
     if (!res.ok) return { action: "mount" }; // error อื่น (500 ฯลฯ) → best-effort ใช้ sessionStorage เดิม
     const body = (await res.json()) as CharactersResponseShape;
