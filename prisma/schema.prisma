@@ -1,0 +1,223 @@
+// ดึ๋งปุ๊ — Prisma schema (P2-02: MySQL schema + DB foundation)
+// Source of truth: tech architecture v1.5 §7 (Server Authority — double-entry ledger, optimistic lock)
+//                  + §8 (Database Model — MySQL 8, Prisma) · AJ spec v1 §4.3/§20 (game_events envelope)
+//
+// ⛔ ตารางชุดแรกของ P2 เท่านั้น (10 ตาราง). ไม่ครอบคลุมทั้งเกม — market/trade/guild/bot ฯลฯ มาใน P2 issue ถัดไป.
+// ⛔ ห้าม migrate จริงกับ production DB ที่นี่ — การต่อ Hostinger MySQL = P2-16. ค่า balance ทุกตัวอยู่ config ไม่เก็บใน DB.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+// ── enums ────────────────────────────────────────────────────────────────────
+
+/// สกุลเงินทั้ง 3 (TA §8): gold/mark = in-game, diamond = premium currency
+enum CurrencyType {
+  gold
+  mark
+  diamond
+}
+
+/// เหตุผลของทุกแถวใน ledger — ต้องมี reason + reference เสมอ (TA §7)
+enum LedgerReason {
+  drop
+  quest_reward
+  market_sale
+  market_purchase
+  market_tax
+  enhancement_cost
+  trade
+  admin_adjustment
+  purchase_topup
+  compensation
+}
+
+/// ผลการตีบวก (enhancement) — success/fail/-1/ร้าว (TA §7)
+enum EnhancementResult {
+  success
+  fail
+  downgrade // -1 (ลดระดับ)
+  crack // ร้าว
+}
+
+// ── account / character ──────────────────────────────────────────────────────
+
+/// บัญชีผู้เล่น — guest (email = null, isGuest = true) upgrade เป็น email ได้ภายหลัง
+model Account {
+  id          String   @id @default(uuid()) @db.Char(36)
+  email       String?  @unique
+  isGuest     Boolean  @default(true) @map("is_guest")
+  displayName String?  @map("display_name")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  characters Character[]
+
+  @@map("accounts")
+}
+
+/// ตัวละคร — belongs to account. classId/stats อ้าง config (5 อาชีพ, Design Knob §48) ไม่เก็บ definition ใน DB
+model Character {
+  id        String   @id @default(uuid()) @db.Char(36)
+  accountId String   @map("account_id") @db.Char(36)
+  name      String   @unique
+  classId   String   @map("class_id") // อ้าง config
+  level     Int      @default(1)
+  exp       BigInt   @default(0)
+  stats     Json? // base stat ที่ persist (baseline อ้าง config §48) — ค่า balance ไม่ hardcode ใน DB
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  account   Account         @relation(fields: [accountId], references: [id])
+  state     CharacterState?
+  inventory Inventory[]
+
+  @@index([accountId])
+  @@map("characters")
+}
+
+/// ตำแหน่ง/map ล่าสุดแบบ safe-valid — แยกจาก characters เพราะเขียนถี่ (hot write, TA §8: DB เฉพาะผลลัพธ์ batched)
+model CharacterState {
+  characterId String   @id @map("character_id") @db.Char(36)
+  mapId       String   @map("map_id")
+  tx          Float // tile x (ตำแหน่ง safe-valid ล่าสุด)
+  ty          Float // tile y
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  character Character @relation(fields: [characterId], references: [id])
+
+  @@map("character_state")
+}
+
+// ── item / inventory ─────────────────────────────────────────────────────────
+
+/// registry ของ item definition id — id = key ใน config (ไม่เก็บ name/stat/ค่า balance ใน DB, TA §7/§8)
+model Item {
+  id        String   @id // = item definition id ใน config
+  createdAt DateTime @default(now()) @map("created_at")
+
+  inventory Inventory[]
+
+  @@map("items")
+}
+
+/// instance ของ item ที่ตัวละครถือ — version = optimistic lock (TA §7: inventory changes ตรวจ version)
+model Inventory {
+  id               String   @id @default(uuid()) @db.Char(36)
+  characterId      String   @map("character_id") @db.Char(36)
+  itemId           String   @map("item_id")
+  quantity         Int      @default(1)
+  slot             Int? // slot ใน bag/equipment (null = ยังไม่ระบุ)
+  enhancementLevel Int      @default(0) @map("enhancement_level")
+  version          Int      @default(0) // optimistic lock — bump ทุกครั้งที่แก้ (TA §7)
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  character Character @relation(fields: [characterId], references: [id])
+  item      Item      @relation(fields: [itemId], references: [id])
+
+  @@index([characterId])
+  @@map("inventory")
+}
+
+// ── ledger / audit (append-only) ─────────────────────────────────────────────
+
+/// Double-entry ledger — **ไม่มี balance column ที่ไหนทั้งนั้น** ยอด = SUM(amount) (TA §7).
+/// append-only: rollback ทำโดย compensating entry ไม่ใช่ลบ/UPDATE. idempotencyKey unique กัน replay/double-spend.
+model CurrencyLedger {
+  id             BigInt       @id @default(autoincrement())
+  characterId    String       @map("character_id") @db.Char(36)
+  currency       CurrencyType
+  amount         BigInt // +/- delta
+  reason         LedgerReason
+  refType        String?      @map("ref_type") // ประเภทของ reference (market/drop/quest ...)
+  refId          String?      @map("ref_id") // id ของ reference entity
+  idempotencyKey String       @unique @map("idempotency_key")
+  createdAt      DateTime     @default(now()) @map("created_at")
+
+  @@index([characterId, currency])
+  @@map("currency_ledger")
+}
+
+/// Audit ทุกครั้งที่ตีบวก (append-only, TA §7): เก็บ RNG roll + before/after เพื่อ dispute/anti-exploit
+model EnhancementLog {
+  id            BigInt            @id @default(autoincrement())
+  characterId   String            @map("character_id") @db.Char(36)
+  inventoryId   String            @map("inventory_id") @db.Char(36)
+  beforeLevel   Int               @map("before_level")
+  afterLevel    Int               @map("after_level")
+  result        EnhancementResult
+  rngRoll       Float             @map("rng_roll") // ค่า RNG ที่ server สุ่ม (0..1)
+  configVersion Int?              @map("config_version") // เวอร์ชัน enhancement config ที่ใช้ตอนนั้น
+  createdAt     DateTime          @default(now()) @map("created_at")
+
+  @@index([characterId])
+  @@index([inventoryId])
+  @@map("enhancement_logs")
+}
+
+/// Audit ทุกครั้งที่ roll drop (append-only, TA §7): mob + drop table version + roll + ผล เพื่อ shadow-compare economy
+model DropAudit {
+  id               BigInt   @id @default(autoincrement())
+  characterId      String   @map("character_id") @db.Char(36)
+  mobType          String   @map("mob_type")
+  dropTableVersion Int      @map("drop_table_version")
+  rngRoll          Float    @map("rng_roll") // ค่า RNG ที่ server สุ่ม (0..1)
+  resultItemId     String?  @map("result_item_id") // null = ไม่ดรอป
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  @@index([characterId])
+  @@index([mobType])
+  @@map("drop_audit")
+}
+
+// ── config versioning ────────────────────────────────────────────────────────
+
+/// Versioned game config (Design Knob §48): key + version + json payload + active flag.
+/// อ่านค่า balance/ตารางจากตรงนี้ตอน runtime — ค่าไม่ hardcode ใน schema/DB อื่น
+model ConfigVersion {
+  id        BigInt   @id @default(autoincrement())
+  key       String
+  version   Int
+  payload   Json
+  active    Boolean  @default(false)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@unique([key, version])
+  @@index([key, active])
+  @@map("config_versions")
+}
+
+// ── game events (append-only, AJ §4.3/§20) ───────────────────────────────────
+
+/// Event envelope append-only (AJ §4.3): eventId unique (dedup — consumer ต้อง idempotent).
+/// index (eventType, occurredAt) สำหรับ rule evaluation + query ตาม type/ช่วงเวลา.
+/// retention: prune/partition ตาม occurredAt (createdAt) ภายหลัง — โต๊ะนี้ append-only โตเร็ว
+/// (P2 ยังไม่ทำ partition; index occurredAt ไว้รองรับ range-delete/partition-by-date ตอน retention policy มา).
+model GameEvent {
+  id            BigInt   @id @default(autoincrement())
+  eventId       String   @unique @map("event_id") // dedup key
+  eventType     String   @map("event_type")
+  occurredAt    DateTime @map("occurred_at")
+  serverId      String?  @map("server_id")
+  accountId     String?  @map("account_id") @db.Char(36)
+  characterId   String?  @map("character_id") @db.Char(36)
+  sessionId     String?  @map("session_id")
+  mapId         String?  @map("map_id")
+  roomId        String?  @map("room_id")
+  channelId     String?  @map("channel_id")
+  partyId       String?  @map("party_id")
+  guildId       String?  @map("guild_id")
+  payload       Json
+  sourceVersion Int      @map("source_version")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  @@index([eventType, occurredAt])
+  @@index([occurredAt]) // รองรับ retention prune/partition by date
+  @@map("game_events")
+}

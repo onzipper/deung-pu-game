@@ -100,6 +100,13 @@
 - `server/schema/MapRoomState.ts` — @colyseus/schema state: PlayerState{tx,ty,direction,anim,**partyId** P1-08} + **MobState{mobId,mobType,tx,ty,state,hp}** (hp update จริง P1-05) + MapRoomState{mapId,channelId(server-assigned),**partyId** P1-08,roomId,players,**mobs**}
 - `server/tsconfig.json` — tsconfig แยกของ server (legacy decorators, node env; แยกจาก Next tsconfig)
 
+## Persistence foundation (P2-02 — prisma/ + server/db/**)
+
+- `prisma/schema.prisma` — **MySQL schema ชุดแรก 10 ตาราง** (TA §7/§8 + AJ §4.3/§20, Prisma 6.x pinned — v7 breaking): accounts (guest+email upgrade) · characters (**name @unique — pending owner: กติกาชื่อซ้ำ**) · character_state (hot write แยกตาราง) · items (id อ้าง config ไม่เก็บ definition) · inventory (version = optimistic lock) · **currency_ledger (double-entry — ไม่มี balance column, idempotencyKey unique, append-only)** · enhancement_logs · drop_audit (RNG audit) · config_versions (key+version+payload+active) · **game_events (append-only, eventId unique dedup, index เผื่อ retention — เคาะ A4)** — **never-downgrade zone (DB schema)**
+- `prisma/migrations/0001_init/migration.sql` — migration SQL สร้าง offline ด้วย `prisma migrate diff --from-empty` (**ยังไม่เคย apply กับ DB ใดๆ** — dev ใช้ MySQL local, Hostinger = P2-16)
+- `server/db/client.ts` — Prisma client singleton (lazy init + env guard throw ถ้าไม่มี DATABASE_URL) — **server-only ห้าม import เข้า src/engine|game|ui**
+- `server/db/ledger.ts` — ledger contract: getBalance = SUM raw SQL · appendEntry = skeleton **throw จนกว่า P2-08** (transaction FOR UPDATE + idempotency insert)
+
 ## UI (React overlay)
 
 - `src/ui/GameCanvas.tsx` — "use client" bridge: mount/unmount engine (กัน StrictMode double-mount); เก็บ EngineHandle ใน ref (ไม่ใช่ React state) + render `<DebugOverlay>` (P0-11)
@@ -118,6 +125,7 @@
 ## Tests
 
 - `tests/docs-guard.test.ts` — path-guard: ไฟล์ที่อ้างใน CODEMAP/feature-map/context ต้องมีจริง
+- `tests/db-schema.test.ts` — schema-level guard (P2-02, ไม่ต้องมี DB จริง — อ่าน schema/migration มา assert): ตารางครบ 10 + currency_ledger **ไม่มี** column balance + idempotency_key/event_id unique + inventory.version optimistic lock + game_events index ครบ
 - `tests/engine-config.test.ts` — EngineConfig defaults / merge / resolveResolution
 - `tests/engine-resize.test.ts` — clampSize (pure resize helper)
 - `tests/engine-iso-coords.test.ts` — iso converters: known values / round-trip fuzz / snapToTile
