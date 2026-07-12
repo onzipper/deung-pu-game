@@ -158,6 +158,42 @@ reinforcementFragment:
 
 > เศษเสริมแกร่ง = re-scope: Economy §15.3 เคย **ตัดทิ้ง** ("No fragment decision — P2 ใช้แกร่ง เป็นหน่วยเดียว ไม่สร้างเศษแกร่ง") เพื่อลด scope · ข้อความที่ 2 พลิกกลับมา = เพิ่ม item + exchange UI + recipe · **แหล่งดรอปของเศษเสริมแกร่ง owner ยังไม่ระบุ** → R3 + R7
 
+### 3.5 เศษเสริมแกร่ง — การได้มา (LOCKED — owner เคาะ 2026-07-13)
+
+Metric: "ง่ายกว่า ~15%" = supply รวม (ตัวเต็ม+เศษ) ง่ายขึ้น 15% แบบ ×0.85 — เส้นทางตรง E = 8.24 clears/ชิ้น → เป้ารวม ≈ 7.0 clears/ชิ้น
+
+```yaml
+fragmentAcquisition:
+  source: map_boss_only              # Map 1 baseline; เพิ่มแหล่งภายหลังได้ผ่าน config
+  roll: independent                  # แยกจาก roll ตัวเต็ม (8% + pity เดิม ไม่ถูกแตะ) — ครั้งเดียวออกได้ทั้งคู่
+  fragmentDropChancePercent: 10.7    # PENDING เฉพาะจูนผ่าน telemetry ตอน P2B — baseline นี้เคาะแล้ว
+  quantity: 1
+  personalLoot: true
+  pity: none                         # ไม่มีใน v1 · ไม่กระทบ/ไม่รีเซ็ต pity ของตัวเต็ม
+  phase: P2B                         # item + exchange + drop roll ทั้งชุด; P2 = config/flag เท่านั้น
+
+reinforcementFragmentItem:
+  materialId: upg_reinforcement_fragment
+  displayName: เศษเสริมแกร่ง
+  stackSize: 999
+  exchangeRule: 5 เศษเสริมแกร่ง → 1 เสริมแกร่ง
+  tradable: true
+  sellable: true
+  craftable: true                    # สูตร 5→1
+  purchasableWithGold: false
+  purchasableWithRealMoney: false
+
+dropTableEntry:                      # Economy §21.3 rolls[] schema
+  rollId: roll_reinforcement_fragment
+  on: drop_map1_boss_v1
+  phase: P2B
+```
+
+**Telemetry เพิ่ม:** `reinforcement_fragment_drop_roll` · `reinforcement_fragment_drop_success` · `reinforcement_fragment_source` · `reinforcement_fragment_consumed` · `reinforcement_fragment_exchange`
+**Fields เพิ่ม:** `rollType` · `fragmentDropCount` · `fragmentsHeldAfter` · `fragmentsConsumed` · `exchangeTransactionId`
+
+ทิศทางนี้แทนที่ guardrail เดิมของ R3 (เดิมให้เส้นเศษด้อยกว่า — owner กลับทิศ 2026-07-13)
+
 ---
 
 ## 4. แหล่งดรอปเสริมแกร่ง + Pity (RESOLVED, verbatim)
@@ -350,6 +386,8 @@ One-liner v15: *"…ตลาดมีชีวิต **ตีบวกมีเ
 **แนะนำ:** (ก) เศษดรอปจาก hard content เดียวกับตัวเต็ม (special elite/boss/secret/world boss/raid) แต่ **rate สูงกว่า** ให้เป็น catch-up path 5→1 สำหรับคนดวงไม่ดี · คง 0% จาก normal/elite ทั่วไป (ไม่ขัด philosophy) · **ยืนยัน 5→1** (สืบทอด v15) · **ยืนยัน id `upg_reinforcement_fragment`** · ค่า rate = `PENDING OWNER`
 **เหตุผล:** เศษมีเหตุผลดำรงอยู่แค่ตอนเป็น catch-up path — ถ้า rate เท่าตัวเต็มก็ไร้ประโยชน์ (รอตัวเต็มดีกว่า) จึงต้องสูงกว่า · จำกัด hard content = เพิ่มแหล่งทีหลังง่ายกว่าถอน + ไม่พังความหายาก · **guardrail:** ต้อง tune ให้ fragment-path ได้ reinforcement-equivalent **น้อยกว่า** full-item-path (เป็นของปลอบใจ ไม่ใช่เพิ่ม supply เท่าตัว) → จึง mark rate PENDING OWNER
 
+→ เคาะแล้ว 2026-07-13: id/source boss/5→1 ยืนยัน + ทิศกลับเป็น "เส้นเศษ+ตัวเต็มรวมง่ายขึ้น 15%" — ดู §3.5
+
 **R4 — คณิตเพดานใหม่ +15: flat 1 ชิ้น/ขั้น หรือ escalate ขั้นสูง? (กระทบ balance โดยตรง)**
 เพดาน +15 × การันตี 1 ชิ้น/ขั้น (flat):
 
@@ -384,6 +422,8 @@ Economy §15.3 ตัด fragment ออกจาก P2 เพื่อลด sc
 
 **แนะนำ:** **P2B** (item + exchange UI + recipe) · P2 = ทำแค่ config/flag ของ item ไว้ก่อน
 **เหตุผล:** แหล่งดรอปเศษผูกกับ hard content ที่มาตอน P2B (R3) — สร้างหน้าแลก 5→1 ใน P2 ทั้งที่ยังไม่มีเศษให้แลก = scope creep + เสี่ยงรื้อตอน P2B · ไม่ขยาย scope P2-10/P2-11 กลางคัน
+
+→ เคาะแล้ว 2026-07-13: P2B — ดู §3.5
 
 **R8 — P2 ไม่มีแหล่งเสริมแกร่งเลย (บอส=P2B): ระบบตีบวก "มีจอแต่ใช้ไม่ได้" ใน P2 — intended? (สำคัญ กระทบ scope P2-10)**
 Map 1 baseline: normal/elite = 0%, special elite = 0% (Map 1 ยังไม่มี), boss = P2B → **ก่อน P2B ไม่มีทางได้เสริมแกร่งบน Map 1** · ถ้าตัด milestone grant (R5) ด้วย = ระบบตีบวกใน P2 ไม่มีวัสดุ input เลย
