@@ -246,7 +246,8 @@ export async function createEngine(
           },
           // Fix issue #1/#2: หลัง join/reconnect → snap local player ไปตำแหน่ง authoritative ของ server
           // (spawn จริง / ตำแหน่ง hold ก่อน refresh) ก่อนส่ง move ก้าวแรก. ใช้ applyCorrection (snap
-          // position + camera, ยกเลิก path) — กัน "วาร์ปกลับจุดเดิม" + กัน exit detection พลาดเพราะ desync.
+          // position + camera) — กัน "วาร์ปกลับจุดเดิม" + กัน exit detection พลาดเพราะ desync. fresh join
+          // = ไม่มี goal → no-op; reconnect กลาง walk → resume goal เดิม (prod fix 2026-07-12).
           onSelfSpawn: (snap) => {
             player.applyCorrection(snap.tx, snap.ty);
             lastSent = null;

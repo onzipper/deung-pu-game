@@ -663,7 +663,14 @@ export interface MovementValidationConfig {
   correctionCooldownMs: number;
   /**
    * elapsed (ms) ขั้นต่ำที่ใช้คำนวณ speed cap — clamp floor กัน divide-by-tiny/allowance≈0 ตอน
-   * สอง message มาชิดกัน/clock skew (elapsed 0 หรือติดลบ). ควร ≈ ต่ำกว่า 1 send interval เล็กน้อย.
+   * สอง message มาชิดกัน/clock skew (elapsed 0 หรือติดลบ).
+   *
+   * **ต้อง ≥ 1 send interval (83ms @12Hz)**: บนเน็ตจริง/free-tier CPU สะดุด message ก้าวเต็ม 1 ก้าว
+   * (delta = speed/sendHz = 4/12 ≈ 0.333 tile) มาถึงชิดกันเป็นก้อน (arrival compression) → elapsed ที่
+   * server วัดได้ ≈ 0 → clamp ขึ้น floor. ถ้า floor < interval, allowance ที่ floor < 1 ก้าวเต็ม →
+   * reject reason=speed → correction → client กระตุกแล้วหยุด (พิสูจน์บน prod 2026-07-12). ที่ floor 90ms
+   * allowance = 4×0.09×1.5 = 0.54 ≥ 0.333 → 1 ก้าวเต็มผ่านเสมอ. anti-teleport ยังคุมด้วย
+   * teleportThresholdTiles (absolute cap อิสระจาก elapsed) → เพิ่ม floor ไม่เปิดช่อง speed hack.
    */
   minElapsedMs: number;
   /**
@@ -854,8 +861,10 @@ export const DEFAULT_MOVEMENT_VALIDATION_CONFIG: MovementValidationConfig = {
   teleportThresholdTiles: 3,
   // 250ms — ไม่ยิง correction ถี่กว่านี้ต่อ player (กัน flood ตอน client โกงรัว)
   correctionCooldownMs: 250,
-  // 50ms — floor กัน allowance≈0 ตอน message มาชิด/clock skew (ต่ำกว่า 1 interval @12Hz≈83ms)
-  minElapsedMs: 50,
+  // 90ms — floor ต้อง ≥ 1 send interval (83ms @12Hz) เพื่อให้ 1 ก้าวเต็ม (delta≈0.333) ที่มาถึงชิดกัน
+  // (arrival compression บนเน็ต/CPU สะดุด) ยังผ่าน: allowance@floor = 4×0.09×1.5 = 0.54 ≥ 0.333.
+  // แก้ prod bug "เดินกระตุกแล้วหยุด" (2026-07-12) — anti-teleport ยังคุมด้วย teleportThresholdTiles.
+  minElapsedMs: 90,
   // 1000ms — ceiling กัน allowance บวมตอน gap ยาว (tab หลับ) เปิดช่องให้ teleport ผ่าน speed cap
   maxElapsedMs: 1000,
 };
