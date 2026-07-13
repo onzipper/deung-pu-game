@@ -70,7 +70,7 @@ export const MAP1: MapConfigInput = {
       area: { tx: 14, ty: 14, width: 12, height: 10 },
       mobType: "slime",
       // owner tune 2026-07-13: เกิดเยอะ+ไวขึ้นสำหรับมอนธรรมดา (Design Knob §48; เดิม §6 = 5–8/cap18/20s). ปรับได้อีก.
-      packSize: { min: 7, max: 10 },
+      packSize: { min: 10, max: 12 },
       activeCap: 24,
       respawnDelayMs: 6000,
     },
@@ -80,7 +80,7 @@ export const MAP1: MapConfigInput = {
       area: { tx: 28, ty: 14, width: 9, height: 10 },
       mobType: "bird",
       // owner tune 2026-07-13: เกิดเยอะ+ไวขึ้น (เดิม §6 = 3–6/cap12/25s). Design Knob §48 — ปรับได้อีก.
-      packSize: { min: 5, max: 8 },
+      packSize: { min: 12, max: 15 },
       activeCap: 16,
       respawnDelayMs: 7000,
     },
@@ -90,7 +90,7 @@ export const MAP1: MapConfigInput = {
       area: { tx: 4, ty: 26, width: 11, height: 10 },
       mobType: "boar",
       // owner tune 2026-07-13: เกิดเยอะ+ไวขึ้น (เดิม §6 = 4–7/cap18/30s). Design Knob §48 — ปรับได้อีก.
-      packSize: { min: 6, max: 9 },
+      packSize: { min: 12, max: 15 },
       activeCap: 24,
       respawnDelayMs: 8000,
     },
