@@ -24,6 +24,32 @@ import {
   type StorageStateMessage,
 } from "@/shared/net-protocol";
 
+/**
+ * A3 (P2 UI §8.3 Skill Bar): 1 ช่องสกิลบน hotbar (S1-S4 ของนักดาบ). engine publish ค่าเหล่านี้เป็น snapshot
+ * เบา ๆ (init / level-up unlock / ตอน cast) — SkillBar อ่านแล้ว **animate cooldown radial เองด้วย RAF** จาก
+ * `cooldownReadyAtMs` (performance.now clock) ไม่ push cooldown ต่อ frame เข้า React (tech §2).
+ */
+export interface SkillSlotView {
+  /** ลำดับช่อง 1..4 (= Digit key). */
+  slot: number;
+  /** §50.1 skillId (เช่น sword_royal_wave). */
+  skillId: string;
+  /** ชื่อแสดง (§50.1 skillName). */
+  displayName: string;
+  /** ป้ายปุ่ม ("1".."4"). */
+  keyLabel: string;
+  /** §50.1 unlockLevel. */
+  unlockLevel: number;
+  /** playerLevel ≥ unlockLevel (ปลดล็อกแล้ว) — false → SkillBar desaturate + lock icon (§8.3). */
+  unlocked: boolean;
+  /** เวลา (performance.now ms) ที่สกิลพร้อมใช้อีกครั้ง — ≤ now = พร้อม (0 = พร้อม/ไม่มี cooldown). */
+  cooldownReadyAtMs: number;
+  /** cooldown เต็ม (ms) = skill.cooldown × 1000 — ใช้คิดสัดส่วน radial. */
+  cooldownTotalMs: number;
+  /** slot 1 (S1 basic attack) — แสดงใหญ่ (primary 64×64, §8.3) ไม่มี live radial. */
+  isPrimary: boolean;
+}
+
 /** HUD state ที่ UI ทุกจอ subscribe ได้ — เพิ่ม slice ใหม่ที่นี่เมื่อ UI ตัวถัดไป (inventory/shop/...) ต้องใช้ */
 export interface HudState {
   /** snapshot ล่าสุดของ debug overlay (P0-11) — null ก่อน engine publish ครั้งแรก */
@@ -88,6 +114,11 @@ export interface HudState {
    * ค่านี้. respawn เป็น instant server-side → ปกติ true ชั่วครู่แล้ว false (E4 ค่อยทำ death screen/สั่งกดต่อ).
    */
   playerDead: boolean;
+  /**
+   * A3 (P2 UI §8.3): skill hotbar slots (S1-S4). engine publish ตอน init / level-up (unlock) / cast (cooldown).
+   * [] ก่อน engine publish ครั้งแรก. SkillBar อ่าน + animate radial เอง (RAF จาก cooldownReadyAtMs).
+   */
+  skillSlots: SkillSlotView[];
 }
 
 export const INITIAL_HUD_STATE: HudState = {
@@ -107,6 +138,7 @@ export const INITIAL_HUD_STATE: HudState = {
   playerHp: null,
   playerMaxHp: null,
   playerDead: false,
+  skillSlots: [],
 };
 
 /** store singleton ตัวเดียวทั้งแอป — engine publish เข้านี่, React component subscribe ผ่าน useGameStore */
@@ -251,6 +283,17 @@ export const selectPlayerMaxHp = (state: HudState): number | null => state.playe
 
 /** typed selector — local player ตายอยู่ไหม (A2) */
 export const selectPlayerDead = (state: HudState): boolean => state.playerDead;
+
+/**
+ * A3 (P2 UI §8.3): engine เรียกเพื่อ publish skill hotbar slots — event-driven (init / level-up unlock / cast),
+ * ไม่ throttle per-frame (cooldown radial ให้ SkillBar animate เองจาก cooldownReadyAtMs). ส่ง array ใหม่ทุกครั้ง.
+ */
+export function setSkillSlots(slots: SkillSlotView[]): void {
+  gameStore.setState({ skillSlots: slots });
+}
+
+/** typed selector — skill hotbar slots (A3) */
+export const selectSkillSlots = (state: HudState): SkillSlotView[] => state.skillSlots;
 
 export interface HudPublisher {
   /**

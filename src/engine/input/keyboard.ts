@@ -41,6 +41,14 @@ export const MOVE_KEYS: Readonly<Record<string, TilePoint>> = {
 /** ปุ่มโจมตี (P0-10 combat stub) — เดี่ยว ไม่ใช่ MOVE_KEYS (ไม่มี tile-space basis). */
 export const ATTACK_KEY = "Space";
 
+/** A3 hotbar: ปุ่มสกิล Digit1-4 → slot 1-4 (S1-S4). edge-triggered เหมือน attack (P2 UI §8.3 key label). */
+export const SKILL_SLOT_KEYS: Readonly<Record<string, number>> = {
+  Digit1: 1,
+  Digit2: 2,
+  Digit3: 3,
+  Digit4: 4,
+};
+
 /**
  * รวม basis ของทุกปุ่มที่กดค้าง → intent vector (tile-space, ยังไม่ normalize).
  * pure + deterministic (ผลไม่ขึ้นกับลำดับใน set). ไม่กดอะไร → (0,0).
@@ -70,6 +78,11 @@ export interface KeyboardTracker {
    * ไม่ใช่ทุก frame ที่กดค้าง; keydown repeat ก็ไม่นับซ้ำ) เรียกแล้ว flag รีเซ็ตทันที (P0-10).
    */
   consumeAttackPressed(): boolean;
+  /**
+   * A3 hotbar: consume การกดปุ่มสกิล (Digit1-4) ตั้งแต่ครั้งก่อน — edge-triggered, คืน slot (1-4) ที่กดล่าสุด
+   * หรือ null ถ้าไม่ได้กด. เรียกแล้วรีเซ็ต (กดหลายปุ่มในเฟรมเดียว = เอาปุ่มหลังสุด, พอสำหรับ input มนุษย์).
+   */
+  consumeSlotPressed(): number | null;
   /** ถอด listener + เคลียร์ปุ่มค้าง (ต้องเรียกตอน destroy player/engine) */
   detach(): void;
 }
@@ -85,6 +98,7 @@ export interface KeyboardTracker {
 export function attachKeyboard(target: EventTarget = window): KeyboardTracker {
   const active = new Set<string>();
   let attackPending = false;
+  let slotPending: number | null = null; // A3 hotbar: slot ล่าสุดที่กด (Digit1-4), edge-triggered
 
   const onDown = (e: Event): void => {
     const ke = e as KeyboardEvent;
@@ -94,6 +108,9 @@ export function attachKeyboard(target: EventTarget = window): KeyboardTracker {
     } else if (ke.code === ATTACK_KEY) {
       if (!ke.repeat) attackPending = true; // edge-triggered: กดค้างไม่สแปม (cooldown เป็นหน้าที่ combat-stub)
       ke.preventDefault(); // กัน space เลื่อนหน้าเว็บ
+    } else if (SKILL_SLOT_KEYS[ke.code] !== undefined) {
+      if (!ke.repeat) slotPending = SKILL_SLOT_KEYS[ke.code]; // A3: Digit1-4 → slot (edge-triggered)
+      ke.preventDefault();
     }
   };
   const onUp = (e: Event): void => {
@@ -102,6 +119,7 @@ export function attachKeyboard(target: EventTarget = window): KeyboardTracker {
   const onBlur = (): void => {
     active.clear();
     attackPending = false;
+    slotPending = null;
   };
 
   target.addEventListener("keydown", onDown);
@@ -116,12 +134,18 @@ export function attachKeyboard(target: EventTarget = window): KeyboardTracker {
       attackPending = false;
       return v;
     },
+    consumeSlotPressed() {
+      const v = slotPending;
+      slotPending = null;
+      return v;
+    },
     detach() {
       target.removeEventListener("keydown", onDown);
       target.removeEventListener("keyup", onUp);
       target.removeEventListener("blur", onBlur);
       active.clear();
       attackPending = false;
+      slotPending = null;
     },
   };
 }

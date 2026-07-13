@@ -78,6 +78,7 @@ import {
   setPlayerVitals,
   setShopList,
   setShopResult,
+  setSkillSlots,
   setStorageResult,
   setStorageState,
 } from "@/ui/store/game-store";
@@ -108,6 +109,11 @@ export interface EngineHandle {
    * delegate ไป world ปัจจุบัน (getter live เหมือน scene/player/net).
    */
   pressAttack(): void;
+  /**
+   * A3 (P2 UI §8.3): cast สกิลช่อง slot (1-4 = S1-S4). Digit1-4 + ปุ่มสกิลมือถือเรียกผ่านนี้. ตรวจ unlock +
+   * client predictive cooldown ก่อนส่ง cast (server เป็น authority สุดท้าย). delegate ไป world ปัจจุบัน.
+   */
+  castSlot(slot: number): void;
   /**
    * P2-15 (GS §17.10): ตั้ง effect quality tier ตอน runtime (UI settings) — mutate config.combatFeel
    * .effectQuality.current; combat-stub อ่านค่านี้ **live** ทุก frame (screen shake amplitude + damage
@@ -141,6 +147,8 @@ interface WorldHandle {
   tick(dtSeconds: number, deltaMs: number, deltaTime: number, locked: boolean): void;
   /** P2-15: ปุ่มโจมตีมือถือ — target assist (keyboardAssist) + engage/attack (ดู pressAttack ใน mountWorld). */
   pressAttack(): void;
+  /** A3 (P2 UI §8.3): cast สกิลช่อง slot (1-4) — ตรวจ unlock/cooldown แล้วส่ง cast (ดู castSlot ใน mountWorld). */
+  castSlot(slot: number): void;
   getDebugInfo(fps: number): EngineDebugInfo;
   setDepthDebug(enabled: boolean): void;
   resize(width: number, height: number): void;
@@ -288,6 +296,50 @@ export async function createEngine(
       combatEnabled: combatAllowed,
     });
 
+    // --- A3 skill hotbar (P2 UI §8.3 · P1_BALANCE §3.1): cast S2/S3/S4 (+S1 basic) จาก slot 1-4 (Digit1-4/มือถือ) ---
+    //   client predictive cooldown + unlock-by-level (grey ช่องที่ยังไม่ปลด) → publish HUD; **server เป็น authority
+    //   สุดท้าย** (unlock/cooldown/range re-validate ที่ handleCast). S1 (slot 1) route ผ่าน requestAttack เดิม
+    //   (auto-attack loop คุม cooldown/aim/juice ของ basic). S2-4 = discrete cast (สกิลนักดาบ anchor ที่ caster).
+    const skillCooldownReadyAt = new Map<string, number>(); // skillId → performance.now ms พร้อมใช้อีกครั้ง
+    let hotbarPlayerLevel = 1; // จาก MSG_PLAYER_PROGRESS.level (default 1 ก่อนรู้ค่า → เฉพาะ S1 ปลด, S2-4 locked)
+    const publishSkillSlots = (): void => {
+      setSkillSlots(
+        WARRIOR_SKILLS_CLIENT.map((s, i) => ({
+          slot: i + 1,
+          skillId: s.skillId,
+          displayName: s.skillName,
+          keyLabel: String(i + 1),
+          unlockLevel: s.unlockLevel,
+          unlocked: hotbarPlayerLevel >= s.unlockLevel,
+          cooldownReadyAtMs: skillCooldownReadyAt.get(s.skillId) ?? 0,
+          cooldownTotalMs: s.cooldown * 1000,
+          isPrimary: i === 0,
+        })),
+      );
+    };
+    const castSlot = (slot: number): void => {
+      if (!combatAllowed) return; // P1-11 safe zone (เมือง) → ไม่ cast (server ปฏิเสธซ้ำ)
+      const skill = WARRIOR_SKILLS_CLIENT[slot - 1];
+      if (!skill) return;
+      if (hotbarPlayerLevel < skill.unlockLevel) return; // ยังไม่ปลด (server re-validate → reject "locked")
+      const now = performance.now();
+      if (now < (skillCooldownReadyAt.get(skill.skillId) ?? 0)) return; // client predictive cooldown gate
+      if (slot === 1) {
+        player.requestAttack(); // S1 basic → auto-attack path เดิม (cooldown/aim/juice ของ basic)
+        return;
+      }
+      // S2-4: discrete cast — สกิลนักดาบ anchor ที่ caster (ไม่ ground-target) → aim = ตำแหน่ง+ทิศ caster ปัจจุบัน
+      net?.sendCast({
+        skillId: skill.skillId,
+        aimTx: player.position.tx,
+        aimTy: player.position.ty,
+        direction: player.facing,
+      });
+      skillCooldownReadyAt.set(skill.skillId, now + skill.cooldown * 1000);
+      publishSkillSlots();
+    };
+    publishSkillSlots(); // init (S1 ปลด; S2-4 locked จนกว่า progress แจ้ง level ใหม่)
+
     // --- stress harness (P1-06 §5, dev-only) — F4 synthetic load ---
     const stressHarness: StressHarnessHandle = createStressHarness({
       mobView,
@@ -404,6 +456,11 @@ export async function createEngine(
           onPlayerProgress: (msg) => {
             setGoldFromProgress(msg);
             getSoundManager().playSfx("loot");
+            // A3: level เปลี่ยน (level-up) → refresh unlock ของ hotbar (S2 lv3, S3/S4 lv5 ปลด)
+            if (msg.level !== hotbarPlayerLevel) {
+              hotbarPlayerLevel = msg.level;
+              publishSkillSlots();
+            }
           },
           // P2-17: คลัง+กล่องส่งของ → Zustand bridge ตรง ๆ (event-driven, เหมือน onShopList/onShopResult)
           onStorageState: (state) => setStorageState(state),
@@ -650,6 +707,9 @@ export async function createEngine(
         updateMobs(dtSeconds, deltaMs);
         if (!frozen) {
           updateEngage();
+          // A3: poll ปุ่มสกิล (Digit1-4) → cast slot (edge-triggered, consume ครั้งเดียวต่อการกด)
+          const slot = player.consumeSlotPressed();
+          if (slot !== null) castSlot(slot);
         }
         // combat juice (damage number/fade) — no-op เมื่อไม่มี attack
         combat.update(dtSeconds);
@@ -684,6 +744,7 @@ export async function createEngine(
         scene.update(deltaTime);
       },
       pressAttack,
+      castSlot,
       getDebugInfo(fps): EngineDebugInfo {
         return buildDebugInfo({
           fps,
@@ -807,6 +868,9 @@ export async function createEngine(
     },
     pressAttack(): void {
       currentWorld.pressAttack();
+    },
+    castSlot(slot: number): void {
+      currentWorld.castSlot(slot);
     },
     setEffectQuality(quality: EffectQuality): void {
       // mutate ตัว config เดียวกับที่ mountWorld/combat-stub อ่าน live — มีผลทุก world (คงค่าข้าม transition)

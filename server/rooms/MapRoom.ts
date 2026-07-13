@@ -238,6 +238,7 @@ import {
   applyDamageToPlayer,
   computeMobDamageToPlayer,
   computeSkillDamage,
+  damageReductionFromStatus,
   respawnPlayer,
 } from "../../src/game/combat/formula";
 import type { HitTestTarget } from "../../src/game/combat/hit-test";
@@ -417,6 +418,12 @@ export class MapRoom extends Room<MapRoomState> {
    * (D-055 §2). anonymous/no-DB = in-memory only (levels within a session, not persisted).
    */
   private readonly sessionProgress = new Map<string, { level: number; exp: number }>();
+  /**
+   * A3 (§50.1 statusEffects · P1_BALANCE §3.1 S4): self damage-reduction buff ต่อ session — casts S4
+   * (sword_guard_domain) → ลด damage มอน→player `reduction` (0..1) จนถึง `until` (ms). applyMobContacts อ่านค่านี้
+   * fold เข้า mobAtk input (never-downgrade). server-only; หมดอายุ = ปล่อยค้าง (เช็ค until ตอนอ่าน) ลบตอน leave.
+   */
+  private readonly damageReductionUntil = new Map<string, { until: number; reduction: number }>();
   /**
    * P2-09: last-known worn gear per session (itemId + enhancementLevel) — cached so a level-up can recompute
    * combat stats without re-reading the DB (equipment didn't change, only the per-level base did).
@@ -823,10 +830,12 @@ export class MapRoom extends Room<MapRoomState> {
       if (!player || player.hp <= 0) continue; // player หลุด/ตายไปแล้วในรอบนี้ (hp ยัง 0 จน respawn) → ไม่ตีซ้ำ
       const ms = this.balance.mobs[c.mobType] ?? this.balance.defaultMob;
       const stats = this.effectiveStats.get(c.targetPlayerId) ?? this.balance.player;
+      // A3 (§3.1 S4 guard_domain): self damage-reduction buff ของ target (0 ถ้าไม่มี/หมดอายุ).
+      const reduction = this.activeDamageReduction(c.targetPlayerId, Date.now());
       const dmg = computeMobDamageToPlayer({
-        // workstream B: boss phase damage factor (§2.3 Enrage +10%) scale mobAtk ก่อนสูตร (input ไม่แตะ formula →
-        //   never-downgrade). normal mob / boss เฟสอื่น = 1.
-        mobAtk: ms.atk * (c.damageMultiplier ?? 1),
+        // workstream B (§2.3 Enrage +10%) + A3 (S4 damage-reduction buff): scale mobAtk ก่อนสูตร (input ไม่แตะ
+        //   formula, ปัด integer ครั้งเดียว → never-downgrade). normal mob เฟสปกติไม่มี buff = ×1.
+        mobAtk: ms.atk * (c.damageMultiplier ?? 1) * (1 - reduction),
         playerDef: stats.def,
         k: this.balance.k,
       });
@@ -843,6 +852,16 @@ export class MapRoom extends Room<MapRoomState> {
     }
     // respawn หลังจบ loop (hp ยัง 0 ระหว่าง loop → contact ตัวถัดถูก guard ข้าม; respawn แล้วไม่โดนซ้ำรอบนี้)
     for (const [sessionId, killerMobId] of died) this.handlePlayerDeath(sessionId, killerMobId);
+  }
+
+  /**
+   * A3 (§3.1 S4 sword_guard_domain): ค่าลด damage รับ (0..1) ที่ active ของ session ตอน nowMs — 0 ถ้าไม่มี buff
+   * หรือหมดอายุแล้ว (เช็ค until ทุกครั้งที่อ่าน; entry ที่หมดอายุปล่อยค้างไว้ ลบตอน leave).
+   */
+  private activeDamageReduction(sessionId: string, nowMs: number): number {
+    const buff = this.damageReductionUntil.get(sessionId);
+    if (!buff || nowMs >= buff.until) return 0;
+    return buff.reduction;
   }
 
   /**
@@ -1007,11 +1026,13 @@ export class MapRoom extends Room<MapRoomState> {
       ty: Number.isFinite(message.aimTy) ? message.aimTy : player.ty,
     };
 
-    // TODO(P2): validate skill ownership/class/unlockLevel เมื่อมี progression (ตอนนี้ทุกคน lv1 นักดาบ
-    //   → ยังไม่เป็นบั๊ก; ทุกคนใช้ WARRIOR_SKILLS ได้หมด). เพิ่มเช็ค player.class === skill.class +
-    //   player.level ≥ skill.unlockLevel + สกิลอยู่ใน loadout ที่ผู้เล่นปลด (§8 branch).
+    // A3 (§50.1 unlockLevel / P1_BALANCE §3): unlock-by-level บังคับ server-side (S2 lv3, S3/S4 lv5) — level
+    //   จาก sessionProgress (default 1). TODO(P2 loadout): เพิ่ม class === skill.class + สกิลอยู่ใน loadout ที่
+    //   ปลด (§8 branch) เมื่อมีหลายอาชีพ/branch selection — P1 = นักดาบเดียว ทุก skillId เป็นของอาชีพนี้.
+    const playerLevel = this.sessionProgress.get(sessionId)?.level ?? 1;
     const verdict = validateCast({
       skill,
+      playerLevel,
       // P1-11 (GS §14): safe zone (เมือง) ปฏิเสธ cast ทุกกรณี — server-authoritative (client disable ปุ่มด้วย).
       zoneType: this.map.zoneType,
       readyAtMs: cds?.get(skillId),
@@ -1111,6 +1132,19 @@ export class MapRoom extends Room<MapRoomState> {
       }
       // sync ทันที → hp ที่ลด + มอนที่ตาย (despawn) + guard/stagger สะท้อนใน state broadcast รอบนี้ (ไม่รอ sim tick ถัดไป)
       this.syncMobsToState();
+    }
+
+    // A3 (§50.1 crowdControl/statusEffects · P1_BALANCE §3.1 S4 sword_guard_domain): utility effects — data-driven
+    //   จาก skill def (ไม่ hardcode). guard_domain: taunt มอนรอบตัว (dึง aggro) + buff ลด damage รับ ตาม activeTime.
+    //   damage skill (S1-S3) มี crowdControl/statusEffects = null → block นี้ no-op.
+    if (def.crowdControl === "taunt") {
+      const tauntRadius = def.radius != null ? def.radius : def.range;
+      this.sim.tauntMobsNear(casterPos, tauntRadius, def.maxTargets, sessionId);
+    }
+    const reduction = damageReductionFromStatus(def.statusEffects, this.balance.statusEffectDamageReduction);
+    if (reduction > 0) {
+      // self damage-reduction buff active จน now + activeTime (วินาที→ms). applyMobContacts fold เข้า mobAtk input.
+      this.damageReductionUntil.set(sessionId, { until: now + def.activeTime * 1000, reduction });
     }
 
     const result: SkillResultMessage = { casterId: sessionId, skillId, hits };
@@ -1747,6 +1781,7 @@ export class MapRoom extends Room<MapRoomState> {
     this.cooldowns.delete(sessionId);
     this.effectiveStats.delete(sessionId);
     this.sessionBreakPower.delete(sessionId);
+    this.damageReductionUntil.delete(sessionId); // A3: เคลียร์ S4 buff
     this.sessionProgress.delete(sessionId);
     this.sessionEquipment.delete(sessionId);
     this.sessionCharacters.delete(sessionId);

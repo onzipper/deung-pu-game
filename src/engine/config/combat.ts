@@ -228,6 +228,12 @@ export interface CombatBalanceConfig {
   defaultMob: MobCombatStats;
   /** boss depth (workstream B) — guard/break window + phase ladder + break model. ใช้กับ mob breakPower>0. */
   boss: BossBalanceConfig;
+  /**
+   * A3 (§50.1 statusEffects · P1_BALANCE §3.1 S4): map status-effect id → ค่าลด damage รับ (0..1) ของ **caster**
+   * ระหว่าง buff active. ใช้กับสกิล utility ที่มี statusEffects (นักดาบ S4 sword_guard_domain =
+   * self_damage_reduction_30 → ลด 30%). value เป็น Design Knob (§48). id ไม่อยู่ในตาราง = ไม่มีผล (0).
+   */
+  statusEffectDamageReduction: Record<string, number>;
 }
 
 /**
@@ -353,5 +359,10 @@ export const DEFAULT_COMBAT_BALANCE_CONFIG: CombatBalanceConfig = {
       { id: "pressure", hpThresholdPercent: 65, attackCooldownFactor: 0.85, recoveryFactor: 1.0, damageFactor: 1.0 },
       { id: "enrage", hpThresholdPercent: 20, attackCooldownFactor: 0.87, recoveryFactor: 0.9, damageFactor: 1.1 },
     ],
+  },
+  // A3 (§50.1 statusEffects · P1_BALANCE §3.1 S4 sword_guard_domain): ค่าลด damage รับของ status-effect id.
+  //   self_damage_reduction_30 = ลด 30% (จากชื่อ effect §3.1). Design Knob (§48) — tune ผ่าน owner.
+  statusEffectDamageReduction: {
+    self_damage_reduction_30: 0.3,
   },
 };

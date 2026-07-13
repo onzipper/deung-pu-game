@@ -164,6 +164,9 @@ exports[`engine config — value identity (DEFAULT_* consts) > DEFAULT_COMBAT_BA
   },
   "pvpModifier": 1,
   "rangeToleranceFactor": 1.5,
+  "statusEffectDamageReduction": {
+    "self_damage_reduction_30": 0.3,
+  },
 }
 `;
 
@@ -467,6 +470,9 @@ exports[`engine config — value identity (DEFAULT_* consts) > DEFAULT_ENGINE_CO
     },
     "pvpModifier": 1,
     "rangeToleranceFactor": 1.5,
+    "statusEffectDamageReduction": {
+      "self_damage_reduction_30": 0.3,
+    },
   },
   "combatFeel": {
     "damageNumber": {
@@ -1396,6 +1402,9 @@ exports[`engine config — value identity (factory / pure functions) > createEng
     },
     "pvpModifier": 1,
     "rangeToleranceFactor": 1.5,
+    "statusEffectDamageReduction": {
+      "self_damage_reduction_30": 0.3,
+    },
   },
   "combatFeel": {
     "damageNumber": {
@@ -1971,6 +1980,9 @@ exports[`engine config — value identity (factory / pure functions) > createEng
     },
     "pvpModifier": 1,
     "rangeToleranceFactor": 1.5,
+    "statusEffectDamageReduction": {
+      "self_damage_reduction_30": 0.3,
+    },
   },
   "combatFeel": {
     "damageNumber": {
