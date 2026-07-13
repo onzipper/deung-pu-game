@@ -17,7 +17,7 @@
 | D-013 | 2026-07-12 | P0 exec: per-issue commits | Locked | `docs/decisions/D-013-p0-exec.md` |
 | D-014 | 2026-07-12 | AI efficiency: trim state | Locked | `docs/decisions/D-014-ai-efficiency.md` |
 | D-015 | 2026-07-12 | Closed P0+P1: merged->main (PR #6) | Locked | `docs/decisions/D-015-close-p0-p1.md` |
-| D-016 | 2026-07-12 | Render free tier + UptimeRobot | Locked (temp) | `docs/decisions/D-016-render-free.md` |
+| D-016 | 2026-07-12 | Render free tier + UptimeRobot | Superseded->D-058 | `docs/decisions/D-016-render-free.md` |
 | D-017 | 2026-07-12 | BG tab P1 | Superseded->D-030 | `docs/decisions/D-017-bg-tab-p1.md` |
 | D-018 | 2026-07-12 | Start point + map memory -> P2 | Locked | `docs/decisions/D-018-start-map-p2.md` |
 | D-019 | 2026-07-12 | P0/P1 spec amend; baseline PROD->D-055 | Locked | `docs/decisions/D-019-spec-update.md` |
@@ -32,7 +32,7 @@
 | D-028 | 2026-07-12 | Living World: clock P2B, weather P3 | Locked | `docs/decisions/D-028-living-world.md` |
 | D-029 | 2026-07-12 | Onboarding: creation P2, tutorial | Locked | `docs/decisions/D-029-onboarding.md` |
 | D-030 | 2026-07-12 | BG tab prod | Superseded->D-056 | `docs/decisions/D-030-bg-tab-prod.md` |
-| D-031 | 2026-07-12 | Ops: Render->paid on hard trigger | Locked | `docs/decisions/D-031-render-paid.md` |
+| D-031 | 2026-07-12 | Ops: Render->paid on hard trigger | Superseded->D-058 | `docs/decisions/D-031-render-paid.md` |
 | D-032 | 2026-07-12 | Docs routing: low/high tier | Locked | `docs/decisions/D-032-docs-routing.md` |
 | D-033 | 2026-07-12 | P2 exec: PR per wave; archer->P2B | Locked | `docs/decisions/D-033-p2-exec.md` |
 | D-034 | 2026-07-12 | New specs: Companion+Achievement | Locked | `docs/decisions/D-034-companion-guide.md` |
@@ -58,3 +58,5 @@
 | D-054 | 2026-07-13 | Enh multiplier +6..+15 (R9) | Locked | `docs/decisions/D-054-enhancement-curve-6-15.md` |
 | D-055 | 2026-07-13 | E3 monster + player baseline | Locked | `docs/decisions/D-055-e3-monster-stats-player-baseline.md` |
 | D-056 | 2026-07-13 | Tab: AFK stays, no forced disconnect | Locked | `docs/decisions/D-056-tab-policy-afk.md` |
+| D-057 | 2026-07-13 | Single DB: Hostinger MariaDB = prod | Locked | `docs/decisions/D-057-single-db-hostinger-prod.md` |
+| D-058 | 2026-07-13 | Render free tier until it breaks | Locked | `docs/decisions/D-058-render-free-until-break.md` |
