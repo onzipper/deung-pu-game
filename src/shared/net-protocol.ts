@@ -246,3 +246,78 @@ export interface PlayerSnapshot {
   /** partyId ของผู้เล่นนี้ (P1-08) — "" = solo. client ใช้รู้ว่าใครอยู่ party เดียวกัน (สีต่างใน P2). */
   partyId: string;
 }
+
+// ── P2-07 inventory / equipment (server-authoritative mutation, TA §7/§8, Storage §22) ────────────────
+//
+// Client ส่ง **intent เท่านั้น** (instanceId + `expectedVersion` ที่เห็นล่าสุดจาก snapshot) — server ตัดสิน
+// ทั้งหมด (optimistic lock + FOR UPDATE). server ส่ง MSG_INVENTORY_STATE ตอน join และหลังทุก mutation สำเร็จ;
+// ปฏิเสธ → MSG_INVENTORY_OP_REJECTED (เงียบ ๆ ไม่ crash) แล้ว client re-sync จาก snapshot ล่าสุด.
+
+/** section ของ item ใน snapshot — bag (กระเป๋า) หรือ equipment (สวมอยู่). ตรง ItemLocation §50.1. */
+export type InventoryItemLocation = "CHARACTER_INVENTORY" | "CHARACTER_EQUIPMENT";
+
+/**
+ * มุมมองของ item instance 1 ชิ้นที่ client เห็น (P2-07). `version` = optimistic-lock ที่ client ต้องแนบกลับ
+ * ใน intent ถัดไป (equip/unequip/move) เพื่อให้ server จับ stale/concurrent mutation. **ไม่มี stat/ค่า balance**
+ * ในสายนี้ — stat ของ item เป็น server-authoritative Design Knob (item-catalog, server-only); client แสดงผล
+ * จาก itemId ผ่าน view catalog แยก (งาน UI). slot = bag slot index หรือ equipment slot id (แยกด้วย location).
+ */
+export interface InventoryItemView {
+  instanceId: string;
+  itemId: string;
+  location: InventoryItemLocation;
+  slot: number;
+  quantity: number;
+  enhancementLevel: number;
+  version: number;
+}
+
+/** snapshot ของ inventory + equipment ทั้งหมดของตัวละคร (server → client เดียว, P2-07). */
+export interface InventorySnapshot {
+  /** ความจุกระเป๋า (Storage §1.2 = 40) — bag slot อยู่ในช่วง [0, capacity). */
+  capacity: number;
+  /** item ในกระเป๋า (location CHARACTER_INVENTORY) เรียงตาม slot. */
+  bag: InventoryItemView[];
+  /** item ที่สวมอยู่ (location CHARACTER_EQUIPMENT) เรียงตาม equipment slot id. */
+  equipment: InventoryItemView[];
+}
+
+/** message type: server → **client เดียว** — snapshot inventory/equipment (ตอน join + หลัง mutation สำเร็จ). */
+export const MSG_INVENTORY_STATE = "inventory_state";
+
+/** message type: client → server (intent) — สวม item จากกระเป๋า (server หา equip slot จาก item def เอง). */
+export const MSG_EQUIP_ITEM = "equip_item";
+/** message type: client → server (intent) — ถอด item ที่สวมอยู่กลับเข้ากระเป๋า (ช่องว่างแรก). */
+export const MSG_UNEQUIP_ITEM = "unequip_item";
+/** message type: client → server (intent) — ย้าย item ในกระเป๋าไปช่องอื่น (สลับกับของเดิมถ้าช่องไม่ว่าง). */
+export const MSG_MOVE_ITEM = "move_item";
+
+/** payload ของ MSG_EQUIP_ITEM / MSG_UNEQUIP_ITEM (client → server, P2-07). */
+export interface EquipItemMessage {
+  instanceId: string;
+  /** version ที่ client เห็นล่าสุดของ instance นี้ (optimistic lock — server reject ถ้าไม่ตรง). */
+  expectedVersion: number;
+}
+
+/** payload ของ MSG_MOVE_ITEM (client → server, P2-07). toSlot = bag slot ปลายทาง [0, capacity). */
+export interface MoveItemMessage {
+  instanceId: string;
+  expectedVersion: number;
+  toSlot: number;
+}
+
+/** ชนิดของ operation ที่ถูกปฏิเสธ (debug/UX) — client แยกเพื่อ log/แจ้งเตือน. */
+export type InventoryOp = "equip" | "unequip" | "move";
+
+/**
+ * message type: server → **client เดียว** — item mutation ถูกปฏิเสธ (P2-07). เงียบ ๆ (ไม่ apply, ไม่ crash);
+ * client ควร re-sync จาก MSG_INVENTORY_STATE ล่าสุด. reason ตรงกับ InventoryOpReason ฝั่ง server.
+ */
+export const MSG_INVENTORY_OP_REJECTED = "inventory_op_rejected";
+
+/** payload ของ MSG_INVENTORY_OP_REJECTED (server → client เดียว, P2-07). */
+export interface InventoryOpRejectedMessage {
+  op: InventoryOp;
+  /** "unknown_item"|"not_equippable"|"not_equipped"|"inventory_full"|"invalid_slot"|"unique_conflict"|"version_conflict" */
+  reason: string;
+}

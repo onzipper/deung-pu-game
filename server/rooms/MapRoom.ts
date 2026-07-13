@@ -74,6 +74,11 @@ import {
   MSG_MOVE,
   MSG_POSITION_CORRECTION,
   MSG_SKILL_RESULT,
+  MSG_INVENTORY_STATE,
+  MSG_INVENTORY_OP_REJECTED,
+  MSG_EQUIP_ITEM,
+  MSG_UNEQUIP_ITEM,
+  MSG_MOVE_ITEM,
   WS_CLOSE_SESSION_TAKEN_OVER,
   type CastRejectedMessage,
   type CastSkillMessage,
@@ -83,6 +88,10 @@ import {
   type PositionCorrectionMessage,
   type SkillHit,
   type SkillResultMessage,
+  type EquipItemMessage,
+  type MoveItemMessage,
+  type InventoryOp,
+  type InventoryOpRejectedMessage,
 } from "../../src/shared/net-protocol";
 import {
   validateMove,
@@ -102,7 +111,24 @@ import {
   DEFAULT_ENGINE_CONFIG,
   soloChannelCapacityForZone,
   type CombatBalanceConfig,
+  type PlayerCombatStats,
 } from "../../src/engine/config";
+import {
+  equipItem,
+  unequipItem,
+  moveItem,
+  buildSnapshot,
+  type InventoryOpResult,
+} from "../../src/server/inventory/service";
+import { aggregateEquipmentBonus } from "../../src/server/inventory/equipment-stats";
+import { applyEquipmentBonus } from "../../src/server/inventory/item-catalog";
+import {
+  INVENTORY_CAPACITY,
+  ITEM_CATALOG,
+  getInventoryRepository,
+  inventoryPersistenceAvailable,
+  loadCharacterItemsBestEffort,
+} from "../inventory/inventory-state";
 import {
   createMobSimulation,
   type MobSimulation,
@@ -255,6 +281,12 @@ export class MapRoom extends Room<MapRoomState> {
   private balance!: CombatBalanceConfig;
   /** cooldown state ต่อ (sessionId → skillId → readyAtMs) — server clock authority (§16.3). ไม่ broadcast. */
   private readonly cooldowns = new Map<string, Map<string, number>>();
+  /**
+   * P2-07: effective combat stats ต่อ session = base (นักดาบ lv1) + equipment bonus (aggregate จากของที่สวม).
+   * recompute ตอน join + หลังทุก equip/unequip สำเร็จ. ไม่อยู่ใน schema (server-only, ใช้ในสูตร damage §15.2).
+   * default = this.balance.player (anonymous / ไม่มีของ). never-downgrade zone (combat calc) — ต่อผ่าน pure fn.
+   */
+  private readonly effectiveStats = new Map<string, PlayerCombatStats>();
   /** P1-08: partyId ของ channel นี้ ("" = solo channel, ≠"" = party channel) — จาก options คนแรก */
   private partyId = DEFAULT_PARTY_ID;
   /** P1-08: display channelId (CH.n) ที่ registry จ่ายให้ตอน onCreate — release ตอน onDispose */
@@ -427,6 +459,40 @@ export class MapRoom extends Room<MapRoomState> {
     // P1-05: server combat authority (TA §15/§16.2) — client ส่ง cast intent → validate → damage → broadcast.
     this.onMessage(MSG_CAST_SKILL, (client: Client, message: CastSkillMessage) => {
       this.handleCast(client, message);
+    });
+
+    // P2-07: inventory/equipment mutation (server-authoritative, TA §7/§8). client ส่ง intent (+expectedVersion)
+    //   → service ตัดสินด้วย optimistic lock → สำเร็จ: ส่ง snapshot + recompute combat stats; ปฏิเสธ: เงียบ ๆ.
+    this.onMessage(MSG_EQUIP_ITEM, (client: Client, message: EquipItemMessage) => {
+      void this.runInventoryOp(client, "equip", (characterId) =>
+        equipItem(getInventoryRepository(), ITEM_CATALOG, {
+          characterId,
+          instanceId: String(message?.instanceId ?? ""),
+          expectedVersion: Number(message?.expectedVersion),
+          capacity: INVENTORY_CAPACITY,
+        }),
+      );
+    });
+    this.onMessage(MSG_UNEQUIP_ITEM, (client: Client, message: EquipItemMessage) => {
+      void this.runInventoryOp(client, "unequip", (characterId) =>
+        unequipItem(getInventoryRepository(), ITEM_CATALOG, {
+          characterId,
+          instanceId: String(message?.instanceId ?? ""),
+          expectedVersion: Number(message?.expectedVersion),
+          capacity: INVENTORY_CAPACITY,
+        }),
+      );
+    });
+    this.onMessage(MSG_MOVE_ITEM, (client: Client, message: MoveItemMessage) => {
+      void this.runInventoryOp(client, "move", (characterId) =>
+        moveItem(getInventoryRepository(), {
+          characterId,
+          instanceId: String(message?.instanceId ?? ""),
+          expectedVersion: Number(message?.expectedVersion),
+          toSlot: Number(message?.toSlot),
+          capacity: INVENTORY_CAPACITY,
+        }),
+      );
     });
 
     this.onMessage(MSG_MOVE, (client: Client, message: MoveMessage) => {
@@ -643,15 +709,17 @@ export class MapRoom extends Room<MapRoomState> {
         const mobType = mobTypeById.get(mobId);
         if (mobType === undefined) continue;
         const ms = this.balance.mobs[mobType] ?? this.balance.defaultMob;
+        // P2-07: ใช้ effective stats (base + equipment bonus) ของผู้ cast — default = base ถ้าไม่มี entry.
+        const stats = this.effectiveStats.get(sessionId) ?? this.balance.player;
         const dmg = computeSkillDamage(
           {
-            atk: this.balance.player.atk,
+            atk: stats.atk,
             baseMultiplier: def.baseMultiplier,
             targetDef: ms.def,
-            penetration: this.balance.player.penetration,
+            penetration: stats.penetration,
             k: this.balance.k,
-            critRate: this.balance.player.critRate,
-            critDmg: this.balance.player.critDmg,
+            critRate: stats.critRate,
+            critDmg: stats.critDmg,
             // bossModifier ใช้เฉพาะเมื่อ target เป็น boss — P1 มีแต่ normal mob → 1.0 (proposal §1)
             bossModifier: 1.0,
             pvpModifier: this.balance.pvpModifier,
@@ -670,6 +738,53 @@ export class MapRoom extends Room<MapRoomState> {
 
     const result: SkillResultMessage = { casterId: sessionId, skillId, hits };
     this.broadcast(MSG_SKILL_RESULT, result);
+  }
+
+  /**
+   * P2-07: recompute effective combat stats ของ session จากของที่สวม (equipped) — base + gear bonus (pure).
+   * เรียกตอน join + หลัง equip/unequip สำเร็จ. `equipped` = snapshot.equipment (มี itemId พอ aggregate).
+   */
+  private applyEquipmentStats(sessionId: string, equipped: readonly { itemId: string }[]): void {
+    const bonus = aggregateEquipmentBonus(equipped, ITEM_CATALOG);
+    this.effectiveStats.set(sessionId, applyEquipmentBonus(this.balance.player, bonus));
+  }
+
+  /**
+   * P2-07: รัน 1 inventory op (equip/unequip/move) แล้วตอบ client. เฉพาะ session ที่ผูกตัวละคร + DB พร้อม
+   *   (anonymous/dev ไม่มีของ persist → reject). สำเร็จ → ส่ง snapshot ใหม่ + recompute combat stats.
+   *   ปฏิเสธ business (version ชน/ช่องเต็ม ฯลฯ) → MSG_INVENTORY_OP_REJECTED. DB error → log + สั่ง client resync
+   *   (mutation ไม่ผ่านจริง — ไม่แกล้งสำเร็จ; reason version_conflict = สัญญาณให้ client โหลด snapshot ใหม่).
+   */
+  private async runInventoryOp(
+    client: Client,
+    op: InventoryOp,
+    run: (characterId: string) => Promise<InventoryOpResult>,
+  ): Promise<void> {
+    const rec = this.sessionCharacters.get(client.sessionId);
+    if (!rec || !inventoryPersistenceAvailable()) {
+      const rejected: InventoryOpRejectedMessage = { op, reason: "unknown_item" };
+      client.send(MSG_INVENTORY_OP_REJECTED, rejected);
+      return;
+    }
+    let result: InventoryOpResult;
+    try {
+      result = await run(rec.characterId);
+    } catch (err) {
+      console.warn(
+        `[MapRoom ${this.roomId}] inventory ${op} DB error ${client.sessionId}: ` +
+          (err instanceof Error ? err.message : String(err)),
+      );
+      const rejected: InventoryOpRejectedMessage = { op, reason: "version_conflict" };
+      client.send(MSG_INVENTORY_OP_REJECTED, rejected);
+      return;
+    }
+    if (!result.ok) {
+      const rejected: InventoryOpRejectedMessage = { op, reason: result.reason };
+      client.send(MSG_INVENTORY_OP_REJECTED, rejected);
+      return;
+    }
+    client.send(MSG_INVENTORY_STATE, result.snapshot);
+    this.applyEquipmentStats(client.sessionId, result.snapshot.equipment);
   }
 
   async onJoin(client: Client, options: JoinOptions): Promise<void> {
@@ -719,6 +834,8 @@ export class MapRoom extends Room<MapRoomState> {
     }
     // P1-05: cooldown state ต่อ player (ว่างตอน join → ทุกสกิลพร้อมใช้)
     this.cooldowns.set(client.sessionId, new Map());
+    // P2-07: combat stats เริ่มต้น = base (นักดาบ lv1) — override ด้วย equipment bonus หลังโหลด inventory ด้านล่าง.
+    this.effectiveStats.set(client.sessionId, this.balance.player);
 
     // P2-04 (Storage §4.1/§4.2): มี accountId (verified token) → ยึด 1-active-session ต่อบัญชี.
     //   in-process registry เตะ session เดิมของ account เดียวกัน (SESSION_TAKEN_OVER, takeover-wins);
@@ -743,6 +860,13 @@ export class MapRoom extends Room<MapRoomState> {
       });
       void updateLastPlayed(accountId, characterId);
     }
+
+    // P2-07 (Storage §22 · TA §7/§8): ส่ง inventory/equipment snapshot ตอน join + ตั้ง combat stats จากของที่สวม.
+    //   best-effort load (ไม่มี DB/ตัวละคร → []); anonymous ก็ได้ snapshot ว่างเพื่อ init HUD (flow เดิมไม่พัง).
+    const items = characterId ? await loadCharacterItemsBestEffort(characterId) : [];
+    const snapshot = buildSnapshot(items, INVENTORY_CAPACITY);
+    client.send(MSG_INVENTORY_STATE, snapshot);
+    this.applyEquipmentStats(client.sessionId, snapshot.equipment);
 
     console.log(
       `[MapRoom ${this.roomId}] join ${client.sessionId} @(${player.tx.toFixed(1)},${player.ty.toFixed(1)}) — ${this.clients.length} online`,
@@ -782,6 +906,7 @@ export class MapRoom extends Room<MapRoomState> {
     this.state.players.delete(sessionId);
     this.trackers.delete(sessionId);
     this.cooldowns.delete(sessionId);
+    this.effectiveStats.delete(sessionId);
     this.sessionCharacters.delete(sessionId);
     this.transitioningSessions.delete(sessionId);
     console.log(`[MapRoom ${this.roomId}] remove ${sessionId} (${reason})`);

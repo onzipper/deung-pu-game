@@ -47,6 +47,7 @@
 - `server/matchmaking/` — pure channel-number allocator (§59.3 auto-assign)
 - `server/security/` — WS handshake (JWT+origin+rate limit), session takeover/lease (Bible 5.2)
 - `server/characters/` — persistence decision (pure) + character-state load/upsert (best-effort — no DB = in-memory)
+- `server/inventory/` — inventory best-effort DB glue for MapRoom (load snapshot on join; capacity + item catalog wiring; mutations strict)
 - `server/db/` — Prisma client singleton (server-only) + ledger contract (getBalance/appendEntry)
 
 ## src/shared + src/server (client↔server contracts + Next server-only)
@@ -55,6 +56,7 @@
 - `src/server/db.ts` — Prisma client singleton on the Next API side (**server-only**, must never enter the client bundle)
 - `src/server/auth/` — token/session-cookie, password hash/policy, email normalize, auth service/upgrade state machine
 - `src/server/characters/` — repository (memory/prisma) + service (slot cap, cross-account guard)
+- `src/server/inventory/` — item catalog (server-authoritative Design Knob: slot + stat bonus) + equipment-stats (pure combat aggregation) + repository (memory/prisma: FOR UPDATE + optimistic `version`) + service (equip/unequip/move, swap, snapshot)
 
 ## scripts + tests
 
