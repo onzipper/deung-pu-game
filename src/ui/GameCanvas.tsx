@@ -18,6 +18,9 @@ import { DebugOverlay } from "@/ui/DebugOverlay";
 import { PanelProvider } from "@/ui/panels";
 import { InventoryHudButton } from "@/ui/panels/inventory/InventoryHudButton";
 import { InventoryPanel } from "@/ui/panels/inventory/InventoryPanel";
+import { EnhancementTargetProvider } from "@/ui/panels/enhancement/enhancement-target-context";
+import { EnhancementHudButton } from "@/ui/panels/enhancement/EnhancementHudButton";
+import { EnhancementPanel } from "@/ui/panels/enhancement/EnhancementPanel";
 import { resolveGameEntry } from "@/app/game/boot-gate";
 import {
   readSelectedCharacterId,
@@ -102,14 +105,20 @@ export function GameCanvas() {
     // (inventory ตอนนี้, shop/help-hint ในงานถัดไปเข้าคู่เดียวกัน) รวม DebugOverlay ไว้ในต้นไม้เดียวกันด้วย
     // เผื่ออนาคตต้องคุยกับ panel state (ตอนนี้ยังไม่ต้อง).
     <PanelProvider>
-      <div
-        ref={containerRef}
-        className="h-screen w-screen overflow-hidden"
-        aria-label="game viewport"
-      />
-      <DebugOverlay getHandle={() => engineRef.current} />
-      <InventoryHudButton />
-      <InventoryPanel getHandle={() => engineRef.current} />
+      {/* P2-10: EnhancementTargetProvider ครอบ InventoryPanel (ปุ่ม "เสริมแกร่ง" ตั้ง target) +
+          EnhancementHudButton/Panel (อ่าน target) — ดู rationale ที่ enhancement-target-context.tsx */}
+      <EnhancementTargetProvider>
+        <div
+          ref={containerRef}
+          className="h-screen w-screen overflow-hidden"
+          aria-label="game viewport"
+        />
+        <DebugOverlay getHandle={() => engineRef.current} />
+        <InventoryHudButton />
+        <InventoryPanel getHandle={() => engineRef.current} />
+        <EnhancementHudButton />
+        <EnhancementPanel getHandle={() => engineRef.current} />
+      </EnhancementTargetProvider>
     </PanelProvider>
   );
 }

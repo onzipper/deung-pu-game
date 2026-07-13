@@ -10,7 +10,11 @@
 
 import { createStore, type StoreApi } from "zustand/vanilla";
 import type { EngineDebugInfo } from "@/engine/runtime/debug-info";
-import type { InventoryOpRejectedMessage, InventorySnapshot } from "@/shared/net-protocol";
+import type {
+  EnhanceResultMessage,
+  InventoryOpRejectedMessage,
+  InventorySnapshot,
+} from "@/shared/net-protocol";
 
 /** HUD state ที่ UI ทุกจอ subscribe ได้ — เพิ่ม slice ใหม่ที่นี่เมื่อ UI ตัวถัดไป (inventory/shop/...) ต้องใช้ */
 export interface HudState {
@@ -23,12 +27,18 @@ export interface HudState {
    * แล้ว resync จาก `inventory` ล่าสุดที่มีอยู่แล้ว (ไม่มี request ใหม่). null = ยังไม่เคยถูกปฏิเสธใน session นี้.
    */
   inventoryRejection: InventoryOpRejectedMessage | null;
+  /**
+   * ผลการเสริมแกร่งล่าสุด (P2-10, MSG_ENHANCE_RESULT) — ok=true มากับ `inventory` snapshot ใหม่แยกข้อความ
+   * (server ส่งสองข้อความ), ok=false มี reason. null = ยังไม่เคยเสริมแกร่งใน session นี้.
+   */
+  enhanceResult: EnhanceResultMessage | null;
 }
 
 export const INITIAL_HUD_STATE: HudState = {
   debugInfo: null,
   inventory: null,
   inventoryRejection: null,
+  enhanceResult: null,
 };
 
 /** store singleton ตัวเดียวทั้งแอป — engine publish เข้านี่, React component subscribe ผ่าน useGameStore */
@@ -68,6 +78,15 @@ export const selectInventory = (state: HudState): InventorySnapshot | null => st
 /** typed selector — mutation ล่าสุดที่ถูกปฏิเสธ (P2-07, สำหรับ toast) */
 export const selectInventoryRejection = (state: HudState): InventoryOpRejectedMessage | null =>
   state.inventoryRejection;
+
+/** P2-10: engine เรียกทันทีที่ MSG_ENHANCE_RESULT มาถึง (event-driven เหมือน setInventoryRejection) */
+export function setEnhanceResult(result: EnhanceResultMessage): void {
+  gameStore.setState({ enhanceResult: result });
+}
+
+/** typed selector — ผลเสริมแกร่งล่าสุด (P2-10) */
+export const selectEnhanceResult = (state: HudState): EnhanceResultMessage | null =>
+  state.enhanceResult;
 
 export interface HudPublisher {
   /**

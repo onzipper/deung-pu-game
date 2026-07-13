@@ -11,7 +11,9 @@
 import { useEffect, useState } from "react";
 import type { EngineHandle } from "@/engine/runtime/app";
 import type { InventoryItemView, InventoryOpRejectedMessage } from "@/shared/net-protocol";
-import { Panel } from "@/ui/panels";
+import { Panel, usePanelManager } from "@/ui/panels";
+import { ENHANCEMENT_PANEL_ID } from "@/ui/panels/enhancement/enhancement-view";
+import { useEnhancementTarget } from "@/ui/panels/enhancement/enhancement-target-context";
 import { selectInventory, selectInventoryRejection } from "@/ui/store/game-store";
 import { useGameStore } from "@/ui/store/use-game-store";
 import {
@@ -22,6 +24,15 @@ import {
   rejectionReasonLabel,
   resolveInventoryAction,
 } from "./inventory-view";
+import { REINFORCEMENT_MATERIAL_ID } from "@/ui/panels/enhancement/enhancement-view";
+
+// P2-10: ยังไม่มี client item-catalog (บรรทัดข้างบน "ห้ามสร้าง catalog เองที่นี่") จึงเช็ค "equip ได้ไหม"
+// แบบ heuristic เบา ๆ ที่สุด — โชว์ปุ่ม "เสริมแกร่ง" ให้ item ที่เลือกทุกชิ้น ยกเว้นตัววัสดุเสริมแกร่งเอง
+// (itemId ตรง materialId) เพราะเห็นชัดว่าไม่ใช่ equipment แน่ ๆ. ตัวกันจริงคือ server (NO_ITEM ครอบ
+// "not equipment" ด้วย, ดู enhancement-service.ts) — ปุ่มนี้แค่กันเคสที่เห็นชัดที่สุดไม่ให้กดมั่ว.
+function canOfferEnhance(item: InventoryItemView): boolean {
+  return item.itemId !== REINFORCEMENT_MATERIAL_ID;
+}
 
 export interface InventoryPanelProps {
   /** อ่าน engine handle ปัจจุบัน (pattern เดียวกับ DebugOverlay.getHandle — เรียกใหม่ทุกครั้ง ไม่ cache) */
@@ -34,6 +45,8 @@ export function InventoryPanel({ getHandle }: InventoryPanelProps) {
   const inventory = useGameStore(selectInventory);
   const rejection = useGameStore(selectInventoryRejection);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const panelManager = usePanelManager();
+  const enhancementTarget = useEnhancementTarget();
   // toast = derived จาก rejection ตรง ๆ (ไม่เก็บ text ซ้ำใน state — กัน react-hooks/set-state-in-effect
   // cascading render). `dismissed` เก็บ reference ของ rejection ล่าสุดที่หมดเวลาแสดงแล้วเท่านั้น — setState
   // เกิดขึ้นใน setTimeout callback (deferred, ไม่ใช่ตรงใน effect body) จึงไม่ผิด lint rule.
@@ -147,13 +160,27 @@ export function InventoryPanel({ getHandle }: InventoryPanelProps) {
         {selected && (
           <div className="flex items-center justify-between gap-2 rounded border border-amber-700/50 bg-black/40 px-2 py-2 text-xs">
             <span className="truncate">{selected.itemId}</span>
-            <button
-              type="button"
-              onClick={onAction}
-              className="shrink-0 rounded bg-amber-700/80 px-2 py-1 font-semibold text-black hover:bg-amber-600"
-            >
-              {resolveInventoryAction(selected.location) === "equip" ? "สวมใส่" : "ถอด"}
-            </button>
+            <div className="flex shrink-0 gap-1">
+              {canOfferEnhance(selected) && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    enhancementTarget.setTarget(selected.instanceId);
+                    panelManager.openPanel(ENHANCEMENT_PANEL_ID);
+                  }}
+                  className="rounded border border-amber-700/50 bg-black/60 px-2 py-1 font-semibold text-amber-200 hover:bg-black/80"
+                >
+                  เสริมแกร่ง
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={onAction}
+                className="rounded bg-amber-700/80 px-2 py-1 font-semibold text-black hover:bg-amber-600"
+              >
+                {resolveInventoryAction(selected.location) === "equip" ? "สวมใส่" : "ถอด"}
+              </button>
+            </div>
           </div>
         )}
       </div>

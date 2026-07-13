@@ -34,6 +34,8 @@ import {
   MAP_ROOM_NAME,
   MSG_CAST_SKILL,
   MSG_CAST_REJECTED,
+  MSG_ENHANCE_ITEM,
+  MSG_ENHANCE_RESULT,
   MSG_EQUIP_ITEM,
   MSG_INVENTORY_OP_REJECTED,
   MSG_INVENTORY_STATE,
@@ -46,6 +48,8 @@ import {
   WS_CLOSE_SESSION_TAKEN_OVER,
   type CastRejectedMessage,
   type CastSkillMessage,
+  type EnhanceItemMessage,
+  type EnhanceResultMessage,
   type EquipItemMessage,
   type InventoryOpRejectedMessage,
   type InventorySnapshot,
@@ -147,6 +151,12 @@ export interface NetClientHandlers {
    * caller โชว์ toast สั้น ๆ แล้ว resync จาก MSG_INVENTORY_STATE ล่าสุดที่มีอยู่แล้ว (ไม่ต้อง request ใหม่). optional.
    */
   onInventoryOpRejected?(rejected: InventoryOpRejectedMessage): void;
+  /**
+   * P2-10: ผลการเสริมแกร่ง (server → client เดียว, MSG_ENHANCE_RESULT) — ok=true มากับ MSG_INVENTORY_STATE
+   * snapshot ใหม่แยกต่างหาก (server ส่งสองข้อความ), ok=false มี reason (NO_ITEM/NO_REINFORCEMENT/MAX_LEVEL/
+   * ITEM_LOCKED, §2.4). caller push เข้า Zustand bridge ตรง ๆ (event-driven เหมือน onInventoryOpRejected). optional.
+   */
+  onEnhanceResult?(result: EnhanceResultMessage): void;
 }
 
 /** อ่าน MobState schema (reflection → any) → MobSnapshot (coerce state). */
@@ -231,6 +241,8 @@ export interface NetClientHandle {
   sendUnequipItem(msg: EquipItemMessage): void;
   /** P2-07: ขอย้าย item ในกระเป๋าไปช่องอื่น (bag↔bag เท่านั้น, no-op ถ้ายังไม่ online). */
   sendMoveItem(msg: MoveItemMessage): void;
+  /** P2-10: ขอเสริมแกร่ง equipment ที่ถืออยู่ +1 (no-op ถ้ายังไม่ online) — server ตัดสินทั้งหมด (§2.3). */
+  sendEnhanceItem(msg: EnhanceItemMessage): void;
   /** ออกจาก room + ปิด connection (idempotent) */
   disconnect(): void;
 }
@@ -437,6 +449,10 @@ export function createNetClient(
     joinedRoom.onMessage(MSG_INVENTORY_OP_REJECTED, (rejected: InventoryOpRejectedMessage) => {
       handlers.onInventoryOpRejected?.(rejected);
     });
+    // P2-10: ผลเสริมแกร่ง (ok/reject) — สำเร็จมากับ MSG_INVENTORY_STATE snapshot ใหม่แยกอีกข้อความ (ด้านบน)
+    joinedRoom.onMessage(MSG_ENHANCE_RESULT, (result: EnhanceResultMessage) => {
+      handlers.onEnhanceResult?.(result);
+    });
 
     // channel/map อาจถูก set หลัง state แรก → sync ค่าล่าสุด
     $(joinedRoom.state).listen("channelId", (v: string) => {
@@ -612,6 +628,10 @@ export function createNetClient(
     sendMoveItem(msg: MoveItemMessage): void {
       if (!room || status.state !== "online") return;
       room.send(MSG_MOVE_ITEM, msg);
+    },
+    sendEnhanceItem(msg: EnhanceItemMessage): void {
+      if (!room || status.state !== "online") return;
+      room.send(MSG_ENHANCE_ITEM, msg);
     },
     disconnect(): void {
       if (disposed) return;
