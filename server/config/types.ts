@@ -230,10 +230,63 @@ export interface ReinforcementFragment {
   phase: EconomyPhase; // P2B
 }
 
+// ── item sharing policy (Storage §12.1, S3 static per-type config) ───────────
+/**
+ * bind class of an item type (Storage §12.1) — static per-type Design Knob (S3: NOT a DB column; the
+ * per-instance DB row only carries expiresAt/uniqueEquipGroup). CHARACTER_BOUND ห้ามฝากคลัง (§12.4).
+ */
+export type ItemBindType = "UNBOUND" | "ACCOUNT_BOUND" | "CHARACTER_BOUND";
+/** whether a type may be deposited into account storage (§12.2–§12.4). CONDITIONAL = ต้องปลดเงื่อนไขก่อน. */
+export type ItemStoragePolicy = "ALLOWED" | "CONDITIONAL" | "BLOCKED";
+/** trade class (§12.1). P2 ทั้งหมด = NONE (ยังไม่มี market §18.1). */
+export type ItemTradePolicy = "NONE" | "MARKET" | "DIRECT_FUTURE";
+
+/** sharing policy triple ต่อ item type (§12.1) — อ่านจาก item catalog (Design Knob), ไม่เก็บใน DB (S3). */
+export interface ItemSharingPolicy {
+  bindType: ItemBindType;
+  storagePolicy: ItemStoragePolicy;
+  tradePolicy: ItemTradePolicy;
+}
+
+// ── personal storage + delivery box (Storage §10–§16) ────────────────────────
+/** fill-state thresholds ของคลัง (§15.1: 80% neutral warn, 90% warning; 100% = full โดยปริยาย). */
+export interface StorageFillThresholds {
+  /** เริ่มสถานะ warn (§15.1 = 80). */
+  warnPercent: number;
+  /** เริ่มสถานะ alert (§15.1 = 90). */
+  alertPercent: number;
+}
+
+/**
+ * expiry policy ของ Delivery Box ต่อ source (§16.4) — days ตั้งแต่ createdAt (null = ไม่หมดอายุ).
+ * warn/urgent = เกณฑ์แจ้งเตือน (§16.4 "แจ้งเตือน 7 วัน / 1 วัน") — server คำนวณสถานะจาก expiresAt.
+ */
+export interface DeliveryExpiryConfig {
+  /** วันหมดอายุต่อ DeliverySource (schema enum) — null = never. keyed by source string. */
+  daysBySource: Record<string, number | null>;
+  /** แจ้งเตือนเมื่อเหลือ ≤ N วัน (§16.4 = 7). */
+  warnDaysBeforeExpiry: number;
+  /** แจ้งเตือนเร่งด่วนเมื่อเหลือ ≤ N วัน (§16.4 = 1). */
+  urgentDaysBeforeExpiry: number;
+}
+
+/**
+ * personal storage + delivery config (Storage §10/§15/§16). `capacity` = account-shared slots (§10.1 = 200);
+ * `accessMapIds` = map(s) ที่ storage NPC เข้าถึงได้ (§10.4 safe town) — server-authoritative availability
+ * (เหมือน shop.mapId). `deliveryMaxEntries` = §16.3 = 50.
+ */
+export interface StorageConfig {
+  capacity: number;
+  accessMapIds: string[];
+  fill: StorageFillThresholds;
+  deliveryMaxEntries: number;
+  deliveryExpiry: DeliveryExpiryConfig;
+}
+
 export interface ReinforcementConfig {
   /** ไอเทมเสริมแกร่ง (§3.1) — canonical id `upg_reinforcement` (rename จาก upg_kraeng, R10). */
   materialId: string;
-  /** boss ที่ pity ผูกด้วย (scope account-per-boss) — Map 1 = boss_map1_resonant_guardian. */
+  /** boss ที่ pity ผูกด้วย (scope account-per-boss) — Map 1 = boss_map1_boiling_boar (Field Boss, D-064). */
   bossId: string;
   /** First Kill ไม่การันตีเสริมแกร่ง (§4.3) */
   firstKillGuaranteed: boolean;

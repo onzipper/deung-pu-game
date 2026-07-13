@@ -5,25 +5,39 @@ import {
   INITIAL_HUD_STATE,
   resetHudState,
   selectDebugInfo,
+  selectDeliveryResult,
+  selectDeliveryState,
   selectGold,
   selectInventory,
   selectInventoryRejection,
+  selectLastKillAtMs,
+  selectPlayerLevel,
   selectShopList,
   selectShopResult,
+  selectStorageResult,
+  selectStorageState,
+  setDeliveryResult,
+  setDeliveryState,
   setGoldFromProgress,
   setInventoryRejection,
   setInventoryState,
   setShopList,
   setShopResult,
+  setStorageResult,
+  setStorageState,
   type HudState,
 } from "@/ui/store/game-store";
 import { IDLE_NET_DEBUG_INFO, type EngineDebugInfo } from "@/engine/runtime/debug-info";
 import type {
+  DeliveryResultMessage,
+  DeliveryStateMessage,
   InventoryOpRejectedMessage,
   InventorySnapshot,
   PlayerProgressMessage,
   ShopListMessage,
   ShopResultMessage,
+  StorageResultMessage,
+  StorageStateMessage,
 } from "@/shared/net-protocol";
 
 // P2-01: Zustand bridge — game loop (engine) → publish (throttled) → store → React subscribe (docs/context/ui.md).
@@ -241,6 +255,114 @@ describe("setGoldFromProgress", () => {
     setGoldFromProgress(PROGRESS_A); // gold = 500
     setGoldFromProgress({ ...PROGRESS_A, gold: -1 });
     expect(gameStore.getState().gold).toBe(500);
+    resetHudState();
+    expect(gameStore.getState()).toEqual(INITIAL_HUD_STATE);
+  });
+
+  // P2-12: playerLevel/lastKillAtMs — input ของ guidance rule engine + tutorial checklist (ดู help/)
+  test("อัปเดต playerLevel เสมอ (ไม่มี sentinel แบบ gold)", () => {
+    resetHudState();
+    expect(selectPlayerLevel(gameStore.getState())).toBeNull();
+    setGoldFromProgress(PROGRESS_A, 1000);
+    expect(selectPlayerLevel(gameStore.getState())).toBe(PROGRESS_A.level);
+    resetHudState();
+  });
+
+  test("อัปเดต lastKillAtMs ด้วย nowMs ที่ inject เข้ามา (default Date.now() ตอนไม่ inject)", () => {
+    resetHudState();
+    expect(selectLastKillAtMs(gameStore.getState())).toBeNull();
+    setGoldFromProgress(PROGRESS_A, 12345);
+    expect(selectLastKillAtMs(gameStore.getState())).toBe(12345);
+    resetHudState();
+  });
+
+  test("GOLD_UNKNOWN ก็ยังอัปเดต playerLevel/lastKillAtMs ตามปกติ (แยกจาก gold sentinel)", () => {
+    resetHudState();
+    setGoldFromProgress({ ...PROGRESS_A, gold: -1, level: 7 }, 999);
+    expect(selectPlayerLevel(gameStore.getState())).toBe(7);
+    expect(selectLastKillAtMs(gameStore.getState())).toBe(999);
+    expect(gameStore.getState().gold).toBeNull(); // gold ไม่ถูกแตะ (ยัง sentinel เดิม)
+    resetHudState();
+  });
+});
+
+// P2-17: storage/delivery slice — event-driven เหมือน shop (ดู comment ที่ game-store.ts)
+const STORAGE_STATE_A: StorageStateMessage = {
+  available: true,
+  capacity: 200,
+  used: 1,
+  fillState: "normal",
+  items: [
+    { instanceId: "s1", itemId: "sword_iron", slot: 0, quantity: 1, enhancementLevel: 0, version: 1 },
+  ],
+};
+
+const STORAGE_RESULT_A: StorageResultMessage = { op: "deposit", ok: true, instanceId: "s1" };
+
+const DELIVERY_STATE_A: DeliveryStateMessage = {
+  available: true,
+  maxEntries: 50,
+  used: 1,
+  entries: [
+    {
+      entryId: "d1",
+      source: "compensation",
+      items: [{ itemId: "sword_iron", quantity: 1 }],
+      claimStatus: "unclaimed",
+      expiresAt: null,
+      status: "none",
+    },
+  ],
+};
+
+const DELIVERY_RESULT_A: DeliveryResultMessage = {
+  ok: true,
+  entryId: "d1",
+  granted: [{ itemId: "sword_iron", quantity: 1 }],
+};
+
+describe("selectStorageState / selectStorageResult / selectDeliveryState / selectDeliveryResult", () => {
+  test("null ก่อนมี state/result", () => {
+    expect(selectStorageState(INITIAL_HUD_STATE)).toBeNull();
+    expect(selectStorageResult(INITIAL_HUD_STATE)).toBeNull();
+    expect(selectDeliveryState(INITIAL_HUD_STATE)).toBeNull();
+    expect(selectDeliveryResult(INITIAL_HUD_STATE)).toBeNull();
+  });
+});
+
+describe("setStorageState / setStorageResult — เขียน gameStore singleton ทันที (ไม่ throttle)", () => {
+  test("setStorageState เขียนค่าใหม่ทันที", () => {
+    resetHudState();
+    setStorageState(STORAGE_STATE_A);
+    expect(gameStore.getState().storageState).toEqual(STORAGE_STATE_A);
+    resetHudState();
+  });
+
+  test("setStorageResult เขียนค่าใหม่ทันที ไม่แตะ storageState เดิม", () => {
+    resetHudState();
+    setStorageState(STORAGE_STATE_A);
+    setStorageResult(STORAGE_RESULT_A);
+    expect(gameStore.getState().storageResult).toEqual(STORAGE_RESULT_A);
+    expect(gameStore.getState().storageState).toEqual(STORAGE_STATE_A);
+    resetHudState();
+    expect(gameStore.getState()).toEqual(INITIAL_HUD_STATE);
+  });
+});
+
+describe("setDeliveryState / setDeliveryResult — เขียน gameStore singleton ทันที (ไม่ throttle)", () => {
+  test("setDeliveryState เขียนค่าใหม่ทันที", () => {
+    resetHudState();
+    setDeliveryState(DELIVERY_STATE_A);
+    expect(gameStore.getState().deliveryState).toEqual(DELIVERY_STATE_A);
+    resetHudState();
+  });
+
+  test("setDeliveryResult เขียนค่าใหม่ทันที ไม่แตะ deliveryState เดิม", () => {
+    resetHudState();
+    setDeliveryState(DELIVERY_STATE_A);
+    setDeliveryResult(DELIVERY_RESULT_A);
+    expect(gameStore.getState().deliveryResult).toEqual(DELIVERY_RESULT_A);
+    expect(gameStore.getState().deliveryState).toEqual(DELIVERY_STATE_A);
     resetHudState();
     expect(gameStore.getState()).toEqual(INITIAL_HUD_STATE);
   });

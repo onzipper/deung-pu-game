@@ -5,4 +5,5 @@
 export * from "./types";
 export * from "./economy";
 export * from "./reinforcement";
+export * from "./storage";
 export * from "./loader";

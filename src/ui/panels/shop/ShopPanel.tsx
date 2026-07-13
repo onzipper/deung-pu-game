@@ -18,6 +18,7 @@ import { useEffect, useState } from "react";
 import type { EngineHandle } from "@/engine/runtime/app";
 import type { InventoryItemView } from "@/shared/net-protocol";
 import { Panel } from "@/ui/panels";
+import { ContextHelpButton } from "@/ui/panels/help/ContextHelpButton";
 import { findItemByInstanceId } from "@/ui/panels/inventory/inventory-view";
 import { selectGold, selectInventory, selectShopList, selectShopResult } from "@/ui/store/game-store";
 import { useGameStore } from "@/ui/store/use-game-store";
@@ -136,6 +137,10 @@ export function ShopPanel({ getHandle }: ShopPanelProps) {
   return (
     <Panel id={SHOP_PANEL_ID} title="ร้านค้า" widthPx={420}>
       <div className="space-y-3 text-sm">
+        {/* P2-12: context help "?" (DG §5.4) — เปิดบทความ "ซื้อของ/ขายของที่ร้านค้ายังไง" */}
+        <div className="flex justify-end">
+          <ContextHelpButton articleId="shop_buy_sell" />
+        </div>
         <div className="flex items-center justify-between text-xs">
           <div className="flex gap-1">
             <button

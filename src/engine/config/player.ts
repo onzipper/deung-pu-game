@@ -100,6 +100,22 @@ export interface PathMarkerStyle {
 }
 
 /**
+ * Target assist radius ต่อ input mode (P2-15, Combat Bible §3 "Target assist") — รัศมี (tile) รอบจุด
+ * เล็ง/คลิกที่ถือว่า "แตะโดนมอน" (tap/press = โจมตี/walk-to-attack). แยกตาม input เพราะความแม่นยำต่างกัน:
+ * touch นิ้วบัง+คลาดง่ายกว่า mouse → assist กว้างกว่า. แทน clickMobPickRadius (0.9) เดิม — logic pick
+ * มอน (นิ้ว/เมาส์ใกล้สุดในรัศมี) เหมือนเดิมทุกอย่าง เปลี่ยนแค่ค่ารัศมีตาม mode (never-downgrade: combat calc
+ * ไม่แตะ, นี่คือ targeting/pick เท่านั้น).
+ */
+export interface TargetAssistConfig {
+  /** เมาส์คลิก (desktop) — แม่นสุด, assist แคบ (Combat Bible §3 desktop 0.60) */
+  mouseRadius: number;
+  /** แตะจอ (touch) — นิ้วบัง/คลาด, assist กว้างสุด (Combat Bible §3 touch 0.80) */
+  touchRadius: number;
+  /** ปุ่มโจมตี/คีย์บอร์ด (ไม่มีจุดคลิกเจาะจง) → auto-engage มอนใกล้ตัวสุด (Combat Bible §3 keyboardAssist 0.65) */
+  keyboardAssistRadius: number;
+}
+
+/**
  * Pathfinding + click-to-move knob (P1-09, TA §17.3 · L11). ทุกค่าเป็น Design Knob — ห้าม hardcode
  * ใน astar/path-follower/controller. A* เดินด้วย stepMovement ตัวเดียวกับ WASD (speed/collision เดียวกัน).
  */
@@ -113,8 +129,8 @@ export interface PathfindingConfig {
    * replan เกิดเฉพาะตอน blocked event (ไม่ทุก frame) — เบา ๆ ตามสเปก P1-09.
    */
   replanOnBlock: boolean;
-  /** รัศมี (tile) รอบจุดคลิกที่ถือว่า "แตะโดนมอน" (tap mob = โจมตี/walk-to-attack) — คลิกไกลกว่านี้ = เดิน. */
-  clickMobPickRadius: number;
+  /** รัศมี tap/click มอน แยกตาม input mode (P2-15, Combat Bible §3) — แทน clickMobPickRadius เดิม. */
+  targetAssist: TargetAssistConfig;
   /** marker จุดหมาย click-to-move (cosmetic). */
   marker: PathMarkerStyle;
 }
@@ -161,7 +177,12 @@ export const DEFAULT_PATHFINDING_CONFIG: PathfindingConfig = {
   maxSearchNodes: 4096, // >> 576 cell ของ test field; map production หลักพัน cell ยัง cover
   arrivalRadius: 0.4, // = speed·maxStepSeconds (player) → ถึง waypoint พอดีไม่ overshoot
   replanOnBlock: true, // dynamic obstacle → replan ไป goal เดิม (เบา ๆ ตอน blocked event เท่านั้น)
-  clickMobPickRadius: 0.9, // คลิกในรัศมี ~1 tile ของมอน = แตะโดน (tap-to-attack) — ไกลกว่า = เดิน
+  // Combat Bible §3 Target assist (แทน clickMobPickRadius 0.9 เดิม) — mouse แคบสุด (แม่น), touch กว้างสุด (นิ้วบัง).
+  targetAssist: {
+    mouseRadius: 0.6,
+    touchRadius: 0.8,
+    keyboardAssistRadius: 0.65,
+  },
   marker: {
     color: 0x66e0ff, // ฟ้าอ่อน = จุดหมาย (แยกจาก hitbox debug แดง)
     alpha: 0.7,

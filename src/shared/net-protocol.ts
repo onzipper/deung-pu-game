@@ -245,6 +245,12 @@ export interface PlayerSnapshot {
   anim: WirePlayerAnim;
   /** partyId ของผู้เล่นนี้ (P1-08) — "" = solo. client ใช้รู้ว่าใครอยู่ party เดียวกัน (สีต่างใน P2). */
   partyId: string;
+  /**
+   * P2-13 (D-056): server ตั้ง true เมื่อผู้เล่นนี้ idle ครบ `idleIndicatorSec` (ไม่มี movement/cast) →
+   * client แสดงป้าย "AFK" เหนือหัวให้ผู้เล่นอื่นเห็น (โปร่งใส, ไม่มี disconnect). optional (default false) —
+   * display-only, client ไม่เคยส่งค่านี้ขึ้น server (server-authoritative จาก input tracker).
+   */
+  isAfk?: boolean;
 }
 
 // ── P2-07 inventory / equipment (server-authoritative mutation, TA §7/§8, Storage §22) ────────────────
@@ -447,6 +453,133 @@ export interface ShopSellMessage {
   expectedVersion: number;
   quantity: number;
   idempotencyKey: string;
+}
+
+// ── P2-17 personal storage + delivery box (server-authoritative, idempotent · Storage §10–§16/§22) ────────
+//
+// Storage = account-shared 200 slots (§10.1); a deposited item is visible to every character on the account.
+// Client ส่ง **intent เท่านั้น** (instanceId + expectedVersion + idempotencyKey) — server ตัดสิน (policy จาก
+// config + optimistic lock + capacity, ทุก move idempotent ผ่าน storage_transaction_log; replay = no-op ผลเดิม).
+// server เปิดคลังตอบ MSG_STORAGE_STATE + MSG_DELIVERY_STATE; หลัง deposit/withdraw สำเร็จ ส่ง MSG_STORAGE_STATE
+// + MSG_INVENTORY_STATE ใหม่; ปฏิเสธ → MSG_STORAGE_RESULT ok:false + reason. เข้าถึงได้เฉพาะ map ที่มี storage
+// NPC (§10.4 safe town) — off-map = available:false (client ซ่อนปุ่ม เหมือน shop).
+
+/** fill state ของคลัง (§15.1): normal <80% · warn ≥80% · alert ≥90% · full = 100% (ไม่มีช่องว่าง). */
+export type StorageFillState = "normal" | "warn" | "alert" | "full";
+
+/** มุมมองของ item 1 ชิ้นในคลัง (§11.1). location = ACCOUNT_STORAGE เสมอ. version = optimistic lock ที่ client แนบกลับตอน withdraw. */
+export interface StorageItemView {
+  instanceId: string;
+  itemId: string;
+  /** storage index (จัดเรียงช่อง). */
+  slot: number;
+  quantity: number;
+  enhancementLevel: number;
+  version: number;
+}
+
+/** message type: client → server — เปิดคลัง (+ delivery) บน map ปัจจุบัน (P2-17). server ตอบ 2 snapshot. */
+export const MSG_STORAGE_OPEN = "storage_open";
+
+/** message type: server → **client เดียว** — snapshot คลังบัญชี (ตอน open + หลัง deposit/withdraw สำเร็จ). */
+export const MSG_STORAGE_STATE = "storage_state";
+
+/**
+ * payload ของ MSG_STORAGE_STATE (server → client เดียว, P2-17). `available` = false เมื่อ map นี้ไม่มี storage
+ * NPC (§10.4) → client ซ่อน UI. `used`/`capacity` = §10.1 (200); `fillState` = §15.1 (server คำนวณให้).
+ */
+export interface StorageStateMessage {
+  available: boolean;
+  capacity: number;
+  used: number;
+  fillState: StorageFillState;
+  items: StorageItemView[];
+}
+
+/** message type: client → server (intent) — ฝากของจากกระเป๋าเข้าคลัง (§13). */
+export const MSG_STORAGE_DEPOSIT = "storage_deposit";
+/** message type: client → server (intent) — ถอนของจากคลังกลับกระเป๋า (§14). */
+export const MSG_STORAGE_WITHDRAW = "storage_withdraw";
+
+/** payload ของ MSG_STORAGE_DEPOSIT / MSG_STORAGE_WITHDRAW (client → server, P2-17). */
+export interface StorageMoveMessage {
+  instanceId: string;
+  /** version ที่ client เห็นล่าสุด (optimistic lock). */
+  expectedVersion: number;
+  /** client transaction id → idempotency (replay = no-op ผลเดิม, §22). */
+  idempotencyKey: string;
+}
+
+/** ชนิด operation ของคลังที่ตอบกลับ. */
+export type StorageOp = "deposit" | "withdraw";
+
+/** message type: server → **client เดียว** — ผล deposit/withdraw (สำเร็จ/ปฏิเสธ) (P2-17). */
+export const MSG_STORAGE_RESULT = "storage_result";
+
+/**
+ * payload ของ MSG_STORAGE_RESULT (server → client เดียว, P2-17). ปฏิเสธ reason (§13.2/§14):
+ * "STORAGE_UNAVAILABLE"|"NO_ITEM"|"ITEM_BOUND"|"ITEM_EQUIPPED"|"STORAGE_FULL"|"INVENTORY_FULL"|"ITEM_CHANGED"|
+ * "TRANSACTION_CONFLICT". สำเร็จ → snapshot ใหม่มาทาง MSG_STORAGE_STATE + MSG_INVENTORY_STATE.
+ */
+export interface StorageResultMessage {
+  op: StorageOp;
+  ok: boolean;
+  instanceId: string;
+  reason?: string;
+}
+
+/** สถานะแจ้งเตือนหมดอายุของ delivery entry (§16.4) — server คำนวณจาก expiresAt vs now. */
+export type DeliveryEntryStatus = "none" | "expiring_soon" | "expiring_urgent" | "expired";
+
+/** มุมมองของ delivery entry 1 รายการ (§16.6) — item preview + สถานะหมดอายุที่ server คำนวณ. */
+export interface DeliveryEntryView {
+  entryId: string;
+  /** DeliverySource (schema enum) — client map เป็น label. */
+  source: string;
+  items: LootLine[];
+  /** "unclaimed" | "claimed". */
+  claimStatus: string;
+  /** ISO timestamp หมดอายุ (§16.4) — null = ไม่หมดอายุ. */
+  expiresAt: string | null;
+  /** สถานะแจ้งเตือน (§16.4 7วัน/1วัน) — server คำนวณ (ห้ามหมดเงียบ). */
+  status: DeliveryEntryStatus;
+}
+
+/** message type: server → **client เดียว** — snapshot Delivery Box (ตอน open + หลัง claim สำเร็จ). */
+export const MSG_DELIVERY_STATE = "delivery_state";
+
+/** payload ของ MSG_DELIVERY_STATE (server → client เดียว, P2-17). `available` = ตาม map เดียวกับ storage. */
+export interface DeliveryStateMessage {
+  available: boolean;
+  /** §16.3 = 50. */
+  maxEntries: number;
+  used: number;
+  entries: DeliveryEntryView[];
+}
+
+/** message type: client → server (intent) — รับของจาก delivery entry เข้ากระเป๋า (§16.5). */
+export const MSG_DELIVERY_CLAIM = "delivery_claim";
+
+/** payload ของ MSG_DELIVERY_CLAIM (client → server, P2-17). idempotencyKey = กัน claim ซ้ำ. */
+export interface DeliveryClaimMessage {
+  entryId: string;
+  idempotencyKey: string;
+}
+
+/** message type: server → **client เดียว** — ผล claim (สำเร็จ/ปฏิเสธ) (P2-17). */
+export const MSG_DELIVERY_RESULT = "delivery_result";
+
+/**
+ * payload ของ MSG_DELIVERY_RESULT (server → client เดียว, P2-17). ปฏิเสธ reason (§16.4/§16.5):
+ * "STORAGE_UNAVAILABLE"|"NOT_FOUND"|"EXPIRED"|"INVENTORY_FULL"|"TRANSACTION_CONFLICT". สำเร็จ → `granted` +
+ * snapshot ใหม่มาทาง MSG_DELIVERY_STATE + MSG_INVENTORY_STATE.
+ */
+export interface DeliveryResultMessage {
+  ok: boolean;
+  entryId: string;
+  /** ของที่เข้ากระเป๋าจริงเมื่อ ok=true (client toast). ว่างเมื่อปฏิเสธ. */
+  granted: LootLine[];
+  reason?: string;
 }
 
 /** ชนิด operation ของร้านที่ตอบกลับ (client แยก UI). */

@@ -14,6 +14,7 @@ import type { InventoryItemView, InventoryOpRejectedMessage } from "@/shared/net
 import { Panel, usePanelManager } from "@/ui/panels";
 import { ENHANCEMENT_PANEL_ID } from "@/ui/panels/enhancement/enhancement-view";
 import { useEnhancementTarget } from "@/ui/panels/enhancement/enhancement-target-context";
+import { ContextHelpButton } from "@/ui/panels/help/ContextHelpButton";
 import { selectInventory, selectInventoryRejection } from "@/ui/store/game-store";
 import { useGameStore } from "@/ui/store/use-game-store";
 import {
@@ -64,6 +65,9 @@ export function InventoryPanel({ getHandle }: InventoryPanelProps) {
   if (!inventory) {
     return (
       <Panel id={INVENTORY_PANEL_ID} title="กระเป๋า">
+        <div className="flex justify-end">
+          <ContextHelpButton articleId="inventory_bag" />
+        </div>
         <div className="text-sm text-neutral-400">กำลังโหลด…</div>
       </Panel>
     );
@@ -92,6 +96,10 @@ export function InventoryPanel({ getHandle }: InventoryPanelProps) {
   return (
     <Panel id={INVENTORY_PANEL_ID} title="กระเป๋า" widthPx={400}>
       <div className="space-y-3">
+        {/* P2-12: context help "?" (DG §5.4) — เปิดบทความ "เก็บของ/ใช้กระเป๋ายังไง" ตรง ๆ */}
+        <div className="flex justify-end">
+          <ContextHelpButton articleId="inventory_bag" />
+        </div>
         {toast && (
           <div className="rounded bg-red-900/60 px-2 py-1 text-xs text-red-100">{toast}</div>
         )}

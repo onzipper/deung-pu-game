@@ -4,13 +4,13 @@ _Last updated: 2026-07-13 · Status board only — history & detail: `docs/histo
 
 ## Now
 
-- **Phase:** P2 wave 3 PR #1 (value loop) **done** on `feat/p2-wave3-value-loop` — P2-07/08/09/10/11 all committed (server+UI), shared `src/ui/panels/` framework (inventory/enhancement/shop). Gates green: vitest 1128, tsc, `npm run build`, e2e 8/8. Migration `0002` (shop ledger reasons) applied to prod DB. **Next:** open PR into develop for owner review → Part C (P2-12/13/17→15) as PR #2. Waves 1+2 merged (PR #9, #10); develop→main merged (PR #14).
-- **SVG-01** pipeline done → **PR #15** open for review (`feat/svg-01-pipeline`); open point: rasterizer dep (sharp vs @resvg/resvg-js).
+- **Phase:** P2 wave 3 **code-complete** (P2-07..17 all ✅). Two PRs await review: **PR #16** (value loop, MERGEABLE) + **PR #2** `feat/p2-wave3-polish`→develop (carries D-063/064/065 + amendment 0.0.4). Gates: vitest 1333, tsc client+server, eslint 0, build, e2e 8/8. Next after merge: **P2-16** handoff (rename `upg_kraeng`→`upg_reinforcement`, wipe test data, verify migrations).
+- **SVG-01** merged (PR #15). Open point: rasterizer dep (sharp vs @resvg/resvg-js) before real atlas builds.
 - **Live:** server `https://deung-pu-game.onrender.com` (Render free tier + UptimeRobot, `/healthz`, D-058) · client `https://deung-pu.softrock.space/game` (Hostinger). Guest login + realtime connect verified 2026-07-13.
-- **Spec:** game v15.3 / tech v1.5.2 + Production Bible Set v1. Reinforcement decided (R1–R10) → D-048..D-055.
+- **Spec:** game v15.3 / tech v1.5.2 + Production Bible Set v1. Reinforcement → D-048..D-055. P2B value-loop rulings → D-063/064/065 (bot pricing, merchant dual-sink, event calendar, boss tiers, Arc1 Ch1, audio, art; Open Beta = full systems + Map 1 only). Amendment 0.0.4 done. Field Boss Map 1 id = `boss_map1_boiling_boar` (pity/fragment rebound in config).
 - **DB:** Hostinger MariaDB is production (D-057), migrations `0001_init`+`0002` applied.
 
-## Task board — P2 wave 3
+## Task board — P2 wave 3 (code-complete)
 
 | ID | Task | Status |
 |---|---|---|
@@ -19,19 +19,19 @@ _Last updated: 2026-07-13 · Status board only — history & detail: `docs/histo
 | P2-09 | Drop + EXP + reinforcement/fragment (config+runtime) | ✅ done |
 | P2-10 | Guaranteed reinforcement (+15 cap) | ✅ done |
 | P2-11 | Shop (buy/sell, city-hub) | ✅ done |
-| P2-12 | DG lite + hint panel | not started |
-| P2-13 | Tab policy (D-056: AFK stays) | not started |
-| P2-15 | Mobile pass | not started |
-| P2-17 | Storage/Delivery | not started |
+| P2-12 | DG lite + hint panel | ✅ done |
+| P2-13 | Tab policy (D-056: AFK stays) | ✅ done |
+| P2-15 | Mobile pass | ✅ done |
+| P2-17 | Storage/Delivery | ✅ done |
 
-## Follow-up (P2B, not blocking PR #1)
+## Follow-up (P2B, not blocking PR merge)
 
-Ground-loot entity (full inventory → lootOverflow reported, not persisted) · party share (§10.2, waits for party system) · starter loadout §7.7 not yet granted · shop unlockCondition tutorial not enforced · config loader DB override not wired into MapRoom (uses DEFAULT).
+Ground-loot entity (full inventory → lootOverflow reported, not persisted) · party share (§10.2, waits for party system) · starter loadout §7.7 not yet granted · shop unlockCondition tutorial not enforced · config loader DB override not wired into MapRoom (uses DEFAULT) · Field Boss `boss_map1_boiling_boar`: E3 stats + boss loot rebinding = P2B prep (D-064).
 
 ## Open with owner (not blocking structure)
 
 - Production smoke test full round (deploy-checklist §3) — 2-tab sync / combat / map-cross not yet.
-- D-040 open items L1–L7 — decide at their phases, none blocks wave 3.
+- D-040 open items: only **L2** (final-art order) remains — owner will decide later; L1/L3–L7 closed via D-063..D-065.
 
 ## Do not touch
 

@@ -11,11 +11,14 @@
 // เปิดเลย ซึ่งตรงกับ use case จริง ("I" = เปิดกระเป๋า ไม่ใช่ toggle).
 
 import { useEffect } from "react";
-import { usePanelManager } from "@/ui/panels";
+import { usePanelManager, useIsMobilePanel } from "@/ui/panels";
+import { hudButtonStyle } from "@/ui/panels/hud-layout";
 import { INVENTORY_PANEL_ID } from "./inventory-view";
 
 export function InventoryHudButton() {
   const manager = usePanelManager();
+  const isMobile = useIsMobilePanel();
+  const { className, style } = hudButtonStyle(isMobile, "inventory");
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent): void => {
@@ -32,7 +35,8 @@ export function InventoryHudButton() {
       type="button"
       onClick={() => manager.openPanel(INVENTORY_PANEL_ID)}
       aria-label="เปิดกระเป๋า"
-      className="pointer-events-auto fixed bottom-3 right-3 z-50 rounded-lg border border-amber-700/50 bg-black/60 px-3 py-2 text-sm font-semibold text-amber-200 shadow-lg hover:bg-black/80"
+      className={className}
+      style={style}
     >
       กระเป๋า <span className="text-neutral-400">(I)</span>
     </button>

@@ -18,6 +18,7 @@ import type { TilePoint } from "@/engine/iso/coords";
 import { isWalkableTile, type MapConfig } from "@/engine/map/types";
 import type { MapSceneHandle } from "@/engine/render/scene";
 import { attachKeyboard } from "@/engine/input/keyboard";
+import { joystickIntent } from "@/engine/input/joystick";
 import { stepMovement } from "@/engine/movement/mover";
 import { resolveDirection, type Direction } from "@/engine/movement/direction";
 import { findPath } from "@/engine/pathfinding/astar";
@@ -33,6 +34,7 @@ import {
   createSpriteAnimator,
   type SpriteAnimator,
 } from "@/engine/animation/animator";
+import { createAfkLabel, updateAfkLabel } from "@/engine/render/afk-label";
 
 /** id คงที่ของ local player ใน scene entity layer. */
 export const LOCAL_PLAYER_ID = "__local_player__";
@@ -74,6 +76,13 @@ export interface LocalPlayerHandle {
   /** P1-09: หันหน้าไปทาง tile (walk-to-attack — เล็งมอนก่อนตีแม้ยืนนิ่ง). ทิศ ~0 → คงเดิม. */
   faceToward(tile: TilePoint): void;
   /**
+   * P2-15: ตั้ง/ล้าง intent เดินจาก virtual joystick (touch, มือถือ). vec = เวกเตอร์ screen-space
+   * (dx=ขวา+, dy=ลง+, สัดส่วน ~[-1,1] ของรัศมี joystick); null = ปล่อยนิ้ว = หยุด. update() รวม intent นี้
+   * กับ keyboard.getIntent() (ทิศเดียวกับ WASD) แล้ว stepMovement เดิม — เป็น manual override ชนะ click-to-move
+   * เหมือน WASD. imperative command (UI → engine ผ่าน EngineHandle.player) ไม่ผ่าน React state.
+   */
+  setMoveVector(vec: { dx: number; dy: number } | null): void;
+  /**
    * P1-09: click-to-move — หา path A* จากตำแหน่งปัจจุบันไป goal (foot ต่อเนื่อง) แล้วเดินตาม.
    * คืน true ถ้ามี path (รวม "อยู่ที่ goal แล้ว"); false ถ้าเดินไม่ถึง (คลิกกำแพง/นอกขอบ) → ไม่ทำอะไร.
    * เรียกซ้ำ = replan (คลิกใหม่ทับ). แสดง marker จุดหมายเมื่อมี path.
@@ -92,6 +101,11 @@ export interface LocalPlayerHandle {
    * reconcile แบบง่าย (snap เฉย ๆ, ไม่ rewind-replay input) — พอสำหรับ P1-02.
    */
   applyCorrection(tx: number, ty: number): void;
+  /**
+   * P2-13 (D-056): เปิด/ปิดป้าย "AFK" ของตัวเอง (server ตั้ง isAfk เมื่อ idle ครบ idleIndicatorSec) —
+   * caller (app.ts) เรียกจาก net onSelfAfkChange. display-only, ไม่กระทบ input/movement.
+   */
+  setAfk(isAfk: boolean): void;
   /** เรียกทุก frame ด้วย dt เป็น "วินาที" (ticker.deltaMS/1000) */
   update(dtSeconds: number): void;
   /** ถอด keyboard listener + ลบ entity ออกจาก scene + ปล่อย texture */
@@ -113,7 +127,7 @@ export function createLocalPlayer(
   renderer: Renderer,
   target?: EventTarget,
 ): LocalPlayerHandle {
-  const { tileSize, player, pathfinding } = config;
+  const { tileSize, player, pathfinding, input } = config;
   const pos: TilePoint = { tx: map.spawnPoint.x, ty: map.spawnPoint.y };
   let facing: Direction = INITIAL_FACING;
   let animation = "idle";
@@ -138,6 +152,11 @@ export function createLocalPlayer(
   scene.addEntity(LOCAL_PLAYER_ID, animator.view, pos);
   scene.setCameraTarget(pos, true); // กล้องเริ่มที่ player (ไม่กวาดจาก origin)
 
+  // P2-13 (D-056): ป้าย "AFK" ของตัวเอง (child ของ sprite view) — server ตั้ง isAfk, caller toggle ผ่าน setAfk.
+  const afkLabel = createAfkLabel(player.animation.style.bodyHeight, player.animation.style.walkBob);
+  animator.view.addChild(afkLabel);
+  let afk = false;
+
   const keyboard = attachKeyboard(target);
   const isWalkable = (tx: number, ty: number): boolean =>
     isWalkableTile(map, tx, ty);
@@ -156,7 +175,8 @@ export function createLocalPlayer(
   let pathGoal: TilePoint | null = null; // goal foot ล่าสุด (สำหรับ replan)
   let marker: Graphics | null = null;
   let markerElapsedMs = 0;
-  let manualInputActive = false; // set ทุก frame ใน update() — true = มี WASD intent เฟรมนี้
+  let manualInputActive = false; // set ทุก frame ใน update() — true = มี WASD/joystick intent เฟรมนี้
+  let moveVector: { dx: number; dy: number } | null = null; // P2-15 joystick (touch) — null = ปล่อยนิ้ว
 
   const removeMarker = (): void => {
     if (!marker) return;
@@ -246,6 +266,10 @@ export function createLocalPlayer(
       );
     },
 
+    setMoveVector(vec: { dx: number; dy: number } | null): void {
+      moveVector = vec; // อ่าน+แปลงเป็น intent ใน update() (พร้อม keyboard) — ทิศเดียวกับ WASD
+    },
+
     moveTo(goal: TilePoint): boolean {
       const path = findPath(pos, goal, isWalkable, {
         maxSearchNodes: pathfinding.maxSearchNodes,
@@ -269,6 +293,10 @@ export function createLocalPlayer(
       attackElapsedMs = 0; // update() รอบถัดไปจะ lock animation="attack" ทันที
     },
 
+    setAfk(isAfk: boolean): void {
+      afk = isAfk; // ป้ายถูก toggle จริงใน update() (พร้อม counter-flip)
+    },
+
     applyCorrection(tx: number, ty: number): void {
       // P1-02: server สั่ง snap กลับ — เขียนทับ position ทันที (ไม่ interpolate: correction = truth)
       pos.tx = tx;
@@ -283,7 +311,12 @@ export function createLocalPlayer(
     },
 
     update(dtSeconds: number): void {
-      const intent = keyboard.getIntent();
+      // P2-15: รวม intent WASD + joystick (touch) — ทั้งคู่เป็น tile-space basis เดียวกัน (ดู joystick.ts).
+      const kb = keyboard.getIntent();
+      const joy = moveVector
+        ? joystickIntent(moveVector.dx, moveVector.dy, input.joystick.deadzone)
+        : { tx: 0, ty: 0 };
+      const intent: TilePoint = { tx: kb.tx + joy.tx, ty: kb.ty + joy.ty };
       const manual = intent.tx * intent.tx + intent.ty * intent.ty >= MOVE_EPS;
       manualInputActive = manual;
 
@@ -325,6 +358,8 @@ export function createLocalPlayer(
 
       animator.setState(animation, facing);
       animator.update(dtSeconds);
+      // P2-13 (D-056): toggle ป้าย AFK + counter-flip กัน mirror (หลัง setState — view.scale.x อาจเพิ่ง flip)
+      updateAfkLabel(afkLabel, animator.view, afk);
 
       // marker fade (cosmetic) — fade อิสระจาก path (โชว์จุดที่คลิกล่าสุดชั่วครู่)
       if (marker) {

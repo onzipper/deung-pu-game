@@ -1,5 +1,12 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
+exports[`engine config — value identity (DEFAULT_* consts) > DEFAULT_AFK_CONFIG 1`] = `
+{
+  "afkHardCapHours": null,
+  "idleIndicatorSec": 60,
+}
+`;
+
 exports[`engine config — value identity (DEFAULT_* consts) > DEFAULT_CAMERA_CONFIG 1`] = `
 {
   "edgeMargin": 96,
@@ -184,6 +191,10 @@ exports[`engine config — value identity (DEFAULT_* consts) > DEFAULT_DEBUG_OVE
 
 exports[`engine config — value identity (DEFAULT_* consts) > DEFAULT_ENGINE_CONFIG 1`] = `
 {
+  "afk": {
+    "afkHardCapHours": null,
+    "idleIndicatorSec": 60,
+  },
   "antialias": true,
   "autoDensity": true,
   "backgroundAlpha": 1,
@@ -363,6 +374,13 @@ exports[`engine config — value identity (DEFAULT_* consts) > DEFAULT_ENGINE_CO
     "lineColor": 9109482,
     "lineWidth": 2,
   },
+  "input": {
+    "joystick": {
+      "baseRadiusPx": 64,
+      "deadzone": 0.25,
+      "knobRadiusPx": 28,
+    },
+  },
   "mob": {
     "ai": {
       "aggroRadius": {
@@ -469,7 +487,6 @@ exports[`engine config — value identity (DEFAULT_* consts) > DEFAULT_ENGINE_CO
   },
   "pathfinding": {
     "arrivalRadius": 0.4,
-    "clickMobPickRadius": 0.9,
     "marker": {
       "alpha": 0.7,
       "color": 6742271,
@@ -478,6 +495,11 @@ exports[`engine config — value identity (DEFAULT_* consts) > DEFAULT_ENGINE_CO
     },
     "maxSearchNodes": 4096,
     "replanOnBlock": true,
+    "targetAssist": {
+      "keyboardAssistRadius": 0.65,
+      "mouseRadius": 0.6,
+      "touchRadius": 0.8,
+    },
   },
   "persistence": {
     "saveIntervalMs": 30000,
@@ -600,6 +622,16 @@ exports[`engine config — value identity (DEFAULT_* consts) > DEFAULT_EXIT_MARK
 }
 `;
 
+exports[`engine config — value identity (DEFAULT_* consts) > DEFAULT_INPUT_CONFIG 1`] = `
+{
+  "joystick": {
+    "baseRadiusPx": 64,
+    "deadzone": 0.25,
+    "knobRadiusPx": 28,
+  },
+}
+`;
+
 exports[`engine config — value identity (DEFAULT_* consts) > DEFAULT_MOB_CONFIG 1`] = `
 {
   "ai": {
@@ -716,7 +748,6 @@ exports[`engine config — value identity (DEFAULT_* consts) > DEFAULT_NET_CONFI
 exports[`engine config — value identity (DEFAULT_* consts) > DEFAULT_PATHFINDING_CONFIG 1`] = `
 {
   "arrivalRadius": 0.4,
-  "clickMobPickRadius": 0.9,
   "marker": {
     "alpha": 0.7,
     "color": 6742271,
@@ -725,6 +756,11 @@ exports[`engine config — value identity (DEFAULT_* consts) > DEFAULT_PATHFINDI
   },
   "maxSearchNodes": 4096,
   "replanOnBlock": true,
+  "targetAssist": {
+    "keyboardAssistRadius": 0.65,
+    "mouseRadius": 0.6,
+    "touchRadius": 0.8,
+  },
 }
 `;
 
@@ -868,6 +904,10 @@ exports[`engine config — value identity (DEFAULT_* consts) > DEFAULT_TRANSITIO
 
 exports[`engine config — value identity (factory / pure functions) > createEngineConfig() no-arg 1`] = `
 {
+  "afk": {
+    "afkHardCapHours": null,
+    "idleIndicatorSec": 60,
+  },
   "antialias": true,
   "autoDensity": true,
   "backgroundAlpha": 1,
@@ -1047,6 +1087,13 @@ exports[`engine config — value identity (factory / pure functions) > createEng
     "lineColor": 9109482,
     "lineWidth": 2,
   },
+  "input": {
+    "joystick": {
+      "baseRadiusPx": 64,
+      "deadzone": 0.25,
+      "knobRadiusPx": 28,
+    },
+  },
   "mob": {
     "ai": {
       "aggroRadius": {
@@ -1153,7 +1200,6 @@ exports[`engine config — value identity (factory / pure functions) > createEng
   },
   "pathfinding": {
     "arrivalRadius": 0.4,
-    "clickMobPickRadius": 0.9,
     "marker": {
       "alpha": 0.7,
       "color": 6742271,
@@ -1162,6 +1208,11 @@ exports[`engine config — value identity (factory / pure functions) > createEng
     },
     "maxSearchNodes": 4096,
     "replanOnBlock": true,
+    "targetAssist": {
+      "keyboardAssistRadius": 0.65,
+      "mouseRadius": 0.6,
+      "touchRadius": 0.8,
+    },
   },
   "persistence": {
     "saveIntervalMs": 30000,
@@ -1275,6 +1326,10 @@ exports[`engine config — value identity (factory / pure functions) > createEng
 
 exports[`engine config — value identity (factory / pure functions) > createEngineConfig({}) 1`] = `
 {
+  "afk": {
+    "afkHardCapHours": null,
+    "idleIndicatorSec": 60,
+  },
   "antialias": true,
   "autoDensity": true,
   "backgroundAlpha": 1,
@@ -1454,6 +1509,13 @@ exports[`engine config — value identity (factory / pure functions) > createEng
     "lineColor": 9109482,
     "lineWidth": 2,
   },
+  "input": {
+    "joystick": {
+      "baseRadiusPx": 64,
+      "deadzone": 0.25,
+      "knobRadiusPx": 28,
+    },
+  },
   "mob": {
     "ai": {
       "aggroRadius": {
@@ -1560,7 +1622,6 @@ exports[`engine config — value identity (factory / pure functions) > createEng
   },
   "pathfinding": {
     "arrivalRadius": 0.4,
-    "clickMobPickRadius": 0.9,
     "marker": {
       "alpha": 0.7,
       "color": 6742271,
@@ -1569,6 +1630,11 @@ exports[`engine config — value identity (factory / pure functions) > createEng
     },
     "maxSearchNodes": 4096,
     "replanOnBlock": true,
+    "targetAssist": {
+      "keyboardAssistRadius": 0.65,
+      "mouseRadius": 0.6,
+      "touchRadius": 0.8,
+    },
   },
   "persistence": {
     "saveIntervalMs": 30000,

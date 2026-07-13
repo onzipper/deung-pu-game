@@ -91,6 +91,14 @@ import {
   MSG_SHOP_BUY,
   MSG_SHOP_SELL,
   MSG_SHOP_RESULT,
+  MSG_STORAGE_OPEN,
+  MSG_STORAGE_STATE,
+  MSG_STORAGE_DEPOSIT,
+  MSG_STORAGE_WITHDRAW,
+  MSG_STORAGE_RESULT,
+  MSG_DELIVERY_STATE,
+  MSG_DELIVERY_CLAIM,
+  MSG_DELIVERY_RESULT,
   WS_CLOSE_SESSION_TAKEN_OVER,
   type CastRejectedMessage,
   type CastSkillMessage,
@@ -112,6 +120,13 @@ import {
   type ShopBuyMessage,
   type ShopSellMessage,
   type ShopResultMessage,
+  type StorageMoveMessage,
+  type StorageStateMessage,
+  type StorageResultMessage,
+  type StorageOp,
+  type DeliveryClaimMessage,
+  type DeliveryStateMessage,
+  type DeliveryResultMessage,
 } from "../../src/shared/net-protocol";
 import {
   validateMove,
@@ -126,6 +141,7 @@ import {
   type MapConfig,
 } from "../../src/engine/map/types";
 import { resolveSpawnPosition, type ReconnectVec2 } from "../../src/shared/reconnect";
+import { isIdleAfk, exceedsAfkHardCap } from "../../src/shared/afk";
 import { snapToTile } from "../../src/engine/iso/coords";
 import {
   DEFAULT_ENGINE_CONFIG,
@@ -144,6 +160,17 @@ import {
   enhanceEquipment,
   type EnhanceResult,
 } from "../../src/server/inventory/enhancement-service";
+import {
+  depositToStorage,
+  withdrawFromStorage,
+  claimDeliveryEntry,
+  buildStorageSnapshot,
+  buildDeliverySnapshot,
+  type StorageServiceDeps,
+  type DeliveryServiceDeps,
+  type StorageOpResult,
+  type DeliveryClaimResult,
+} from "../../src/server/inventory/storage-service";
 import { aggregateEquipmentBonus } from "../../src/server/inventory/equipment-stats";
 import { applyEquipmentBonus } from "../../src/server/inventory/item-catalog";
 import {
@@ -152,6 +179,10 @@ import {
   ENHANCEMENT_CURVE,
   REINFORCEMENT_RULES,
   ENHANCEMENT_CONFIG_VERSION,
+  STORAGE_CONFIG,
+  STORAGE_CAPACITY,
+  storageAvailableForMap,
+  getStorageRepository,
   getInventoryRepository,
   inventoryPersistenceAvailable,
   loadCharacterItemsBestEffort,
@@ -216,6 +247,12 @@ const handshakeRateLimiter = createRateLimiter({
 
 /** P2-04: เตือนครั้งเดียวเมื่อ ALLOWED_ORIGINS ว่าง (dev mode = เปิดทุก origin) — production ต้องตั้ง. */
 let openOriginWarned = false;
+
+/**
+ * P2-13 (D-056): cadence ตรวจ AFK (ms) — เดินทุก 1s แล้วเทียบ idle กับ idleIndicatorSec (60s). granularity
+ * 1s พอสำหรับป้าย AFK (ไม่ใช่ค่า balance → operational const เหมือน session-lease HEARTBEAT_INTERVAL_MS).
+ */
+const AFK_CHECK_INTERVAL_MS = 1_000;
 
 /** P2-04: อ่าน accountId ที่ static onAuth ผูกไว้ใน client.auth (null = dev bypass / ไม่ผูกบัญชี). */
 function accountIdOf(client: Client): string | null {
@@ -304,6 +341,17 @@ interface MoveTracker {
    * เฉพาะตอน "เพิ่งเข้า" exit (เปลี่ยนจาก null/other → exitId นี้) — กัน spam ทุก MSG_MOVE ระหว่างยืนใน area.
    */
   lastExitId: string | null;
+  /**
+   * P2-13 (D-056): เวลา (ms, Date.now) ที่มี input ล่าสุด (movement/cast) — idle เกิน idleIndicatorSec →
+   * ป้าย AFK. แยกจาก lastMoveTime (ใช้คำนวณ move elapsed) เพราะ cast ก็นับเป็น input แต่ต้องไม่ไปกวน
+   * elapsed ของ move validation.
+   */
+  lastInputMs: number;
+  /**
+   * P2-13 (D-056): เวลา (ms) ที่ seat นี้เริ่มมี connection (join / reconnect ครั้งแรก) — จุดอ้างของ
+   * afkHardCapHours (inert P2). tracker คงข้าม reconnect-within-grace → นับ connection duration จริง.
+   */
+  connectedAtMs: number;
 }
 
 export class MapRoom extends Room<MapRoomState> {
@@ -371,6 +419,16 @@ export class MapRoom extends Room<MapRoomState> {
   private readonly transitioningSessions = new Set<string>();
   /** P2-05: ระยะ throttle save (ms) = knob persistence.saveIntervalMs — set ตอน onCreate. */
   private saveIntervalMs = 30_000;
+  /**
+   * P2-13 (D-056): ป้าย AFK หลัง no-input N วินาที (knob afk.idleIndicatorSec = 60) — set ตอน onCreate.
+   * ≤ 0 = ปิดป้าย. ป้ายเป็น display-only ให้ผู้เล่นอื่นเห็น (isAfk บน schema) — **ไม่ผูก disconnect**.
+   */
+  private afkIdleIndicatorSec = 60;
+  /**
+   * P2-13 (D-056): เพดานชั่วโมง connection ค้าง (knob afk.afkHardCapHours) — **null = inert (P2)**: ไม่ตัด
+   * connection. เดินสาย + จุดเช็คใน evaluateAfk ไว้พร้อม แต่ null → ไม่มีวันทำงาน (ทบทวนก่อน open alpha).
+   */
+  private afkHardCapHours: number | null = null;
 
   /**
    * P2-04 (Bible 5.2, TA §6.2): **static** onAuth — Colyseus เรียกตอน matchmaking (fresh join/create) ก่อน
@@ -511,6 +569,13 @@ export class MapRoom extends Room<MapRoomState> {
     this.saveIntervalMs = DEFAULT_ENGINE_CONFIG.persistence.saveIntervalMs;
     this.clock.setInterval(() => this.saveAllCharacters(), this.saveIntervalMs);
 
+    // P2-13 (D-056): AFK indicator + inert hard cap. knob = afk.idleIndicatorSec/afkHardCapHours (single
+    //   source of truth = DEFAULT_ENGINE_CONFIG). ตรวจทุก 1s: idle เกิน 60s → ตั้งป้าย isAfk (ให้ผู้เล่นอื่น
+    //   เห็น) — **ไม่มี disconnect** (D-056 supersede §59.1.2). hardCap null = inert (จุดเช็คพร้อม ไม่ทำงาน).
+    this.afkIdleIndicatorSec = DEFAULT_ENGINE_CONFIG.afk.idleIndicatorSec;
+    this.afkHardCapHours = DEFAULT_ENGINE_CONFIG.afk.afkHardCapHours;
+    this.clock.setInterval(() => this.evaluateAfk(), AFK_CHECK_INTERVAL_MS);
+
     // P1-05: server combat authority (TA §15/§16.2) — client ส่ง cast intent → validate → damage → broadcast.
     this.onMessage(MSG_CAST_SKILL, (client: Client, message: CastSkillMessage) => {
       this.handleCast(client, message);
@@ -570,6 +635,22 @@ export class MapRoom extends Room<MapRoomState> {
       void this.runShopSell(client, message);
     });
 
+    // P2-17: personal storage (200 shared slots) + delivery box (Storage §10–§16/§22) — server-authoritative +
+    //   idempotent. open = storage+delivery snapshot บน map ที่มี NPC (§10.4); deposit/withdraw/claim = intent
+    //   → service ตัดสิน (policy จาก config + optimistic lock + capacity) → MSG_*_RESULT (+ snapshot ใหม่).
+    this.onMessage(MSG_STORAGE_OPEN, (client: Client) => {
+      void this.handleStorageOpen(client);
+    });
+    this.onMessage(MSG_STORAGE_DEPOSIT, (client: Client, message: StorageMoveMessage) => {
+      void this.runStorageMove(client, "deposit", message);
+    });
+    this.onMessage(MSG_STORAGE_WITHDRAW, (client: Client, message: StorageMoveMessage) => {
+      void this.runStorageMove(client, "withdraw", message);
+    });
+    this.onMessage(MSG_DELIVERY_CLAIM, (client: Client, message: DeliveryClaimMessage) => {
+      void this.runDeliveryClaim(client, message);
+    });
+
     this.onMessage(MSG_MOVE, (client: Client, message: MoveMessage) => {
       const player = this.state.players.get(client.sessionId);
       const tracker = this.trackers.get(client.sessionId);
@@ -579,6 +660,9 @@ export class MapRoom extends Room<MapRoomState> {
       const elapsedMs = now - tracker.lastMoveTime;
       // reference เวลา = ตอนนี้เสมอ (ทั้ง accept/reject) → allowance รอบถัดไปคิดจากตำแหน่ง valid ปัจจุบัน
       tracker.lastMoveTime = now;
+      // P2-13 (D-056): MSG_MOVE = input activity → reset idle timer + เคลียร์ป้าย AFK ทันที (กันรอ interval
+      //   ถัดไปถึง 1s ค่อยหาย — ผู้เล่นขยับแล้วป้ายควรหายทันตา). ใช้กับทั้ง move ที่ผ่าน/ถูกปฏิเสธ (ยังถือ active).
+      this.markInput(client.sessionId, tracker, now);
 
       const result = validateMove(
         { tx: tracker.tx, ty: tracker.ty },
@@ -718,6 +802,10 @@ export class MapRoom extends Room<MapRoomState> {
     const sessionId = client.sessionId;
     const player = this.state.players.get(sessionId);
     if (!player || !message) return;
+
+    // P2-13 (D-056): cast intent = input activity → reset idle timer + เคลียร์ป้าย AFK (แม้ cast จะถูก
+    //   ปฏิเสธ cooldown/range ก็ยังถือว่าผู้เล่น active). tracker อาจไม่มี (race) → markInput ข้ามเงียบ ๆ.
+    this.markInput(sessionId, this.trackers.get(sessionId), Date.now());
 
     const skillId = typeof message.skillId === "string" ? message.skillId : "";
     const skill = this.skills.get(skillId);
@@ -1146,6 +1234,168 @@ export class MapRoom extends Room<MapRoomState> {
     client.send(MSG_SHOP_RESULT, rejected);
   }
 
+  // ── P2-17 personal storage + delivery box ──────────────────────────────────
+  /** storage service Design Knobs (config) + the account-level repo — rebuilt per call (env-free, cheap). */
+  private storageServiceDeps(): StorageServiceDeps {
+    return {
+      repo: getStorageRepository(),
+      catalog: ITEM_CATALOG,
+      capacity: STORAGE_CAPACITY,
+      fill: STORAGE_CONFIG.fill,
+    };
+  }
+  private deliveryServiceDeps(): DeliveryServiceDeps {
+    return {
+      repo: getStorageRepository(),
+      maxEntries: STORAGE_CONFIG.deliveryMaxEntries,
+      warnDaysBeforeExpiry: STORAGE_CONFIG.deliveryExpiry.warnDaysBeforeExpiry,
+      urgentDaysBeforeExpiry: STORAGE_CONFIG.deliveryExpiry.urgentDaysBeforeExpiry,
+    };
+  }
+
+  /** unavailable snapshots (map has no storage NPC / anonymous / no DB) — client hides the storage UI. */
+  private sendStorageUnavailable(client: Client): void {
+    const storage: StorageStateMessage = {
+      available: false,
+      capacity: STORAGE_CAPACITY,
+      used: 0,
+      fillState: "normal",
+      items: [],
+    };
+    const delivery: DeliveryStateMessage = {
+      available: false,
+      maxEntries: STORAGE_CONFIG.deliveryMaxEntries,
+      used: 0,
+      entries: [],
+    };
+    client.send(MSG_STORAGE_STATE, storage);
+    client.send(MSG_DELIVERY_STATE, delivery);
+  }
+
+  /**
+   * P2-17: open the storage NPC → send both the account-storage snapshot (§11.1) and the delivery snapshot
+   * (§16.6, with server-computed expiry status). Gated by map (§10.4) + a character-bound session + DB.
+   */
+  private async handleStorageOpen(client: Client): Promise<void> {
+    const rec = this.sessionCharacters.get(client.sessionId);
+    if (!storageAvailableForMap(this.state.mapId) || !rec || !inventoryPersistenceAvailable()) {
+      this.sendStorageUnavailable(client);
+      return;
+    }
+    try {
+      const stored = await getStorageRepository().listAccountStorage(rec.accountId);
+      const storage = buildStorageSnapshot(stored, STORAGE_CAPACITY, STORAGE_CONFIG.fill, true);
+      const delivery = await buildDeliverySnapshot(this.deliveryServiceDeps(), rec.accountId, Date.now(), true);
+      client.send(MSG_STORAGE_STATE, storage);
+      client.send(MSG_DELIVERY_STATE, delivery);
+    } catch (err) {
+      console.warn(
+        `[MapRoom ${this.roomId}] storage open DB error ${client.sessionId}: ` +
+          (err instanceof Error ? err.message : String(err)),
+      );
+      this.sendStorageUnavailable(client);
+    }
+  }
+
+  /**
+   * P2-17: deposit/withdraw one item between the bag and account storage (§13/§14) — server-authoritative +
+   * idempotent (replay = no-op). Success → MSG_STORAGE_RESULT(ok) + MSG_STORAGE_STATE + MSG_INVENTORY_STATE.
+   * Business reject → reason (§13.2/§14). DB error → surface (never-downgrade: an un-persisted move must not
+   * look done) as TRANSACTION_CONFLICT so the client re-syncs.
+   */
+  private async runStorageMove(
+    client: Client,
+    op: StorageOp,
+    message: StorageMoveMessage,
+  ): Promise<void> {
+    const instanceId = String(message?.instanceId ?? "");
+    const rec = this.sessionCharacters.get(client.sessionId);
+    if (!storageAvailableForMap(this.state.mapId) || !rec || !inventoryPersistenceAvailable()) {
+      this.sendStorageReject(client, op, instanceId, "STORAGE_UNAVAILABLE");
+      return;
+    }
+    const intent = {
+      accountId: rec.accountId,
+      characterId: rec.characterId,
+      instanceId,
+      expectedVersion: Number(message?.expectedVersion),
+      idempotencyKey: String(message?.idempotencyKey ?? ""),
+    };
+    let result: StorageOpResult;
+    try {
+      result =
+        op === "deposit"
+          ? await depositToStorage(this.storageServiceDeps(), intent)
+          : await withdrawFromStorage(this.storageServiceDeps(), { ...intent, bagCapacity: INVENTORY_CAPACITY });
+    } catch (err) {
+      console.error(
+        `[MapRoom ${this.roomId}] storage ${op} DB error ${client.sessionId} (${instanceId}): ` +
+          (err instanceof Error ? err.message : String(err)),
+      );
+      this.sendStorageReject(client, op, instanceId, "TRANSACTION_CONFLICT");
+      return;
+    }
+    if (!result.ok) {
+      this.sendStorageReject(client, op, instanceId, result.reason);
+      return;
+    }
+    const ok: StorageResultMessage = { op, ok: true, instanceId };
+    client.send(MSG_STORAGE_RESULT, ok);
+    client.send(MSG_STORAGE_STATE, result.storage);
+    await this.sendInventorySnapshot(client, rec.characterId);
+  }
+
+  /**
+   * P2-17: claim one delivery entry's items into the bag (§16.5) — all-or-nothing per entry, idempotent.
+   * Success → MSG_DELIVERY_RESULT(ok, granted) + MSG_DELIVERY_STATE + MSG_INVENTORY_STATE. Reject → reason.
+   */
+  private async runDeliveryClaim(client: Client, message: DeliveryClaimMessage): Promise<void> {
+    const entryId = String(message?.entryId ?? "");
+    const rec = this.sessionCharacters.get(client.sessionId);
+    if (!storageAvailableForMap(this.state.mapId) || !rec || !inventoryPersistenceAvailable()) {
+      this.sendDeliveryReject(client, entryId, "STORAGE_UNAVAILABLE");
+      return;
+    }
+    let result: DeliveryClaimResult;
+    try {
+      result = await claimDeliveryEntry(this.deliveryServiceDeps(), {
+        accountId: rec.accountId,
+        characterId: rec.characterId,
+        entryId,
+        bagCapacity: INVENTORY_CAPACITY,
+        nowMs: Date.now(),
+        idempotencyKey: String(message?.idempotencyKey ?? ""),
+      });
+    } catch (err) {
+      console.error(
+        `[MapRoom ${this.roomId}] delivery claim DB error ${client.sessionId} (${entryId}): ` +
+          (err instanceof Error ? err.message : String(err)),
+      );
+      this.sendDeliveryReject(client, entryId, "TRANSACTION_CONFLICT");
+      return;
+    }
+    if (!result.ok) {
+      this.sendDeliveryReject(client, entryId, result.reason);
+      return;
+    }
+    const ok: DeliveryResultMessage = { ok: true, entryId, granted: result.granted };
+    client.send(MSG_DELIVERY_RESULT, ok);
+    client.send(MSG_DELIVERY_STATE, result.delivery);
+    await this.sendInventorySnapshot(client, rec.characterId);
+  }
+
+  /** P2-17: uniform storage reject (op + echoed instance + §13.2 error code). */
+  private sendStorageReject(client: Client, op: StorageOp, instanceId: string, reason: string): void {
+    const rejected: StorageResultMessage = { op, ok: false, instanceId, reason };
+    client.send(MSG_STORAGE_RESULT, rejected);
+  }
+
+  /** P2-17: uniform delivery reject (echoed entry + §16 error code; empty grant). */
+  private sendDeliveryReject(client: Client, entryId: string, reason: string): void {
+    const rejected: DeliveryResultMessage = { ok: false, entryId, granted: [], reason };
+    client.send(MSG_DELIVERY_RESULT, rejected);
+  }
+
   async onJoin(client: Client, options: JoinOptions): Promise<void> {
     // P2-05 (Storage §5/§22): accountId + characterId ที่ onAuth verify ownership แล้ว (null = anonymous/dev).
     const accountId = accountIdOf(client);
@@ -1184,6 +1434,9 @@ export class MapRoom extends Room<MapRoomState> {
       lastCorrectionTime: 0,
       // P1-10: spawn อยู่นอก exit area (targetSpawn ออกแบบมานอก exit ปลายทาง) → เริ่ม null.
       lastExitId: null,
+      // P2-13 (D-056): เพิ่ง join = active (นับ idle จากตอนนี้) + จุดอ้าง connection duration (hard cap inert).
+      lastInputMs: Date.now(),
+      connectedAtMs: Date.now(),
     });
     if (spawn.usedSafeCamp) {
       console.log(
@@ -1304,6 +1557,45 @@ export class MapRoom extends Room<MapRoomState> {
   /** P2-05: interval save ทุก session ที่ผูกตัวละคร (throttled) — เรียกจาก clock.setInterval (onCreate). */
   private saveAllCharacters(): void {
     this.sessionCharacters.forEach((_rec, sessionId) => this.persistSession(sessionId, false));
+  }
+
+  /**
+   * P2-13 (D-056): บันทึกว่ามี input (movement/cast) → reset idle timer + เคลียร์ป้าย AFK ทันที. tracker
+   * undefined (race: cast มาก่อน tracker set / หลัง remove) → no-op เงียบ ๆ. ไม่เขียน schema ถ้า isAfk เดิม
+   * false อยู่แล้ว (กัน schema patch ฟรี ๆ ทุก MSG_MOVE).
+   */
+  private markInput(sessionId: string, tracker: MoveTracker | undefined, nowMs: number): void {
+    if (!tracker) return;
+    tracker.lastInputMs = nowMs;
+    const player = this.state.players.get(sessionId);
+    if (player && player.isAfk) player.isAfk = false;
+  }
+
+  /**
+   * P2-13 (D-056 · GS §59.1.3): ทุก 1s — ตั้ง/ถอดป้าย AFK ตาม idle (no movement/cast ครบ idleIndicatorSec).
+   * เขียน schema เฉพาะเมื่อค่าเปลี่ยน (กัน patch ฟรี). **ไม่มี disconnect** — character ค้างในโลกต่อ (D-056
+   * supersede §59.1.2 forced disconnect ทั้งชุด). afkHardCapHours = จุดเช็ค inert (null → exceedsAfkHardCap
+   * คืน false เสมอ → ไม่มีวันตัด). > 0 (เปิดตอน open alpha) → เอา client ออกด้วย consented leave.
+   */
+  private evaluateAfk(): void {
+    const now = Date.now();
+    this.trackers.forEach((tracker, sessionId) => {
+      const player = this.state.players.get(sessionId);
+      if (!player) return;
+      const afk = isIdleAfk(tracker.lastInputMs, now, this.afkIdleIndicatorSec);
+      if (player.isAfk !== afk) player.isAfk = afk;
+      // hard cap: inert ใน P2 (afkHardCapHours=null → false เสมอ). เดินสายไว้ให้ open alpha เปิดได้โดยไม่
+      //   แก้ flow — เกินเพดาน → consented leave (ลบทันที ไม่เข้า grace เหมือนออกเอง).
+      if (exceedsAfkHardCap(tracker.connectedAtMs, now, this.afkHardCapHours)) {
+        const client = this.clients.find((c) => c.sessionId === sessionId);
+        if (client) {
+          console.log(
+            `[MapRoom ${this.roomId}] ${sessionId} เกิน afkHardCapHours (${this.afkHardCapHours}h) — เอาออก`,
+          );
+          client.leave();
+        }
+      }
+    });
   }
 
   /**

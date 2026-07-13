@@ -154,3 +154,116 @@ export interface ConsumeForSaleInput {
   expectedVersion: number;
   quantity: number;
 }
+
+// ── P2-17 personal storage + delivery box (Storage §13/§14/§16/§22) ───────────────────────────────────
+//
+// Deposit/withdraw **relocate one whole instance** (no quantity split / no stack-merge in P2 — the §13.3
+// merge is a UI optimization deferred; whole-instance relocation keeps the instanceId stable so the
+// storage_transaction_log idempotency key always references a live row → never-downgrade safe). Every move is
+// atomic + idempotent through `storage_transaction_log` (unique key): a replay is a no-op that reports the
+// prior result. All money-like item mutations here are a **never-downgrade zone** — DB errors propagate.
+
+/** one storage_transaction_log row read back for idempotency (schema.prisma StorageTransactionLog, §22). */
+export interface StorageTxRecord {
+  idempotencyKey: string;
+  action: "deposit" | "withdraw" | "claim_to_inventory" | "claim_to_storage";
+  itemInstanceId: string | null;
+  itemId: string | null;
+  quantity: number;
+}
+
+/** deposit one bag instance → ACCOUNT_STORAGE (§13). storageCapacity = account-shared cap (§10.1). */
+export interface DepositInput {
+  accountId: string;
+  characterId: string;
+  instanceId: string;
+  expectedVersion: number;
+  storageCapacity: number;
+  idempotencyKey: string;
+}
+
+/** withdraw one ACCOUNT_STORAGE instance → the withdrawing character's bag (§14). bagCapacity = §1.2. */
+export interface WithdrawInput {
+  accountId: string;
+  characterId: string;
+  instanceId: string;
+  expectedVersion: number;
+  bagCapacity: number;
+  idempotencyKey: string;
+}
+
+/**
+ * outcome of an atomic storage move (mirrors the ledger's status discriminant):
+ *   applied · duplicate (idempotency replay → move already done) · version_conflict (optimistic-lock mismatch
+ *   OR the instance is no longer in the expected source location) · capacity_full (destination has no free slot).
+ */
+export type StorageMoveStatus = "applied" | "duplicate" | "version_conflict" | "capacity_full";
+export interface StorageMoveOutcome {
+  status: StorageMoveStatus;
+}
+
+/** one delivery entry the client sees (§16.6). payload is materialized into instances only on claim (§16). */
+export interface DeliveryEntryRecord {
+  id: string;
+  accountId: string;
+  /** DeliverySource enum value (schema.prisma) — drives the expiry policy (§16.4). */
+  source: string;
+  /** items carried by the entry (parsed from the JSON payload). */
+  items: { itemId: string; quantity: number }[];
+  /** "unclaimed" | "claimed" (§16.8 per-entry atomic). */
+  claimStatus: string;
+  /** absolute expiry (§16.4) — null = never. */
+  expiresAt: Date | null;
+  createdAt: Date;
+}
+
+/** claim one delivery entry's items into the character's bag (all-or-nothing per entry, §16.5/§16.8). */
+export interface ClaimDeliveryInput {
+  accountId: string;
+  characterId: string;
+  entryId: string;
+  bagCapacity: number;
+  /** server time (ms) for the expiry check — injected for testability. */
+  nowMs: number;
+  idempotencyKey: string;
+}
+
+/**
+ * claim outcome: applied (items granted, entry marked claimed) · duplicate (entry already claimed / replay →
+ * items already granted) · not_found · expired (§16.4) · inventory_full (bag can't hold ALL items → nothing
+ * granted, entry stays unclaimed so the reward is never lost, §16.5).
+ */
+export type ClaimDeliveryStatus = "applied" | "duplicate" | "not_found" | "expired" | "inventory_full";
+export interface ClaimDeliveryOutcome {
+  status: ClaimDeliveryStatus;
+  granted: { itemId: string; quantity: number }[];
+}
+
+/**
+ * account-level storage + delivery (Storage §10–§16, §22). Same `item_instances` table as the character
+ * inventory (location model) → a deposited item is one UPDATE of location, and a different character on the
+ * same account sees it via {@link listAccountStorage}. Implemented by both the in-memory + Prisma repos.
+ */
+export interface StorageRepository {
+  /** every ACCOUNT_STORAGE instance of the account (shared across all its characters, §10.1). */
+  listAccountStorage(accountId: string): Promise<ItemInstanceRecord[]>;
+  /** the committed storage_transaction_log row for `idempotencyKey`, or null (idempotency pre-check, §22). */
+  findStorageTx(idempotencyKey: string): Promise<StorageTxRecord | null>;
+  /**
+   * deposit: CHARACTER_INVENTORY → ACCOUNT_STORAGE in ONE transaction — check the idempotency key, lock the
+   * instance (FOR UPDATE), verify it is the character's bag item at `expectedVersion`, verify storage has a
+   * free slot (< storageCapacity), relocate it (characterId→null, next storage slot, bump version), and append
+   * the storage_transaction_log row. **Strict** — DB errors propagate.
+   */
+  deposit(input: DepositInput): Promise<StorageMoveOutcome>;
+  /** withdraw: ACCOUNT_STORAGE → the withdrawing character's bag. Mirror of deposit; guards bag capacity. */
+  withdraw(input: WithdrawInput): Promise<StorageMoveOutcome>;
+  /** every delivery entry of the account (§16.6) with its items + absolute expiry (server computes status). */
+  listDeliveryEntries(accountId: string): Promise<DeliveryEntryRecord[]>;
+  /**
+   * claim one delivery entry's items into the character's bag, atomic + idempotent (§16.5/§16.8): lock the
+   * entry, reject if not this account / expired, precheck the bag holds ALL items (else inventory_full,
+   * nothing granted), grant them, mark the entry claimed, append the log row. **Strict**.
+   */
+  claimDelivery(input: ClaimDeliveryInput): Promise<ClaimDeliveryOutcome>;
+}

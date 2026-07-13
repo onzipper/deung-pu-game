@@ -8,14 +8,17 @@
 //
 // ไม่มีคีย์ลัดเฉพาะ (เหมือน enhancement — ต่างจาก inventory "I") — ไม่ใช่ workflow ที่ต้องเข้าถี่.
 
-import { usePanelManager } from "@/ui/panels";
+import { usePanelManager, useIsMobilePanel } from "@/ui/panels";
+import { hudButtonStyle } from "@/ui/panels/hud-layout";
 import { selectShopList } from "@/ui/store/game-store";
 import { useGameStore } from "@/ui/store/use-game-store";
 import { isShopAvailable, SHOP_PANEL_ID } from "./shop-view";
 
 export function ShopHudButton() {
   const manager = usePanelManager();
+  const isMobile = useIsMobilePanel();
   const shopList = useGameStore(selectShopList);
+  const { className, style } = hudButtonStyle(isMobile, "shop");
 
   if (!isShopAvailable(shopList)) return null;
 
@@ -24,7 +27,8 @@ export function ShopHudButton() {
       type="button"
       onClick={() => manager.openPanel(SHOP_PANEL_ID)}
       aria-label="เปิดร้านค้า"
-      className="pointer-events-auto fixed bottom-3 right-52 z-50 rounded-lg border border-amber-700/50 bg-black/60 px-3 py-2 text-sm font-semibold text-amber-200 shadow-lg hover:bg-black/80"
+      className={className}
+      style={style}
     >
       ร้านค้า
     </button>

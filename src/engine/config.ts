@@ -7,5 +7,6 @@ export * from "./config/player";
 export * from "./config/mob";
 export * from "./config/combat";
 export * from "./config/combat-feel";
+export * from "./config/input";
 export * from "./config/net";
 export * from "./config/engine";
