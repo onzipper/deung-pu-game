@@ -48,7 +48,7 @@
 - `server/matchmaking/` — pure channel-number allocator (§59.3 auto-assign)
 - `server/security/` — WS handshake (JWT+origin+rate limit), session takeover/lease (Bible 5.2)
 - `server/characters/` — persistence decision (pure) + character-state load/upsert (best-effort — no DB = in-memory)
-- `server/inventory/` — inventory best-effort DB glue for MapRoom (load snapshot on join; capacity + item catalog wiring; mutations strict)
+- `server/inventory/` — inventory best-effort DB glue for MapRoom (load snapshot on join; capacity + item catalog wiring; mutations strict) + P2-10 reinforcement knobs (enhancement curve + `noReinforcement` rules from DEFAULT config)
 - `server/db/` — Prisma client singleton (server-only) + ledger contract (getBalance/appendEntry)
 - `server/config/` — P2-09 server-authoritative Design Knobs: economy (drop tables/EXP curve/milestone Gold/enhancement +0..+15) + reinforcement (boss pity/fragment/NO_REINFORCEMENT flag) + versioned loader (`config_versions` → DEFAULT fallback). Server-only, never bundled to client
 - `prisma/migrations/` — 0001_init (13 tables) · 0002_shop_ledger_reasons (LedgerReason += shop_buy/shop_sell)
@@ -59,7 +59,7 @@
 - `src/server/db.ts` — Prisma client singleton on the Next API side (**server-only**, must never enter the client bundle)
 - `src/server/auth/` — token/session-cookie, password hash/policy, email normalize, auth service/upgrade state machine
 - `src/server/characters/` — repository (memory/prisma) + service (slot cap, cross-account guard)
-- `src/server/inventory/` — item catalog (server-authoritative Design Knob: slot + stat bonus) + equipment-stats (pure combat aggregation) + repository (memory/prisma: FOR UPDATE + optimistic `version`) + service (equip/unequip/move, swap, snapshot)
+- `src/server/inventory/` — item catalog (server-authoritative Design Knob: slot + stat bonus) + equipment-stats (pure combat aggregation, folds enhancement +N curve §16.3.1) + repository (memory/prisma: FOR UPDATE + optimistic `version`, incl. `commitEnhancement`) + service (equip/unequip/move, swap, snapshot) + enhancement-service (P2-10 guaranteed reinforcement +1 cap +15, no RNG)
 
 ## scripts + tests
 

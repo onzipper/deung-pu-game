@@ -9,15 +9,24 @@
 // ⚠️ Not unit-tested against a real DB (repo rule: no live DB in tests). Correctness is reviewed against the
 //    ledger pattern; the pure decision logic it applies is covered via the in-memory repo.
 
-import type { ItemLocation } from "@prisma/client";
+import type { EnhancementResult, ItemLocation } from "@prisma/client";
 import { getPrisma } from "../db";
 import {
   VersionConflictError,
+  type EnhancementCommit,
   type InstanceMutation,
   type InventoryRepository,
   type ItemInstanceRecord,
   type ItemLocationValue,
 } from "./repository";
+
+/**
+ * Guaranteed reinforcement is 100% success with NO RNG (Reinforcement §2.1), but schema.prisma
+ * EnhancementLog.rngRoll is a required Float. We write this fixed sentinel to satisfy the column while making
+ * it unmistakable that no roll happened (schema is owner-gated — a dedicated flag would need §59.4).
+ */
+const GUARANTEED_RNG_ROLL = 1;
+const ENHANCEMENT_SUCCESS: EnhancementResult = "success";
 
 interface ItemInstanceRow {
   id: string;
@@ -85,6 +94,55 @@ export function createPrismaInventoryRepository(): InventoryRepository {
             },
           });
         }
+      });
+    },
+
+    async commitEnhancement(commit: EnhancementCommit): Promise<void> {
+      const { target, material, log } = commit;
+      await getPrisma().$transaction(async (tx) => {
+        // 1) LOCK both rows in deterministic id order (deadlock-safe across concurrent enhances/moves).
+        const lockOrder = [target.instanceId, material.instanceId].sort();
+        const locked = new Map<string, { version: number; quantity: number }>();
+        for (const id of lockOrder) {
+          const rows = await tx.$queryRaw<{ version: number; quantity: number }[]>`
+            SELECT version, quantity FROM item_instances WHERE id = ${id} FOR UPDATE
+          `;
+          if (rows[0]) locked.set(id, rows[0]);
+        }
+        // 2) CHECK versions (+ material still has stock) — any mismatch aborts before a single write.
+        const t = locked.get(target.instanceId);
+        if (!t || t.version !== target.expectedVersion) throw new VersionConflictError();
+        const m = locked.get(material.instanceId);
+        if (!m || m.version !== material.expectedVersion || m.quantity < 1) {
+          throw new VersionConflictError();
+        }
+
+        // 3) WRITE target: +1 level, bump version.
+        await tx.itemInstance.update({
+          where: { id: target.instanceId },
+          data: { enhancementLevel: target.nextLevel, version: { increment: 1 } },
+        });
+        // 4) WRITE material: spend 1; a depleted stack leaves the bag (DESTROYED, slot cleared).
+        const nextQty = m.quantity - 1;
+        await tx.itemInstance.update({
+          where: { id: material.instanceId },
+          data:
+            nextQty === 0
+              ? { quantity: 0, location: "DESTROYED" as ItemLocation, slot: null, version: { increment: 1 } }
+              : { quantity: nextQty, version: { increment: 1 } },
+        });
+        // 5) APPEND audit (append-only, TA §7) — no RNG: rngRoll is the guaranteed sentinel.
+        await tx.enhancementLog.create({
+          data: {
+            characterId: log.characterId,
+            itemInstanceId: log.itemInstanceId,
+            beforeLevel: log.beforeLevel,
+            afterLevel: log.afterLevel,
+            result: ENHANCEMENT_SUCCESS,
+            rngRoll: GUARANTEED_RNG_ROLL,
+            configVersion: log.configVersion,
+          },
+        });
       });
     },
   };

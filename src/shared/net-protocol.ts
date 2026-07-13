@@ -321,3 +321,36 @@ export interface InventoryOpRejectedMessage {
   /** "unknown_item"|"not_equippable"|"not_equipped"|"inventory_full"|"invalid_slot"|"unique_conflict"|"version_conflict" */
   reason: string;
 }
+
+// ── P2-10 guaranteed reinforcement (เสริมแกร่งการันตี +1, cap +15 · Reinforcement §2) ─────────────────
+//
+// Client ส่ง **intent เท่านั้น** (instanceId + expectedVersion ที่เห็นล่าสุด + idempotencyKey) — server ตัดสิน
+// ทั้งหมด (validate → consume upg_reinforcement ×1 → +1 level, atomic, 100% สำเร็จ ไม่มี RNG). สำเร็จ → server
+// ส่ง MSG_ENHANCE_RESULT (ok, level ใหม่) + MSG_INVENTORY_STATE (snapshot ใหม่ → item view + stat propagate);
+// ปฏิเสธ → MSG_ENHANCE_RESULT (ok:false + reason). double-apply กันด้วย optimistic `version` (retry ที่ถือ
+// expectedVersion เดิม = ITEM_LOCKED ไม่ +2). P2 ทั้งเฟส flag `noReinforcement` = true → reject NO_REINFORCEMENT.
+
+/** message type: client → server (intent) — ขอเสริมแกร่ง equipment ที่ถืออยู่ +1 (P2-10). */
+export const MSG_ENHANCE_ITEM = "enhance_item";
+
+/** payload ของ MSG_ENHANCE_ITEM (client → server, P2-10). */
+export interface EnhanceItemMessage {
+  instanceId: string;
+  /** version ที่ client เห็นล่าสุดของ instance นี้ (optimistic lock + retry guard). */
+  expectedVersion: number;
+  /** client transaction id — carried for telemetry; server ใช้ version lock เป็นตัวกัน double-apply. */
+  idempotencyKey: string;
+}
+
+/** message type: server → **client เดียว** — ผลการเสริมแกร่ง (สำเร็จ/ปฏิเสธ) (P2-10). */
+export const MSG_ENHANCE_RESULT = "enhance_result";
+
+/** payload ของ MSG_ENHANCE_RESULT (server → client เดียว, P2-10). */
+export interface EnhanceResultMessage {
+  ok: boolean;
+  instanceId: string;
+  /** enhancement level ใหม่เมื่อ ok=true (ปฏิเสธ = -1). */
+  level: number;
+  /** reason เมื่อ ok=false — "NO_ITEM"|"NO_REINFORCEMENT"|"MAX_LEVEL"|"ITEM_LOCKED" (§2.4 UI states). */
+  reason?: string;
+}

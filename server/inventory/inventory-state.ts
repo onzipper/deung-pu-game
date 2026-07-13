@@ -17,11 +17,30 @@ import type {
   InventoryRepository,
   ItemInstanceRecord,
 } from "../../src/server/inventory/repository";
+import type { EnhancementCurve } from "../../src/server/inventory/equipment-stats";
+import type { ReinforcementRules } from "../../src/server/inventory/enhancement-service";
+import { DEFAULT_ECONOMY_CONFIG } from "../config/economy";
+import { DEFAULT_REINFORCEMENT_CONFIG } from "../config/reinforcement";
+import { ECONOMY_CONFIG_DEF } from "../config/loader";
 
 /** bag capacity used by the room (Storage §1.2). */
 export const INVENTORY_CAPACITY = DEFAULT_INVENTORY_CAPACITY;
 /** server-authoritative item definitions (slot + stat bonus, Design Knob §48). */
 export const ITEM_CATALOG: ItemCatalog = DEFAULT_ITEM_CATALOG;
+
+// P2-10 — server-authoritative Design Knobs for reinforcement (Reinforcement §2 · D-054 · §16.3.1). Uses the
+// in-code DEFAULT config, same posture as ITEM_CATALOG (the DB `config_versions` override via loader.ts is not
+// yet wired into MapRoom — the room is env-free/sync; DB is empty until P2-16). Structural subsets only.
+/** enhancement multiplier curve (+0..+15) folded into worn-gear stats (§16.3.1). */
+export const ENHANCEMENT_CURVE: EnhancementCurve & { maxLevel: number } =
+  DEFAULT_ECONOMY_CONFIG.enhancementCurve;
+/** reinforcement rules: material id + the P2 `noReinforcement` inert flag (R8). */
+export const REINFORCEMENT_RULES: ReinforcementRules = {
+  materialId: DEFAULT_REINFORCEMENT_CONFIG.materialId,
+  noReinforcement: DEFAULT_REINFORCEMENT_CONFIG.noReinforcement,
+};
+/** economy config version stamped on enhancement_logs (the in-code DEFAULT version). */
+export const ENHANCEMENT_CONFIG_VERSION = ECONOMY_CONFIG_DEF.defaultVersion;
 
 const repository: InventoryRepository = createPrismaInventoryRepository();
 let inventoryWarned = false;

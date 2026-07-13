@@ -4,6 +4,8 @@
 
 import {
   VersionConflictError,
+  type EnhancementCommit,
+  type EnhancementLogInput,
   type InstanceMutation,
   type InventoryRepository,
   type ItemInstanceRecord,
@@ -16,6 +18,8 @@ export interface InMemoryInventoryRepository extends InventoryRepository {
   get(instanceId: string): ItemInstanceRecord | undefined;
   /** force-bump a version out-of-band to simulate a concurrent mutation (conflict tests). */
   bumpVersion(instanceId: string): void;
+  /** append-only enhancement_logs written by commitEnhancement (assertions). */
+  enhancementLogs(): EnhancementLogInput[];
 }
 
 function clone(r: ItemInstanceRecord): ItemInstanceRecord {
@@ -24,8 +28,13 @@ function clone(r: ItemInstanceRecord): ItemInstanceRecord {
 
 export function createInMemoryInventoryRepository(): InMemoryInventoryRepository {
   const byId = new Map<string, ItemInstanceRecord>();
+  const logs: EnhancementLogInput[] = [];
 
   return {
+    enhancementLogs(): EnhancementLogInput[] {
+      return logs.map((l) => ({ ...l }));
+    },
+
     seed(record: ItemInstanceRecord): ItemInstanceRecord {
       byId.set(record.id, clone(record));
       return clone(record);
@@ -63,6 +72,27 @@ export function createInMemoryInventoryRepository(): InMemoryInventoryRepository
         r.slot = m.toSlot;
         r.version += 1;
       }
+    },
+
+    async commitEnhancement(commit: EnhancementCommit): Promise<void> {
+      // verify BOTH rows before touching either (all-or-nothing; mirrors the tx FOR UPDATE + check).
+      const t = byId.get(commit.target.instanceId);
+      if (!t || t.version !== commit.target.expectedVersion) throw new VersionConflictError();
+      const m = byId.get(commit.material.instanceId);
+      if (!m || m.version !== commit.material.expectedVersion || m.quantity < 1) {
+        throw new VersionConflictError();
+      }
+      // target: +1 level, bump version (the version guards a replay from double-applying).
+      t.enhancementLevel = commit.target.nextLevel;
+      t.version += 1;
+      // material: spend 1; a depleted stack leaves the bag (location DESTROYED) so it never shows as an empty stack.
+      m.quantity -= 1;
+      m.version += 1;
+      if (m.quantity === 0) {
+        m.location = "DESTROYED";
+        m.slot = null;
+      }
+      logs.push({ ...commit.log });
     },
   };
 }

@@ -79,6 +79,8 @@ import {
   MSG_EQUIP_ITEM,
   MSG_UNEQUIP_ITEM,
   MSG_MOVE_ITEM,
+  MSG_ENHANCE_ITEM,
+  MSG_ENHANCE_RESULT,
   WS_CLOSE_SESSION_TAKEN_OVER,
   type CastRejectedMessage,
   type CastSkillMessage,
@@ -90,6 +92,8 @@ import {
   type SkillResultMessage,
   type EquipItemMessage,
   type MoveItemMessage,
+  type EnhanceItemMessage,
+  type EnhanceResultMessage,
   type InventoryOp,
   type InventoryOpRejectedMessage,
 } from "../../src/shared/net-protocol";
@@ -120,11 +124,18 @@ import {
   buildSnapshot,
   type InventoryOpResult,
 } from "../../src/server/inventory/service";
+import {
+  enhanceEquipment,
+  type EnhanceResult,
+} from "../../src/server/inventory/enhancement-service";
 import { aggregateEquipmentBonus } from "../../src/server/inventory/equipment-stats";
 import { applyEquipmentBonus } from "../../src/server/inventory/item-catalog";
 import {
   INVENTORY_CAPACITY,
   ITEM_CATALOG,
+  ENHANCEMENT_CURVE,
+  REINFORCEMENT_RULES,
+  ENHANCEMENT_CONFIG_VERSION,
   getInventoryRepository,
   inventoryPersistenceAvailable,
   loadCharacterItemsBestEffort,
@@ -495,6 +506,13 @@ export class MapRoom extends Room<MapRoomState> {
       );
     });
 
+    // P2-10: guaranteed reinforcement (+1, cap +15) — server-authoritative, atomic, 100% success no RNG.
+    //   client ส่ง intent (+expectedVersion + idempotencyKey) → สำเร็จ: result + snapshot + recompute stats;
+    //   ปฏิเสธ (flag inert P2 / no material / max / lock): MSG_ENHANCE_RESULT ok:false + reason. (§2.3/R8)
+    this.onMessage(MSG_ENHANCE_ITEM, (client: Client, message: EnhanceItemMessage) => {
+      void this.runEnhanceOp(client, message);
+    });
+
     this.onMessage(MSG_MOVE, (client: Client, message: MoveMessage) => {
       const player = this.state.players.get(client.sessionId);
       const tracker = this.trackers.get(client.sessionId);
@@ -744,9 +762,66 @@ export class MapRoom extends Room<MapRoomState> {
    * P2-07: recompute effective combat stats ของ session จากของที่สวม (equipped) — base + gear bonus (pure).
    * เรียกตอน join + หลัง equip/unequip สำเร็จ. `equipped` = snapshot.equipment (มี itemId พอ aggregate).
    */
-  private applyEquipmentStats(sessionId: string, equipped: readonly { itemId: string }[]): void {
-    const bonus = aggregateEquipmentBonus(equipped, ITEM_CATALOG);
+  private applyEquipmentStats(
+    sessionId: string,
+    equipped: readonly { itemId: string; enhancementLevel: number }[],
+  ): void {
+    // P2-10: fold each worn item's enhancementLevel through the D-054 curve (§16.3.1) into the scaled stats.
+    const bonus = aggregateEquipmentBonus(equipped, ITEM_CATALOG, ENHANCEMENT_CURVE);
     this.effectiveStats.set(sessionId, applyEquipmentBonus(this.balance.player, bonus));
+  }
+
+  /**
+   * P2-10: run one guaranteed reinforcement (+1) then answer the client. Only character-bound sessions with a
+   * DB (anonymous/dev has nothing to persist → reject). Success → MSG_ENHANCE_RESULT(ok,level) +
+   * MSG_INVENTORY_STATE (new snapshot: bumped level + spent material) + recompute combat stats. Business
+   * reject (flag inert / no material / max / lock) → MSG_ENHANCE_RESULT(ok:false,reason). DB error → resync
+   * signal (ITEM_LOCKED) — the upgrade did not persist, never faked as success (never-downgrade zone).
+   */
+  private async runEnhanceOp(client: Client, message: EnhanceItemMessage): Promise<void> {
+    const instanceId = String(message?.instanceId ?? "");
+    const rec = this.sessionCharacters.get(client.sessionId);
+    if (!rec || !inventoryPersistenceAvailable()) {
+      const rejected: EnhanceResultMessage = { ok: false, instanceId, level: -1, reason: "NO_ITEM" };
+      client.send(MSG_ENHANCE_RESULT, rejected);
+      return;
+    }
+    let result: EnhanceResult;
+    try {
+      result = await enhanceEquipment(
+        {
+          repo: getInventoryRepository(),
+          catalog: ITEM_CATALOG,
+          reinforcement: REINFORCEMENT_RULES,
+          limits: { maxLevel: ENHANCEMENT_CURVE.maxLevel },
+          configVersion: ENHANCEMENT_CONFIG_VERSION,
+        },
+        {
+          characterId: rec.characterId,
+          instanceId,
+          expectedVersion: Number(message?.expectedVersion),
+          idempotencyKey: String(message?.idempotencyKey ?? ""),
+          capacity: INVENTORY_CAPACITY,
+        },
+      );
+    } catch (err) {
+      console.warn(
+        `[MapRoom ${this.roomId}] enhance DB error ${client.sessionId}: ` +
+          (err instanceof Error ? err.message : String(err)),
+      );
+      const rejected: EnhanceResultMessage = { ok: false, instanceId, level: -1, reason: "ITEM_LOCKED" };
+      client.send(MSG_ENHANCE_RESULT, rejected);
+      return;
+    }
+    if (!result.ok) {
+      const rejected: EnhanceResultMessage = { ok: false, instanceId, level: -1, reason: result.reason };
+      client.send(MSG_ENHANCE_RESULT, rejected);
+      return;
+    }
+    const ok: EnhanceResultMessage = { ok: true, instanceId, level: result.newLevel };
+    client.send(MSG_ENHANCE_RESULT, ok);
+    client.send(MSG_INVENTORY_STATE, result.snapshot);
+    this.applyEquipmentStats(client.sessionId, result.snapshot.equipment);
   }
 
   /**

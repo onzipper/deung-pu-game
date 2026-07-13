@@ -55,6 +55,32 @@ export class VersionConflictError extends Error {
   }
 }
 
+/**
+ * P2-10 guaranteed reinforcement audit row (schema.prisma model EnhancementLog, append-only, §50.1 names).
+ * No idempotencyKey column exists on enhancement_logs, so the double-apply guard is the target's optimistic
+ * `version` (a retry with a stale expectedVersion is rejected before this row is written).
+ */
+export interface EnhancementLogInput {
+  characterId: string;
+  /** target equipment instance id (item_instances.id) */
+  itemInstanceId: string;
+  beforeLevel: number;
+  afterLevel: number;
+  /** enhancement/economy config version in effect (EnhancementLog.configVersion, nullable). */
+  configVersion: number | null;
+}
+
+/**
+ * one guaranteed-reinforcement transaction (Reinforcement §2.3): consume 1 material + raise the target's
+ * enhancement level, all under row locks. `nextLevel` = target.enhancementLevel + 1 (server computed).
+ */
+export interface EnhancementCommit {
+  target: { instanceId: string; expectedVersion: number; nextLevel: number };
+  /** the `upg_reinforcement` stack to spend 1 from (qty-1; the stack is destroyed when it hits 0). */
+  material: { instanceId: string; expectedVersion: number };
+  log: EnhancementLogInput;
+}
+
 export interface InventoryRepository {
   /** all CHARACTER_INVENTORY + CHARACTER_EQUIPMENT instances of one character (the bag + worn gear). */
   listCharacterItems(characterId: string): Promise<ItemInstanceRecord[]>;
@@ -64,4 +90,13 @@ export interface InventoryRepository {
    * (no partial write). Empty plan = no-op. **Strict** (DB error propagates — never silently succeed).
    */
   applyPlan(plan: readonly InstanceMutation[]): Promise<void>;
+  /**
+   * P2-10 guaranteed reinforcement (Reinforcement §2.3, never-downgrade zone): in ONE transaction, lock the
+   * target + material rows (FOR UPDATE), verify both versions (and material quantity ≥ 1), then set the
+   * target's enhancementLevel = `nextLevel` (+bump version), spend 1 material (qty-1; destroy the stack at 0),
+   * and append the enhancement_logs row. Any version mismatch / material depleted → VersionConflictError
+   * (nothing applied). **Strict** — DB error propagates (a reinforcement that did not persist must not look
+   * like it worked). No RNG (guaranteed 100%): the log's `rngRoll` is a fixed sentinel.
+   */
+  commitEnhancement(commit: EnhancementCommit): Promise<void>;
 }
