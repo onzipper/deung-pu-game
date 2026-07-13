@@ -1,0 +1,61 @@
+{
+  "assetId": "mon_bird",
+  "category": "monsters",
+  "frameSize": [
+    64,
+    64
+  ],
+  "pivot": [
+    32,
+    54
+  ],
+  "mirrorSafe": true,
+  "drawnDirections": [
+    "S",
+    "SW",
+    "W",
+    "NW",
+    "N"
+  ],
+  "mirrorMap": {
+    "SE": "SW",
+    "E": "W",
+    "NE": "NW"
+  },
+  "animations": {
+    "idle": {
+      "frames": [
+        0,
+        1
+      ],
+      "frameDuration": 167,
+      "loop": true,
+      "fps": 6,
+      "directions": [
+        "s",
+        "sw",
+        "w",
+        "nw",
+        "n"
+      ]
+    },
+    "walk": {
+      "frames": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "frameDuration": 83,
+      "loop": true,
+      "fps": 12,
+      "directions": [
+        "s",
+        "sw",
+        "w",
+        "nw",
+        "n"
+      ]
+    }
+  }
+}
