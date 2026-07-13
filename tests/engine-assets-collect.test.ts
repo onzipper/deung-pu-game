@@ -47,9 +47,17 @@ describe("collectMapAssetIds", () => {
     expect(ids).toEqual(["char_hero", "prop_tree", "prop_default"]);
   });
 
-  test("style ไม่มี assetId เลย (DEFAULT config) → คืน array ว่าง", () => {
+  test("DEFAULT config (Phase 5 atlas เปิดใช้แล้ว) → เก็บเฉพาะ assetId ที่มีจริง, mushroom/defaultStyle/defaultProp ยังไม่มี assetId → กรองทิ้ง", () => {
     const map = mapWith(["slime", "mushroom"]);
-    expect(collectMapAssetIds(map, DEFAULT_ENGINE_CONFIG)).toEqual([]);
+    expect(collectMapAssetIds(map, DEFAULT_ENGINE_CONFIG)).toEqual([
+      "chr_swordsman",
+      "mon_map1_slime",
+      "prop_map1_tree",
+      "prop_map1_rock",
+      "prop_map1_bush",
+      "prop_map1_signpost",
+      "prop_map1_stump",
+    ]);
   });
 
   test("dedupe ข้าม category (player = mob assetId เดียวกัน → ครั้งเดียว)", () => {

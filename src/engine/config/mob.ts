@@ -17,7 +17,7 @@ export interface MobStyle {
   height: number;
   /** ระยะบีบ/เด้งสูงสุดตอน idle/walk (px) */
   bounceAmount: number;
-  /** รูปทรง placeholder ต่อ mobType (P0-09 มีแค่ 2 — เพิ่มได้ทีหลัง) */
+  /** รูปทรง placeholder ต่อ mobType (P0-09 มีแค่ 2 shape geometry — mobType ใหม่ reuse ได้ด้วยสีต่างกัน) */
   shape: "slime" | "mushroom";
   /**
    * assetId ของ atlas art จริง (SVG-01 pipeline) — มี = ใช้ atlas texture/manifest แทน placeholder.
@@ -185,7 +185,10 @@ export const DEFAULT_MOB_CONFIG: MobConfig = {
   hpBar: {
     width: 28,
     height: 4,
-    offsetY: -40, // เหนือหัวมอน (foot ที่ 0 → ลบ = ขึ้นบน)
+    // เหนือหัวมอน (foot ที่ 0 → ลบ = ขึ้นบน) — Phase 5: sprite atlas จริง frame 64×64,
+    // pivot เท้า y=54, ตัวมอนสูง ~28–40px ในเฟรม → -40 ชนหัวมอนตัวสูงสุดพอดี, ขยับเป็น -46
+    // เผื่อ margin ~6px พ้นหัว (คงเดิมได้กับ placeholder เก่าเช่นกัน)
+    offsetY: -46,
     bgColor: 0x3a1a1a, // แดงเข้ม = hp ที่หาย
     fgColor: 0x4fbf6b, // เขียว = hp เหลือ
     borderColor: 0x0a0a0a,
@@ -206,6 +209,7 @@ export const DEFAULT_MOB_CONFIG: MobConfig = {
       height: 18,
       bounceAmount: 3,
       shape: "slime",
+      assetId: "mon_map1_slime",
     },
     mushroom: {
       bodyColor: 0xe8d9a0, // ก้าน
@@ -214,6 +218,36 @@ export const DEFAULT_MOB_CONFIG: MobConfig = {
       height: 26,
       bounceAmount: 2,
       shape: "mushroom",
+      // mushroom = test style เดิม (P0-09) ไม่มี art จริงใน Map 1 → ไม่ตั้ง assetId
+    },
+    // ค่าสี bird/boar/boar_elite ด้านล่างเป็น "placeholder fallback" (atlas โหลดไม่ทัน/ไม่เจอ) เท่านั้น
+    // — เมื่อ atlas โหลดสำเร็จจะใช้ sprite จริงจาก assetId แทนเสมอ. shape reuse "slime" geometry.
+    bird: {
+      bodyColor: 0x7786c8, // Moon Blue (PALETTE_32)
+      accentColor: 0x4b568e, // Moon Deep (PALETTE_32)
+      width: 20,
+      height: 16,
+      bounceAmount: 3,
+      shape: "slime",
+      assetId: "mon_map1_bird",
+    },
+    boar: {
+      bodyColor: 0x8e6046, // Clay (PALETTE_32)
+      accentColor: 0xd8ae70, // Sand (PALETTE_32)
+      width: 30,
+      height: 20,
+      bounceAmount: 2,
+      shape: "slime",
+      assetId: "mon_map1_boar",
+    },
+    boar_elite: {
+      bodyColor: 0xdd6840, // Fire (PALETTE_32)
+      accentColor: 0x9e3c32, // Fire Deep (PALETTE_32)
+      width: 34,
+      height: 24,
+      bounceAmount: 2,
+      shape: "slime",
+      assetId: "mon_map1_boar_elite",
     },
   },
 };

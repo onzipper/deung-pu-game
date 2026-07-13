@@ -142,6 +142,7 @@ export const DEFAULT_PLAYER_ANIMATION_CONFIG: PlayerAnimationConfig = {
     bodyWidth: 20,
     bodyHeight: 34,
     walkBob: 3,
+    assetId: "chr_swordsman", // Phase 5: atlas จริง (idle/walk/attack ครบ) แทน placeholder
   },
 };
 
