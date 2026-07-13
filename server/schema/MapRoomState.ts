@@ -20,6 +20,13 @@ export class PlayerState extends Schema {
    * disconnect** — D-056 ยกเลิก forced disconnect ทั้งชุด (character ค้างในโลกต่อ).
    */
   @type("boolean") isAfk = false;
+  /**
+   * A1/A2 (COMBAT_BIBLE §2/§10) — server-authoritative hp/maxHp. Colyseus auto-sync ให้ทุก client (แถบ HP =
+   * E3, death overlay = E4). onJoin ตั้ง hp = maxHp (เกิดเต็ม); มอนตี → server หัก hp (clamp 0) → ตาย → respawn
+   * safe camp เต็ม hp. maxHp = effective max HP ต่อเลเวล+gear (recompute ตอน equip/level-up). ค่า 0 = ก่อน init.
+   */
+  @type("number") hp = 0;
+  @type("number") maxHp = 0;
 }
 
 /**
@@ -34,6 +41,16 @@ export class MobState extends Schema {
   @type("number") ty = 0;
   @type("string") state = "idle";
   @type("number") hp = 0;
+  /**
+   * workstream B (Field Boss): guard-gauge ปัจจุบัน + เต็ม (Colyseus auto-sync → client แถบ guard, E3 HUD).
+   * maxGuard > 0 = mob นี้เป็นบอส (มี guard gauge); normal mob = 0/0. server-authoritative (client ไม่ส่งค่านี้).
+   */
+  @type("number") guard = 0;
+  @type("number") maxGuard = 0;
+  /** workstream B: index ของ boss phase (§2.3: 0 Learn / 1 Pressure / 2 Enrage). normal mob = 0. */
+  @type("number") bossPhase = 0;
+  /** workstream B: true ช่วง BREAK/stagger (golden window) — client แสดง stagger + guard bar แตก (§2.4). */
+  @type("boolean") staggered = false;
 }
 
 /**

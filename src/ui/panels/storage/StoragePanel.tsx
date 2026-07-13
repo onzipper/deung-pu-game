@@ -22,6 +22,7 @@ import {
   selectStorageState,
 } from "@/ui/store/game-store";
 import { useGameStore } from "@/ui/store/use-game-store";
+import { Button } from "@/ui/components";
 import {
   canClaimDeliveryEntry,
   canConfirmDeliveryTx,
@@ -182,45 +183,33 @@ export function StoragePanel({ getHandle }: StoragePanelProps) {
 
   return (
     <Panel id={STORAGE_PANEL_ID} title="คลัง" widthPx={420}>
-      <div className="space-y-3 text-sm">
-        <div className="flex gap-1 text-xs">
-          <button
-            type="button"
-            onClick={() => setTab("storage")}
-            className={`rounded px-2 py-1 font-semibold ${
-              tab === "storage" ? "bg-amber-700/80 text-black" : "border border-neutral-700 text-neutral-300"
-            }`}
-          >
+      <div className="flex flex-col gap-3">
+        <div className="flex gap-2">
+          <Button variant={tab === "storage" ? "primary" : "ghost"} size="sm" onClick={() => setTab("storage")}>
             คลัง
-          </button>
-          <button
-            type="button"
-            onClick={() => setTab("delivery")}
-            className={`rounded px-2 py-1 font-semibold ${
-              tab === "delivery" ? "bg-amber-700/80 text-black" : "border border-neutral-700 text-neutral-300"
-            }`}
-          >
+          </Button>
+          <Button variant={tab === "delivery" ? "primary" : "ghost"} size="sm" onClick={() => setTab("delivery")}>
             กล่องส่งของ
-          </button>
+          </Button>
         </div>
 
         {tab === "storage" ? (
           !storageState ? (
-            <div className="text-xs text-neutral-400">กำลังโหลด…</div>
+            <div className="dp-text-body-sm text-(--dp-sand)">กำลังโหลด…</div>
           ) : !storageState.available ? (
-            <div className="text-xs text-neutral-500">— ไม่มีคลังที่นี่ —</div>
+            <div className="dp-text-body-sm text-(--dp-sand)">— ไม่มีคลังที่นี่ —</div>
           ) : (
             <>
-              <div className="space-y-1">
-                <div className="flex items-center justify-between text-xs text-neutral-300">
+              <div className="flex flex-col gap-1">
+                <div className="dp-text-body-sm flex items-center justify-between text-(--dp-parchment)">
                   <span>คลัง</span>
-                  <span>
+                  <span className="tabular-nums">
                     {storageState.used}/{storageState.capacity}
                   </span>
                 </div>
-                <div className="h-2 w-full overflow-hidden rounded bg-neutral-800">
+                <div className="h-2 w-full overflow-hidden rounded-(--dp-radius-sm) bg-(--dp-deep-ink)">
                   <div
-                    className={`h-full ${fillStateColorClass(storageState.fillState)}`}
+                    className={`h-full transition-[width] duration-(--dp-motion-normal) ${fillStateColorClass(storageState.fillState)}`}
                     style={{ width: `${fillPercent(storageState.used, storageState.capacity)}%` }}
                   />
                 </div>
@@ -228,11 +217,11 @@ export function StoragePanel({ getHandle }: StoragePanelProps) {
 
               <div className="grid grid-cols-2 gap-2">
                 <div>
-                  <div className="mb-1 text-xs font-semibold text-amber-300">กระเป๋า</div>
+                  <div className="dp-text-label mb-1 text-(--dp-sand)">กระเป๋า</div>
                   {!inventory || inventory.bag.length === 0 ? (
-                    <div className="text-xs text-neutral-500">— ว่าง —</div>
+                    <div className="dp-text-body-sm text-(--dp-sand)">— ว่าง —</div>
                   ) : (
-                    <ul className="max-h-48 space-y-1 overflow-y-auto">
+                    <ul className="flex max-h-48 flex-col gap-1 overflow-y-auto">
                       {inventory.bag.map((item) => (
                         <li key={item.instanceId}>
                           <StorageRow
@@ -245,22 +234,17 @@ export function StoragePanel({ getHandle }: StoragePanelProps) {
                     </ul>
                   )}
                   {bagItem && (
-                    <button
-                      type="button"
-                      onClick={onDeposit}
-                      disabled={txBusy}
-                      className="mt-1 w-full rounded bg-amber-700/80 px-2 py-1 text-xs font-semibold text-black hover:bg-amber-600 disabled:cursor-not-allowed disabled:bg-neutral-800 disabled:text-neutral-500"
-                    >
+                    <Button variant="primary" size="sm" fullWidth onClick={onDeposit} disabled={txBusy} className="mt-1">
                       ฝาก
-                    </button>
+                    </Button>
                   )}
                 </div>
                 <div>
-                  <div className="mb-1 text-xs font-semibold text-amber-300">คลัง</div>
+                  <div className="dp-text-label mb-1 text-(--dp-sand)">คลัง</div>
                   {storageState.items.length === 0 ? (
-                    <div className="text-xs text-neutral-500">— ว่าง —</div>
+                    <div className="dp-text-body-sm text-(--dp-sand)">— ว่าง —</div>
                   ) : (
-                    <ul className="max-h-48 space-y-1 overflow-y-auto">
+                    <ul className="flex max-h-48 flex-col gap-1 overflow-y-auto">
                       {storageState.items.map((item: StorageItemView) => (
                         <li key={item.instanceId}>
                           <StorageRow
@@ -273,23 +257,21 @@ export function StoragePanel({ getHandle }: StoragePanelProps) {
                     </ul>
                   )}
                   {storageItem && (
-                    <button
-                      type="button"
-                      onClick={onWithdraw}
-                      disabled={txBusy}
-                      className="mt-1 w-full rounded bg-amber-700/80 px-2 py-1 text-xs font-semibold text-black hover:bg-amber-600 disabled:cursor-not-allowed disabled:bg-neutral-800 disabled:text-neutral-500"
-                    >
+                    <Button variant="primary" size="sm" fullWidth onClick={onWithdraw} disabled={txBusy} className="mt-1">
                       ถอน
-                    </button>
+                    </Button>
                   )}
                 </div>
               </div>
 
               {txMessage && (
                 <div
-                  className={`rounded px-2 py-1 text-xs ${
-                    txState === "SUCCESS" ? "bg-emerald-900/50 text-emerald-200" : "bg-neutral-900/60 text-neutral-300"
-                  }`}
+                  className={[
+                    "dp-text-body-sm rounded-(--dp-radius-sm) px-3 py-2",
+                    txState === "SUCCESS"
+                      ? "border border-(--dp-leaf) bg-(--dp-deep-ink) text-(--dp-pale-moss)"
+                      : "border border-(--dp-soil-brown) bg-(--dp-warm-ink) text-(--dp-parchment)",
+                  ].join(" ")}
                 >
                   {txMessage}
                 </div>
@@ -297,14 +279,14 @@ export function StoragePanel({ getHandle }: StoragePanelProps) {
             </>
           )
         ) : !deliveryState ? (
-          <div className="text-xs text-neutral-400">กำลังโหลด…</div>
+          <div className="dp-text-body-sm text-(--dp-sand)">กำลังโหลด…</div>
         ) : !deliveryState.available ? (
-          <div className="text-xs text-neutral-500">— ไม่มีกล่องส่งของที่นี่ —</div>
+          <div className="dp-text-body-sm text-(--dp-sand)">— ไม่มีกล่องส่งของที่นี่ —</div>
         ) : deliveryState.entries.length === 0 ? (
-          <div className="text-xs text-neutral-500">— ไม่มีของรอรับ —</div>
+          <div className="dp-text-body-sm text-(--dp-sand)">— ไม่มีของรอรับ —</div>
         ) : (
           <>
-            <ul className="max-h-56 space-y-1 overflow-y-auto">
+            <ul className="flex max-h-56 flex-col gap-1 overflow-y-auto">
               {deliveryState.entries.map((entry: DeliveryEntryView) => {
                 const claimable = canClaimDeliveryEntry(entry);
                 return (
@@ -313,11 +295,13 @@ export function StoragePanel({ getHandle }: StoragePanelProps) {
                       type="button"
                       onClick={() => setSelectedEntryId(entry.entryId)}
                       disabled={!claimable}
-                      className={`w-full rounded border px-2 py-1 text-left text-xs ${
+                      className={[
+                        "dp-focus-ring dp-text-body-sm w-full rounded-(--dp-radius-sm) border px-3 py-2 text-left transition-colors",
+                        "disabled:cursor-not-allowed disabled:opacity-45",
                         selectedEntryId === entry.entryId
-                          ? "border-amber-400 bg-amber-900/30"
-                          : "border-neutral-700 bg-neutral-900/40 hover:bg-neutral-800/60"
-                      } ${!claimable ? "opacity-50" : ""}`}
+                          ? "border-(--dp-resonance-teal) bg-(--dp-selected-wash) text-(--dp-highlight)"
+                          : "border-(--dp-soil-brown) bg-(--dp-warm-ink) text-(--dp-parchment) hover:bg-(--dp-deep-brown)",
+                      ].join(" ")}
                     >
                       <div className="flex items-center justify-between gap-2">
                         <span className="truncate">{deliverySourceLabel(entry.source)}</span>
@@ -327,7 +311,7 @@ export function StoragePanel({ getHandle }: StoragePanelProps) {
                           </span>
                         )}
                       </div>
-                      <div className="truncate text-neutral-400">
+                      <div className="truncate text-(--dp-sand)">
                         {entry.items.map((line) => `${line.itemId} x${line.quantity}`).join(", ")}
                       </div>
                     </button>
@@ -337,23 +321,24 @@ export function StoragePanel({ getHandle }: StoragePanelProps) {
             </ul>
 
             {selectedEntry && (
-              <button
-                type="button"
+              <Button
+                variant="primary"
+                fullWidth
                 onClick={onClaim}
                 disabled={deliveryBusy || !canClaimDeliveryEntry(selectedEntry)}
-                className="w-full rounded bg-amber-700/80 px-2 py-2 font-semibold text-black hover:bg-amber-600 disabled:cursor-not-allowed disabled:bg-neutral-800 disabled:text-neutral-500"
               >
                 รับของ
-              </button>
+              </Button>
             )}
 
             {deliveryMessage && (
               <div
-                className={`rounded px-2 py-1 text-xs ${
+                className={[
+                  "dp-text-body-sm rounded-(--dp-radius-sm) px-3 py-2",
                   deliveryTxState === "SUCCESS"
-                    ? "bg-emerald-900/50 text-emerald-200"
-                    : "bg-neutral-900/60 text-neutral-300"
-                }`}
+                    ? "border border-(--dp-leaf) bg-(--dp-deep-ink) text-(--dp-pale-moss)"
+                    : "border border-(--dp-soil-brown) bg-(--dp-warm-ink) text-(--dp-parchment)",
+                ].join(" ")}
               >
                 {deliveryMessage}
               </div>
@@ -379,9 +364,12 @@ function StorageRow({
     <button
       type="button"
       onClick={onClick}
-      className={`w-full rounded border px-2 py-1 text-left text-xs ${
-        selected ? "border-amber-400 bg-amber-900/30" : "border-neutral-700 bg-neutral-900/40 hover:bg-neutral-800/60"
-      }`}
+      className={[
+        "dp-focus-ring dp-text-body-sm w-full rounded-(--dp-radius-sm) border px-3 py-2 text-left transition-colors",
+        selected
+          ? "border-(--dp-resonance-teal) bg-(--dp-selected-wash) text-(--dp-highlight)"
+          : "border-(--dp-soil-brown) bg-(--dp-warm-ink) text-(--dp-parchment) hover:bg-(--dp-deep-brown)",
+      ].join(" ")}
     >
       {/* TODO(SVG-01/item-catalog): แสดงชื่อ/ไอคอนจริงแทน itemId เมื่อ client catalog พร้อม */}
       {label}

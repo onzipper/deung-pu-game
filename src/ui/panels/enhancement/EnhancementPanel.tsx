@@ -17,6 +17,7 @@ import { ContextHelpButton } from "@/ui/panels/help/ContextHelpButton";
 import { findItemByInstanceId } from "@/ui/panels/inventory/inventory-view";
 import { selectEnhanceResult, selectInventory } from "@/ui/store/game-store";
 import { useGameStore } from "@/ui/store/use-game-store";
+import { Button } from "@/ui/components";
 import { useEnhancementTarget } from "./enhancement-target-context";
 import {
   canConfirmEnhance,
@@ -106,48 +107,42 @@ export function EnhancementPanel({ getHandle }: EnhancementPanelProps) {
 
   return (
     <Panel id={ENHANCEMENT_PANEL_ID} title="เสริมแกร่ง" widthPx={380}>
-      <div className="space-y-3 text-sm">
+      <div className="flex flex-col gap-3">
         {/* P2-12: context help "?" (DG §5.4) — เปิดบทความ "เสริมแกร่งยังไง" (มี hint R8 ในตัว) */}
         <div className="flex justify-end">
           <ContextHelpButton articleId="enhancement" />
         </div>
         {selected ? (
           <>
-            <div className="rounded border border-amber-700/40 bg-black/30 px-2 py-2">
+            <div className="rounded-(--dp-radius-sm) border border-(--dp-soil-brown) bg-(--dp-warm-ink) px-3 py-2">
               {/* TODO(SVG-01/item-catalog): แสดงชื่อ/ไอคอนจริงแทน itemId เมื่อ client catalog พร้อม */}
-              <div className="truncate font-semibold text-amber-200">{selected.itemId}</div>
-              <div className="text-amber-300">
+              <div className="dp-text-body-sm truncate font-semibold text-(--dp-highlight)">{selected.itemId}</div>
+              <div className="dp-text-body-sm text-(--dp-fire-light)">
                 {enhancementTransitionLabel(selected.enhancementLevel)}
               </div>
             </div>
-            <div className="text-xs text-neutral-400">
-              ใช้: เสริมแกร่ง ×1 (มีอยู่ {materialCount})
-            </div>
+            <div className="dp-text-caption text-(--dp-sand)">ใช้: เสริมแกร่ง ×1 (มีอยู่ {materialCount})</div>
           </>
         ) : (
-          <div className="text-xs text-neutral-500">— ยังไม่ได้เลือกอุปกรณ์ —</div>
+          <div className="dp-text-body-sm text-(--dp-sand)">— ยังไม่ได้เลือกอุปกรณ์ —</div>
         )}
 
         <div
-          className={`rounded px-2 py-1 text-xs ${
+          className={[
+            "dp-text-body-sm rounded-(--dp-radius-sm) px-3 py-2",
             state === "SUCCESS"
-              ? "bg-emerald-900/50 text-emerald-200"
+              ? "border border-(--dp-leaf) bg-(--dp-deep-ink) text-(--dp-pale-moss)"
               : state === "READY"
-                ? "text-neutral-300"
-                : "bg-neutral-900/60 text-neutral-300"
-          }`}
+                ? "text-(--dp-parchment)"
+                : "border border-(--dp-soil-brown) bg-(--dp-warm-ink) text-(--dp-parchment)",
+          ].join(" ")}
         >
           {enhanceStateMessage(state)}
         </div>
 
-        <button
-          type="button"
-          onClick={onConfirm}
-          disabled={!canConfirm}
-          className="w-full rounded bg-amber-700/80 px-2 py-2 font-semibold text-black hover:bg-amber-600 disabled:cursor-not-allowed disabled:bg-neutral-800 disabled:text-neutral-500"
-        >
+        <Button variant="primary" fullWidth onClick={onConfirm} disabled={!canConfirm}>
           ยืนยันเสริมแกร่ง
-        </button>
+        </Button>
       </div>
     </Panel>
   );

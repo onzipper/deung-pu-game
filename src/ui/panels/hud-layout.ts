@@ -9,9 +9,13 @@ import type { CSSProperties } from "react";
 
 export type HudSlot = "inventory" | "enhancement" | "shop" | "storage" | "settings";
 
-/** visual ร่วม (สี/ขอบ/เงา) — ไม่รวม position; desktop/mobile เติม position เอง. */
+/** visual ร่วม (สี/ขอบ/เงา) — ไม่รวม position; desktop/mobile เติม position เอง.
+ * Token-driven (P2 UI spec §4.2 Secondary button family — HUD toggle buttons sit directly on canvas,
+ * not inside a Panel, so they use the "wood frame" secondary treatment rather than the panel bg). */
 const BASE =
-  "pointer-events-auto fixed z-50 rounded-lg border border-amber-700/50 bg-black/60 font-semibold text-amber-200 shadow-lg hover:bg-black/80";
+  "pointer-events-auto fixed z-50 rounded-(--dp-radius-md) border border-(--dp-warm-wood) bg-(--dp-deep-brown) " +
+  "font-semibold text-(--dp-parchment) dp-shadow-raised transition-colors duration-(--dp-motion-fast) " +
+  "hover:bg-(--dp-soil-brown) hover:text-(--dp-highlight) dp-focus-ring";
 
 /** desktop = ตำแหน่งเดิม (px-3 py-2 text-sm) — คงพฤติกรรม/หน้าตาเดิมทุกปุ่ม. */
 const DESKTOP_POS: Record<HudSlot, string> = {

@@ -8,6 +8,7 @@ import { authErrorMessage } from "./messages";
 // transitions ยืนยันว่า guest ต้องเชื่อม email ได้จาก Game Hub) + endpoint contract:
 // POST /api/auth/upgrade { email, emailConfirm, password } — session-gated, idempotent (§1.7 duplicate submit).
 // สไตล์/ token เดียวกับ AuthPanel mode "register" (V1 tokens: radius 6/10/16, hit area >=48px).
+// Token-driven (src/app/globals.css --dp-*) — was inline hex, migrated in the E6 visual-foundation pass.
 export function UpgradePanel({ onBack }: { onBack: () => void }): React.JSX.Element {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
@@ -44,21 +45,21 @@ export function UpgradePanel({ onBack }: { onBack: () => void }): React.JSX.Elem
   }
 
   const inputClass =
-    "w-full min-h-[48px] rounded-[6px] border border-[#68483A] bg-[#171820] px-4 text-[16px] text-[#F2D6A0] placeholder:text-[#8E6046] focus:outline-none focus:ring-2 focus:ring-[#35C6B0]";
+    "w-full min-h-[48px] rounded-(--dp-radius-sm) border border-(--dp-soil-brown) bg-(--dp-deep-ink) px-4 text-[16px] text-(--dp-parchment) placeholder:text-(--dp-clay) focus:outline-none focus:ring-2 focus:ring-(--dp-resonance-teal)";
   const primaryBtnClass =
-    "w-full min-h-[48px] rounded-[10px] bg-[#35C6B0] px-5 text-[16px] font-semibold text-[#171820] transition-colors hover:bg-[#7CE9D0] disabled:cursor-not-allowed disabled:opacity-50";
+    "w-full min-h-[48px] rounded-(--dp-radius-md) bg-(--dp-resonance-teal) px-5 text-[16px] font-semibold text-(--dp-deep-ink) transition-colors hover:bg-(--dp-resonance-light) disabled:cursor-not-allowed disabled:opacity-50";
 
   return (
-    <div className="mx-auto w-full max-w-[420px] rounded-[16px] border border-[#4A332E] bg-[#2B2230] p-6 shadow-lg">
-      <h1 className="mb-1 text-center text-[22px] font-bold text-[#F2D6A0]">เชื่อม Email เข้าบัญชี</h1>
-      <p className="mb-6 text-center text-[14px] text-[#D8AE70]">
+    <div className="mx-auto w-full max-w-[420px] rounded-(--dp-radius-lg) border border-(--dp-deep-brown) bg-(--dp-warm-ink) p-6 dp-shadow-panel">
+      <h1 className="mb-1 text-center text-[22px] font-bold text-(--dp-parchment)">เชื่อม Email เข้าบัญชี</h1>
+      <p className="mb-6 text-center text-[14px] text-(--dp-sand)">
         ตัวละครและข้อมูลเดิมจะยังอยู่ครบ — แค่เพิ่ม Email/รหัสผ่านให้บัญชี Guest นี้
       </p>
 
       {error && (
         <div
           role="alert"
-          className="mb-4 rounded-[6px] border border-[#D84848] bg-[#171820] px-4 py-3 text-[14px] text-[#D84848]"
+          className="mb-4 rounded-(--dp-radius-sm) border border-(--dp-danger-red) bg-(--dp-deep-ink) px-4 py-3 text-[14px] text-(--dp-danger-red)"
         >
           {error}
         </div>
@@ -94,7 +95,7 @@ export function UpgradePanel({ onBack }: { onBack: () => void }): React.JSX.Elem
         </button>
         <button
           type="button"
-          className="min-h-[48px] text-[14px] text-[#D8AE70]"
+          className="min-h-[48px] text-[14px] text-(--dp-sand)"
           disabled={loading}
           onClick={onBack}
         >

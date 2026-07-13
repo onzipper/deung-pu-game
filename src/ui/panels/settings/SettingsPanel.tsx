@@ -52,9 +52,9 @@ export function SettingsPanel({ getHandle }: SettingsPanelProps) {
 
   return (
     <Panel id={SETTINGS_PANEL_ID} title="ตั้งค่า">
-      <div className="flex flex-col gap-4 text-sm">
+      <div className="dp-text-body-sm flex flex-col gap-4">
         <div>
-          <div className="mb-2 font-semibold text-amber-200">คุณภาพเอฟเฟกต์</div>
+          <div className="mb-2 font-semibold text-(--dp-highlight)">คุณภาพเอฟเฟกต์</div>
           <div className="flex gap-2">
             {SELECTABLE_QUALITIES.map((q) => (
               <button
@@ -63,42 +63,42 @@ export function SettingsPanel({ getHandle }: SettingsPanelProps) {
                 onClick={() => setQuality(q)}
                 aria-pressed={prefs.quality === q}
                 className={[
-                  "min-h-[44px] flex-1 rounded-lg border px-3 py-2 font-semibold",
+                  "dp-focus-ring min-h-12 flex-1 rounded-(--dp-radius-md) border px-3 py-2 font-semibold transition-colors",
                   prefs.quality === q
-                    ? "border-amber-400 bg-amber-500/20 text-amber-100"
-                    : "border-amber-700/50 bg-black/40 text-neutral-300 hover:bg-black/60",
+                    ? "border-(--dp-resonance-teal) bg-(--dp-selected-wash) text-(--dp-highlight)"
+                    : "border-(--dp-soil-brown) bg-(--dp-warm-ink) text-(--dp-parchment) hover:bg-(--dp-deep-brown)",
                 ].join(" ")}
               >
                 {QUALITY_LABEL[q] ?? q}
               </button>
             ))}
           </div>
-          <p className="mt-1 text-xs text-neutral-400">
+          <p className="dp-text-caption mt-1 text-(--dp-sand)">
             ลดคุณภาพ = ตัวเลขความเสียหาย/เอฟเฟกต์น้อยลง ลื่นขึ้นบนมือถือ
           </p>
         </div>
 
-        <label className="flex min-h-[44px] items-center justify-between gap-3 rounded-lg border border-amber-700/50 bg-black/40 px-3 py-2">
-          <span className="font-semibold text-amber-200">จอสั่นตอนโจมตี</span>
+        <label className="flex min-h-12 items-center justify-between gap-3 rounded-(--dp-radius-md) border border-(--dp-soil-brown) bg-(--dp-warm-ink) px-3 py-2">
+          <span className="font-semibold text-(--dp-highlight)">จอสั่นตอนโจมตี</span>
           <input
             type="checkbox"
             checked={prefs.screenShake}
             onChange={toggleShake}
-            className="h-5 w-5 accent-amber-500"
+            className="h-5 w-5 accent-(--dp-resonance-teal)"
             aria-label="เปิด/ปิด จอสั่น"
           />
         </label>
 
         <div>
           <div className="mb-2 flex items-center justify-between gap-3">
-            <span className="font-semibold text-amber-200">เสียงเอฟเฟกต์</span>
-            <label className="flex min-h-[44px] items-center gap-2 text-xs text-neutral-300">
+            <span className="font-semibold text-(--dp-highlight)">เสียงเอฟเฟกต์</span>
+            <label className="dp-text-caption flex min-h-12 items-center gap-2 text-(--dp-parchment)">
               ปิดเสียง
               <input
                 type="checkbox"
                 checked={audioMuted}
                 onChange={toggleMuted}
-                className="h-5 w-5 accent-amber-500"
+                className="h-5 w-5 accent-(--dp-resonance-teal)"
                 aria-label="ปิด/เปิด เสียงเอฟเฟกต์"
               />
             </label>
@@ -111,10 +111,10 @@ export function SettingsPanel({ getHandle }: SettingsPanelProps) {
             value={audioVolume}
             disabled={audioMuted}
             onChange={(e) => commitVolume(Number(e.target.value))}
-            className="h-11 w-full accent-amber-500 disabled:opacity-40"
+            className="h-11 w-full accent-(--dp-resonance-teal) disabled:opacity-40"
             aria-label="ระดับเสียงเอฟเฟกต์"
           />
-          <p className="mt-1 text-xs text-neutral-400">
+          <p className="dp-text-caption mt-1 text-(--dp-sand)">
             เสียงตี/โดน/คริติคอล/ฆ่ามอน/ได้ของ/คลิก UI — สังเคราะห์จากโค้ดล้วน (ไม่มีไฟล์เสียง)
           </p>
         </div>

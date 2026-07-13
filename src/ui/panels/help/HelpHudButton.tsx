@@ -15,7 +15,9 @@ export function HelpHudButton() {
 
   // desktop = เดิม (right-3 top-3, 36px). mobile = มุมขวาบน + safe-area, hit target 44px (h-11 w-11).
   const className = [
-    "pointer-events-auto fixed z-50 flex items-center justify-center rounded-full border border-amber-700/50 bg-black/60 text-base font-bold text-amber-200 shadow-lg hover:bg-black/80",
+    "dp-focus-ring dp-shadow-raised pointer-events-auto fixed z-50 flex items-center justify-center",
+    "rounded-(--dp-radius-pill) border border-(--dp-warm-wood) bg-(--dp-deep-brown) text-base font-bold",
+    "text-(--dp-parchment) transition-colors hover:bg-(--dp-soil-brown) hover:text-(--dp-highlight)",
     isMobile ? "h-11 w-11" : "right-3 top-3 h-9 w-9",
   ].join(" ");
   const style = isMobile

@@ -76,6 +76,18 @@ export interface HudState {
   deliveryState: DeliveryStateMessage | null;
   /** ผลรับของล่าสุด (P2-17, MSG_DELIVERY_CLAIM) — null = ยังไม่เคย claim ใน session นี้. */
   deliveryResult: DeliveryResultMessage | null;
+  /**
+   * A1/A2 (COMBAT_BIBLE §2/§10): hp/maxHp ของ **local player** (server-authoritative, ride PlayerState schema).
+   * null ก่อน server sync ครั้งแรก. แถบ HP = E3 อ่านค่านี้. อัปเดตทุกครั้งที่ hp/maxHp เปลี่ยน (โดนตี/respawn/
+   * level-up/equip).
+   */
+  playerHp: number | null;
+  playerMaxHp: number | null;
+  /**
+   * A2: local player ตายอยู่ไหม (MSG_PLAYER_DEATH → true, MSG_PLAYER_RESPAWN → false). death overlay = E4 อ่าน
+   * ค่านี้. respawn เป็น instant server-side → ปกติ true ชั่วครู่แล้ว false (E4 ค่อยทำ death screen/สั่งกดต่อ).
+   */
+  playerDead: boolean;
 }
 
 export const INITIAL_HUD_STATE: HudState = {
@@ -92,6 +104,9 @@ export const INITIAL_HUD_STATE: HudState = {
   storageResult: null,
   deliveryState: null,
   deliveryResult: null,
+  playerHp: null,
+  playerMaxHp: null,
+  playerDead: false,
 };
 
 /** store singleton ตัวเดียวทั้งแอป — engine publish เข้านี่, React component subscribe ผ่าน useGameStore */
@@ -214,6 +229,28 @@ export const selectDeliveryState = (state: HudState): DeliveryStateMessage | nul
 
 /** typed selector — ผลรับของล่าสุด (P2-17) */
 export const selectDeliveryResult = (state: HudState): DeliveryResultMessage | null => state.deliveryResult;
+
+/**
+ * A1/A2: engine เรียกทันทีที่ hp/maxHp ของ local player เปลี่ยน (self schema listen — event-driven, ไม่ throttle:
+ * ผู้เล่นต้องเห็น HP ตอบสนองทันทีที่โดนตี/respawn). server-authoritative (client ไม่ predict การโดนตี).
+ */
+export function setPlayerVitals(hp: number, maxHp: number): void {
+  gameStore.setState({ playerHp: hp, playerMaxHp: maxHp });
+}
+
+/** A2: engine เรียกเมื่อ local player ตาย (MSG_PLAYER_DEATH → true) / respawn (MSG_PLAYER_RESPAWN → false). */
+export function setPlayerDead(dead: boolean): void {
+  gameStore.setState({ playerDead: dead });
+}
+
+/** typed selector — hp ของ local player (A1/A2) */
+export const selectPlayerHp = (state: HudState): number | null => state.playerHp;
+
+/** typed selector — maxHp ของ local player (A1/A2) */
+export const selectPlayerMaxHp = (state: HudState): number | null => state.playerMaxHp;
+
+/** typed selector — local player ตายอยู่ไหม (A2) */
+export const selectPlayerDead = (state: HudState): boolean => state.playerDead;
 
 export interface HudPublisher {
   /**

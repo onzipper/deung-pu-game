@@ -5,10 +5,13 @@
 // (`useGameStore`, docs/context/ui.md contract) — ส่ง intent (equip/unequip) ผ่าน `EngineHandle.net` ตรง ๆ
 // (imperative command เหมือน setDepthDebug ใน DebugOverlay.tsx, ไม่ใช่ store — store เป็น engine→UI ทางเดียว).
 //
-// item name/icon: catalog ฝั่ง client ยังไม่มี (server-authoritative) → แสดง itemId ดิบไปก่อน. TODO: แทนที่
-// ด้วยชื่อ/ไอคอนจริงเมื่อ item-catalog พร้อม (มากับ SVG-01 หรืองาน catalog ถัดไป — ห้ามสร้าง catalog เองที่นี่).
+// item icon: itemIconUrl() (src/game/item/icon-catalog.ts) เป็น URL lookup ล้วน ไม่มี stat/state ผูกมา —
+// public/assets/icons/*.svg มีจริงแล้วสำหรับ item ส่วนใหญ่ (SVG-01), ItemSlot fallback เป็นข้อความ itemId
+// ดิบเองถ้า id ไหนไม่มีใน catalog หรือโหลดรูปไม่สำเร็จ (onError). ไม่มี rarity field ในสายข้อมูลนี้
+// (net-protocol.ts InventoryItemView) — ItemSlot จึงไม่ส่ง rarity prop (fallback border เป็นกลาง, พร้อมต่อ
+// rarity ทันทีที่ field มา).
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import type { EngineHandle } from "@/engine/runtime/app";
 import type { InventoryItemView, InventoryOpRejectedMessage } from "@/shared/net-protocol";
 import { Panel, usePanelManager } from "@/ui/panels";
@@ -17,6 +20,8 @@ import { useEnhancementTarget } from "@/ui/panels/enhancement/enhancement-target
 import { ContextHelpButton } from "@/ui/panels/help/ContextHelpButton";
 import { selectInventory, selectInventoryRejection } from "@/ui/store/game-store";
 import { useGameStore } from "@/ui/store/use-game-store";
+import { Button, ItemSlot, Tooltip } from "@/ui/components";
+import { itemIconUrl } from "@/game/item/icon-catalog";
 import {
   buildBagGrid,
   enhancementLabel,
@@ -41,6 +46,19 @@ export interface InventoryPanelProps {
 }
 
 const TOAST_DURATION_MS = 3000;
+
+function ItemTooltip({ item, children }: { item: InventoryItemView; children: ReactNode }) {
+  return (
+    <Tooltip title={item.itemId} trigger={children}>
+      <div className="flex flex-col gap-0.5">
+        {item.enhancementLevel > 0 && (
+          <span className="text-(--dp-fire-light)">ระดับเสริมแกร่ง {enhancementLabel(item.enhancementLevel)}</span>
+        )}
+        {item.quantity > 1 && <span className="text-(--dp-sand)">จำนวน {item.quantity}</span>}
+      </div>
+    </Tooltip>
+  );
+}
 
 export function InventoryPanel({ getHandle }: InventoryPanelProps) {
   const inventory = useGameStore(selectInventory);
@@ -68,7 +86,7 @@ export function InventoryPanel({ getHandle }: InventoryPanelProps) {
         <div className="flex justify-end">
           <ContextHelpButton articleId="inventory_bag" />
         </div>
-        <div className="text-sm text-neutral-400">กำลังโหลด…</div>
+        <div className="dp-text-body-sm text-(--dp-sand)">กำลังโหลด…</div>
       </Panel>
     );
   }
@@ -95,99 +113,86 @@ export function InventoryPanel({ getHandle }: InventoryPanelProps) {
 
   return (
     <Panel id={INVENTORY_PANEL_ID} title="กระเป๋า" widthPx={400}>
-      <div className="space-y-3">
+      <div className="flex flex-col gap-3">
         {/* P2-12: context help "?" (DG §5.4) — เปิดบทความ "เก็บของ/ใช้กระเป๋ายังไง" ตรง ๆ */}
         <div className="flex justify-end">
           <ContextHelpButton articleId="inventory_bag" />
         </div>
         {toast && (
-          <div className="rounded bg-red-900/60 px-2 py-1 text-xs text-red-100">{toast}</div>
+          <div className="dp-text-body-sm rounded-(--dp-radius-sm) border border-(--dp-danger-red) bg-(--dp-deep-ink) px-3 py-2 text-(--dp-danger-red)">
+            {toast}
+          </div>
         )}
 
         <div>
-          <div className="mb-1 text-xs font-semibold text-amber-300">สวมใส่อยู่</div>
+          <div className="dp-text-label mb-2 text-(--dp-sand)">สวมใส่อยู่</div>
           {inventory.equipment.length === 0 ? (
-            <div className="text-xs text-neutral-500">— ไม่มี —</div>
+            <div className="dp-text-body-sm text-(--dp-sand)">— ไม่มี —</div>
           ) : (
-            <ul className="space-y-1">
+            <div className="flex flex-wrap gap-2">
               {inventory.equipment.map((item) => (
-                <li key={item.instanceId}>
-                  <button
-                    type="button"
+                <ItemTooltip key={item.instanceId} item={item}>
+                  <ItemSlot
+                    context="equipment"
+                    equipped
+                    selected={selectedId === item.instanceId}
+                    enhancementLevel={item.enhancementLevel}
+                    iconUrl={itemIconUrl(item.itemId)}
+                    fallbackLabel={item.itemId}
+                    ariaLabel={item.itemId}
                     onClick={() => onSelect(item)}
-                    className={`w-full rounded border px-2 py-1 text-left text-xs ${
-                      selectedId === item.instanceId
-                        ? "border-amber-400 bg-amber-900/30"
-                        : "border-neutral-700 bg-neutral-900/40 hover:bg-neutral-800/60"
-                    }`}
-                  >
-                    {/* TODO(SVG-01/item-catalog): แสดงชื่อ/ไอคอนจริงแทน itemId เมื่อ client catalog พร้อม */}
-                    {item.itemId} {enhancementLabel(item.enhancementLevel)}
-                  </button>
-                </li>
+                  />
+                </ItemTooltip>
               ))}
-            </ul>
+            </div>
           )}
         </div>
 
         <div>
-          <div className="mb-1 text-xs font-semibold text-amber-300">
+          <div className="dp-text-label mb-2 text-(--dp-sand)">
             กระเป๋า ({inventory.bag.length}/{inventory.capacity})
           </div>
-          <div className="grid grid-cols-5 gap-1">
-            {grid.map((item, idx) => (
-              <button
-                key={idx}
-                type="button"
-                onClick={() => item && onSelect(item)}
-                disabled={!item}
-                className={`aspect-square rounded border text-[10px] leading-tight ${
-                  item
-                    ? selectedId === item.instanceId
-                      ? "border-amber-400 bg-amber-900/30"
-                      : "border-neutral-700 bg-neutral-900/60 hover:bg-neutral-800"
-                    : "border-neutral-800 bg-neutral-950/40"
-                }`}
-              >
-                {item && (
-                  <span className="block truncate px-0.5">
-                    {item.itemId}
-                    {item.quantity > 1 ? ` x${item.quantity}` : ""}
-                    {enhancementLabel(item.enhancementLevel) && (
-                      <span className="block text-amber-300">
-                        {enhancementLabel(item.enhancementLevel)}
-                      </span>
-                    )}
-                  </span>
-                )}
-              </button>
-            ))}
+          <div className="flex flex-wrap gap-2">
+            {grid.map((item, idx) =>
+              item ? (
+                <ItemTooltip key={item.instanceId} item={item}>
+                  <ItemSlot
+                    context="inventory"
+                    selected={selectedId === item.instanceId}
+                    stackCount={item.quantity}
+                    enhancementLevel={item.enhancementLevel}
+                    iconUrl={itemIconUrl(item.itemId)}
+                    fallbackLabel={item.itemId}
+                    ariaLabel={item.itemId}
+                    onClick={() => onSelect(item)}
+                  />
+                </ItemTooltip>
+              ) : (
+                <ItemSlot key={`empty-${idx}`} context="inventory" empty disabled ariaLabel="ช่องว่าง" />
+              ),
+            )}
           </div>
         </div>
 
         {selected && (
-          <div className="flex items-center justify-between gap-2 rounded border border-amber-700/50 bg-black/40 px-2 py-2 text-xs">
-            <span className="truncate">{selected.itemId}</span>
-            <div className="flex shrink-0 gap-1">
+          <div className="flex items-center justify-between gap-2 rounded-(--dp-radius-sm) border border-(--dp-soil-brown) bg-(--dp-warm-ink) px-3 py-2">
+            <span className="dp-text-body-sm truncate text-(--dp-parchment)">{selected.itemId}</span>
+            <div className="flex shrink-0 gap-2">
               {canOfferEnhance(selected) && (
-                <button
-                  type="button"
+                <Button
+                  variant="secondary"
+                  size="sm"
                   onClick={() => {
                     enhancementTarget.setTarget(selected.instanceId);
                     panelManager.openPanel(ENHANCEMENT_PANEL_ID);
                   }}
-                  className="rounded border border-amber-700/50 bg-black/60 px-2 py-1 font-semibold text-amber-200 hover:bg-black/80"
                 >
                   เสริมแกร่ง
-                </button>
+                </Button>
               )}
-              <button
-                type="button"
-                onClick={onAction}
-                className="rounded bg-amber-700/80 px-2 py-1 font-semibold text-black hover:bg-amber-600"
-              >
+              <Button variant="primary" size="sm" onClick={onAction}>
                 {resolveInventoryAction(selected.location) === "equip" ? "สวมใส่" : "ถอด"}
-              </button>
+              </Button>
             </div>
           </div>
         )}

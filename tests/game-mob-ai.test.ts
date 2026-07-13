@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
 import {
+  createMobAttackState,
   distSq,
   hasReachedSpawn,
   idleTickInterval,
@@ -8,8 +9,11 @@ import {
   selectAggroTarget,
   shouldReturnToSpawn,
   shouldStepPocket,
+  stepMobAttack,
   stepToward,
   type AiPlayerRef,
+  type MobAttackState,
+  type MobAttackTimings,
 } from "@/game/mob/ai";
 import type { MoveParams, WalkableFn } from "@/engine/movement/mover";
 import type { TileRect } from "@/engine/map/types";
@@ -173,5 +177,73 @@ describe("isRespawnDue — respawn timer (clock inject)", () => {
   });
   test("nowMs < dueAtMs → ยังไม่ due", () => {
     expect(isRespawnDue(1000, 999)).toBe(false);
+  });
+});
+
+describe("stepMobAttack — attack state machine (A1, COMBAT_BIBLE §4/§7)", () => {
+  // timing เทสต์ (ms) — anticipation 300 / active 100 / recovery 400 / cooldown 2000, range 1.5 tile
+  const T: MobAttackTimings = {
+    attackRange: 1.5,
+    attackCooldownMs: 2000,
+    anticipationMs: 300,
+    activeMs: 100,
+    recoveryMs: 400,
+  };
+
+  test("idle + เป้าในระยะ + พ้น cooldown → เข้า ANTICIPATION (rooted, ยังไม่ contact)", () => {
+    const d = stepMobAttack(createMobAttackState(), true, 0, T);
+    expect(d.state.phase).toBe("anticipation");
+    expect(d.state.phaseEndMs).toBe(300);
+    expect(d.contact).toBe(false);
+    expect(d.rooted).toBe(true);
+  });
+
+  test("idle + เป้านอกระยะ → คง idle, ไม่ rooted, ไม่ contact (ไม่เริ่ม swing)", () => {
+    const d = stepMobAttack(createMobAttackState(), false, 0, T);
+    expect(d.state.phase).toBe("idle");
+    expect(d.rooted).toBe(false);
+    expect(d.contact).toBe(false);
+  });
+
+  test("ยังไม่พ้น cooldown (nowMs < readyAtMs) → ไม่เริ่ม swing แม้อยู่ในระยะ", () => {
+    const onCd: MobAttackState = { phase: "idle", phaseEndMs: 0, readyAtMs: 5000, contactResolved: false };
+    const d = stepMobAttack(onCd, true, 1000, T);
+    expect(d.state.phase).toBe("idle");
+    expect(d.contact).toBe(false);
+  });
+
+  test("contact ลงเฉพาะ ACTIVE + เป้ายังในระยะ (dodge window, ไม่มี i-frame)", () => {
+    const active: MobAttackState = { phase: "active", phaseEndMs: 1000, readyAtMs: 0, contactResolved: false };
+    // ยังในระยะ → โดน
+    expect(stepMobAttack(active, true, 950, T).contact).toBe(true);
+    // เป้าหลบออกนอกระยะตอน active → ไม่โดน (whiff)
+    expect(stepMobAttack(active, false, 950, T).contact).toBe(false);
+  });
+
+  test("contact ครั้งเดียวต่อ swing (active หลาย tick ไม่ตีซ้ำ)", () => {
+    const active: MobAttackState = { phase: "active", phaseEndMs: 1000, readyAtMs: 0, contactResolved: false };
+    const first = stepMobAttack(active, true, 900, T);
+    expect(first.contact).toBe(true);
+    const second = stepMobAttack(first.state, true, 950, T);
+    expect(second.contact).toBe(false); // contactResolved carried → ไม่ตีซ้ำ
+  });
+
+  test("cycle เต็ม: ANTICIPATION → ACTIVE(contact) → RECOVERY → IDLE + ตั้ง cooldown", () => {
+    let d = stepMobAttack(createMobAttackState(), true, 0, T); // → anticipation (end 300)
+    expect(d.state.phase).toBe("anticipation");
+    d = stepMobAttack(d.state, true, 300, T); // anticipation หมด → active + contact ทันที
+    expect(d.state.phase).toBe("active");
+    expect(d.contact).toBe(true);
+    d = stepMobAttack(d.state, true, 400, T); // active หมด → recovery (ไม่ contact ซ้ำ)
+    expect(d.state.phase).toBe("recovery");
+    expect(d.contact).toBe(false);
+    d = stepMobAttack(d.state, true, 800, T); // recovery หมด → idle + readyAt = 800+2000
+    expect(d.state.phase).toBe("idle");
+    expect(d.state.readyAtMs).toBe(2800);
+    expect(d.rooted).toBe(false);
+    // ยังไม่พ้น cooldown → ไม่เริ่ม swing ใหม่
+    expect(stepMobAttack(d.state, true, 900, T).state.phase).toBe("idle");
+    // พ้น cooldown → swing ใหม่
+    expect(stepMobAttack(d.state, true, 2800, T).state.phase).toBe("anticipation");
   });
 });

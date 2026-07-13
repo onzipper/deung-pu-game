@@ -38,7 +38,7 @@ export function InventoryHudButton() {
       className={className}
       style={style}
     >
-      กระเป๋า <span className="text-neutral-400">(I)</span>
+      กระเป๋า <span className="text-(--dp-sand)">(I)</span>
     </button>
   );
 }

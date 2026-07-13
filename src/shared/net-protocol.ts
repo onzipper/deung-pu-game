@@ -138,6 +138,58 @@ export interface CastRejectedMessage {
   reason: string;
 }
 
+// ── A1/A2 mob→player combat intake + death/respawn (COMBAT_BIBLE §2/§10) ────────────────────────────────
+// hp/maxHp เอง ride PlayerState schema (auto-sync). message พวกนี้ = **สัญญาณ juice/event** ล้วน (client เล่น
+// hit flash / death anim / snap respawn) — ความจริงทั้งหมด server-authoritative (client ไม่ predict การโดนตี).
+
+/**
+ * message type: server → **ทุก client ในห้อง** (broadcast) — มอน contact ใส่ผู้เล่น 1 ครั้ง (A1). client เล่น
+ * hit flash / damage number เหนือหัวผู้เล่นที่โดน (juice); hp จริงมาทาง PlayerState schema. payload = PlayerDamagedMessage.
+ */
+export const MSG_PLAYER_DAMAGED = "player_damaged";
+
+/** payload ของ MSG_PLAYER_DAMAGED (server → broadcast, A1). */
+export interface PlayerDamagedMessage {
+  /** sessionId ผู้เล่นที่โดน */
+  sessionId: string;
+  /** มอนที่ตี (client เล่นทิศ hit จากตำแหน่งมอน) */
+  mobId: string;
+  /** damage authoritative รอบนี้ (integer) — เลขบนจอ = hp ที่ลดจริง */
+  dmg: number;
+  /** hp หลังหัก (authoritative) — client sync แถบ HP ได้ทันทีโดยไม่รอ schema patch */
+  hp: number;
+}
+
+/**
+ * message type: server → **ทุก client ในห้อง** (broadcast) — ผู้เล่นตาย (hp ถึง 0, §10). client เล่น death anim;
+ * self → death feedback (overlay เต็ม = E4). respawn ตามมาทันที (server-authoritative). payload = PlayerDeathMessage.
+ */
+export const MSG_PLAYER_DEATH = "player_death";
+
+/** payload ของ MSG_PLAYER_DEATH (server → broadcast, A2). */
+export interface PlayerDeathMessage {
+  sessionId: string;
+  /** มอนที่ตีจนตาย (killer) — debug/feedback; "" ถ้าไม่ทราบ */
+  mobId: string;
+}
+
+/**
+ * message type: server → **ทุก client ในห้อง** (broadcast) — ผู้เล่น respawn ที่ safe camp เต็ม hp (§10).
+ * self: client snap local player + camera ไปจุดนี้ (เหมือน onSelfSpawn/position_correction — local player
+ * client-predicted, ตำแหน่งไม่มาทาง schema onChange). remote: ตำแหน่งมาทาง schema อยู่แล้ว. payload = PlayerRespawnMessage.
+ */
+export const MSG_PLAYER_RESPAWN = "player_respawn";
+
+/** payload ของ MSG_PLAYER_RESPAWN (server → broadcast, A2). */
+export interface PlayerRespawnMessage {
+  sessionId: string;
+  /** จุด respawn (tile coord) = safe camp ที่อนุมัติ (§10) */
+  tx: number;
+  ty: number;
+  /** hp หลัง respawn (= maxHp เต็ม) */
+  hp: number;
+}
+
 /** anim state ของมอนที่ sync (P1-03) — idle/walk เท่านั้น (attack/death = client เล่นเองจาก event, tech §6). */
 export type WireMobState = "idle" | "walk";
 
@@ -155,6 +207,63 @@ export interface MobSnapshot {
   state: WireMobState;
   /** hp ปัจจุบัน (P1-05: update จริงจาก server combat → client โชว์ HP bar เมื่อ hp < maxHp) */
   hp: number;
+  /**
+   * workstream B (Field Boss): guard-gauge ปัจจุบัน. `maxGuard` > 0 = mob นี้เป็นบอส → client แสดงแถบ guard
+   * (E3 HUD). normal mob = 0/0 (ไม่มี guard gauge). optional (default 0) — server-authoritative.
+   */
+  guard?: number;
+  maxGuard?: number;
+  /** workstream B: index ของ boss phase ปัจจุบัน (§2.3: 0 Learn / 1 Pressure / 2 Enrage). normal mob = 0. */
+  bossPhase?: number;
+  /** workstream B: true ช่วง BREAK/stagger (golden window) — client แสดง stagger + guard bar แตก. default false. */
+  staggered?: boolean;
+}
+
+// ── workstream B: Field Boss depth (guard/break gauge + phase + telegraph, COMBAT_BIBLE §7/§8 · §2.3/§2.4) ──
+// guard/maxGuard/bossPhase/staggered ride MobState schema (auto-sync → HUD bar). message พวกนี้ = **event/juice
+// signal** ล้วน (client เล่น telegraph circle / break VFX-SFX / phase banner) — ความจริง server-authoritative.
+
+/**
+ * message type: server → **ทุก client ในห้อง** — บอสเริ่มท่าโจมตี (anticipation) → client แสดง telegraph
+ * (danger zone) เหนือ effect เสมอ ไม่ขึ้นกับ quality setting (§18.5). payload = BossTelegraphMessage.
+ */
+export const MSG_BOSS_TELEGRAPH = "boss_telegraph";
+
+/** payload ของ MSG_BOSS_TELEGRAPH (server → broadcast, workstream B). */
+export interface BossTelegraphMessage {
+  mobId: string;
+  /** vfx cue ของ telegraph (client วาด danger zone) — เช่น "vfx_telegraph_circle_danger". */
+  vfxCue: string;
+  /** ระยะ anticipation (ms) = dodge window ก่อน active frame (client จับเวลา telegraph). */
+  durationMs: number;
+}
+
+/**
+ * message type: server → **ทุก client ในห้อง** — guard บอสแตก → BREAK (§8). client เล่น break VFX/SFX +
+ * เปิด golden window (รับ damage ×multiplier). payload = BossBreakMessage.
+ */
+export const MSG_BOSS_BREAK = "boss_break";
+
+/** payload ของ MSG_BOSS_BREAK (server → broadcast, workstream B). */
+export interface BossBreakMessage {
+  mobId: string;
+  /** ระยะ stagger (ms) ที่บอสชะงัก (solo 6000 / party 8000, §2.4) — client จับเวลา golden window. */
+  staggerMs: number;
+}
+
+/**
+ * message type: server → **ทุก client ในห้อง** — บอสเปลี่ยน phase (§2.3 Learn→Pressure→Enrage). client แสดง
+ * phase banner / เปลี่ยน music layer. payload = BossPhaseMessage.
+ */
+export const MSG_BOSS_PHASE = "boss_phase";
+
+/** payload ของ MSG_BOSS_PHASE (server → broadcast, workstream B). */
+export interface BossPhaseMessage {
+  mobId: string;
+  /** index ของ phase ใหม่ (0-based). */
+  phaseIndex: number;
+  /** phase id ("learn"|"pressure"|"enrage") — client map เป็น label/effect. */
+  phaseId: string;
 }
 
 /**
@@ -251,6 +360,12 @@ export interface PlayerSnapshot {
    * display-only, client ไม่เคยส่งค่านี้ขึ้น server (server-authoritative จาก input tracker).
    */
   isAfk?: boolean;
+  /**
+   * A1/A2 (COMBAT_BIBLE §2/§10): hp/maxHp ปัจจุบัน (server-authoritative). ride PlayerState schema — client
+   * แสดงแถบ HP (E3) / death (E4). optional (default 0 = ก่อน server init) — client ไม่เคยส่งค่านี้ขึ้น server.
+   */
+  hp?: number;
+  maxHp?: number;
 }
 
 // ── P2-07 inventory / equipment (server-authoritative mutation, TA §7/§8, Storage §22) ────────────────

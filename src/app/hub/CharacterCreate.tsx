@@ -9,6 +9,7 @@ import type { CharacterView } from "@/server/characters/service";
 // UI spec v1 §8 (Character Creation) — class list ซ้าย, preview กลาง (ตัดออก P2-06a: ยังไม่มี art/animation),
 // ชื่อ+ยืนยันขวา · §7.6 validation: local ขณะพิมพ์ + server ตอน submit, error ใต้ field, duplicate name
 // โฟกัสกลับ input + select text. P2 เล่นได้เฉพาะนักดาบ (decision-index 2026-07-12) — อีก 4 อาชีพ disabled.
+// Token-driven (src/app/globals.css --dp-*) — was inline hex, migrated in the E6 visual-foundation pass.
 const DISPLAY_CLASSES: { id: string; playable: boolean }[] = [
   { id: "swordsman", playable: true },
   { id: "archer", playable: false },
@@ -69,20 +70,20 @@ export function CharacterCreate({
   }
 
   return (
-    <div className="mx-auto w-full max-w-[1180px] rounded-[16px] border border-[#4A332E] bg-[#2B2230] p-6">
+    <div className="mx-auto w-full max-w-[1180px] rounded-(--dp-radius-lg) border border-(--dp-deep-brown) bg-(--dp-warm-ink) p-6">
       <div className="mb-4 flex items-center gap-4">
         <button
           type="button"
           onClick={onBack}
-          className="flex min-h-[48px] items-center justify-center rounded-[10px] border border-[#68483A] px-4 text-[14px] text-[#F2D6A0] hover:bg-[#171820]"
+          className="flex min-h-[48px] items-center justify-center rounded-(--dp-radius-md) border border-(--dp-soil-brown) px-4 text-[14px] text-(--dp-parchment) hover:bg-(--dp-deep-ink)"
         >
           ย้อนกลับ
         </button>
-        <h1 className="text-[22px] font-bold text-[#F2D6A0]">สร้างนักผจญภัย</h1>
+        <h1 className="text-[22px] font-bold text-(--dp-parchment)">สร้างนักผจญภัย</h1>
       </div>
 
       {slotsFull && (
-        <div className="mb-4 rounded-[6px] border border-[#F4B852] bg-[#171820] px-4 py-3 text-[14px] text-[#F4B852]">
+        <div className="mb-4 rounded-(--dp-radius-sm) border border-(--dp-fire-light) bg-(--dp-deep-ink) px-4 py-3 text-[14px] text-(--dp-fire-light)">
           ใช้ครบ 5/5 ช่องแล้ว
         </div>
       )}
@@ -98,11 +99,11 @@ export function CharacterCreate({
                 type="button"
                 disabled={!c.playable}
                 onClick={() => c.playable && setClassId(c.id as ClassId)}
-                className={`flex min-h-[48px] shrink-0 items-center justify-between rounded-[10px] border px-4 text-[14px] transition-colors ${
+                className={`flex min-h-[48px] shrink-0 items-center justify-between rounded-(--dp-radius-md) border px-4 text-[14px] transition-colors ${
                   selected
-                    ? "border-[#35C6B0] bg-[#171820] text-[#7CE9D0]"
-                    : "border-[#68483A] bg-transparent text-[#D8AE70]"
-                } ${c.playable ? "hover:border-[#35C6B0]" : "cursor-not-allowed opacity-50"}`}
+                    ? "border-(--dp-resonance-teal) bg-(--dp-deep-ink) text-(--dp-resonance-light)"
+                    : "border-(--dp-soil-brown) bg-transparent text-(--dp-sand)"
+                } ${c.playable ? "hover:border-(--dp-resonance-teal)" : "cursor-not-allowed opacity-50"}`}
               >
                 <span>{classLabel(c.id)}</span>
                 {!c.playable && <span className="ml-2 text-[12px]">เร็ว ๆ นี้</span>}
@@ -112,36 +113,36 @@ export function CharacterCreate({
         </div>
 
         {/* Preview placeholder — art/animation ไม่อยู่ scope P2-06a */}
-        <div className="flex min-h-[240px] items-center justify-center rounded-[10px] border border-[#68483A] bg-[#171820] text-[#8E6046]">
+        <div className="flex min-h-[240px] items-center justify-center rounded-(--dp-radius-md) border border-(--dp-soil-brown) bg-(--dp-deep-ink) text-(--dp-clay)">
           <span className="text-[64px]">{classLabel(classId).charAt(0)}</span>
         </div>
 
         {/* Name + submit */}
         <form onSubmit={submit} className="flex flex-col gap-3">
           <div>
-            <label htmlFor="char-name" className="mb-1 block text-[14px] text-[#D8AE70]">
+            <label htmlFor="char-name" className="mb-1 block text-[14px] text-(--dp-sand)">
               ชื่อตัวละคร
             </label>
             <input
               id="char-name"
               ref={nameInputRef}
-              className="w-full min-h-[48px] rounded-[6px] border border-[#68483A] bg-[#171820] px-4 text-[16px] text-[#F2D6A0] focus:outline-none focus:ring-2 focus:ring-[#35C6B0]"
+              className="w-full min-h-[48px] rounded-(--dp-radius-sm) border border-(--dp-soil-brown) bg-(--dp-deep-ink) px-4 text-[16px] text-(--dp-parchment) focus:outline-none focus:ring-2 focus:ring-(--dp-resonance-teal)"
               value={name}
               onChange={(e) => setName(e.target.value)}
               maxLength={CHARACTER_NAME_MAX + 4}
               placeholder="ตั้งชื่อผู้กล้าของคุณ"
             />
             <div className="mt-1 flex items-center justify-between text-[12px]">
-              <span className={name.length > 0 && !nameValidation.ok ? "text-[#D84848]" : "text-transparent"}>
+              <span className={name.length > 0 && !nameValidation.ok ? "text-(--dp-danger-red)" : "text-transparent"}>
                 {!nameValidation.ok ? characterNameErrorMessage(nameValidation.reason) : "ok"}
               </span>
-              <span className="text-[#8E6046]">
+              <span className="text-(--dp-clay)">
                 {Array.from(name).length} / {CHARACTER_NAME_MAX}
               </span>
             </div>
           </div>
 
-          <p className="text-[14px] text-[#D8AE70]">
+          <p className="text-[14px] text-(--dp-sand)">
             {classId === "swordsman"
               ? "แนวหน้า พลังโจมตีสูง ทนทาน — จุดเด่นของนักดาบ"
               : ""}
@@ -150,7 +151,7 @@ export function CharacterCreate({
           {submitError && (
             <div
               role="alert"
-              className="rounded-[6px] border border-[#D84848] bg-[#171820] px-4 py-3 text-[14px] text-[#D84848]"
+              className="rounded-(--dp-radius-sm) border border-(--dp-danger-red) bg-(--dp-deep-ink) px-4 py-3 text-[14px] text-(--dp-danger-red)"
             >
               {submitError}
             </div>
@@ -159,7 +160,7 @@ export function CharacterCreate({
           <button
             type="submit"
             disabled={!localValid || loading || slotsFull}
-            className="mt-2 min-h-[48px] rounded-[10px] bg-[#35C6B0] px-5 text-[16px] font-semibold text-[#171820] transition-colors hover:bg-[#7CE9D0] disabled:cursor-not-allowed disabled:opacity-50"
+            className="mt-2 min-h-[48px] rounded-(--dp-radius-md) bg-(--dp-resonance-teal) px-5 text-[16px] font-semibold text-(--dp-deep-ink) transition-colors hover:bg-(--dp-resonance-light) disabled:cursor-not-allowed disabled:opacity-50"
           >
             {loading ? "กำลังสร้าง..." : "สร้างตัวละคร"}
           </button>

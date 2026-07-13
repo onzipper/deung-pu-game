@@ -176,3 +176,70 @@ export function computeSkillDamage(
 
   return { damage: roundedTotal, crit: anyCrit, subHits };
 }
+
+// ── Mob→player contact damage + Death & Recovery (A1/A2, COMBAT_BIBLE §2/§10 · P1_BALANCE §2.2) ─────────
+// "รับ" ครึ่งหลังของ combat: มอนตี player (server-authoritative). baseMultiplier คงที่ 1.0; มอน accuracy 100 /
+// evasion 0 → โดนเสมอ (ไม่มี hit roll), ไม่ crit ใน baseline. reuse mitigationFactor ตัวเดียวกับ player→mob
+// (k เดียว, ไม่ duplicate constant).
+// ⚠️ NO tierReduction here: `tierReduction` (§15.5) เป็นตัวลด damage **ขาเข้า** ของมอน (player ตี elite/boss
+//    ให้เจ็บน้อยลง กัน AoE ล้าง) → ใช้เฉพาะ player→mob (computeDamage). สูตร §2.2 มอนตี player = `mobATK × 1.0`
+//    ล้วน (บอสตีแรงเพราะ ATK สูง ไม่ใช่เพราะ tier). — reconcile brief error, owner-confirmed 2026-07-13.
+
+/** input ของสูตร mob→player 1 hit — ทุกค่ามาจาก stat/knob ที่ caller resolve แล้ว (§15.2 / §2.2). */
+export interface MobDamageParams {
+  /** ATK ของมอน (stat) */
+  mobAtk: number;
+  /** DEF ประสิทธิผลของผู้เล่น (base + gear; มอน baseline ไม่มี penetration) */
+  playerDef: number;
+  /** k = global damage-diminishing constant (§48 knob, k > 0) — ตัวเดียวกับสูตรผู้เล่นตีมอน */
+  k: number;
+}
+
+/**
+ * damage ที่มอน 1 ตัวทำใส่ player ต่อการโจมตี 1 ครั้ง (P1_BALANCE §2.2 / COMBAT_BIBLE §2):
+ *   DMG = mobATK × 1.0 × [k / (k + playerDEF)]
+ * ปัด integer ≥ 0 (rounding เดียวกับ computeDamage). ตัวอย่าง doc: ATK6 vs DEF14, k50 → 6×(50/64) ≈ 5.
+ */
+export function computeMobDamageToPlayer(p: MobDamageParams): number {
+  const factor = mitigationFactor(p.k, Math.max(0, p.playerDef));
+  return Math.max(0, Math.round(p.mobAtk * 1.0 * factor));
+}
+
+/** ผลของ hit ต่อ hp ผู้เล่น 1 ครั้ง (pure) — clamp ≥ 0; dead เมื่อ hp แตะ 0 (COMBAT_BIBLE §10). */
+export interface PlayerHitResult {
+  /** hp หลังหัก (integer ≥ 0) */
+  hp: number;
+  /** true = hp ถึง 0 → server mark dead (§10) */
+  dead: boolean;
+}
+
+/**
+ * หัก damage เข้ากับ hp ผู้เล่น (server-authoritative, §10) — clamp ที่ 0, dead เมื่อ hp ≤ 0.
+ * **ไม่มี i-frame** (docs เงียบเรื่อง invulnerability; ฝูงหลายตัว = แรงกดดันที่ตั้งใจ, P1_BALANCE §2.2).
+ */
+export function applyDamageToPlayer(hp: number, damage: number): PlayerHitResult {
+  const next = Math.max(0, hp - Math.max(0, damage));
+  return { hp: next, dead: next <= 0 };
+}
+
+/** จุด respawn (tile coord) = safe camp ที่อนุมัติไว้ (MapConfig.safeCamp, §10 / §59.1). */
+export interface RespawnPoint {
+  tx: number;
+  ty: number;
+}
+
+/** ผล respawn (§10 Death & Recovery) — เต็ม hp ที่ safe camp, เคลียร์ death. **ไม่มี item loss** (baseline). */
+export interface PlayerRespawn {
+  pos: RespawnPoint;
+  hp: number;
+  dead: boolean;
+}
+
+/**
+ * resolve respawn ตาม COMBAT_BIBLE §10 (locked baseline): กลับไป safe camp ที่อนุมัติด้วย **hp เต็ม** + เคลียร์
+ * death. คืนเฉพาะ pos/hp/dead — **ไม่แตะ inventory/gold/durability** (no item loss ใน initial PvE baseline;
+ * penalty ที่หนักกว่าเป็น later decision, นอก scope). idempotent: เรียกซ้ำได้ผลเดิม (เต็ม hp ที่ safe camp).
+ */
+export function respawnPlayer(safeCamp: RespawnPoint, maxHp: number): PlayerRespawn {
+  return { pos: { tx: safeCamp.tx, ty: safeCamp.ty }, hp: maxHp, dead: false };
+}
