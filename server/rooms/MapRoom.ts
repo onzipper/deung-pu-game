@@ -224,6 +224,7 @@ import {
   bossBreakContribution,
   bossBreakParams,
   bossDamageModifier,
+  shouldEmitBossTelegraph,
 } from "../../src/game/mob/boss";
 import type { SkillDefinition } from "../../src/game/skill/types";
 import { loadSkillDefinitions } from "../../src/game/skill/loader";
@@ -952,24 +953,25 @@ export class MapRoom extends Room<MapRoomState> {
    */
   private broadcastBossDeltas(mobId: string, bv: BossView): void {
     const last = this.lastBossBroadcast.get(mobId);
-    if (!last || bv.telegraphSeq !== last.telegraphSeq) {
-      if (last) {
-        // seq เพิ่ม = swing ใหม่เริ่ม (skip ครั้งแรกที่ยังไม่มี baseline → ไม่ยิง telegraph หลอกตอน spawn)
-        const mobType = this.state.mobs.get(mobId)?.mobType ?? "";
-        const anticipationMs = (this.balance.mobs[mobType] ?? this.balance.defaultMob).anticipationMs;
-        const msg: BossTelegraphMessage = {
-          mobId,
-          vfxCue: "vfx_telegraph_circle_danger",
-          durationMs: anticipationMs,
-        };
-        this.broadcast(MSG_BOSS_TELEGRAPH, msg);
-      }
+    // telegraph: ยิงเมื่อ swing ใหม่เริ่ม = seq เปลี่ยนจาก baseline **หรือ** first-observation ที่ seq>0 อยู่แล้ว.
+    //   spawn state = telegraphSeq 0 เสมอ → seq>0 ครั้งแรกที่เห็น = บอส respawn แล้วเหวี่ยงในเฟรมเดียว (player ยืนจ่อ
+    //   ระยะตอน respawn tick) → **ต้อง** telegraph (§2.2 telegraph ชัด / §18.5); ยิงหลอกตอน spawn ไม่ได้ (spawn seq=0).
+    //   กันพลาด telegraph นัดแรกหลัง respawn (เดิม `if (last)` กลืน swing ที่เริ่มพร้อม first-observation).
+    if (shouldEmitBossTelegraph(last?.telegraphSeq, bv.telegraphSeq)) {
+      const mobType = this.state.mobs.get(mobId)?.mobType ?? "";
+      const anticipationMs = (this.balance.mobs[mobType] ?? this.balance.defaultMob).anticipationMs;
+      const msg: BossTelegraphMessage = {
+        mobId,
+        vfxCue: "vfx_telegraph_circle_danger",
+        durationMs: anticipationMs,
+      };
+      this.broadcast(MSG_BOSS_TELEGRAPH, msg);
     }
-    if (!last || bv.phaseIndex !== last.phaseIndex) {
-      if (last) {
-        const msg: BossPhaseMessage = { mobId, phaseIndex: bv.phaseIndex, phaseId: bv.phaseId };
-        this.broadcast(MSG_BOSS_PHASE, msg);
-      }
+    // phase: ยิงเฉพาะเมื่อเปลี่ยนจาก baseline ที่รู้ค่าแล้ว. บอสเกิด/respawn = phase 0 เสมอ → first-obs (last undefined)
+    //   ไม่ยิง phase banner หลอก (ต่างจาก telegraph ที่ seq อาจ >0 ในเฟรม respawn).
+    if (last && bv.phaseIndex !== last.phaseIndex) {
+      const msg: BossPhaseMessage = { mobId, phaseIndex: bv.phaseIndex, phaseId: bv.phaseId };
+      this.broadcast(MSG_BOSS_PHASE, msg);
     }
     this.lastBossBroadcast.set(mobId, {
       telegraphSeq: bv.telegraphSeq,

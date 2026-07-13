@@ -114,3 +114,18 @@ export function bossBreakParams(
     damageMultiplier: party ? breakCfg.damageMultiplierParty : breakCfg.damageMultiplierSolo,
   };
 }
+
+/**
+ * ควร broadcast boss telegraph รอบนี้ไหม (server, workstream B) — pure decision:
+ *   • มี baseline (`lastSeq`) แล้ว `currentSeq` ต่างออกไป = swing ใหม่เริ่ม → ยิง.
+ *   • ยังไม่มี baseline (`lastSeq` undefined = first observation ของ mobId นี้) แต่ `currentSeq` > 0 อยู่แล้ว =
+ *     บอส respawn แล้วเหวี่ยงในเฟรมเดียวกัน (player ยืนจ่อระยะตอน respawn tick) ก่อน sync แรก → **ต้อง** ยิง telegraph
+ *     (§2.2 telegraph ชัด / GS §18.5). spawn state = telegraphSeq 0 เสมอ → `currentSeq`>0 ครั้งแรกยิงหลอกไม่ได้.
+ * แก้บั๊ก: guard `if (last)` เดิมกลืน telegraph นัดแรกของ swing ที่เริ่มพร้อม first-observation หลัง respawn.
+ */
+export function shouldEmitBossTelegraph(
+  lastSeq: number | undefined,
+  currentSeq: number,
+): boolean {
+  return lastSeq === undefined ? currentSeq > 0 : currentSeq !== lastSeq;
+}

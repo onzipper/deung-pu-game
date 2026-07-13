@@ -6,6 +6,7 @@ import {
   bossDamageModifier,
   depleteGuard,
   phaseIndexForHp,
+  shouldEmitBossTelegraph,
 } from "@/game/mob/boss";
 import { DEFAULT_COMBAT_BALANCE_CONFIG } from "@/engine/config";
 import type { MobAttackTimings } from "@/game/mob/ai";
@@ -115,4 +116,15 @@ describe("bossBreakParams — solo vs party window (§2.4 verbatim)", () => {
     expect(bossBreakParams(brk, 1)).toEqual({ staggerWindowMs: 6000, damageMultiplier: 1.25 }));
   test("party (>1) = 8s / ×1.20", () =>
     expect(bossBreakParams(brk, 3)).toEqual({ staggerWindowMs: 8000, damageMultiplier: 1.2 }));
+});
+
+describe("shouldEmitBossTelegraph — telegraph นัดแรกหลัง respawn ไม่หาย (§2.2/§18.5)", () => {
+  test("first-observation seq 0 (บอสเกิด/respawn ยัง idle) → ไม่ยิง (spawn ไม่หลอก)", () =>
+    expect(shouldEmitBossTelegraph(undefined, 0)).toBe(false));
+  test("first-observation seq>0 (respawn+เหวี่ยงในเฟรมเดียว, player จ่อระยะ) → ยิง", () =>
+    expect(shouldEmitBossTelegraph(undefined, 1)).toBe(true));
+  test("มี baseline + seq เปลี่ยน → ยิง (swing ใหม่)", () =>
+    expect(shouldEmitBossTelegraph(1, 2)).toBe(true));
+  test("มี baseline + seq เท่าเดิม → ไม่ยิง (ยัง swing เดิม)", () =>
+    expect(shouldEmitBossTelegraph(2, 2)).toBe(false));
 });

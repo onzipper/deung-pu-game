@@ -82,8 +82,13 @@ export interface MobAiConfig {
   aggroRadius: Record<string, number>;
   /** aggro radius เริ่มต้นเมื่อ mobType ไม่ตรงใน aggroRadius */
   defaultAggroRadius: number;
-  /** ระยะ (tile) จากจุดเกิดที่มอนถูกลากเกิน → leash กลับ (§18.3 "ลากนานเกิน/ออก pocket") */
-  leashRadius: number;
+  /**
+   * ระยะ (tile) จากจุดเกิดที่มอนถูกลากเกิน → leash กลับ **ต่อ mobType** (D-055 §9.3 — supersede §18.3 global).
+   * ไม่พบ key → defaultLeashRadius. ต้อง > aggroRadius ต่อ mobType (acquire ก่อน leash-out; boss กัน kite-reset).
+   */
+  leashRadius: Record<string, number>;
+  /** leash radius เริ่มต้นเมื่อ mobType ไม่ตรงใน leashRadius */
+  defaultLeashRadius: number;
   /** ระยะ (tile) ที่เป้าห่างมอนเกิน → เลิก aggro (ไล่ไม่ทัน → ปล่อย) */
   deaggroRadius: number;
   /** ระยะ (tile) จากจุดเกิดที่ถือว่ากลับถึงแล้ว → reset เป็น wander */
@@ -176,7 +181,17 @@ export const DEFAULT_MOB_CONFIG: MobConfig = {
       mushroom: 5, // test-field placeholder (ไม่ใช่ Map 1/D-055)
     },
     defaultAggroRadius: 4,
-    leashRadius: 8, // ลากออกจากจุดเกิดเกิน 8 tile → กลับ (Map 1 pocket ~5–6 tile)
+    leashRadius: {
+      // Map 1 production (D-055 §9.3 leashRadius tiles; ต้อง > aggroRadius ต่อ mobType). boss 18 = ลากบอสออกไกล
+      // ได้ก่อน leash-return (กัน kite/soft-reset cheese; OWNER_PRODUCTION_DECISIONS §2.2 "boss ไม่ใช่ HP sponge").
+      slime: 9, // mon_map1_slime
+      bird: 11, // mon_map1_bird
+      boar: 10, // mon_map1_boar
+      boar_elite: 14, // elite_map1_boar_rampage
+      boss_boiling_boar: 18, // Field Boss หมูป่าหม้อเดือด
+      mushroom: 9, // test-field placeholder (ไม่ใช่ Map 1/D-055) — mirror slime
+    },
+    defaultLeashRadius: 8, // fallback เมื่อ mobType ไม่ตรง (tech default, > defaultAggroRadius 4)
     deaggroRadius: 9, // เป้าหนีห่างมอนเกิน 9 tile → ปล่อย
     returnResetRadius: 0.75, // ถึงจุดเกิดในระยะ < 1 tile → reset wander
     pullCap: 10, // §18.3 Map 1: 8–12 → กลางช่วง

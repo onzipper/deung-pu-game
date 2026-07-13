@@ -276,6 +276,10 @@ export function createMobSimulation(params: MobSimulationParams): MobSimulation 
   );
   const aggroRadiusFor = (mobType: string): number =>
     ai.aggroRadius[mobType] ?? ai.defaultAggroRadius;
+  // A/B (D-055 §9.3): leash ต่อ mobType — boss ลากได้ไกลกว่า (18) ก่อน leash-return กัน kite/soft-reset cheese
+  //   (OWNER §2.2 "boss ไม่ใช่ HP sponge"). ไม่พบ key → defaultLeashRadius. คู่กับ aggroRadiusFor.
+  const leashRadiusFor = (mobType: string): number =>
+    ai.leashRadius[mobType] ?? ai.defaultLeashRadius;
   const respawnDelayFor = (pocket: MobPocket): number =>
     pocket.respawnDelayMs ?? config.respawnDelayMs;
 
@@ -418,7 +422,7 @@ export function createMobSimulation(params: MobSimulationParams): MobSimulation 
     // 2) chase → return? (leash: เป้าหาย/ลากไกล/ไล่ไม่ทัน)
     if (mob.mode === "chase") {
       const target = mob.targetPlayerId ? playerById.get(mob.targetPlayerId) : null;
-      if (shouldReturnToSpawn(mob.pos, mob.spawnOrigin, target, ai.deaggroRadius, ai.leashRadius)) {
+      if (shouldReturnToSpawn(mob.pos, mob.spawnOrigin, target, ai.deaggroRadius, leashRadiusFor(mob.mobType))) {
         if (mob.targetPlayerId) {
           const c = pullCounts.get(mob.targetPlayerId) ?? 0;
           if (c > 0) pullCounts.set(mob.targetPlayerId, c - 1); // ปล่อยสิทธิ์
