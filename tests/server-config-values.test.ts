@@ -257,7 +257,8 @@ describe("reinforcement / pity / fragment (Reinforcement doc §3.5/§4)", () => 
   test("first kill ไม่การันตี (§4.3) + P2 flag NO_REINFORCEMENT = true (R8)", () => {
     expect(r.firstKillGuaranteed).toBe(false);
     expect(r.noReinforcement).toBe(true);
-    expect(r.bossId).toBe("boss_map1_resonant_guardian");
+    // D-064: pity/fragment ผูกกับ Field Boss หมูป่าหม้อเดือด (id owner-approved 2026-07-13)
+    expect(r.bossId).toBe("boss_map1_boiling_boar");
   });
 });
 

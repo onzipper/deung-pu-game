@@ -11,7 +11,7 @@
 
 | ชั้น | ตัว | กติกา | เฟส |
 |---|---|---|---|
-| Field (ประจำแมพ 1 ตัว/แมพ) | **หมูป่าหม้อเดือด** = Field Boss ตัวจริง Map 1 (เลื่อนจาก legacy placeholder ใน D-047) | open-world respawn ~3–5 นาที (knob) เดี่ยว/ปาร์ตี้เล็ก · แหล่ง**เศษ**เสริมแกร่ง 10.7% (D-051) | P2B |
+| Field (ประจำแมพ 1 ตัว/แมพ) | **หมูป่าหม้อเดือด** = Field Boss ตัวจริง Map 1 (เลื่อนจาก legacy placeholder ใน D-047) · monster id owner-approved 2026-07-13: `boss_map1_boiling_boar` (ผูก pity/fragment ใน reinforcement config) · E3 stats ของตัวนี้ = P2B prep | open-world respawn ~3–5 นาที (knob) เดี่ยว/ปาร์ตี้เล็ก · แหล่ง**เศษ**เสริมแกร่ง 10.7% (D-051) | P2B |
 | Story | **ผู้พิทักษ์เสียงสะท้อน** lv8 (D-047) = กลไกผนึกที่ตื่น | instanced ผูกเควส · รางวัลเนื้อเรื่อง ไม่ใช่แหล่งเศษ | P2B |
 | World | "รากแรกแห่งรอยแยก" (game §7) | spawn slot ค่ำ 20:00–23:00 · open-tap นับ contribution (D-038) ~10–20 คน (knob) · โอกาส**เสริมแกร่งตัวเต็ม 20–25%** | P3+ |
 

@@ -138,6 +138,8 @@ const DROP_TABLES: DropTable[] = [
   {
     dropTableId: "drop_map1_boss_v1",
     monsterId: "boss_map1_resonant_guardian",
+    // D-064: guardian = Story Boss (instanced) · Field Boss ตัวฟาร์ม = boss_map1_boiling_boar —
+    // การย้าย loot/rewards ไป Field Boss + stats ของมัน = P2B prep (รอ owner balance, ห้ามเดา)
     phase: "P2B", // reserved baseline (§11.6) — ปรับได้หลัง Boss Playtest
     // §11.6 guaranteed upg_kraeng ×2 = SUPERSEDED (Reinforcement §4 → boss 8%+pity ใน reinforcement.ts): ตัดออก
     guaranteed: [

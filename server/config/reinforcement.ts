@@ -10,7 +10,9 @@ import type { ReinforcementConfig } from "./types";
 /** DEFAULT reinforcement config (fallback ในโค้ด) — ดู loader.ts สำหรับ override ผ่าน DB. */
 export const DEFAULT_REINFORCEMENT_CONFIG: ReinforcementConfig = {
   materialId: "upg_reinforcement", // §3.1 (rename จาก upg_kraeng, R10)
-  bossId: "boss_map1_resonant_guardian", // §4.4 Map 1 boss — pity scope target
+  // D-064 (2026-07-13): Field Boss Map 1 = หมูป่าหม้อเดือด (id owner-approved) — แหล่งเศษ/pity ตัวจริง.
+  // resonant_guardian กลายเป็น Story Boss (instanced, ไม่ใช่แหล่งฟาร์ม — ห้ามผูก pity/fragment กับมัน).
+  bossId: "boss_map1_boiling_boar", // §4.4 + D-064 — pity scope target (E3 stats ของตัวนี้ = P2B prep)
   firstKillGuaranteed: false, // §4.3
   sources: {
     // §4.4 Map 1 baseline

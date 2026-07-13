@@ -286,7 +286,7 @@ export interface StorageConfig {
 export interface ReinforcementConfig {
   /** ไอเทมเสริมแกร่ง (§3.1) — canonical id `upg_reinforcement` (rename จาก upg_kraeng, R10). */
   materialId: string;
-  /** boss ที่ pity ผูกด้วย (scope account-per-boss) — Map 1 = boss_map1_resonant_guardian. */
+  /** boss ที่ pity ผูกด้วย (scope account-per-boss) — Map 1 = boss_map1_boiling_boar (Field Boss, D-064). */
   bossId: string;
   /** First Kill ไม่การันตีเสริมแกร่ง (§4.3) */
   firstKillGuaranteed: boolean;
