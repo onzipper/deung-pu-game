@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" shape-rendering="crispEdges">
+  <!-- empty talisman slot — faint Ink silhouette -->
+  <rect x="10" y="10" width="44" height="44" fill="none" stroke="#2B2230" stroke-width="1" stroke-dasharray="4 3"/>
+  <polygon points="25,16 39,16 39,40 32,46 25,40" fill="none" stroke="#2B2230" stroke-width="1.5" stroke-opacity="0.6"/>
+</svg>
