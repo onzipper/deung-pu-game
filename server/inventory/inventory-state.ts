@@ -16,12 +16,15 @@ import {
 import type {
   InventoryRepository,
   ItemInstanceRecord,
+  StorageRepository,
 } from "../../src/server/inventory/repository";
 import type { EnhancementCurve } from "../../src/server/inventory/equipment-stats";
 import type { ReinforcementRules } from "../../src/server/inventory/enhancement-service";
 import { DEFAULT_ECONOMY_CONFIG } from "../config/economy";
 import { DEFAULT_REINFORCEMENT_CONFIG } from "../config/reinforcement";
+import { DEFAULT_STORAGE_CONFIG } from "../config/storage";
 import { ECONOMY_CONFIG_DEF } from "../config/loader";
+import type { StorageConfig } from "../config/types";
 
 /** bag capacity used by the room (Storage §1.2). */
 export const INVENTORY_CAPACITY = DEFAULT_INVENTORY_CAPACITY;
@@ -42,7 +45,20 @@ export const REINFORCEMENT_RULES: ReinforcementRules = {
 /** economy config version stamped on enhancement_logs (the in-code DEFAULT version). */
 export const ENHANCEMENT_CONFIG_VERSION = ECONOMY_CONFIG_DEF.defaultVersion;
 
-const repository: InventoryRepository = createPrismaInventoryRepository();
+// P2-17 — server-authoritative Design Knobs for personal storage + delivery box (Storage §10/§15/§16). Same
+// posture as ITEM_CATALOG / SHOP_CONFIG (in-code DEFAULT; DB config_versions override via loader.ts not yet
+// wired into the room — env-free/sync, DB empty until P2-16).
+/** personal storage + delivery config (capacity 200, access map, fill thresholds, delivery expiry). */
+export const STORAGE_CONFIG: StorageConfig = DEFAULT_STORAGE_CONFIG;
+/** account-shared storage capacity (§10.1 = 200). */
+export const STORAGE_CAPACITY = DEFAULT_STORAGE_CONFIG.capacity;
+
+/** true = the storage NPC is reachable on `mapId` (§10.4 safe town) — server-authoritative availability (like shop). */
+export function storageAvailableForMap(mapId: string): boolean {
+  return STORAGE_CONFIG.accessMapIds.includes(mapId);
+}
+
+const repository: InventoryRepository & StorageRepository = createPrismaInventoryRepository();
 let inventoryWarned = false;
 
 /** DATABASE_URL set? (no DB = dev/e2e → inventory not persisted, mutations rejected). */
@@ -62,6 +78,11 @@ export function inventoryPersistenceAvailable(): boolean {
 
 /** the Prisma-backed repository (mutations go through this — strict). */
 export function getInventoryRepository(): InventoryRepository {
+  return repository;
+}
+
+/** the same repo object, typed for the account-level storage + delivery ops (P2-17). */
+export function getStorageRepository(): InventoryRepository & StorageRepository {
   return repository;
 }
 

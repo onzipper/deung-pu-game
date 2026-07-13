@@ -91,6 +91,14 @@ import {
   MSG_SHOP_BUY,
   MSG_SHOP_SELL,
   MSG_SHOP_RESULT,
+  MSG_STORAGE_OPEN,
+  MSG_STORAGE_STATE,
+  MSG_STORAGE_DEPOSIT,
+  MSG_STORAGE_WITHDRAW,
+  MSG_STORAGE_RESULT,
+  MSG_DELIVERY_STATE,
+  MSG_DELIVERY_CLAIM,
+  MSG_DELIVERY_RESULT,
   WS_CLOSE_SESSION_TAKEN_OVER,
   type CastRejectedMessage,
   type CastSkillMessage,
@@ -112,6 +120,13 @@ import {
   type ShopBuyMessage,
   type ShopSellMessage,
   type ShopResultMessage,
+  type StorageMoveMessage,
+  type StorageStateMessage,
+  type StorageResultMessage,
+  type StorageOp,
+  type DeliveryClaimMessage,
+  type DeliveryStateMessage,
+  type DeliveryResultMessage,
 } from "../../src/shared/net-protocol";
 import {
   validateMove,
@@ -144,6 +159,17 @@ import {
   enhanceEquipment,
   type EnhanceResult,
 } from "../../src/server/inventory/enhancement-service";
+import {
+  depositToStorage,
+  withdrawFromStorage,
+  claimDeliveryEntry,
+  buildStorageSnapshot,
+  buildDeliverySnapshot,
+  type StorageServiceDeps,
+  type DeliveryServiceDeps,
+  type StorageOpResult,
+  type DeliveryClaimResult,
+} from "../../src/server/inventory/storage-service";
 import { aggregateEquipmentBonus } from "../../src/server/inventory/equipment-stats";
 import { applyEquipmentBonus } from "../../src/server/inventory/item-catalog";
 import {
@@ -152,6 +178,10 @@ import {
   ENHANCEMENT_CURVE,
   REINFORCEMENT_RULES,
   ENHANCEMENT_CONFIG_VERSION,
+  STORAGE_CONFIG,
+  STORAGE_CAPACITY,
+  storageAvailableForMap,
+  getStorageRepository,
   getInventoryRepository,
   inventoryPersistenceAvailable,
   loadCharacterItemsBestEffort,
@@ -568,6 +598,22 @@ export class MapRoom extends Room<MapRoomState> {
     });
     this.onMessage(MSG_SHOP_SELL, (client: Client, message: ShopSellMessage) => {
       void this.runShopSell(client, message);
+    });
+
+    // P2-17: personal storage (200 shared slots) + delivery box (Storage §10–§16/§22) — server-authoritative +
+    //   idempotent. open = storage+delivery snapshot บน map ที่มี NPC (§10.4); deposit/withdraw/claim = intent
+    //   → service ตัดสิน (policy จาก config + optimistic lock + capacity) → MSG_*_RESULT (+ snapshot ใหม่).
+    this.onMessage(MSG_STORAGE_OPEN, (client: Client) => {
+      void this.handleStorageOpen(client);
+    });
+    this.onMessage(MSG_STORAGE_DEPOSIT, (client: Client, message: StorageMoveMessage) => {
+      void this.runStorageMove(client, "deposit", message);
+    });
+    this.onMessage(MSG_STORAGE_WITHDRAW, (client: Client, message: StorageMoveMessage) => {
+      void this.runStorageMove(client, "withdraw", message);
+    });
+    this.onMessage(MSG_DELIVERY_CLAIM, (client: Client, message: DeliveryClaimMessage) => {
+      void this.runDeliveryClaim(client, message);
     });
 
     this.onMessage(MSG_MOVE, (client: Client, message: MoveMessage) => {
@@ -1144,6 +1190,168 @@ export class MapRoom extends Room<MapRoomState> {
   private sendShopReject(client: Client, op: "buy" | "sell", itemId: string, reason: string): void {
     const rejected: ShopResultMessage = { op, ok: false, itemId, quantity: 0, gold: GOLD_UNKNOWN, reason };
     client.send(MSG_SHOP_RESULT, rejected);
+  }
+
+  // ── P2-17 personal storage + delivery box ──────────────────────────────────
+  /** storage service Design Knobs (config) + the account-level repo — rebuilt per call (env-free, cheap). */
+  private storageServiceDeps(): StorageServiceDeps {
+    return {
+      repo: getStorageRepository(),
+      catalog: ITEM_CATALOG,
+      capacity: STORAGE_CAPACITY,
+      fill: STORAGE_CONFIG.fill,
+    };
+  }
+  private deliveryServiceDeps(): DeliveryServiceDeps {
+    return {
+      repo: getStorageRepository(),
+      maxEntries: STORAGE_CONFIG.deliveryMaxEntries,
+      warnDaysBeforeExpiry: STORAGE_CONFIG.deliveryExpiry.warnDaysBeforeExpiry,
+      urgentDaysBeforeExpiry: STORAGE_CONFIG.deliveryExpiry.urgentDaysBeforeExpiry,
+    };
+  }
+
+  /** unavailable snapshots (map has no storage NPC / anonymous / no DB) — client hides the storage UI. */
+  private sendStorageUnavailable(client: Client): void {
+    const storage: StorageStateMessage = {
+      available: false,
+      capacity: STORAGE_CAPACITY,
+      used: 0,
+      fillState: "normal",
+      items: [],
+    };
+    const delivery: DeliveryStateMessage = {
+      available: false,
+      maxEntries: STORAGE_CONFIG.deliveryMaxEntries,
+      used: 0,
+      entries: [],
+    };
+    client.send(MSG_STORAGE_STATE, storage);
+    client.send(MSG_DELIVERY_STATE, delivery);
+  }
+
+  /**
+   * P2-17: open the storage NPC → send both the account-storage snapshot (§11.1) and the delivery snapshot
+   * (§16.6, with server-computed expiry status). Gated by map (§10.4) + a character-bound session + DB.
+   */
+  private async handleStorageOpen(client: Client): Promise<void> {
+    const rec = this.sessionCharacters.get(client.sessionId);
+    if (!storageAvailableForMap(this.state.mapId) || !rec || !inventoryPersistenceAvailable()) {
+      this.sendStorageUnavailable(client);
+      return;
+    }
+    try {
+      const stored = await getStorageRepository().listAccountStorage(rec.accountId);
+      const storage = buildStorageSnapshot(stored, STORAGE_CAPACITY, STORAGE_CONFIG.fill, true);
+      const delivery = await buildDeliverySnapshot(this.deliveryServiceDeps(), rec.accountId, Date.now(), true);
+      client.send(MSG_STORAGE_STATE, storage);
+      client.send(MSG_DELIVERY_STATE, delivery);
+    } catch (err) {
+      console.warn(
+        `[MapRoom ${this.roomId}] storage open DB error ${client.sessionId}: ` +
+          (err instanceof Error ? err.message : String(err)),
+      );
+      this.sendStorageUnavailable(client);
+    }
+  }
+
+  /**
+   * P2-17: deposit/withdraw one item between the bag and account storage (§13/§14) — server-authoritative +
+   * idempotent (replay = no-op). Success → MSG_STORAGE_RESULT(ok) + MSG_STORAGE_STATE + MSG_INVENTORY_STATE.
+   * Business reject → reason (§13.2/§14). DB error → surface (never-downgrade: an un-persisted move must not
+   * look done) as TRANSACTION_CONFLICT so the client re-syncs.
+   */
+  private async runStorageMove(
+    client: Client,
+    op: StorageOp,
+    message: StorageMoveMessage,
+  ): Promise<void> {
+    const instanceId = String(message?.instanceId ?? "");
+    const rec = this.sessionCharacters.get(client.sessionId);
+    if (!storageAvailableForMap(this.state.mapId) || !rec || !inventoryPersistenceAvailable()) {
+      this.sendStorageReject(client, op, instanceId, "STORAGE_UNAVAILABLE");
+      return;
+    }
+    const intent = {
+      accountId: rec.accountId,
+      characterId: rec.characterId,
+      instanceId,
+      expectedVersion: Number(message?.expectedVersion),
+      idempotencyKey: String(message?.idempotencyKey ?? ""),
+    };
+    let result: StorageOpResult;
+    try {
+      result =
+        op === "deposit"
+          ? await depositToStorage(this.storageServiceDeps(), intent)
+          : await withdrawFromStorage(this.storageServiceDeps(), { ...intent, bagCapacity: INVENTORY_CAPACITY });
+    } catch (err) {
+      console.error(
+        `[MapRoom ${this.roomId}] storage ${op} DB error ${client.sessionId} (${instanceId}): ` +
+          (err instanceof Error ? err.message : String(err)),
+      );
+      this.sendStorageReject(client, op, instanceId, "TRANSACTION_CONFLICT");
+      return;
+    }
+    if (!result.ok) {
+      this.sendStorageReject(client, op, instanceId, result.reason);
+      return;
+    }
+    const ok: StorageResultMessage = { op, ok: true, instanceId };
+    client.send(MSG_STORAGE_RESULT, ok);
+    client.send(MSG_STORAGE_STATE, result.storage);
+    await this.sendInventorySnapshot(client, rec.characterId);
+  }
+
+  /**
+   * P2-17: claim one delivery entry's items into the bag (§16.5) — all-or-nothing per entry, idempotent.
+   * Success → MSG_DELIVERY_RESULT(ok, granted) + MSG_DELIVERY_STATE + MSG_INVENTORY_STATE. Reject → reason.
+   */
+  private async runDeliveryClaim(client: Client, message: DeliveryClaimMessage): Promise<void> {
+    const entryId = String(message?.entryId ?? "");
+    const rec = this.sessionCharacters.get(client.sessionId);
+    if (!storageAvailableForMap(this.state.mapId) || !rec || !inventoryPersistenceAvailable()) {
+      this.sendDeliveryReject(client, entryId, "STORAGE_UNAVAILABLE");
+      return;
+    }
+    let result: DeliveryClaimResult;
+    try {
+      result = await claimDeliveryEntry(this.deliveryServiceDeps(), {
+        accountId: rec.accountId,
+        characterId: rec.characterId,
+        entryId,
+        bagCapacity: INVENTORY_CAPACITY,
+        nowMs: Date.now(),
+        idempotencyKey: String(message?.idempotencyKey ?? ""),
+      });
+    } catch (err) {
+      console.error(
+        `[MapRoom ${this.roomId}] delivery claim DB error ${client.sessionId} (${entryId}): ` +
+          (err instanceof Error ? err.message : String(err)),
+      );
+      this.sendDeliveryReject(client, entryId, "TRANSACTION_CONFLICT");
+      return;
+    }
+    if (!result.ok) {
+      this.sendDeliveryReject(client, entryId, result.reason);
+      return;
+    }
+    const ok: DeliveryResultMessage = { ok: true, entryId, granted: result.granted };
+    client.send(MSG_DELIVERY_RESULT, ok);
+    client.send(MSG_DELIVERY_STATE, result.delivery);
+    await this.sendInventorySnapshot(client, rec.characterId);
+  }
+
+  /** P2-17: uniform storage reject (op + echoed instance + §13.2 error code). */
+  private sendStorageReject(client: Client, op: StorageOp, instanceId: string, reason: string): void {
+    const rejected: StorageResultMessage = { op, ok: false, instanceId, reason };
+    client.send(MSG_STORAGE_RESULT, rejected);
+  }
+
+  /** P2-17: uniform delivery reject (echoed entry + §16 error code; empty grant). */
+  private sendDeliveryReject(client: Client, entryId: string, reason: string): void {
+    const rejected: DeliveryResultMessage = { ok: false, entryId, granted: [], reason };
+    client.send(MSG_DELIVERY_RESULT, rejected);
   }
 
   async onJoin(client: Client, options: JoinOptions): Promise<void> {

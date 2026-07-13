@@ -12,6 +12,11 @@
 //    Starter loadout distribution (§7.7) is NOT implemented here — follow-up (see the report).
 
 import type { PlayerCombatStats } from "@/engine/config";
+import type {
+  ItemSharingPolicy,
+  ItemBindType,
+  ItemStoragePolicy,
+} from "../../../server/config/types";
 
 /**
  * inventory bag capacity per character (Storage §1.2 / Flow Spec `slotsPerCharacter: 40`). This IS a spec
@@ -109,7 +114,32 @@ export interface ItemDefinition {
    * the config source for that stamp. null = no restriction.
    */
   uniqueEquipGroup?: string | null;
+  /**
+   * §12.1 sharing policy (bind/storage/trade) — static per-type Design Knob (S3, NOT a DB column). Absent =
+   * the shareable default {@link DEFAULT_SHARING_POLICY} (§12.2 Category A: UNBOUND/ALLOWED/NONE). A
+   * CHARACTER_BOUND / BLOCKED type is refused deposit (§12.4) by the storage service via {@link sharingPolicyOf}.
+   */
+  sharing?: ItemSharingPolicy;
 }
+
+/**
+ * §12.2 Category A default — every Map 1 item is shareable through storage (materials/consumables/unbound
+ * equipment). No Category C (CHARACTER_BOUND/BLOCKED) type exists on Map 1 yet — that is content the owner
+ * decides (a quest/story key item), so none is invented here; the BLOCKED deposit path is proven via an
+ * injected policy in tests. tradePolicy = NONE for all of P2 (no market, §18.1).
+ */
+export const DEFAULT_SHARING_POLICY: ItemSharingPolicy = {
+  bindType: "UNBOUND",
+  storagePolicy: "ALLOWED",
+  tradePolicy: "NONE",
+};
+
+/** sharing policy of an item def (§12.1) — the per-type config value, or the Category-A default when absent. */
+export function sharingPolicyOf(def: ItemDefinition | undefined): ItemSharingPolicy {
+  return def?.sharing ?? DEFAULT_SHARING_POLICY;
+}
+
+export type { ItemSharingPolicy, ItemBindType, ItemStoragePolicy };
 
 export type ItemCatalog = ReadonlyMap<string, ItemDefinition>;
 

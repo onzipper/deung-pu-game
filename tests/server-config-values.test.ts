@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest";
 import {
   DEFAULT_ECONOMY_CONFIG,
   DEFAULT_REINFORCEMENT_CONFIG,
+  DEFAULT_STORAGE_CONFIG,
 } from "../server/config";
 
 // P2-09 — lock server config values ตรง decision docs (กันพิมพ์ผิดในค่า balance/RNG — never-downgrade zone).
@@ -257,5 +258,36 @@ describe("reinforcement / pity / fragment (Reinforcement doc §3.5/§4)", () => 
     expect(r.firstKillGuaranteed).toBe(false);
     expect(r.noReinforcement).toBe(true);
     expect(r.bossId).toBe("boss_map1_resonant_guardian");
+  });
+});
+
+// P2-17 — personal storage + delivery box config (Storage §10/§15/§16).
+describe("storage config (Storage §10/§15/§16)", () => {
+  const s = DEFAULT_STORAGE_CONFIG;
+
+  test("capacity 200 shared + delivery 50 entries (§10.1/§16.3)", () => {
+    expect(s.capacity).toBe(200);
+    expect(s.deliveryMaxEntries).toBe(50);
+  });
+
+  test("fill thresholds 80/90 (§15.1) + expiry warn 7d/urgent 1d (§16.4)", () => {
+    expect(s.fill.warnPercent).toBe(80);
+    expect(s.fill.alertPercent).toBe(90);
+    expect(s.deliveryExpiry.warnDaysBeforeExpiry).toBe(7);
+    expect(s.deliveryExpiry.urgentDaysBeforeExpiry).toBe(1);
+  });
+
+  test("expiry per source (§16.4): paid/gm/achievement = never; comp/event = 90; market = 30", () => {
+    const d = s.deliveryExpiry.daysBySource;
+    expect(d.paid_item).toBeNull();
+    expect(d.gm_gift).toBeNull();
+    expect(d.achievement_reward).toBeNull();
+    expect(d.compensation).toBe(90);
+    expect(d.event_reward).toBe(90);
+    expect(d.market_purchase).toBe(30);
+  });
+
+  test("storage NPC reachable in the safe town (§10.4) — city hub, config-driven", () => {
+    expect(s.accessMapIds).toContain("city-hub");
   });
 });

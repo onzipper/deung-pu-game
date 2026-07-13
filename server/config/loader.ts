@@ -10,7 +10,8 @@
 
 import { DEFAULT_ECONOMY_CONFIG } from "./economy";
 import { DEFAULT_REINFORCEMENT_CONFIG } from "./reinforcement";
-import type { EconomyConfig, ReinforcementConfig } from "./types";
+import { DEFAULT_STORAGE_CONFIG } from "./storage";
+import type { EconomyConfig, ReinforcementConfig, StorageConfig } from "./types";
 
 /** 1 แถวของ config_versions ที่ loader อ่าน (subset — payload = JSON already parsed by driver). */
 export interface ConfigVersionRow {
@@ -201,6 +202,27 @@ function parseReinforcementConfig(payload: unknown): ReinforcementConfig | null 
   return payload as unknown as ReinforcementConfig;
 }
 
+/** validate StorageConfig payload — capacity/thresholds/expiry อยู่ในช่วง (never-downgrade: bad cap = item loss). */
+function parseStorageConfig(payload: unknown): StorageConfig | null {
+  if (!isObject(payload)) return null;
+  const p = payload as Partial<StorageConfig>;
+  if (!isNum(p.capacity) || p.capacity <= 0) return null;
+  if (!Array.isArray(p.accessMapIds) || !p.accessMapIds.every((m) => typeof m === "string")) return null;
+  if (!isNum(p.deliveryMaxEntries) || p.deliveryMaxEntries <= 0) return null;
+
+  const fill = p.fill;
+  if (!isObject(fill) || !isPercent(fill.warnPercent) || !isPercent(fill.alertPercent)) return null;
+  if (fill.warnPercent > fill.alertPercent) return null;
+
+  const exp = p.deliveryExpiry;
+  if (!isObject(exp) || !isNum(exp.warnDaysBeforeExpiry) || !isNum(exp.urgentDaysBeforeExpiry)) return null;
+  if (!isObject(exp.daysBySource)) return null;
+  for (const v of Object.values(exp.daysBySource)) {
+    if (v !== null && (!isNum(v) || v < 0)) return null;
+  }
+  return payload as unknown as StorageConfig;
+}
+
 // ── config definitions (config_versions keys) ────────────────────────────────
 /** key `economy` — EXP/drop/milestone/enhancement bundle (Economy §9–§18 · D-053/D-054). */
 export const ECONOMY_CONFIG_DEF: ConfigDefinition<EconomyConfig> = {
@@ -218,6 +240,14 @@ export const REINFORCEMENT_CONFIG_DEF: ConfigDefinition<ReinforcementConfig> = {
   parse: parseReinforcementConfig,
 };
 
+/** key `storage` — personal storage + delivery box (Storage §10/§15/§16). */
+export const STORAGE_CONFIG_DEF: ConfigDefinition<StorageConfig> = {
+  key: "storage",
+  defaultVersion: 1,
+  defaultValue: DEFAULT_STORAGE_CONFIG,
+  parse: parseStorageConfig,
+};
+
 /** โหลด economy config (best-effort). source = null → default. */
 export function loadEconomyConfig(source: ConfigVersionSource | null): Promise<LoadedConfig<EconomyConfig>> {
   return loadConfig(source, ECONOMY_CONFIG_DEF);
@@ -227,6 +257,12 @@ export function loadReinforcementConfig(
   source: ConfigVersionSource | null,
 ): Promise<LoadedConfig<ReinforcementConfig>> {
   return loadConfig(source, REINFORCEMENT_CONFIG_DEF);
+}
+/** โหลด storage config (best-effort). source = null → default. */
+export function loadStorageConfig(
+  source: ConfigVersionSource | null,
+): Promise<LoadedConfig<StorageConfig>> {
+  return loadConfig(source, STORAGE_CONFIG_DEF);
 }
 
 // ── warn-once (กัน log spam ต่อ key) ─────────────────────────────────────────
