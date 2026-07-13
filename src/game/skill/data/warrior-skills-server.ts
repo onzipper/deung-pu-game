@@ -5,7 +5,7 @@
 //   damageType/maxTargets/hitCount/bossModifier/pvpModifier/crowdControl/serverAuthority) — balance data
 //   ที่ห้ามหลุด client bundle. import ได้เฉพาะ `server/**` + tests. **client ห้าม import ไฟล์นี้**
 //   (แม้จะเรียก clientView() ตอน runtime ก็ไม่ช่วย — literal value ถูก bundle ลง browser ตั้งแต่ import แล้ว;
-//   ดู known-traps "import ข้อมูล server-only = รั่วเท่ากับ import สูตร"). client ใช้ warrior-skills-client.ts.
+//   ดู docs/context/game.md "import ข้อมูล server-only = รั่วเท่ากับ import สูตร"). client ใช้ warrior-skills-client.ts.
 //
 // >>> PENDING OWNER — ตัวเลขทั้งหมดในไฟล์นี้ยังไม่ใช่ spec ที่เคาะแล้ว <<<
 // ค่า copy ตรงจาก docs/design/proposals/deungpu_P1_BALANCE_PROPOSAL_v1.md §3.1

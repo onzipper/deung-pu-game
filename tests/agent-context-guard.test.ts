@@ -45,6 +45,13 @@ describe("agent context guard", () => {
     "docs/current-state.md": 3_072,
     "docs/feature-map.md": 6_144,
     "docs/CODEMAP.md": 8_192,
+    // Per-layer context packs (C6, 2026-07-13): one pack = one layer's read.
+    // An agent reads ONE pack, so each must stay small. Full war stories live in
+    // docs/history/2026-07-13-known-traps-archive.md — trim the pack, don't raise the cap.
+    "docs/context/engine.md": 8_192,
+    "docs/context/game.md": 8_192,
+    "docs/context/ui.md": 8_192,
+    "docs/context/server.md": 8_192,
   };
 
   for (const [relPath, cap] of Object.entries(BYTE_CAPS)) {
@@ -53,6 +60,76 @@ describe("agent context guard", () => {
       expect(bytesOf(relPath)).toBeLessThanOrEqual(cap);
     });
   }
+
+  // Context packs replaced the monolithic docs/known-traps.md (C6, 2026-07-13):
+  // an agent reads one per-layer pack, not one big file. These rules keep the split
+  // honest — the old file is gone, every pack carries its Traps section, and no live
+  // doc dangles a pointer to the deleted file (the archive filename is the only
+  // legitimate mention, and it lives under docs/history/).
+  describe("context packs replace known-traps.md", () => {
+    const PACKS = [
+      "docs/context/engine.md",
+      "docs/context/game.md",
+      "docs/context/ui.md",
+      "docs/context/server.md",
+    ];
+    const ARCHIVE = "2026-07-13-known-traps-archive.md";
+
+    test("docs/known-traps.md no longer exists (folded into packs + archive)", () => {
+      expect(existsSync(join(ROOT, "docs/known-traps.md"))).toBe(false);
+    });
+
+    test("the verbatim archive exists under docs/history/", () => {
+      expect(existsSync(join(ROOT, "docs/history", ARCHIVE))).toBe(true);
+    });
+
+    for (const pack of PACKS) {
+      test(`${pack} exists and carries a "## Traps" section`, () => {
+        expect(existsSync(join(ROOT, pack))).toBe(true);
+        expect(textOf(pack)).toContain("## Traps");
+      });
+    }
+
+    // Every live .md (outside docs/history) must not reference the deleted file.
+    // The archive filename legitimately contains the substring "known-traps", so it
+    // is stripped before the check — a pointer to the archive is allowed, a pointer
+    // to the old docs/known-traps.md is not.
+    test("no live tracked .md dangles a known-traps reference", () => {
+      const mdFiles: string[] = [];
+
+      const addMdIn = (relDir: string) => {
+        const abs = join(ROOT, relDir);
+        if (!existsSync(abs)) return;
+        for (const f of readdirSync(abs)) {
+          if (f.endsWith(".md")) mdFiles.push(join(relDir, f));
+        }
+      };
+      // root *.md, docs/*.md, docs/context/*.md (non-recursive: skips docs/history)
+      addMdIn(".");
+      addMdIn("docs");
+      addMdIn("docs/context");
+      if (existsSync(join(ROOT, "docs/decisions/README.md"))) {
+        mdFiles.push("docs/decisions/README.md");
+      }
+      // .claude/**/*.md (recursive)
+      const walkClaude = (relDir: string) => {
+        const abs = join(ROOT, relDir);
+        if (!existsSync(abs)) return;
+        for (const entry of readdirSync(abs, { withFileTypes: true })) {
+          const rel = join(relDir, entry.name);
+          if (entry.isDirectory()) walkClaude(rel);
+          else if (entry.name.endsWith(".md")) mdFiles.push(rel);
+        }
+      };
+      walkClaude(".claude");
+
+      const offenders = mdFiles.filter((rel) => {
+        const stripped = textOf(rel).split(ARCHIVE).join("");
+        return stripped.includes("known-traps");
+      });
+      expect(offenders, `these live docs still mention known-traps: ${offenders.join(", ")}`).toEqual([]);
+    });
+  });
 
   // decision index <-> decisions/ integrity (chore/agent-context-optimization, 2026-07-13):
   // the thin English decision-index.md is navigation only; docs/decisions/D-NNN-*.md files

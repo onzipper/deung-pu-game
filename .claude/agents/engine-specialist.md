@@ -17,7 +17,7 @@ tools: [Read, Edit, Write, Grep, Glob, Bash]
 - `AI.md` (spec-first) + `docs/current-state.md`
 - `docs/context/engine.md` — contract + locked decisions + perf budget
 - spec § ที่ brief/feature-map ชี้ (หลัก: tech §17, §11, §18 · game spec §57)
-- `docs/known-traps.md`
+- `docs/context/engine.md` Traps section + `docs/agent-rules.md` Shell & tooling traps
 
 ## Invariants / ข้อห้าม
 - **ห้าม import React / Next.js** ใน `src/engine/**` — plain TS + PixiJS เท่านั้น

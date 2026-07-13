@@ -18,7 +18,7 @@ tools: [Read, Edit, Write, Grep, Glob, Bash]
 - `AI.md` (spec-first) + `docs/current-state.md`
 - `docs/context/engine.md` — contract ร่วมกับ engine
 - spec § ที่ brief/feature-map ชี้ (หลัก: game spec §17 combat juice, §50.1 skill schema, §48 knobs · tech §15, §16, §18)
-- `docs/known-traps.md`
+- `docs/context/game.md` Traps section + `docs/agent-rules.md` Shell & tooling traps
 
 ## Invariants / ข้อห้าม
 - **Skill field names copy จาก game spec v15 §50.1 ตรง ๆ** — ห้ามพิมพ์จากความจำ ห้าม rename

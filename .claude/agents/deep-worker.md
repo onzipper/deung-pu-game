@@ -16,7 +16,7 @@ tools: [Read, Edit, Write, Grep, Glob, Bash]
 ## อ่านก่อนเริ่ม
 - `AI.md` (กฎ spec-first) + `docs/current-state.md`
 - context pack ที่ brief ระบุ + spec § ที่ feature-map ชี้
-- `docs/known-traps.md` (แตะโค้ดทุกครั้ง)
+- context pack Traps section ของ layer ที่แตะ (`docs/context/`) + `docs/agent-rules.md` Shell & tooling traps (แตะโค้ดทุกครั้ง)
 
 ## Invariants / ข้อห้าม
 - ห้ามตัดสิน game semantics/balance เอง — เกิน spec ให้หยุดรายงานกลับ

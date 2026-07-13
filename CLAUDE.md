@@ -24,7 +24,7 @@ Package manager = **npm**
 
 - Layer แผน P0: `src/engine/**` (iso foundation + game loop, ห้ามพึ่ง React) · `src/game/**` (combat/entity บน engine) · `src/ui/**` (React overlay) · `src/app/**` (Next.js shell)
 - world state อยู่ใน game loop (plain TS/ECS-lite) — **ห้าม**เอาเข้า React state (tech §2)
-- อ่าน `docs/known-traps.md` ก่อนแตะโค้ด
+- อ่าน context pack ของ layer ที่แตะ (`docs/context/`) + `docs/agent-rules.md` (Shell & tooling traps) ก่อนแตะโค้ด
 
 ## Orchestration workflow
 

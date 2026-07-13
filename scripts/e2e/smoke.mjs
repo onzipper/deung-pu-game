@@ -3,7 +3,7 @@
 //
 // Scenario (รันจบใน ~30s):
 //   (a) join ห้องสำเร็จ + ได้ ROOM_STATE + เห็นตำแหน่ง self
-//   (b) adopt ตำแหน่ง self จาก state ก่อนส่ง move แรก (trap จริงจาก P1 — ดู known-traps.md
+//   (b) adopt ตำแหน่ง self จาก state ก่อนส่ง move แรก (trap จริงจาก P1 — ดู docs/context/server.md
 //       "Client ไม่ adopt ตำแหน่ง authoritative หลัง join/reconnect") — ห้ามเดาตำแหน่งจาก joinOptions
 //   (c) เดินทีละก้าว cadence ~83ms (12Hz) ไปทิศที่ walkable → assert ไม่โดน MSG_POSITION_CORRECTION
 //   (d) หามอนใกล้สุดจาก room state แล้วไล่เข้าระยะ point-blank → cast MSG_CAST_SKILL → assert ได้
@@ -40,7 +40,7 @@ const SPAWN_POINT = { x: 12.5, y: 12.5 }; // p0-test-field.ts spawnPoint
 const WALK_TARGET = { tx: 5.5, ty: 18.0 };
 
 const SKILL_ID = "sword_basic_slash"; // warrior-skills-client.ts SWORD_BASIC_SLASH_CLIENT — range 1.2, angle 60
-const ATTACK_APPROACH_RADIUS = 1.0; // tile — ภายใน pointBlankRadiusTiles(1.4, config.ts hitTolerance) → arc facing ไม่มีผล (known-traps.md)
+const ATTACK_APPROACH_RADIUS = 1.0; // tile — ภายใน pointBlankRadiusTiles(1.4, config.ts hitTolerance) → arc facing ไม่มีผล (docs/context/game.md)
 
 const OVERALL_TIMEOUT_MS = 30000;
 
@@ -130,7 +130,7 @@ async function main() {
     );
     report("room state received (self visible)", true, `players=${room.state.players.size}`);
 
-    // (b) adopt ตำแหน่ง self จาก state — ห้ามเดาจาก joinOptions (known-traps.md)
+    // (b) adopt ตำแหน่ง self จาก state — ห้ามเดาจาก joinOptions (docs/context/server.md)
     let pos = { tx: self.tx, ty: self.ty };
     report(
       "adopt self position from state before first move",

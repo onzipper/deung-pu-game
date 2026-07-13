@@ -34,7 +34,7 @@
 | Game semantics / balance / skill | game spec v15 **เฉพาะ § ที่เกี่ยว** (ดู docs/README.md) |
 | Backend / realtime / DB (P1+) | tech architecture § ที่เกี่ยว |
 | **จะแก้/อัปเดต spec** (owner เคาะแล้วเท่านั้น) | `docs/spec-update-playbook.md` |
-| อะไรก็ตามที่แตะโค้ด | `docs/known-traps.md` |
+| อะไรก็ตามที่แตะโค้ด | context pack ของ layer (`docs/context/`) — Traps section + `docs/agent-rules.md` (Shell & tooling traps) |
 
 File → หน้าที่: `docs/CODEMAP.md` (แทนการ grep src/)
 

@@ -1,51 +1,42 @@
-# Context: ui (React overlay / HUD)
-
-สำหรับงานชนิด: HUD, menus, panels, settings, non-game pages
-อ่าน pack นี้ + ไฟล์ที่แตะ พอ
+# Context pack: ui (src/ui + src/app — React overlay / HUD / Next.js shell)
+Scope: `src/ui/**`, `src/app/**` (+ tests) · Read this pack + the files in your brief. Spec detail via the cited §.
 
 ## Contract
+- `src/ui/**` + `src/app/**` = React/DOM over the canvas — HUD, inventory, market, settings, hub/auth pages.
+- UI reads/commands the game only through the **Zustand bridge** — never touch engine/world state directly.
+- The game loop pushes what UI must see (HP, cooldown) into the store; UI sends intents back, never mutates world state itself.
+- Imperative commands (e.g. `setDepthDebug`) go through the `EngineHandle` accessor, not the store (the store is read-only "engine→UI").
+- Next.js 16 + React 19 + Tailwind v4 — read `AGENTS.md` before writing framework code (breaking changes vs training data).
 
-- `src/ui/**` + `src/app/**` = React/DOM ทับ canvas — HUD, inventory, market, settings
-- UI อ่าน/สั่ง game ผ่าน **Zustand bridge เท่านั้น** — ห้ามแตะ engine/world state ตรง ๆ
-- game loop push ค่าที่ UI ต้องเห็น (HP, cooldown) เข้า store; UI ส่ง intent กลับ ไม่ mutate world เอง
-- Next.js 16 + React 19 + Tailwind v4 — อ่าน `AGENTS.md` + `node_modules/next/dist/docs/` ก่อนเขียน (breaking changes)
+## Key files
+- `src/ui/GameCanvas.tsx` — mount bridge; holds `EngineHandle` in a `useRef` (not useState)
+- `src/ui/store/game-store.ts` — **vanilla** Zustand store (import from zustand/vanilla only, **no React import** — app.ts imports it directly)
+- `src/ui/store/use-game-store.ts` — "use client" hook wrapping the vanilla store
+- `src/ui/DebugOverlay.tsx` — F3 overlay via `useGameStore(selectDebugInfo)`
+- `src/ui/debug-overlay-logic.ts` — pure UI/toggle reducer (not part of the bridge)
+- `src/app/hub/page.tsx` — Game Hub route (auth/upgrade panels, character grid) — see the router.refresh trap
+- `src/app/game/boot-gate.ts` — pure DI entry gate (Storage §5), reads fresh character/map before mount
 
-## UI direction (locked — GS §45–§47)
+## Invariants (locked UI direction — GS §45–§47)
+- Ancient Asian Fantasy UI + Modern Readability; palette GS §46.1, rarity §46.3, status §46.4. Owner refs in `docs/design/art-reference/` — don't drift off-tone.
+- HUD compact, never blocks combat; boss telegraph outranks the HUD always.
+- Confirmation modal mandatory for market purchase / enhancement / rare item / using `เกรี้ยว` (higher visual weight than normal).
+- Two responsive modes: PC keybind / touch big buttons (TA L11). UI/system copy is never joke/pun text — memes live in content, not UI (GS §2).
+- damage numbers live on the engine side (`BitmapText` in canvas), never DOM.
 
-- **Ancient Asian Fantasy UI + Modern Readability** — fantasy กลิ่นไทย/หิน/ไม้/โลหะ แต่อ่านง่าย
-- Palette กลาง: GS §46.1 · rarity colors: §46.3 · status colors: §46.4
-- **ภาพ ref จาก owner**: `docs/design/art-reference/` — ทุกหน้าจอมีภาพเทียบ ห้ามออกแบบหลุดโทนจากชุดนี้
-- HUD: compact อ่านง่าย ไม่บัง combat; boss telegraph สำคัญกว่า HUD เสมอ
-- Confirmation modal บังคับ: market purchase / enhancement / rare item / ใช้เกรี้ยว (visual weight สูงกว่าปกติ)
-- Screen mood รายหน้าจอ: GS §47
+## Zustand bridge (P2-01, installed)
+- Direction: game-loop ticker → `createHudPublisher(intervalMs).publish(...)` (throttled ~250ms per the `pollIntervalMs` knob) → `gameStore`.setState → React `useGameStore(selector)`. UI never imports the engine to read values.
+- `HudState` = the throttled snapshot slice every screen needs (currently `debugInfo`; add new slices on the same interface). Never raw world state (TA §2).
 
-## กติกาเฉพาะ / invariants
+## Traps
+- **Next.js 16 ≠ what the model remembers** — Symptom: code follows old Next conventions and the API/structure doesn't match. Cause: breaking changes vs training data. Rule: read `node_modules/next/dist/docs/` before writing framework code (per `AGENTS.md`).
+  full story: docs/history/2026-07-13-known-traps-archive.md#nextjs-16-is-not-what-the-model-remembers
+- **Passing `fetch` as a DI property → "Illegal invocation"** — Symptom: `deps.fetchFn(...)` throws `TypeError: Illegal invocation` in the browser (this≠window); a best-effort try/catch swallows it; vitest/undici doesn't brand-check so tests pass — the bug only shows in a real browser. Rule: wrap as `(input, init) => fetch(input, init)` (or `fetch.bind(globalThis)`) and call via a local binding (`const f = deps.fetchFn; f(...)`). Tests must simulate the brand-check (`makeBrowserFetch`).
+  full story: docs/history/2026-07-13-known-traps-archive.md#passing-fetch-as-a-di-propertycallback--illegal-invocation-in-the-browser-node-never-catches-this
+- **router.refresh() doesn't reset useState** — Symptom: logout then login at /hub, the character list stays empty until a full page refresh. Cause: the Server Component re-runs and sends fresh props, but React keeps the client instance so the `useState(initialProps)` initializer never re-runs. Rule: a component that seeds state from server props across an auth boundary must bind `key` to identity (`key={session.accountId}` / `key="anon"`); don't "fix" it with a props→state useEffect.
+  full story: docs/history/2026-07-13-known-traps-archive.md#routerrefresh-doesnt-reset-a-client-components-usestate--state-carries-over-across-loginlogout
+- **StrictMode double-mount churns the engine** (half of the reconnect trap) — Symptom (dev): createEngine is async + destroy runs on cleanup → engine1 joins/persists the token then is destroyed before engine2 = position lost + a self-vs-self seat race. Rule: guard with `setTimeout(0)` in `src/ui/GameCanvas.tsx` (StrictMode's cleanup clears the timer before it fires → the engine is created once). The full reconnect story + the sessionStorage-token half live in server.md.
+  full story: docs/history/2026-07-13-known-traps-archive.md#reconnect-token-in-memory--strictmode-double-mount--refresh-turns-you-into-a-new-player--2-tabs-cant-see-each-other-p1-07-fix
 
-- responsive 2 โหมด: PC keybind / touch ปุ่มใหญ่ (tech L11)
-- UI/system message ไม่ใช้คำขึ้น/ตลกฝืด — meme อยู่ใน content ไม่ใช่ UI (GS §2)
-- damage number อยู่ฝั่ง engine (BitmapText ใน canvas) ไม่ใช่ DOM
-
-## Zustand bridge (P2-01 — ติดตั้งจริงแล้ว)
-
-`src/ui/store/game-store.ts` (**vanilla** store — import จาก zustand/vanilla เท่านั้น ห้าม import React ในไฟล์นี้
-เด็ดขาด เพราะ `src/engine/runtime/app.ts` import ตรง ๆ เพื่อ publish; ผิดกฎจะดึง React เข้า engine bundle ทางอ้อม)
-+ `src/ui/store/use-game-store.ts` ("use client" React hook useStore จาก zustand/react ครอบ store เดิม —
-คนละไฟล์โดยเจตนา):
-
-- ทิศทาง: **game loop (engine ticker) → createHudPublisher(intervalMs).publish(nowMs, buildThunk) (throttled,
-  default ~250ms ตาม knob pollIntervalMs ของ debugOverlay ใน `src/engine/config.ts`, thunk เรียกเฉพาะตอนถึงคิว) → setState ของ gameStore →
-  React useGameStore(selector) subscribe**. UI ห้าม import engine ตรง ๆ เพื่ออ่านค่า — อ่านผ่าน store selector เท่านั้น
-- `HudState` = ที่รวม slice ที่ UI ทุกจอต้องเห็น (ตอนนี้มี `debugInfo`; เพิ่ม slice ใหม่ (hp/cooldown/inventory ฯลฯ)
-  ที่ interface เดียวกันเมื่อ UI ตัวถัดไปต้องใช้) — ยังคง**snapshot เบา ๆ ที่ throttle แล้ว** ไม่ใช่ world state ดิบ (tech §2)
-- คำสั่ง imperative (สั่ง engine ทำอะไรสักอย่าง เช่น `setDepthDebug`) **ไม่ผ่าน store** — เรียกผ่าน `EngineHandle`
-  accessor ตรง ๆ เหมือนเดิม (store = ทิศทาง "อ่าน" state จาก engine เท่านั้น ไม่ใช่ command channel)
-- ตัวอย่างการใช้จริง: `src/ui/DebugOverlay.tsx` (P0-11 → ย้ายมา P2-01) — `useGameStore(selectDebugInfo)` แทน poll เดิม
-- toggle/UI state ล้วน (visible/depth-debug flag) ยังแยกเป็น pure reducer (`src/ui/debug-overlay-logic.ts`,
-  **ไม่ใช่** ส่วนของ Zustand bridge — เป็น local UI state ธรรมดา) ให้เทสต์ได้โดยไม่ต้อง render React
-- คีย์ลัด debug ใช้ KeyboardEvent code (ไม่ใช่ key) + preventDefault กันชน browser (เช่น F3)
-- `src/ui/GameCanvas.tsx` ยังเก็บ EngineHandle ใน useRef (**ไม่ใช่** useState) เหมือนเดิม — accessor
-  getHandle ใช้เฉพาะคำสั่ง imperative แล้ว (การอ่านค่าย้ายไป store แล้ว)
-
-## Test
-
-- คำสั่ง: `npm test` (unit) — E2E Playwright จะเพิ่มตอนมี flow จริง
+## Tests & commands
+- `npm test` (unit + docs path-guard). E2E Playwright is added when a real flow exists.

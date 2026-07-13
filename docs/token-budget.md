@@ -9,7 +9,7 @@
 
 ## Medium (panel ใหม่/ระบบย่อย/พฤติกรรมใหม่)
 
-- อ่าน: current-state, feature-map entry, context pack, ไฟล์+เทสต์ของมัน, known-traps ที่ตรง, spec § ที่ feature-map ชี้
+- อ่าน: current-state, feature-map entry, context pack (Traps section), ไฟล์+เทสต์ของมัน, spec § ที่ feature-map ชี้
 - เขียนแผนสั้นก่อนแก้ (ระบบที่แตะ, เทสต์, deploy impact)
 
 ## Large (ระบบใหม่/core/schema/refactor ข้าม layer)

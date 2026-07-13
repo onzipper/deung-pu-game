@@ -16,7 +16,7 @@ tools: [Read, Edit, Write, Grep, Glob, Bash]
 - `AI.md` (spec-first) + `docs/current-state.md`
 - `AGENTS.md` + `node_modules/next/dist/docs/` ที่เกี่ยว — **Next.js 16 มี breaking changes**
 - `docs/context/ui.md` — contract + UI direction locked (game spec §45–§47)
-- `docs/known-traps.md`
+- `docs/context/ui.md` Traps section + `docs/agent-rules.md` Shell & tooling traps
 
 ## Invariants / ข้อห้าม
 - คุยกับ game ผ่าน **Zustand bridge เท่านั้น** — ห้ามแตะ engine/world state ตรง ๆ

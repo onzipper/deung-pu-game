@@ -8,7 +8,7 @@
 |---|---|
 | `current-state.md` | ตอนนี้อยู่ไหน/ติด/ค้าง/ห้ามแตะ — อัปเดตทุกรอบ |
 | `decision-index.md` | decision ที่ล็อกแล้ว — ห้าม re-propose |
-| `known-traps.md` | คลังบั๊กที่เคยเจอ — อ่านก่อนแตะโค้ด |
+| `context/*.md` | context pack ราย layer — แต่ละอันจบด้วย **Traps** section (บั๊กที่เคยเจอ) · shell/tooling traps อยู่ใน `agent-rules.md` |
 | `agent-rules.md` | กติกากลาง brief/subagent (spec-first, never-downgrade zones, DoD, terse internal report) — อ้างใน brief แทน paste ซ้ำ |
 | `deploy-checklist.md` | ขั้นตอน deploy จริง — Render (server) + Hostinger (client) + smoke test |
 | `history/` | archive (off-budget — อ่านเฉพาะตอนถูกชี้) |
@@ -25,8 +25,10 @@
 
 | ไฟล์ | สำหรับงาน |
 |---|---|
-| `context/engine.md` | game engine / PixiJS / iso foundation / combat |
-| `context/ui.md` | React overlay / HUD / Zustand |
+| `context/engine.md` | game engine / PixiJS / iso foundation / game loop |
+| `context/game.md` | combat / skill / mob AI บน engine (`src/game/**`) |
+| `context/ui.md` | React overlay / HUD / Zustand / Next.js shell |
+| `context/server.md` | Colyseus realtime / Next server-only / DB (`server/**`, `src/server/**`) |
 
 ## Spec (source of truth — ห้ามแก้โดยไม่ผ่าน owner)
 
