@@ -550,14 +550,32 @@ export async function createEngine(
     };
 
     let pointerTile: TilePoint | null = null;
+    // FEATURE 2: ค้างปุ่มซ้าย = เดินตามเมาส์ต่อเนื่อง. leftHeld = กำลังค้างอยู่,
+    // followTile = tile ปลายทางล่าสุดที่สั่งไป (throttle: re-issue moveTo เฉพาะตอน tile เปลี่ยน กัน spam server).
+    let leftHeld = false;
+    let followTile: TilePoint | null = null;
     const onPointerMove = (e: PointerEvent): void => {
-      pointerTile = snapToTile(footFromEvent(e));
+      const foot = footFromEvent(e);
+      pointerTile = snapToTile(foot);
+      if (leftHeld && !transition.isLocked()) {
+        if (!followTile || followTile.tx !== pointerTile.tx || followTile.ty !== pointerTile.ty) {
+          followTile = pointerTile;
+          player.moveTo(foot); // ใช้ foot ดิบเหมือน tap-to-move (เดินไปจุดที่ชี้จริง)
+        }
+      }
     };
     const onPointerLeave = (): void => {
       pointerTile = null;
+      leftHeld = false; // ออกนอก canvas = หยุดตามเมาส์ (ปล่อยให้เดินถึงจุดสุดท้าย ไม่ force-stop)
+    };
+    // ปล่อยปุ่มซ้าย/pointer ถูกยกเลิก = เลิกตามเมาส์
+    const onPointerUp = (): void => {
+      leftHeld = false;
     };
     app.canvas.addEventListener("pointermove", onPointerMove);
     app.canvas.addEventListener("pointerleave", onPointerLeave);
+    app.canvas.addEventListener("pointerup", onPointerUp);
+    app.canvas.addEventListener("pointercancel", onPointerUp);
 
     // --- click-to-move + touch (P1-09, TA §17.3 · L11) ---
     const attackRange = firstWarriorSkill.range;
@@ -597,6 +615,15 @@ export async function createEngine(
     };
 
     const onPointerDown = (e: PointerEvent): void => {
+      // FEATURE 1: ปุ่มกลาง = โจมตีมอนที่ใกล้ตัวสุด (ไม่จำกัดรัศมี — "นับทั้งแมพ" ตามที่ผู้เล่นขอ,
+      // ไม่ cap ด้วย assist radius). reuse engageMob เดิม (หัน+ตี/เดินเข้า) — ไม่มี net message ใหม่.
+      if (e.button === 1) {
+        e.preventDefault(); // กัน autoscroll ของ browser (middle-click)
+        if (transition.isLocked() || !combatAllowed) return;
+        const nearest = mobUnderClick(player.position, Number.POSITIVE_INFINITY);
+        if (nearest) engageMob(nearest);
+        return;
+      }
       if (e.button !== 0) return; // touch/pen primary contact = button 0 (PointerEvent ครอบ touch เอง)
       if (transition.isLocked()) return; // P1-10: input lock ระหว่างข้าม map
       const foot = footFromEvent(e);
@@ -608,11 +635,16 @@ export async function createEngine(
       // P1-11: safe zone (เมือง) ไม่มี combat → คลิกมอน = เดินเฉย ๆ (ไม่ tap-to-attack). เมืองไม่มีมอนอยู่แล้ว.
       const mob = combatAllowed ? mobUnderClick(foot, assistRadius) : null;
       if (mob) {
+        // คลิกโดนมอน = engage (ตี/เดินเข้า) เหมือนเดิม — ไม่เริ่ม walk-follow
         engageMob(mob);
       } else {
         // คลิกพื้นเปล่า = ยกเลิก engage ที่ค้างอยู่ (manual override ชนะเสมอ, เหมือน WASD)
         player.moveTo(foot);
         engageState = cancelEngage();
+        // FEATURE 2: เริ่มโหมดเดินตามเมาส์ — pointermove จะ re-issue moveTo ตอน tile เปลี่ยน,
+        // ปล่อยปุ่ม/ออก canvas = หยุด. คลิกเร็ว (ไม่ลาก) = กลับเป็น tap-to-move จุดเดียวเหมือนเดิม.
+        leftHeld = true;
+        followTile = snapToTile(foot);
       }
     };
     app.canvas.addEventListener("pointerdown", onPointerDown);
@@ -781,6 +813,8 @@ export async function createEngine(
       destroy(): void {
         app.canvas.removeEventListener("pointermove", onPointerMove);
         app.canvas.removeEventListener("pointerleave", onPointerLeave);
+        app.canvas.removeEventListener("pointerup", onPointerUp);
+        app.canvas.removeEventListener("pointercancel", onPointerUp);
         app.canvas.removeEventListener("pointerdown", onPointerDown);
         window.removeEventListener("keydown", onStressToggleKeyDown);
         visibility?.detach(); // P2-13: ถอด visibilitychange listener
