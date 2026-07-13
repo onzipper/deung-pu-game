@@ -151,6 +151,16 @@ describe("agent context guard", () => {
   // the thin English decision-index.md is navigation only; docs/decisions/D-NNN-*.md files
   // are the rationale authority. Every reference must resolve, and every file must be linked
   // exactly once, or the index and the directory have silently drifted apart.
+  test("every persona contains Brief contract line", () => {
+    const dir = join(ROOT, ".claude", "agents");
+    const files = readdirSync(dir).filter((f) => f.endsWith(".md"));
+    expect(files.length).toBeGreaterThan(0);
+    for (const f of files) {
+      const text = readFileSync(join(dir, f), "utf8");
+      expect(text, `${f} is missing the Brief contract line`).toContain("Brief contract");
+    }
+  });
+
   describe("decision index <-> decisions/ integrity", () => {
     const DECISIONS_DIR = join(ROOT, "docs", "decisions");
     const PATH_RE = /docs\/decisions\/(D-\d{3}-[a-z0-9-]+\.md)/g;
