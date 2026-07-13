@@ -13,7 +13,7 @@ import {
   type Playhead,
   type ResolvedClip,
 } from "@/engine/animation/manifest";
-import type { PlayerTextureSet } from "@/engine/animation/player-placeholder";
+import type { EntityTextureSet } from "@/engine/animation/texture-set";
 import type { Direction } from "@/engine/movement/direction";
 
 export interface SpriteAnimator {
@@ -40,7 +40,7 @@ export interface SpriteAnimator {
  * @param initial state เริ่มต้น
  */
 export function createSpriteAnimator(
-  textures: PlayerTextureSet,
+  textures: EntityTextureSet,
   manifest: AnimationManifest,
   initial: { animation: string; direction: Direction },
 ): SpriteAnimator {
