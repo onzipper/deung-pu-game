@@ -68,6 +68,7 @@ import { buildDebugInfo, IDLE_NET_DEBUG_INFO, type EngineDebugInfo } from "./deb
 import {
   createHudPublisher,
   resetHudState,
+  setDeathNotice,
   setDeliveryResult,
   setDeliveryState,
   setEnhanceResult,
@@ -410,7 +411,10 @@ export async function createEngine(
           onSelfVitals: (hp, maxHp) => setPlayerVitals(hp, maxHp),
           // A2 (§10): self ตาย → death state (E4 overlay อ่านต่อ). remote death anim = E-work ภายหลัง.
           onPlayerDeath: (msg) => {
-            if (net !== null && net.status.selfSessionId === msg.sessionId) setPlayerDead(true);
+            if (net !== null && net.status.selfSessionId === msg.sessionId) {
+              setPlayerDead(true);
+              setDeathNotice(); // E4: stamp timestamp → DeathToast แสดง toast สั้น (respawn instant ตามมาทันที)
+            }
           },
           // A2 (§10): self respawn ที่ safe camp → snap local player + camera (client-predicted) + เคลียร์ death.
           //   remote: ตำแหน่งมาทาง schema อยู่แล้ว. hp เต็มมาทาง onSelfVitals (schema).

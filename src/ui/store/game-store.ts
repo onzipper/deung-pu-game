@@ -120,6 +120,12 @@ export interface HudState {
    */
   playerDead: boolean;
   /**
+   * E4 (§13 death feedback, owner ruling 2026-07-13 = "instant respawn + toast สั้น"): timestamp (ms, client clock)
+   * ล่าสุดที่ local player ตาย — DeathToast อ่านค่านี้แสดง toast สั้น ๆ (respawn เป็น instant server-side อยู่แล้ว
+   * §59.1 → ไม่มีจอตายค้าง; แค่ feedback). null = ยังไม่เคยตายใน session นี้. เปลี่ยนค่า = ตายรอบใหม่ (แสดง toast อีก).
+   */
+  deathAtMs: number | null;
+  /**
    * A3 (P2 UI §8.3): skill hotbar slots (S1-S4). engine publish ตอน init / level-up (unlock) / cast (cooldown).
    * [] ก่อน engine publish ครั้งแรก. SkillBar อ่าน + animate radial เอง (RAF จาก cooldownReadyAtMs).
    */
@@ -144,6 +150,7 @@ export const INITIAL_HUD_STATE: HudState = {
   playerHp: null,
   playerMaxHp: null,
   playerDead: false,
+  deathAtMs: null,
   skillSlots: [],
 };
 
@@ -288,6 +295,17 @@ export function setPlayerVitals(hp: number, maxHp: number): void {
 export function setPlayerDead(dead: boolean): void {
   gameStore.setState({ playerDead: dead });
 }
+
+/**
+ * E4: engine เรียกเมื่อ local player ตาย (คู่กับ setPlayerDead(true)) → stamp timestamp ให้ DeathToast แสดง toast
+ * สั้น ๆ. `nowMs` inject ได้ (เทสต์); default performance.now() ตอนเรียกจริง (client clock เดียวกับ DeathToast).
+ */
+export function setDeathNotice(nowMs: number = performance.now()): void {
+  gameStore.setState({ deathAtMs: nowMs });
+}
+
+/** typed selector — timestamp ตายล่าสุด (E4 death toast) */
+export const selectDeathAtMs = (state: HudState): number | null => state.deathAtMs;
 
 /** typed selector — hp ของ local player (A1/A2) */
 export const selectPlayerHp = (state: HudState): number | null => state.playerHp;
