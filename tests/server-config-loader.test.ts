@@ -57,7 +57,9 @@ describe("loadConfig — fallback paths (คืน DEFAULT, origin=default)", ()
 
 describe("loadEconomyConfig — DB payload", () => {
   test("payload ถูกต้อง (override version) → origin=db + ใช้ค่า DB", async () => {
-    const custom = { ...asDbPayload(DEFAULT_ECONOMY_CONFIG) } as typeof DEFAULT_ECONOMY_CONFIG;
+    const custom = {
+      ...(asDbPayload(DEFAULT_ECONOMY_CONFIG) as typeof DEFAULT_ECONOMY_CONFIG),
+    };
     custom.economyVersion = "p2-map1-v2";
     const { source } = makeSource({ key: "economy", version: 3, payload: custom, active: true });
     const r = await loadEconomyConfig(source);

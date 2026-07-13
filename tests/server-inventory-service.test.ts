@@ -28,7 +28,7 @@ function rec(over: Partial<ItemInstanceRecord> & { id: string; itemId: string })
 describe("equipItem", () => {
   it("equips a bag item into its config slot, bumps version, and the gear then changes combat stats", async () => {
     const repo = createInMemoryInventoryRepository();
-    repo.seed(rec({ id: "i1", itemId: "wpn_starter_sword", slot: 3, version: 2 }));
+    repo.seed(rec({ id: "i1", itemId: "eq_weapon_training_blade", slot: 3, version: 2 }));
 
     const r = await equipItem(repo, DEFAULT_ITEM_CATALOG, {
       characterId: CHAR,
@@ -39,7 +39,7 @@ describe("equipItem", () => {
 
     expect(r.ok).toBe(true);
     if (!r.ok) return;
-    // sword left the bag → now worn in equipment slot 0 (wpn_starter_sword.equipSlotId)
+    // sword left the bag → now worn in equipment slot 0 (eq_weapon_training_blade.equipSlotId)
     expect(r.snapshot.bag).toHaveLength(0);
     expect(r.snapshot.equipment).toHaveLength(1);
     expect(r.snapshot.equipment[0]).toMatchObject({
@@ -48,13 +48,13 @@ describe("equipItem", () => {
       slot: 0,
       version: 3, // optimistic lock bumped
     });
-    // stat effect is real: aggregating the worn set yields the weapon's +5 atk (never-downgrade combat calc)
-    expect(aggregateEquipmentBonus(r.snapshot.equipment, DEFAULT_ITEM_CATALOG).atk).toBe(5);
+    // stat effect is real: aggregating the worn set yields the weapon's +8 attack (§7.2 training blade)
+    expect(aggregateEquipmentBonus(r.snapshot.equipment, DEFAULT_ITEM_CATALOG).attack).toBe(8);
   });
 
   it("rejects equipping a non-equipment item (wrong type)", async () => {
     const repo = createInMemoryInventoryRepository();
-    repo.seed(rec({ id: "m1", itemId: "mat_slime_jelly", slot: 0 }));
+    repo.seed(rec({ id: "m1", itemId: "mat_slime_gel", slot: 0 }));
     const r = await equipItem(repo, DEFAULT_ITEM_CATALOG, {
       characterId: CHAR,
       instanceId: "m1",
@@ -66,7 +66,7 @@ describe("equipItem", () => {
 
   it("rejects a stale intent when the version no longer matches (optimistic lock)", async () => {
     const repo = createInMemoryInventoryRepository();
-    repo.seed(rec({ id: "i1", itemId: "wpn_starter_sword", slot: 0, version: 0 }));
+    repo.seed(rec({ id: "i1", itemId: "eq_weapon_training_blade", slot: 0, version: 0 }));
     repo.bumpVersion("i1"); // a concurrent mutation moved it to version 1
 
     const r = await equipItem(repo, DEFAULT_ITEM_CATALOG, {
@@ -82,8 +82,8 @@ describe("equipItem", () => {
 
   it("swaps the worn item back into the vacated bag slot when the equip slot is occupied", async () => {
     const repo = createInMemoryInventoryRepository();
-    repo.seed(rec({ id: "old", itemId: "wpn_starter_sword", location: "CHARACTER_EQUIPMENT", slot: 0, version: 0 }));
-    repo.seed(rec({ id: "new", itemId: "wpn_starter_sword", location: "CHARACTER_INVENTORY", slot: 7, version: 0 }));
+    repo.seed(rec({ id: "old", itemId: "eq_weapon_training_blade", location: "CHARACTER_EQUIPMENT", slot: 0, version: 0 }));
+    repo.seed(rec({ id: "new", itemId: "eq_weapon_training_blade", location: "CHARACTER_INVENTORY", slot: 7, version: 0 }));
 
     const r = await equipItem(repo, DEFAULT_ITEM_CATALOG, {
       characterId: CHAR,
@@ -100,8 +100,8 @@ describe("equipItem", () => {
   it("rejects unique-group double-equip (§12.1)", async () => {
     const repo = createInMemoryInventoryRepository();
     // two different equip slots but same uniqueEquipGroup → only one may be worn
-    repo.seed(rec({ id: "ring", itemId: "acc_starter_ring", location: "CHARACTER_EQUIPMENT", slot: 4, uniqueEquipGroup: "g1", version: 0 }));
-    repo.seed(rec({ id: "sword", itemId: "wpn_starter_sword", location: "CHARACTER_INVENTORY", slot: 0, uniqueEquipGroup: "g1", version: 0 }));
+    repo.seed(rec({ id: "ring", itemId: "eq_talisman_blank", location: "CHARACTER_EQUIPMENT", slot: 4, uniqueEquipGroup: "g1", version: 0 }));
+    repo.seed(rec({ id: "sword", itemId: "eq_weapon_training_blade", location: "CHARACTER_INVENTORY", slot: 0, uniqueEquipGroup: "g1", version: 0 }));
 
     const r = await equipItem(repo, DEFAULT_ITEM_CATALOG, {
       characterId: CHAR,
@@ -116,8 +116,8 @@ describe("equipItem", () => {
 describe("unequipItem", () => {
   it("moves a worn item into the first free bag slot", async () => {
     const repo = createInMemoryInventoryRepository();
-    repo.seed(rec({ id: "w", itemId: "wpn_starter_sword", location: "CHARACTER_EQUIPMENT", slot: 0, version: 1 }));
-    repo.seed(rec({ id: "b0", itemId: "mat_slime_jelly", slot: 0 })); // bag slot 0 taken → free = 1
+    repo.seed(rec({ id: "w", itemId: "eq_weapon_training_blade", location: "CHARACTER_EQUIPMENT", slot: 0, version: 1 }));
+    repo.seed(rec({ id: "b0", itemId: "mat_slime_gel", slot: 0 })); // bag slot 0 taken → free = 1
 
     const r = await unequipItem(repo, DEFAULT_ITEM_CATALOG, {
       characterId: CHAR,
@@ -131,9 +131,9 @@ describe("unequipItem", () => {
 
   it("rejects unequip when the bag is full (inventory_full)", async () => {
     const repo = createInMemoryInventoryRepository();
-    repo.seed(rec({ id: "w", itemId: "wpn_starter_sword", location: "CHARACTER_EQUIPMENT", slot: 0 }));
-    repo.seed(rec({ id: "b0", itemId: "mat_slime_jelly", slot: 0 }));
-    repo.seed(rec({ id: "b1", itemId: "mat_slime_jelly", slot: 1 }));
+    repo.seed(rec({ id: "w", itemId: "eq_weapon_training_blade", location: "CHARACTER_EQUIPMENT", slot: 0 }));
+    repo.seed(rec({ id: "b0", itemId: "mat_slime_gel", slot: 0 }));
+    repo.seed(rec({ id: "b1", itemId: "mat_slime_gel", slot: 1 }));
 
     const r = await unequipItem(repo, DEFAULT_ITEM_CATALOG, {
       characterId: CHAR,
@@ -147,7 +147,7 @@ describe("unequipItem", () => {
 
   it("rejects unequip of an item that is not currently worn", async () => {
     const repo = createInMemoryInventoryRepository();
-    repo.seed(rec({ id: "b", itemId: "wpn_starter_sword", slot: 0 }));
+    repo.seed(rec({ id: "b", itemId: "eq_weapon_training_blade", slot: 0 }));
     const r = await unequipItem(repo, DEFAULT_ITEM_CATALOG, {
       characterId: CHAR,
       instanceId: "b",
@@ -161,8 +161,8 @@ describe("unequipItem", () => {
 describe("moveItem (bag ↔ bag)", () => {
   it("swaps two bag items when the destination slot is occupied", async () => {
     const repo = createInMemoryInventoryRepository();
-    repo.seed(rec({ id: "x", itemId: "mat_slime_jelly", slot: 0 }));
-    repo.seed(rec({ id: "y", itemId: "wpn_starter_sword", slot: 1 }));
+    repo.seed(rec({ id: "x", itemId: "mat_slime_gel", slot: 0 }));
+    repo.seed(rec({ id: "y", itemId: "eq_weapon_training_blade", slot: 1 }));
 
     const r = await moveItem(repo, {
       characterId: CHAR,
@@ -178,7 +178,7 @@ describe("moveItem (bag ↔ bag)", () => {
 
   it("moves into an empty destination slot", async () => {
     const repo = createInMemoryInventoryRepository();
-    repo.seed(rec({ id: "x", itemId: "mat_slime_jelly", slot: 0 }));
+    repo.seed(rec({ id: "x", itemId: "mat_slime_gel", slot: 0 }));
     const r = await moveItem(repo, {
       characterId: CHAR,
       instanceId: "x",
@@ -192,7 +192,7 @@ describe("moveItem (bag ↔ bag)", () => {
 
   it("rejects an out-of-range destination slot", async () => {
     const repo = createInMemoryInventoryRepository();
-    repo.seed(rec({ id: "x", itemId: "mat_slime_jelly", slot: 0 }));
+    repo.seed(rec({ id: "x", itemId: "mat_slime_gel", slot: 0 }));
     const r = await moveItem(repo, {
       characterId: CHAR,
       instanceId: "x",
@@ -218,7 +218,7 @@ describe("unknown / cross-character guards", () => {
 
   it("does not see another character's items", async () => {
     const repo = createInMemoryInventoryRepository();
-    repo.seed(rec({ id: "i1", itemId: "wpn_starter_sword", slot: 0, characterId: "other-char" }));
+    repo.seed(rec({ id: "i1", itemId: "eq_weapon_training_blade", slot: 0, characterId: "other-char" }));
     const r = await equipItem(repo, DEFAULT_ITEM_CATALOG, {
       characterId: CHAR,
       instanceId: "i1",
@@ -232,7 +232,7 @@ describe("unknown / cross-character guards", () => {
 describe("repository.applyPlan atomic version guard", () => {
   it("throws VersionConflictError and applies nothing when a version mismatches", async () => {
     const repo = createInMemoryInventoryRepository();
-    repo.seed(rec({ id: "a", itemId: "wpn_starter_sword", slot: 0, version: 5 }));
+    repo.seed(rec({ id: "a", itemId: "eq_weapon_training_blade", slot: 0, version: 5 }));
     await expect(
       repo.applyPlan([
         { instanceId: "a", expectedVersion: 4, toLocation: "CHARACTER_EQUIPMENT", toSlot: 0 },

@@ -58,7 +58,7 @@ const input = (over: Partial<Parameters<typeof enhanceEquipment>[1]> = {}) => ({
 describe("enhanceEquipment — guaranteed +1", () => {
   function seedSwordAndMaterial() {
     const repo = createInMemoryInventoryRepository();
-    repo.seed(rec({ id: "sword", itemId: "wpn_starter_sword", slot: 3, enhancementLevel: 2, version: 0 }));
+    repo.seed(rec({ id: "sword", itemId: "eq_weapon_training_blade", slot: 3, enhancementLevel: 2, version: 0 }));
     repo.seed(rec({ id: "mat", itemId: MATERIAL, slot: 5, quantity: 3, version: 0 }));
     return repo;
   }
@@ -90,7 +90,7 @@ describe("enhanceEquipment — guaranteed +1", () => {
 
   it("destroys the material stack when it hits 0 (leaves the bag)", async () => {
     const repo = createInMemoryInventoryRepository();
-    repo.seed(rec({ id: "sword", itemId: "wpn_starter_sword", slot: 3, version: 0 }));
+    repo.seed(rec({ id: "sword", itemId: "eq_weapon_training_blade", slot: 3, version: 0 }));
     repo.seed(rec({ id: "mat", itemId: MATERIAL, slot: 5, quantity: 1, version: 0 }));
 
     const r = await enhanceEquipment(deps(repo), input());
@@ -101,7 +101,7 @@ describe("enhanceEquipment — guaranteed +1", () => {
 
   it("rejects at the +15 cap (MAX_LEVEL) — nothing consumed", async () => {
     const repo = createInMemoryInventoryRepository();
-    repo.seed(rec({ id: "sword", itemId: "wpn_starter_sword", slot: 3, enhancementLevel: 15, version: 0 }));
+    repo.seed(rec({ id: "sword", itemId: "eq_weapon_training_blade", slot: 3, enhancementLevel: 15, version: 0 }));
     repo.seed(rec({ id: "mat", itemId: MATERIAL, slot: 5, quantity: 3, version: 0 }));
 
     const r = await enhanceEquipment(deps(repo), input());
@@ -112,7 +112,7 @@ describe("enhanceEquipment — guaranteed +1", () => {
 
   it("rejects when there is no material (NO_REINFORCEMENT)", async () => {
     const repo = createInMemoryInventoryRepository();
-    repo.seed(rec({ id: "sword", itemId: "wpn_starter_sword", slot: 3, version: 0 }));
+    repo.seed(rec({ id: "sword", itemId: "eq_weapon_training_blade", slot: 3, version: 0 }));
 
     const r = await enhanceEquipment(deps(repo), input());
     expect(r).toEqual({ ok: false, reason: "NO_REINFORCEMENT" });
@@ -140,7 +140,7 @@ describe("enhanceEquipment — guaranteed +1", () => {
 
   it("rejects a non-equipment target (NO_ITEM)", async () => {
     const repo = createInMemoryInventoryRepository();
-    repo.seed(rec({ id: "sword", itemId: "mat_slime_jelly", slot: 3, version: 0 }));
+    repo.seed(rec({ id: "sword", itemId: "mat_slime_gel", slot: 3, version: 0 }));
     repo.seed(rec({ id: "mat", itemId: MATERIAL, slot: 5, quantity: 3, version: 0 }));
     const r = await enhanceEquipment(deps(repo), input());
     expect(r).toEqual({ ok: false, reason: "NO_ITEM" });
@@ -207,21 +207,21 @@ describe("enhancedStatValue (D-054 curve · §16.3.1)", () => {
 describe("aggregateEquipmentBonus with enhancement curve", () => {
   const curve: EnhancementCurve = CURVE;
 
-  it("folds a worn item's enhancementLevel into scaled stats (atk), leaving crit unscaled", () => {
-    // acc_starter_ring: atk 1 (scaled), critRate 0.02 (never scaled)
-    const b = aggregateEquipmentBonus([{ itemId: "acc_starter_ring", enhancementLevel: 6 }], DEFAULT_ITEM_CATALOG, curve);
-    // atk base 1 → min-+1 rule: 1,2,3,4,5,6,7 at +6
-    expect(b.atk).toBe(enhancedStatValue(1, 6, curve));
-    expect(b.critRate).toBeCloseTo(0.02); // unchanged
+  it("folds enhancementLevel into scaled stats (attack + breakPower) but not crit% (§6.2/§16.3)", () => {
+    // eq_weapon_resonant_edge: attack 24 + breakPower 3 scale; criticalChancePercent 2 never scales.
+    const b = aggregateEquipmentBonus([{ itemId: "eq_weapon_resonant_edge", enhancementLevel: 6 }], DEFAULT_ITEM_CATALOG, curve);
+    expect(b.attack).toBe(enhancedStatValue(24, 6, curve));
+    expect(b.breakPower).toBe(enhancedStatValue(3, 6, curve));
+    expect(b.criticalChancePercent).toBe(2); // unchanged (crit% never scales)
   });
 
   it("without a curve, ignores enhancementLevel (base stats only)", () => {
-    const b = aggregateEquipmentBonus([{ itemId: "wpn_starter_sword", enhancementLevel: 15 }], DEFAULT_ITEM_CATALOG);
-    expect(b.atk).toBe(5); // base only
+    const b = aggregateEquipmentBonus([{ itemId: "eq_weapon_training_blade", enhancementLevel: 15 }], DEFAULT_ITEM_CATALOG);
+    expect(b.attack).toBe(8); // base only (§7.2 training blade ATK 8)
   });
 
   it("level 0 with a curve = base stats (no scaling)", () => {
-    const b = aggregateEquipmentBonus([{ itemId: "wpn_starter_sword", enhancementLevel: 0 }], DEFAULT_ITEM_CATALOG, curve);
-    expect(b.atk).toBe(5);
+    const b = aggregateEquipmentBonus([{ itemId: "eq_weapon_training_blade", enhancementLevel: 0 }], DEFAULT_ITEM_CATALOG, curve);
+    expect(b.attack).toBe(8);
   });
 });

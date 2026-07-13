@@ -32,20 +32,26 @@ export interface EnhancementCurve {
   scaledStats: readonly string[];
 }
 
-/** scaled-stat name (config, §16.3) → EquipmentStatBonus key. breakPower has no gear-bonus field here. */
+/**
+ * scaled-stat name (config §16.3 scaledStats) → EquipmentStatBonus key. Enhancement scales
+ * attack/defense/maxHp AND breakPower (Economy §6.2 "Enhancement เพิ่มเฉพาะ Attack/Defense/Max HP/Break Power")
+ * — the vector keys now match the config names 1:1 except breakPower which is already identical. Critical Chance
+ * and Move Speed never scale (§16.3), so they are absent from the config's scaledStats and from this map.
+ */
 const SCALED_FIELD_BY_STAT: Readonly<Record<string, keyof EquipmentStatBonus>> = {
-  attack: "atk",
-  defense: "def",
-  maxHp: "hp",
+  attack: "attack",
+  defense: "defense",
+  maxHp: "maxHp",
+  breakPower: "breakPower",
 };
 
 const STAT_KEYS: readonly (keyof EquipmentStatBonus)[] = [
-  "hp",
-  "atk",
-  "def",
-  "critRate",
-  "critDmg",
-  "penetration",
+  "attack",
+  "defense",
+  "maxHp",
+  "criticalChancePercent",
+  "breakPower",
+  "moveSpeedPercent",
 ];
 
 /** the EquipmentStatBonus keys the curve scales, derived from config.scaledStats (config-driven, not hardcoded). */
@@ -80,8 +86,8 @@ export function enhancedStatValue(base: number, level: number, curve: Enhancemen
 /**
  * sum the additive combat bonus of all currently-equipped items. Non-equippable / unknown itemIds
  * contribute nothing (defensive: a bag item mislabelled or a def missing from config never inflates stats).
- * When `curve` is given, each item's scaled stats (attack/defense/maxHp) fold in its enhancementLevel (§16.3.1);
- * crit/penetration never scale. curve omitted = base stats only (unenhanced) — backward compatible.
+ * When `curve` is given, each item's scaled stats (attack/defense/maxHp/breakPower, §6.2) fold in its
+ * enhancementLevel (§16.3.1); crit%/move% never scale. curve omitted = base stats only — backward compatible.
  */
 export function aggregateEquipmentBonus(
   equipped: readonly EquippedItemRef[],

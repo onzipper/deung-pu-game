@@ -176,7 +176,10 @@ describe("appendEntry — validate ก่อน แล้ว run ใน $transac
     const $transaction = vi.fn(
       (fn: (t: LedgerTxClient) => Promise<unknown>) => fn(tx),
     );
-    const r = await appendEntry(entry({ amount: 100n }), { $transaction });
+    const r = await appendEntry(
+      entry({ amount: 100n }),
+      { $transaction } as unknown as Parameters<typeof appendEntry>[1],
+    );
     expect($transaction).toHaveBeenCalledOnce();
     expect(r).toEqual({ status: "applied", balance: 600n });
   });
