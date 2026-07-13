@@ -28,6 +28,12 @@ import { StoragePanel } from "@/ui/panels/storage/StoragePanel";
 import { HelpFocusProvider } from "@/ui/panels/help/help-focus-context";
 import { HelpHudButton } from "@/ui/panels/help/HelpHudButton";
 import { HelpPanel } from "@/ui/panels/help/HelpPanel";
+import { SettingsHudButton } from "@/ui/panels/settings/SettingsHudButton";
+import { SettingsPanel } from "@/ui/panels/settings/SettingsPanel";
+import { applyEffectQualityPreferences } from "@/ui/panels/settings/settings-view";
+import { createEffectQualityPreferencesStore } from "@/ui/panels/settings/effect-quality-preference";
+import { MobileControls } from "@/ui/panels/mobile/MobileControls";
+import { MobileOsNotice } from "@/ui/panels/mobile/MobileOsNotice";
 import { resolveGameEntry } from "@/app/game/boot-gate";
 import {
   readSelectedCharacterId,
@@ -44,6 +50,9 @@ const ENGINE_CONFIG = RT_URL
       net: { ...DEFAULT_ENGINE_CONFIG.net, serverUrl: RT_URL },
     })
   : DEFAULT_ENGINE_CONFIG;
+
+// P2-15: effect quality preference (localStorage) — apply ตอน engine พร้อม (boot) + SettingsPanel ปรับ live ต่อ.
+const effectQualityStore = createEffectQualityPreferencesStore();
 
 export function GameCanvas() {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -90,6 +99,8 @@ export function GameCanvas() {
             }
             handle = created;
             engineRef.current = created;
+            // P2-15: ใช้ effect quality ที่ผู้เล่นเคยเลือก (ลด shake/particle บนมือถือ) ตั้งแต่ boot
+            applyEffectQualityPreferences(created, effectQualityStore.load());
           })
           .catch((err) => {
             console.error("[GameCanvas] engine init failed", err);
@@ -137,6 +148,14 @@ export function GameCanvas() {
           {/* P2-12: ปุ่ม "?" หลัก render เสมอ (DG §5.2) */}
           <HelpHudButton />
           <HelpPanel />
+          {/* P2-15: settings (effect quality/screen shake) + mobile controls + OS notice */}
+          <SettingsHudButton />
+          <SettingsPanel getHandle={() => engineRef.current} />
+          <MobileControls
+            getHandle={() => engineRef.current}
+            joystick={ENGINE_CONFIG.input.joystick}
+          />
+          <MobileOsNotice />
         </HelpFocusProvider>
       </EnhancementTargetProvider>
     </PanelProvider>

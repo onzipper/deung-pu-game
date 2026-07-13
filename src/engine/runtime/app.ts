@@ -31,6 +31,11 @@ import {
   type EngageState,
 } from "@/game/combat/target-engage";
 import { createStressHarness, type StressHarnessHandle } from "@/game/combat/stress-harness";
+import {
+  inputModeFromPointerType,
+  resolveTargetAssistRadius,
+} from "@/engine/input/target-assist";
+import type { EffectQuality } from "@/engine/config";
 import { WARRIOR_SKILLS_CLIENT } from "@/game/skill/data/warrior-skills-client";
 import { createNetClient, type NetClientHandle } from "../net/net-client";
 import {
@@ -93,6 +98,19 @@ export interface EngineHandle {
   getDebugInfo(): EngineDebugInfo;
   /** เปิด/ปิด depth-rank text เหนือ entity ทุกตัว (debug tool, P0-11) — passthrough ไปที่ scene */
   setDepthDebug(enabled: boolean): void;
+  /**
+   * P2-15: ปุ่มโจมตีบนจอ (มือถือ) — target assist + engage/attack. UI (AttackButton) เรียกผ่าน handle นี้.
+   * delegate ไป world ปัจจุบัน (getter live เหมือน scene/player/net).
+   */
+  pressAttack(): void;
+  /**
+   * P2-15 (GS §17.10): ตั้ง effect quality tier ตอน runtime (UI settings) — mutate config.combatFeel
+   * .effectQuality.current; combat-stub อ่านค่านี้ **live** ทุก frame (screen shake amplitude + damage
+   * number concurrent cap) จึงมีผลทันทีทุก world. boss telegraph ไม่ถูกลด (invariant GS §18.5).
+   */
+  setEffectQuality(quality: EffectQuality): void;
+  /** P2-15 (GS §17.5): เปิด/ปิด screen shake ตอน runtime — mutate config.combatFeel.screenShake.enabled (live). */
+  setScreenShakeEnabled(enabled: boolean): void;
   /** เก็บกวาดครบ: ticker, resize observer, canvas, GPU resources */
   destroy(): void;
 }
@@ -116,6 +134,8 @@ interface WorldHandle {
   readonly net: NetClientHandle | null;
   /** run 1 frame — locked=true (ระหว่าง transition) → freeze input/movement/net-send แต่ยัง render. */
   tick(dtSeconds: number, deltaMs: number, deltaTime: number, locked: boolean): void;
+  /** P2-15: ปุ่มโจมตีมือถือ — target assist (keyboardAssist) + engage/attack (ดู pressAttack ใน mountWorld). */
+  pressAttack(): void;
   getDebugInfo(fps: number): EngineDebugInfo;
   setDepthDebug(enabled: boolean): void;
   resize(width: number, height: number): void;
@@ -415,10 +435,14 @@ export async function createEngine(
 
     // --- click-to-move + touch (P1-09, TA §17.3 · L11) ---
     const attackRange = firstWarriorSkill.range;
-    const pickRadiusSq = config.pathfinding.clickMobPickRadius ** 2;
-    const mobUnderClick = (foot: TilePoint): { id: string; pos: TilePoint } | null => {
+    // P2-15: รัศมี pick มอนแยกตาม input mode (Combat Bible §3) — caller ส่ง radius ที่ resolve ตาม pointerType.
+    // logic เลือก "มอนใกล้จุดสุดในรัศมี" เหมือนเดิมทุกอย่าง (never-downgrade: targeting เท่านั้น ไม่แตะ combat calc).
+    const mobUnderClick = (
+      foot: TilePoint,
+      radius: number,
+    ): { id: string; pos: TilePoint } | null => {
       let best: { id: string; pos: TilePoint } | null = null;
-      let bestSq = pickRadiusSq;
+      let bestSq = radius * radius;
       for (const t of mobView.getAliveTargets()) {
         const dsq = (t.pos.tx - foot.tx) ** 2 + (t.pos.ty - foot.ty) ** 2;
         if (dsq <= bestSq) {
@@ -434,21 +458,31 @@ export async function createEngine(
     // machine pure ใน target-engage.ts ตัดสิน attack/chase/idle ทุก tick, ที่นี่แค่ execute action จริง.
     let engageState: EngageState = IDLE_ENGAGE_STATE;
 
+    /** engage มอน (tap/press): ถึงระยะ → หัน+ตี, ไกล → เดินเข้าไป (walk-to-attack). ใช้ทั้ง click และ pressAttack. */
+    const engageMob = (mob: { id: string; pos: TilePoint }): void => {
+      engageState = startEngage(mob.id);
+      if (distTo(mob.pos) <= attackRange) {
+        player.faceToward(mob.pos);
+        player.requestAttack();
+        player.cancelPath();
+      } else {
+        player.moveTo(mob.pos);
+      }
+    };
+
     const onPointerDown = (e: PointerEvent): void => {
-      if (e.button !== 0) return;
+      if (e.button !== 0) return; // touch/pen primary contact = button 0 (PointerEvent ครอบ touch เอง)
       if (transition.isLocked()) return; // P1-10: input lock ระหว่างข้าม map
       const foot = footFromEvent(e);
+      // P2-15: รัศมี pick ตาม input mode (mouse 0.60 / touch 0.80, Combat Bible §3).
+      const assistRadius = resolveTargetAssistRadius(
+        inputModeFromPointerType(e.pointerType),
+        config.pathfinding.targetAssist,
+      );
       // P1-11: safe zone (เมือง) ไม่มี combat → คลิกมอน = เดินเฉย ๆ (ไม่ tap-to-attack). เมืองไม่มีมอนอยู่แล้ว.
-      const mob = combatAllowed ? mobUnderClick(foot) : null;
+      const mob = combatAllowed ? mobUnderClick(foot, assistRadius) : null;
       if (mob) {
-        engageState = startEngage(mob.id);
-        if (distTo(mob.pos) <= attackRange) {
-          player.faceToward(mob.pos);
-          player.requestAttack();
-          player.cancelPath();
-        } else {
-          player.moveTo(mob.pos);
-        }
+        engageMob(mob);
       } else {
         // คลิกพื้นเปล่า = ยกเลิก engage ที่ค้างอยู่ (manual override ชนะเสมอ, เหมือน WASD)
         player.moveTo(foot);
@@ -456,6 +490,21 @@ export async function createEngine(
       }
     };
     app.canvas.addEventListener("pointerdown", onPointerDown);
+
+    /**
+     * P2-15: ปุ่มโจมตีบนจอ (มือถือ, แทน Space) → target assist แบบ keyboard (Combat Bible §3, 0.65 tile):
+     * มีมอนใกล้ตัวในรัศมี → auto-engage (หัน+ตี/เดินเข้า, walk-to-attack เดิม); ไม่มี → ตีไปทางหน้าเฉย ๆ
+     * (requestAttack เหมือน Space; combat-stub gate cooldown/safe-zone ต่อ). ไม่มี combat semantics ใหม่ —
+     * reuse engage เดิม, แค่เลือกเป้าใกล้สุดในรัศมี assist.
+     */
+    const pressAttack = (): void => {
+      if (transition.isLocked()) return;
+      const assist = combatAllowed
+        ? mobUnderClick(player.position, config.pathfinding.targetAssist.keyboardAssistRadius)
+        : null;
+      if (assist) engageMob(assist);
+      else player.requestAttack();
+    };
 
     /**
      * รันทุก frame (caller เช็ค !locked แล้ว): WASD (manual override) ยกเลิก engage ทันที; ไม่งั้นประเมิน
@@ -583,6 +632,7 @@ export async function createEngine(
         // render: camera follow (lerp) + depth resort ถ้า dirty
         scene.update(deltaTime);
       },
+      pressAttack,
       getDebugInfo(fps): EngineDebugInfo {
         return buildDebugInfo({
           fps,
@@ -693,6 +743,16 @@ export async function createEngine(
     },
     setDepthDebug(enabled: boolean): void {
       currentWorld.setDepthDebug(enabled);
+    },
+    pressAttack(): void {
+      currentWorld.pressAttack();
+    },
+    setEffectQuality(quality: EffectQuality): void {
+      // mutate ตัว config เดียวกับที่ mountWorld/combat-stub อ่าน live — มีผลทุก world (คงค่าข้าม transition)
+      config.combatFeel.effectQuality.current = quality;
+    },
+    setScreenShakeEnabled(enabled: boolean): void {
+      config.combatFeel.screenShake.enabled = enabled;
     },
     destroy,
   };
