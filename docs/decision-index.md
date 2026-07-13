@@ -9,19 +9,19 @@ Superseded -> archived in `docs/history/`: D-002->D-012 · D-007/D-010->D-011 ·
 | D-004 | 2026-07-11 | Locked tech decisions L1-L17 (ยง0.1) | Locked | `docs/decisions/D-004-tech-l1-l17.md` |
 | D-005 | 2026-07-11 | Docs-for-AI system | Locked | `docs/decisions/D-005-ai-starter-kit.md` |
 | D-006 | 2026-07-11 | Branch from develop, PR back | Locked | `docs/decisions/D-006-branch-model.md` |
-| D-008 | 2026-07-11 | Balance: tech proposes, owner OKs | Locked | `docs/decisions/D-008-balance-values.md` |
+| D-008 | 2026-07-11 | Balance: tech proposes | Locked | `docs/decisions/D-008-balance-values.md` |
 | D-009 | 2026-07-11 | Art ref A=style, B=layout only | Locked | `docs/decisions/D-009-art-ref-groups.md` |
 | D-011 | 2026-07-12 | ClickUp cancelled | Locked | `docs/decisions/D-011-clickup-cancelled.md` |
-| D-012 | 2026-07-12 | Canonical spec = v15, tech = v1.5 | Locked | `docs/decisions/D-012-spec-v15.md` |
+| D-012 | 2026-07-12 | Spec v15, tech v1.5 | Locked | `docs/decisions/D-012-spec-v15.md` |
 | D-013 | 2026-07-12 | P0 exec: per-issue commits | Locked | `docs/decisions/D-013-p0-exec.md` |
 | D-014 | 2026-07-12 | AI efficiency: trim state | Locked | `docs/decisions/D-014-ai-efficiency.md` |
 | D-015 | 2026-07-12 | P0+P1 merged->main PR#6 | Locked | `docs/decisions/D-015-close-p0-p1.md` |
 | D-018 | 2026-07-12 | Start+map memory -> P2 | Locked | `docs/decisions/D-018-start-map-p2.md` |
-| D-019 | 2026-07-12 | P0/P1 spec amend; baseline PROD->D-055 | Locked | `docs/decisions/D-019-spec-update.md` |
+| D-019 | 2026-07-12 | P0/P1 amend; PROD->D-055 | Locked | `docs/decisions/D-019-spec-update.md` |
 | D-020 | 2026-07-12 | Extend P0/P1 run | Locked | `docs/decisions/D-020-extend-p1-run.md` |
 | D-021 | 2026-07-12 | Bible Set v1 baseline | Locked | `docs/decisions/D-021-bible-set-v1.md` |
-| D-022 | 2026-07-12 | P2 balance baseline: k=50 | Locked | `docs/decisions/D-022-balance-p2.md` |
-| D-023 | 2026-07-12 | Profession order: 2nd = archer | Locked | `docs/decisions/D-023-archer-second.md` |
+| D-022 | 2026-07-12 | P2 balance k=50 | Locked | `docs/decisions/D-022-balance-p2.md` |
+| D-023 | 2026-07-12 | 2nd class = archer | Locked | `docs/decisions/D-023-archer-second.md` |
 | D-024 | 2026-07-12 | Party: public shared channel | Locked | `docs/decisions/D-024-party-model.md` |
 | D-025 | 2026-07-12 | Skill fields/click/Map1 | Locked | `docs/decisions/D-025-skill-click-map1.md` |
 | D-026 | 2026-07-12 | Roadmap P2; P2B = Boss milestone | Locked | `docs/decisions/D-026-roadmap-p2.md` |
@@ -30,7 +30,7 @@ Superseded -> archived in `docs/history/`: D-002->D-012 · D-007/D-010->D-011 ·
 | D-029 | 2026-07-12 | Onboarding: create P2 | Locked | `docs/decisions/D-029-onboarding.md` |
 | D-032 | 2026-07-12 | Docs routing: low/high tier | Locked | `docs/decisions/D-032-docs-routing.md` |
 | D-033 | 2026-07-12 | P2 exec: PR per wave; archer->P2B | Locked | `docs/decisions/D-033-p2-exec.md` |
-| D-034 | 2026-07-12 | New specs: Companion+Achievement | Locked | `docs/decisions/D-034-companion-guide.md` |
+| D-034 | 2026-07-12 | Companion+Achieve specs | Locked | `docs/decisions/D-034-companion-guide.md` |
 | D-035 | 2026-07-12 | Companion != Bot A | Locked | `docs/decisions/D-035-not-bot-a.md` |
 | D-036 | 2026-07-12 | Asset priority D3 | Locked | `docs/decisions/D-036-asset-priority-d3.md` |
 | D-037 | 2026-07-12 | Companion local-only; AutoPilot != bot | Locked | `docs/decisions/D-037-autopilot.md` |
@@ -60,3 +60,4 @@ Superseded -> archived in `docs/history/`: D-002->D-012 · D-007/D-010->D-011 ·
 | D-063 | 2026-07-13 | Bot final + merchant dual-sink | Locked | `docs/decisions/D-063-bot-economy-final.md` |
 | D-064 | 2026-07-13 | Event calendar + boss tiers + Arc1 | Locked | `docs/decisions/D-064-content-liveops.md` |
 | D-065 | 2026-07-13 | Audio JS + art path + OB=Map1 | Locked | `docs/decisions/D-065-production-path.md` |
+| D-066 | 2026-07-13 | Rift Violet family, palette 35 | Locked | `docs/decisions/D-066-rift-violet-palette.md` |
