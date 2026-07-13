@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" shape-rendering="crispEdges">
-  <!-- chr_swordsman attack S frame 0 — foot pivot (32,54). Colors: Sand/Warm Wood (tunic) · Parchment (skin) · Deep Brown/Soil Brown (hair+pants) · Moon Blue/Moon Light/Moon Deep (signature violet sword). -->
+  <!-- chr_swordsman attack S frame 0 — foot pivot (32,54). Colors: Sand/Warm Wood (tunic) · Parchment (skin) · Deep Brown/Soil Brown (hair+pants) · Rift Violet/Rift Light/Rift Deep (signature violet sword). -->
   <rect x="26" y="40" width="6" height="9" fill="#68483A" stroke="#171820" stroke-width="1"/>
   <rect x="25" y="40" width="1" height="9" fill="#4A332E"/>
   <rect x="25" y="49" width="7" height="5" fill="#171820"/>
@@ -17,8 +17,8 @@
   <rect x="38" y="20" width="5" height="4" fill="#F2D6A0"/>
   <rect x="39" y="12" width="4" height="3" fill="#68483A"/>
   <rect x="38" y="9" width="6" height="2" fill="#171820"/>
-  <polygon points="40,9 45,8 44,2 41,3" fill="#7786C8" stroke="#171820" stroke-width="1"/>
-  <rect x="43" y="3" width="1" height="6" fill="#B0B9EC"/>
+  <polygon points="40,9 45,8 44,2 41,3" fill="#7B4FCB" stroke="#171820" stroke-width="1"/>
+  <rect x="43" y="3" width="1" height="6" fill="#B79BEF"/>
   <polygon points="25,8 37,8 41,12 41,22 37,26 25,26 21,22 21,12" fill="#F2D6A0" stroke="#171820" stroke-width="1"/>
   <polygon points="21,12 23,6 26,10 29,5 33,5 36,10 39,6 41,12 41,15 21,15" fill="#4A332E" stroke="#171820" stroke-width="1"/>
   <polygon points="29,6 32,6 30,10" fill="#68483A"/>

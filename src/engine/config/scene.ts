@@ -122,7 +122,7 @@ export interface TransitionConfig {
   fadeInMs: number;
 }
 
-// Phase 5 retint — Master Palette v1 (PALETTE_32, scripts/svg/palette.ts / Bible §3). ทุกค่าคอมเมนต์
+// Phase 5 retint — Master Palette v1 (MASTER_PALETTE, scripts/svg/palette.ts / Bible §3). ทุกค่าคอมเมนต์
 // ชื่อสีจาก palette กำกับ. Structure เดิมทั้งหมด — เปลี่ยนเฉพาะค่าสี + assetId.
 export const DEFAULT_SCENE_THEME: SceneTheme = {
   tileColorA: 0x3f6845, // Leaf
@@ -158,9 +158,9 @@ export const DEFAULT_TRANSITION_CONFIG: TransitionConfig = {
  */
 export const DEFAULT_EXIT_MARKER_CONFIG: ExitMarkerConfig = {
   enabled: true,
-  fillColor: 0x35c6b0, // Resonance Teal (PALETTE_32)
+  fillColor: 0x35c6b0, // Resonance Teal (MASTER_PALETTE)
   fillAlpha: 0.3,
-  lineColor: 0x7ce9d0, // Resonance Light (PALETTE_32)
+  lineColor: 0x7ce9d0, // Resonance Light (MASTER_PALETTE)
   lineAlpha: 0.9,
   lineWidth: 2,
 };

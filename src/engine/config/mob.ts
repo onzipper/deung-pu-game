@@ -223,8 +223,8 @@ export const DEFAULT_MOB_CONFIG: MobConfig = {
     // ค่าสี bird/boar/boar_elite ด้านล่างเป็น "placeholder fallback" (atlas โหลดไม่ทัน/ไม่เจอ) เท่านั้น
     // — เมื่อ atlas โหลดสำเร็จจะใช้ sprite จริงจาก assetId แทนเสมอ. shape reuse "slime" geometry.
     bird: {
-      bodyColor: 0x7786c8, // Moon Blue (PALETTE_32)
-      accentColor: 0x4b568e, // Moon Deep (PALETTE_32)
+      bodyColor: 0x7786c8, // Moon Blue (MASTER_PALETTE)
+      accentColor: 0x4b568e, // Moon Deep (MASTER_PALETTE)
       width: 20,
       height: 16,
       bounceAmount: 3,
@@ -232,8 +232,8 @@ export const DEFAULT_MOB_CONFIG: MobConfig = {
       assetId: "mon_map1_bird",
     },
     boar: {
-      bodyColor: 0x8e6046, // Clay (PALETTE_32)
-      accentColor: 0xd8ae70, // Sand (PALETTE_32)
+      bodyColor: 0x8e6046, // Clay (MASTER_PALETTE)
+      accentColor: 0xd8ae70, // Sand (MASTER_PALETTE)
       width: 30,
       height: 20,
       bounceAmount: 2,
@@ -241,8 +241,8 @@ export const DEFAULT_MOB_CONFIG: MobConfig = {
       assetId: "mon_map1_boar",
     },
     boar_elite: {
-      bodyColor: 0xdd6840, // Fire (PALETTE_32)
-      accentColor: 0x9e3c32, // Fire Deep (PALETTE_32)
+      bodyColor: 0xdd6840, // Fire (MASTER_PALETTE)
+      accentColor: 0x9e3c32, // Fire Deep (MASTER_PALETTE)
       width: 34,
       height: 24,
       bounceAmount: 2,

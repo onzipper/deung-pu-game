@@ -3,7 +3,7 @@ import {
   lintColors,
   isLegalColor,
   normalizeColor,
-  PALETTE_32,
+  MASTER_PALETTE,
   RARITY_ALIAS,
 } from "../scripts/svg/palette";
 
@@ -14,13 +14,13 @@ describe("palette — normalize + membership", () => {
   });
 
   test("every palette hex is legal", () => {
-    for (const hex of Object.values(PALETTE_32)) {
+    for (const hex of Object.values(MASTER_PALETTE)) {
       expect(isLegalColor(hex)).toBe(true);
     }
   });
 
   test("rarity alias colors all resolve to palette hexes", () => {
-    const legal = new Set(Object.values(PALETTE_32));
+    const legal = new Set(Object.values(MASTER_PALETTE));
     for (const hex of Object.values(RARITY_ALIAS)) {
       expect(legal.has(hex)).toBe(true);
     }
