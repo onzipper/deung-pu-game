@@ -5,14 +5,26 @@ import {
   INITIAL_HUD_STATE,
   resetHudState,
   selectDebugInfo,
+  selectGold,
   selectInventory,
   selectInventoryRejection,
+  selectShopList,
+  selectShopResult,
+  setGoldFromProgress,
   setInventoryRejection,
   setInventoryState,
+  setShopList,
+  setShopResult,
   type HudState,
 } from "@/ui/store/game-store";
 import { IDLE_NET_DEBUG_INFO, type EngineDebugInfo } from "@/engine/runtime/debug-info";
-import type { InventoryOpRejectedMessage, InventorySnapshot } from "@/shared/net-protocol";
+import type {
+  InventoryOpRejectedMessage,
+  InventorySnapshot,
+  PlayerProgressMessage,
+  ShopListMessage,
+  ShopResultMessage,
+} from "@/shared/net-protocol";
 
 // P2-01: Zustand bridge — game loop (engine) → publish (throttled) → store → React subscribe (docs/context/ui.md).
 // เทสต์นี้ pure ล้วน: ไม่ render React/pixi — publisher inject writer เอง (ไม่แตะ gameStore singleton จริง
@@ -140,6 +152,95 @@ describe("setInventoryState / setInventoryRejection — เขียน gameStor
     setInventoryRejection(REJECTION_A);
     expect(gameStore.getState().inventoryRejection).toEqual(REJECTION_A);
     expect(gameStore.getState().inventory).toEqual(SNAPSHOT_A);
+    resetHudState();
+    expect(gameStore.getState()).toEqual(INITIAL_HUD_STATE);
+  });
+});
+
+// P2-11: shop slice — event-driven เหมือน inventory/enhance (ดู comment ที่ game-store.ts)
+const SHOP_LIST_A: ShopListMessage = {
+  shopId: "starter_shop",
+  available: true,
+  entries: [{ itemId: "sword_iron", buyPrice: 100, unlockCondition: "immediate" }],
+};
+
+const SHOP_RESULT_BUY_OK: ShopResultMessage = {
+  op: "buy",
+  ok: true,
+  itemId: "sword_iron",
+  quantity: 1,
+  gold: 900,
+};
+
+const SHOP_RESULT_REJECT: ShopResultMessage = {
+  op: "sell",
+  ok: false,
+  itemId: "sword_iron",
+  quantity: 0,
+  gold: -1, // GOLD_UNKNOWN
+  reason: "TRANSACTION_CONFLICT",
+};
+
+const PROGRESS_A: PlayerProgressMessage = {
+  level: 2,
+  exp: 100,
+  expFloor: 0,
+  expCeil: 200,
+  gold: 500,
+  leveledUp: false,
+  loot: [],
+  lootOverflow: [],
+};
+
+describe("selectShopList / selectShopResult / selectGold", () => {
+  test("null ก่อนมี list/result/gold", () => {
+    expect(selectShopList(INITIAL_HUD_STATE)).toBeNull();
+    expect(selectShopResult(INITIAL_HUD_STATE)).toBeNull();
+    expect(selectGold(INITIAL_HUD_STATE)).toBeNull();
+  });
+});
+
+describe("setShopList — เขียน gameStore singleton ทันที (ไม่ throttle)", () => {
+  test("เขียนค่าใหม่ทันที", () => {
+    resetHudState();
+    setShopList(SHOP_LIST_A);
+    expect(gameStore.getState().shopList).toEqual(SHOP_LIST_A);
+    resetHudState();
+  });
+});
+
+describe("setShopResult", () => {
+  test("gold ที่ถูกต้อง (≠ GOLD_UNKNOWN) → อัปเดต gold ไปด้วยในตัว", () => {
+    resetHudState();
+    setShopResult(SHOP_RESULT_BUY_OK);
+    expect(gameStore.getState().shopResult).toEqual(SHOP_RESULT_BUY_OK);
+    expect(gameStore.getState().gold).toBe(900);
+    resetHudState();
+  });
+
+  test("GOLD_UNKNOWN (-1, ตอน reject) → shopResult อัปเดต แต่ gold เดิมไม่ถูกทับ", () => {
+    resetHudState();
+    setShopResult(SHOP_RESULT_BUY_OK); // gold = 900 ก่อน
+    setShopResult(SHOP_RESULT_REJECT); // gold = -1 (GOLD_UNKNOWN)
+    expect(gameStore.getState().shopResult).toEqual(SHOP_RESULT_REJECT);
+    expect(gameStore.getState().gold).toBe(900); // ไม่ถูกทับด้วย -1
+    resetHudState();
+  });
+});
+
+describe("setGoldFromProgress", () => {
+  test("gold ที่ถูกต้อง → อัปเดต gold", () => {
+    resetHudState();
+    setGoldFromProgress(PROGRESS_A);
+    expect(gameStore.getState().gold).toBe(500);
+    resetHudState();
+  });
+
+  test("GOLD_UNKNOWN → ไม่แตะ gold เดิมเลย", () => {
+    resetHudState();
+    setGoldFromProgress(PROGRESS_A); // gold = 500
+    setGoldFromProgress({ ...PROGRESS_A, gold: -1 });
+    expect(gameStore.getState().gold).toBe(500);
     resetHudState();
     expect(gameStore.getState()).toEqual(INITIAL_HUD_STATE);
   });

@@ -21,6 +21,8 @@ import { InventoryPanel } from "@/ui/panels/inventory/InventoryPanel";
 import { EnhancementTargetProvider } from "@/ui/panels/enhancement/enhancement-target-context";
 import { EnhancementHudButton } from "@/ui/panels/enhancement/EnhancementHudButton";
 import { EnhancementPanel } from "@/ui/panels/enhancement/EnhancementPanel";
+import { ShopHudButton } from "@/ui/panels/shop/ShopHudButton";
+import { ShopPanel } from "@/ui/panels/shop/ShopPanel";
 import { resolveGameEntry } from "@/app/game/boot-gate";
 import {
   readSelectedCharacterId,
@@ -118,6 +120,9 @@ export function GameCanvas() {
         <InventoryPanel getHandle={() => engineRef.current} />
         <EnhancementHudButton />
         <EnhancementPanel getHandle={() => engineRef.current} />
+        {/* P2-11: ปุ่มร้านค้า render เฉพาะ available:true (city-hub) — ดู ShopHudButton.tsx */}
+        <ShopHudButton />
+        <ShopPanel getHandle={() => engineRef.current} />
       </EnhancementTargetProvider>
     </PanelProvider>
   );

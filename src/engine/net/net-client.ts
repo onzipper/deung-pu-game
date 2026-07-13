@@ -42,7 +42,13 @@ import {
   MSG_MAP_TRANSITION,
   MSG_MOVE,
   MSG_MOVE_ITEM,
+  MSG_PLAYER_PROGRESS,
   MSG_POSITION_CORRECTION,
+  MSG_SHOP_BUY,
+  MSG_SHOP_LIST,
+  MSG_SHOP_LIST_REQUEST,
+  MSG_SHOP_RESULT,
+  MSG_SHOP_SELL,
   MSG_SKILL_RESULT,
   MSG_UNEQUIP_ITEM,
   WS_CLOSE_SESSION_TAKEN_OVER,
@@ -58,8 +64,14 @@ import {
   type MobSnapshot,
   type MoveItemMessage,
   type MoveMessage,
+  type PlayerProgressMessage,
   type PlayerSnapshot,
   type PositionCorrectionMessage,
+  type ShopBuyMessage,
+  type ShopListMessage,
+  type ShopListRequestMessage,
+  type ShopResultMessage,
+  type ShopSellMessage,
   type SkillResultMessage,
 } from "@/shared/net-protocol";
 import { canSendLocalMove, coerceAnim, coerceDirection, computePlayerCount, type ConnectionState } from "@/engine/net/sync";
@@ -157,6 +169,24 @@ export interface NetClientHandlers {
    * ITEM_LOCKED, §2.4). caller push เข้า Zustand bridge ตรง ๆ (event-driven เหมือน onInventoryOpRejected). optional.
    */
   onEnhanceResult?(result: EnhanceResultMessage): void;
+  /**
+   * P2-11: catalog ของร้านบน map ปัจจุบัน (ตอบ MSG_SHOP_LIST_REQUEST) — `available: false` = map นี้ไม่มี
+   * ร้าน (HUD ปุ่ม "ร้านค้า" อ่านค่านี้ตัดสินว่าโชว์ปุ่มไหม). caller push เข้า Zustand bridge ตรง ๆ
+   * (event-driven เหมือน onInventoryState). optional.
+   */
+  onShopList?(list: ShopListMessage): void;
+  /**
+   * P2-11: ผลซื้อ/ขาย (ok/reject, Economy §23) — สำเร็จมากับ MSG_INVENTORY_STATE snapshot ใหม่แยกต่างหาก
+   * (server ส่งสองข้อความ เหมือน enhance) + ยอด gold authoritative หลังทำ. caller push เข้า Zustand bridge
+   * ตรง ๆ (event-driven). optional.
+   */
+  onShopResult?(result: ShopResultMessage): void;
+  /**
+   * P2-09: progression + loot สรุปหลังฆ่ามอน (level/exp/gold/loot) — P2-11 shop ใช้เฉพาะ `gold` เพื่อโชว์
+   * ยอดปัจจุบันในร้าน (ยังไม่มี HUD gold bar แยกต่างหากรอบนี้). caller push เข้า Zustand bridge ตรง ๆ
+   * (event-driven). optional.
+   */
+  onPlayerProgress?(msg: PlayerProgressMessage): void;
 }
 
 /** อ่าน MobState schema (reflection → any) → MobSnapshot (coerce state). */
@@ -243,6 +273,12 @@ export interface NetClientHandle {
   sendMoveItem(msg: MoveItemMessage): void;
   /** P2-10: ขอเสริมแกร่ง equipment ที่ถืออยู่ +1 (no-op ถ้ายังไม่ online) — server ตัดสินทั้งหมด (§2.3). */
   sendEnhanceItem(msg: EnhanceItemMessage): void;
+  /** P2-11: ขอ catalog ร้านของ map ปัจจุบัน (no-op ถ้ายังไม่ online) — เรียกตอน join/เปลี่ยน map. */
+  sendShopListRequest(msg: ShopListRequestMessage): void;
+  /** P2-11: ขอซื้อ item จากร้าน (no-op ถ้ายังไม่ online) — ราคา/เงื่อนไขทั้งหมด server ตัดสิน. */
+  sendShopBuy(msg: ShopBuyMessage): void;
+  /** P2-11: ขอขาย item ที่ถืออยู่ให้ร้าน (no-op ถ้ายังไม่ online). */
+  sendShopSell(msg: ShopSellMessage): void;
   /** ออกจาก room + ปิด connection (idempotent) */
   disconnect(): void;
 }
@@ -453,6 +489,17 @@ export function createNetClient(
     joinedRoom.onMessage(MSG_ENHANCE_RESULT, (result: EnhanceResultMessage) => {
       handlers.onEnhanceResult?.(result);
     });
+    // P2-11: catalog ร้าน (ตอบ MSG_SHOP_LIST_REQUEST) + ผลซื้อ/ขาย
+    joinedRoom.onMessage(MSG_SHOP_LIST, (list: ShopListMessage) => {
+      handlers.onShopList?.(list);
+    });
+    joinedRoom.onMessage(MSG_SHOP_RESULT, (result: ShopResultMessage) => {
+      handlers.onShopResult?.(result);
+    });
+    // P2-09: progression หลังฆ่ามอน — P2-11 shop ใช้เฉพาะ gold (ดู comment ที่ onPlayerProgress ด้านบน)
+    joinedRoom.onMessage(MSG_PLAYER_PROGRESS, (msg: PlayerProgressMessage) => {
+      handlers.onPlayerProgress?.(msg);
+    });
 
     // channel/map อาจถูก set หลัง state แรก → sync ค่าล่าสุด
     $(joinedRoom.state).listen("channelId", (v: string) => {
@@ -632,6 +679,18 @@ export function createNetClient(
     sendEnhanceItem(msg: EnhanceItemMessage): void {
       if (!room || status.state !== "online") return;
       room.send(MSG_ENHANCE_ITEM, msg);
+    },
+    sendShopListRequest(msg: ShopListRequestMessage): void {
+      if (!room || status.state !== "online") return;
+      room.send(MSG_SHOP_LIST_REQUEST, msg);
+    },
+    sendShopBuy(msg: ShopBuyMessage): void {
+      if (!room || status.state !== "online") return;
+      room.send(MSG_SHOP_BUY, msg);
+    },
+    sendShopSell(msg: ShopSellMessage): void {
+      if (!room || status.state !== "online") return;
+      room.send(MSG_SHOP_SELL, msg);
     },
     disconnect(): void {
       if (disposed) return;

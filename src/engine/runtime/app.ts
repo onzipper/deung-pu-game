@@ -57,8 +57,11 @@ import {
   createHudPublisher,
   resetHudState,
   setEnhanceResult,
+  setGoldFromProgress,
   setInventoryRejection,
   setInventoryState,
+  setShopList,
+  setShopResult,
 } from "@/ui/store/game-store";
 
 /** handle สาธารณะที่ React (หรือ caller อื่น) ใช้คุมกับ engine — ห้ามให้ caller แตะ pixi ตรง ๆ นอกจากผ่าน app */
@@ -276,6 +279,9 @@ export async function createEngine(
             player.applyCorrection(snap.tx, snap.ty);
             lastSent = null;
             sendAccumMs = 0;
+            // P2-11: ขอ catalog ร้านทันทีที่ self เข้า room สำเร็จ (fresh join/reconnect/ข้าม map ใหม่)
+            // — server ตอบตาม map ปัจจุบัน (available:false = map นี้ไม่มีร้าน, HUD ปุ่มอ่านค่านี้).
+            net?.sendShopListRequest({});
           },
           onMobAdd: (snap) => mobView.onMobAdd(snap),
           onMobChange: (snap) => mobView.onMobChange(snap),
@@ -302,6 +308,11 @@ export async function createEngine(
           onInventoryOpRejected: (rejected) => setInventoryRejection(rejected),
           // P2-10: ผลเสริมแกร่ง → Zustand bridge ตรง ๆ (event-driven, ดู comment ที่ game-store.ts setEnhanceResult)
           onEnhanceResult: (result) => setEnhanceResult(result),
+          // P2-11: catalog ร้าน + ผลซื้อ/ขาย → Zustand bridge ตรง ๆ (event-driven, เหมือน onEnhanceResult)
+          onShopList: (list) => setShopList(list),
+          onShopResult: (result) => setShopResult(result),
+          // P2-09/P2-11: progression หลังฆ่ามอน — ใช้เฉพาะ gold รอบนี้ (ยังไม่มี HUD gold bar แยก)
+          onPlayerProgress: (msg) => setGoldFromProgress(msg),
         },
 
       );
