@@ -22,6 +22,8 @@ Scope: `src/engine/**` (+ `src/game/**` combat mechanics that sit on it) · Read
 - `src/engine/movement/` — mover (stepMovement), direction resolver, path-follower
 - `src/engine/pathfinding/` — A* on the iso grid (click-to-move)
 - `src/engine/config.ts` — barrel re-exporting every tunable engine value (Design Knobs) from domain modules under `src/engine/config/`
+- `src/engine/assets/registry.ts` — runtime atlas registry (engine-scope): fail-soft, missing asset/atlas → placeholder, never crash
+- `src/engine/config/render.ts` — pixelate render knob (Design Knob)
 
 ## Invariants
 - Every balance value is a Design Knob (GS §48) → read from config, never hardcode.
@@ -31,6 +33,7 @@ Scope: `src/engine/**` (+ `src/game/**` combat mechanics that sit on it) · Read
 - Perf budget (P0 success): desktop 60fps @ 40 mobs + 300 damage numbers/s + 3 stacked AoE; mobile 30fps @ 30 mobs, quality Low.
 
 ## Traps
+- **texture-set ownership**: `src/engine/animation/texture-set.ts` textures are non-owning — the animator borrows them from the atlas registry; never call `.destroy()` on a texture from animation code, only the registry owns lifecycle.
 - **iso placement: duplicated +0.5** — Symptom: a sprite floats ~half a tile (16px @ 64×32) off the cursor/camera, or the depth-sort order flips. Cause: mixing `tileCenterToScreen` (adds +0.5) with already-centered coords, or an entity on center basis while camera/depthKey use origin basis. Rule: one convention only — entity/prop APIs take a continuous foot position and render via `entityFootToScreen`; bake n+0.5 into the config coords. Never mix two bases inside a depth-sorted layer. Locked by `tests/engine-render-placement.test.ts`.
   full story: docs/history/2026-07-13-known-traps-archive.md#iso-placement-duplicated-05-sprite-off-by-half-a-tile
 

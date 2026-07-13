@@ -14,7 +14,9 @@
 - `src/engine/player/` — local player pixi glue + correction-resume (server reconcile)
 - `src/engine/net/` — colyseus client glue, interpolation buffer, reconnect store, remote player/attack, party
 - `src/engine/net/net-client.ts` — createNetClient(): connect/join, reconnect (§59.1), self-adopt gating, cast/skill messages
-- `src/engine/animation/` — animation manifest (5-dir+mirror), sprite animator, placeholder textures
+- `src/engine/animation/` — animation manifest (5-dir+mirror), sprite animator, placeholder textures, `src/engine/animation/texture-set.ts` (non-owning texture handles)
+- `src/engine/assets/` — runtime atlas loader/registry (engine-scope, fail-soft: missing asset → placeholder, never crash): atlas-format, collect, atlas-loader, registry
+- `src/engine/config/render.ts` — pixelate knob (on/scale/nearest-filter/CSS)
 - `src/engine/render/` — depth registry, camera, scene graph, object pool, screen shake, exit marker
 - `src/engine/map/` — MapConfig schema/loader/registry + map1/city-hub/p0-test-field configs
 - `src/engine/input/` — keyboard intent tracker (WASD + attack key)
@@ -22,6 +24,7 @@
 ## src/game (combat/entity logic on top of the engine)
 
 - `src/game/mob/` — spawn/wander, AI (aggro/leash/LOD), authoritative simulation, view manager
+- `src/game/item/icon-catalog.ts` — itemId → icon URL map (null = show raw id)
 - `src/game/skill/` — SkillDefinition (37 fields, GS §50.1) loader + server/client view split (TA §16.1)
 - `src/game/skill/data/warrior-skills-server.ts` + `src/game/skill/data/warrior-skills-client.ts` — **SERVER-ONLY vs CLIENT-SAFE split**: server literals (baseMultiplier/bossModifier/etc.) must never reach the client bundle
 - `src/game/combat/` — hit-test, cast-validation, damage-number/hit-stop/screen-shake juice, combat-stub, target-engage
@@ -36,6 +39,7 @@
 - `src/app/api/` — auth endpoints (guest/register/login/upgrade/session/rt-token) + characters (list/create)
 - `src/ui/` — GameCanvas (mount bridge), DebugOverlay (F3), debug-overlay-logic (pure reducer)
 - `src/ui/store/` — Zustand vanilla store bridge (HUD state, engine→UI one-way, no React import in the vanilla file)
+- `src/ui/theme/rarity.ts` — rarity color tokens (D-043)
 
 ## server (Colyseus realtime process, separate from Next — L4)
 
@@ -58,6 +62,6 @@
 ## scripts + tests
 
 - `scripts/e2e/` — permanent E2E harness (Colyseus client, works local/prod): `scripts/e2e/lib.mjs` helpers, `scripts/e2e/smoke.mjs` 8-step scenario
-- `scripts/svg/` — SVG-first pipeline (SVG-01, D-042/D-043), no-dep: sanitizer + palette lint (32-color/rarity) + manifest gen (engine 5-dir+mirror + Asset Bible sec19) + raster atlas (PNG=TODO, needs dep); svg:lint/svg:build CLIs
-- `svg/` — SVG source tree + `svg/README.md` contract; entity folders carry entity.json; build artifacts in svg/.build (gitignored)
+- `scripts/svg/` — SVG-first pipeline (SVG-01, D-042/D-043): sanitizer + palette lint (32-color/rarity) + manifest gen (engine 5-dir+mirror + Asset Bible sec19) + `scripts/svg/raster-resvg.ts` (@resvg/resvg-js backend, builds PNG atlases + icons); svg:lint/svg:build CLIs
+- `svg/` — SVG source tree + `svg/README.md` contract; entity folders carry entity.json; `_`-prefixed folders = WIP, skipped by build; build output mirrors to `public/assets/` (manifests/atlases/icons, committed)
 - tests/ mirrors source module names — grep the test dir.
