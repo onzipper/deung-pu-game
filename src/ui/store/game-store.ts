@@ -10,15 +10,25 @@
 
 import { createStore, type StoreApi } from "zustand/vanilla";
 import type { EngineDebugInfo } from "@/engine/runtime/debug-info";
+import type { InventoryOpRejectedMessage, InventorySnapshot } from "@/shared/net-protocol";
 
 /** HUD state ที่ UI ทุกจอ subscribe ได้ — เพิ่ม slice ใหม่ที่นี่เมื่อ UI ตัวถัดไป (inventory/shop/...) ต้องใช้ */
 export interface HudState {
   /** snapshot ล่าสุดของ debug overlay (P0-11) — null ก่อน engine publish ครั้งแรก */
   debugInfo: EngineDebugInfo | null;
+  /** snapshot inventory/equipment ล่าสุดจาก server (P2-07, MSG_INVENTORY_STATE) — null ก่อน join สำเร็จ */
+  inventory: InventorySnapshot | null;
+  /**
+   * mutation ล่าสุดที่ server ปฏิเสธ (P2-07, MSG_INVENTORY_OP_REJECTED) — UI ใช้โชว์ toast สั้น ๆ
+   * แล้ว resync จาก `inventory` ล่าสุดที่มีอยู่แล้ว (ไม่มี request ใหม่). null = ยังไม่เคยถูกปฏิเสธใน session นี้.
+   */
+  inventoryRejection: InventoryOpRejectedMessage | null;
 }
 
 export const INITIAL_HUD_STATE: HudState = {
   debugInfo: null,
+  inventory: null,
+  inventoryRejection: null,
 };
 
 /** store singleton ตัวเดียวทั้งแอป — engine publish เข้านี่, React component subscribe ผ่าน useGameStore */
@@ -38,6 +48,26 @@ export function resetHudState(): void {
 
 /** typed selector — เลี่ยง `state.debugInfo` กระจายทั่วไฟล์ component */
 export const selectDebugInfo = (state: HudState): EngineDebugInfo | null => state.debugInfo;
+
+/**
+ * P2-07: event-driven (ไม่ throttle) — engine เรียกตรงทันทีที่ MSG_INVENTORY_STATE มาถึง (ต่างจาก
+ * debugInfo ที่ผ่าน createHudPublisher เพราะ mutation เกิดไม่บ่อย ผู้เล่นต้องเห็นผลทันทีหลังกดสวม/ถอด).
+ */
+export function setInventoryState(snapshot: InventorySnapshot): void {
+  gameStore.setState({ inventory: snapshot });
+}
+
+/** P2-07: engine เรียกทันทีที่ MSG_INVENTORY_OP_REJECTED มาถึง (event-driven เหมือน setInventoryState) */
+export function setInventoryRejection(rejected: InventoryOpRejectedMessage): void {
+  gameStore.setState({ inventoryRejection: rejected });
+}
+
+/** typed selector — inventory snapshot ล่าสุด (P2-07) */
+export const selectInventory = (state: HudState): InventorySnapshot | null => state.inventory;
+
+/** typed selector — mutation ล่าสุดที่ถูกปฏิเสธ (P2-07, สำหรับ toast) */
+export const selectInventoryRejection = (state: HudState): InventoryOpRejectedMessage | null =>
+  state.inventoryRejection;
 
 export interface HudPublisher {
   /**

@@ -5,9 +5,14 @@ import {
   INITIAL_HUD_STATE,
   resetHudState,
   selectDebugInfo,
+  selectInventory,
+  selectInventoryRejection,
+  setInventoryRejection,
+  setInventoryState,
   type HudState,
 } from "@/ui/store/game-store";
 import { IDLE_NET_DEBUG_INFO, type EngineDebugInfo } from "@/engine/runtime/debug-info";
+import type { InventoryOpRejectedMessage, InventorySnapshot } from "@/shared/net-protocol";
 
 // P2-01: Zustand bridge — game loop (engine) → publish (throttled) → store → React subscribe (docs/context/ui.md).
 // เทสต์นี้ pure ล้วน: ไม่ render React/pixi — publisher inject writer เอง (ไม่แตะ gameStore singleton จริง
@@ -31,7 +36,7 @@ const INFO_B: EngineDebugInfo = {
 
 describe("selectDebugInfo", () => {
   test("อ่าน field debugInfo ตรง ๆ", () => {
-    const state: HudState = { debugInfo: INFO_A };
+    const state: HudState = { ...INITIAL_HUD_STATE, debugInfo: INFO_A };
     expect(selectDebugInfo(state)).toBe(INFO_A);
   });
 
@@ -84,6 +89,57 @@ describe("gameStore singleton — default writer เขียนจริง", (
     const publisher = createHudPublisher(0);
     publisher.publish(0, () => ({ debugInfo: INFO_A }));
     expect(gameStore.getState().debugInfo).toEqual(INFO_A);
+    resetHudState();
+    expect(gameStore.getState()).toEqual(INITIAL_HUD_STATE);
+  });
+});
+
+// P2-07: inventory slice — event-driven (ไม่ throttle, ต่างจาก debugInfo) ดู comment ที่ game-store.ts
+const SNAPSHOT_A: InventorySnapshot = {
+  capacity: 40,
+  bag: [
+    {
+      instanceId: "i1",
+      itemId: "sword_iron",
+      location: "CHARACTER_INVENTORY",
+      slot: 0,
+      quantity: 1,
+      enhancementLevel: 0,
+      version: 1,
+    },
+  ],
+  equipment: [],
+};
+
+const REJECTION_A: InventoryOpRejectedMessage = { op: "equip", reason: "inventory_full" };
+
+describe("selectInventory / selectInventoryRejection", () => {
+  test("null ก่อนมี snapshot/rejection", () => {
+    expect(selectInventory(INITIAL_HUD_STATE)).toBeNull();
+    expect(selectInventoryRejection(INITIAL_HUD_STATE)).toBeNull();
+  });
+
+  test("อ่าน field ตรง ๆ", () => {
+    const state: HudState = { ...INITIAL_HUD_STATE, inventory: SNAPSHOT_A, inventoryRejection: REJECTION_A };
+    expect(selectInventory(state)).toBe(SNAPSHOT_A);
+    expect(selectInventoryRejection(state)).toBe(REJECTION_A);
+  });
+});
+
+describe("setInventoryState / setInventoryRejection — เขียน gameStore singleton ทันที (ไม่ throttle)", () => {
+  test("setInventoryState เขียนค่าใหม่ทันที", () => {
+    resetHudState();
+    setInventoryState(SNAPSHOT_A);
+    expect(gameStore.getState().inventory).toEqual(SNAPSHOT_A);
+    resetHudState();
+  });
+
+  test("setInventoryRejection เขียนค่าใหม่ทันที ไม่แตะ inventory เดิม", () => {
+    resetHudState();
+    setInventoryState(SNAPSHOT_A);
+    setInventoryRejection(REJECTION_A);
+    expect(gameStore.getState().inventoryRejection).toEqual(REJECTION_A);
+    expect(gameStore.getState().inventory).toEqual(SNAPSHOT_A);
     resetHudState();
     expect(gameStore.getState()).toEqual(INITIAL_HUD_STATE);
   });

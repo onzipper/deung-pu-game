@@ -15,6 +15,9 @@ import { useRouter } from "next/navigation";
 import { createEngine, type EngineHandle } from "@/engine/runtime/app";
 import { DEFAULT_ENGINE_CONFIG, createEngineConfig } from "@/engine/config";
 import { DebugOverlay } from "@/ui/DebugOverlay";
+import { PanelProvider } from "@/ui/panels";
+import { InventoryHudButton } from "@/ui/panels/inventory/InventoryHudButton";
+import { InventoryPanel } from "@/ui/panels/inventory/InventoryPanel";
 import { resolveGameEntry } from "@/app/game/boot-gate";
 import {
   readSelectedCharacterId,
@@ -95,13 +98,18 @@ export function GameCanvas() {
   }, [router]);
 
   return (
-    <>
+    // P2-07: PanelProvider mount ที่นี่ (ครั้งแรกในแอป) — ครอบทุก panel content ที่ใช้ usePanelManager()
+    // (inventory ตอนนี้, shop/help-hint ในงานถัดไปเข้าคู่เดียวกัน) รวม DebugOverlay ไว้ในต้นไม้เดียวกันด้วย
+    // เผื่ออนาคตต้องคุยกับ panel state (ตอนนี้ยังไม่ต้อง).
+    <PanelProvider>
       <div
         ref={containerRef}
         className="h-screen w-screen overflow-hidden"
         aria-label="game viewport"
       />
       <DebugOverlay getHandle={() => engineRef.current} />
-    </>
+      <InventoryHudButton />
+      <InventoryPanel getHandle={() => engineRef.current} />
+    </PanelProvider>
   );
 }

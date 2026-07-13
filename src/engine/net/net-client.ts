@@ -34,16 +34,25 @@ import {
   MAP_ROOM_NAME,
   MSG_CAST_SKILL,
   MSG_CAST_REJECTED,
+  MSG_EQUIP_ITEM,
+  MSG_INVENTORY_OP_REJECTED,
+  MSG_INVENTORY_STATE,
   MSG_MAP_TRANSITION,
   MSG_MOVE,
+  MSG_MOVE_ITEM,
   MSG_POSITION_CORRECTION,
   MSG_SKILL_RESULT,
+  MSG_UNEQUIP_ITEM,
   WS_CLOSE_SESSION_TAKEN_OVER,
   type CastRejectedMessage,
   type CastSkillMessage,
+  type EquipItemMessage,
+  type InventoryOpRejectedMessage,
+  type InventorySnapshot,
   type JoinOptions,
   type MapTransitionMessage,
   type MobSnapshot,
+  type MoveItemMessage,
   type MoveMessage,
   type PlayerSnapshot,
   type PositionCorrectionMessage,
@@ -127,6 +136,17 @@ export interface NetClientHandlers {
    * เดิมก่อน refresh (กัน "วาร์ปกลับ" + กัน exit detection พลาดเพราะ desync). ยิงครั้งเดียวต่อ 1 connection. optional.
    */
   onSelfSpawn?(snap: PlayerSnapshot): void;
+  /**
+   * P2-07: snapshot inventory/equipment ล่าสุด (server → client เดียว) — ยิงตอน join + หลังทุก mutation
+   * สำเร็จ (equip/unequip/move). caller (app.ts) push เข้า Zustand bridge ตรง ๆ (event-driven, ไม่ throttle
+   * ผ่าน hudPublisher — ต่างจาก debugInfo ที่เป็น per-frame poll). optional.
+   */
+  onInventoryState?(snapshot: InventorySnapshot): void;
+  /**
+   * P2-07: mutation ถูก server ปฏิเสธ (unknown_item/not_equippable/.../version_conflict) — เงียบ ๆ ไม่ throw,
+   * caller โชว์ toast สั้น ๆ แล้ว resync จาก MSG_INVENTORY_STATE ล่าสุดที่มีอยู่แล้ว (ไม่ต้อง request ใหม่). optional.
+   */
+  onInventoryOpRejected?(rejected: InventoryOpRejectedMessage): void;
 }
 
 /** อ่าน MobState schema (reflection → any) → MobSnapshot (coerce state). */
@@ -205,6 +225,12 @@ export interface NetClientHandle {
   sendMove(msg: MoveMessage): void;
   /** P1-05: ส่ง cast intent (skillId + aim + ทิศ) ขึ้น server (no-op ถ้ายังไม่ online). */
   sendCast(msg: CastSkillMessage): void;
+  /** P2-07: ขอสวม item จากกระเป๋า (no-op ถ้ายังไม่ online) — server หา equip slot จาก item def เอง. */
+  sendEquipItem(msg: EquipItemMessage): void;
+  /** P2-07: ขอถอด item ที่สวมอยู่กลับกระเป๋า (no-op ถ้ายังไม่ online). */
+  sendUnequipItem(msg: EquipItemMessage): void;
+  /** P2-07: ขอย้าย item ในกระเป๋าไปช่องอื่น (bag↔bag เท่านั้น, no-op ถ้ายังไม่ online). */
+  sendMoveItem(msg: MoveItemMessage): void;
   /** ออกจาก room + ปิด connection (idempotent) */
   disconnect(): void;
 }
@@ -404,6 +430,14 @@ export function createNetClient(
       handlers.onMapTransition?.(msg);
     });
 
+    // P2-07: inventory/equipment snapshot (ตอน join + หลัง mutation สำเร็จ) + mutation ถูกปฏิเสธ (เงียบ ๆ)
+    joinedRoom.onMessage(MSG_INVENTORY_STATE, (snap: InventorySnapshot) => {
+      handlers.onInventoryState?.(snap);
+    });
+    joinedRoom.onMessage(MSG_INVENTORY_OP_REJECTED, (rejected: InventoryOpRejectedMessage) => {
+      handlers.onInventoryOpRejected?.(rejected);
+    });
+
     // channel/map อาจถูก set หลัง state แรก → sync ค่าล่าสุด
     $(joinedRoom.state).listen("channelId", (v: string) => {
       status.channelId = v;
@@ -566,6 +600,18 @@ export function createNetClient(
     sendCast(msg: CastSkillMessage): void {
       if (!room || status.state !== "online") return;
       room.send(MSG_CAST_SKILL, msg);
+    },
+    sendEquipItem(msg: EquipItemMessage): void {
+      if (!room || status.state !== "online") return;
+      room.send(MSG_EQUIP_ITEM, msg);
+    },
+    sendUnequipItem(msg: EquipItemMessage): void {
+      if (!room || status.state !== "online") return;
+      room.send(MSG_UNEQUIP_ITEM, msg);
+    },
+    sendMoveItem(msg: MoveItemMessage): void {
+      if (!room || status.state !== "online") return;
+      room.send(MSG_MOVE_ITEM, msg);
     },
     disconnect(): void {
       if (disposed) return;

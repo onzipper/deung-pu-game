@@ -53,7 +53,7 @@ import { createTransitionController } from "./transition";
 import { attachResize } from "./resize";
 import { screenToTile, snapToTile, type TilePoint } from "../iso/coords";
 import { buildDebugInfo, IDLE_NET_DEBUG_INFO, type EngineDebugInfo } from "./debug-info";
-import { createHudPublisher, resetHudState } from "@/ui/store/game-store";
+import { createHudPublisher, resetHudState, setInventoryRejection, setInventoryState } from "@/ui/store/game-store";
 
 /** handle สาธารณะที่ React (หรือ caller อื่น) ใช้คุมกับ engine — ห้ามให้ caller แตะ pixi ตรง ๆ นอกจากผ่าน app */
 export interface EngineHandle {
@@ -290,7 +290,12 @@ export async function createEngine(
               x: msg.targetSpawn.x,
               y: msg.targetSpawn.y,
             }),
+          // P2-07: inventory/equipment snapshot + mutation ปฏิเสธ → push เข้า Zustand bridge ตรง ๆ
+          // (event-driven, ไม่ผ่าน hudPublisher throttle — ดู comment ที่ game-store.ts setInventoryState).
+          onInventoryState: (snap) => setInventoryState(snap),
+          onInventoryOpRejected: (rejected) => setInventoryRejection(rejected),
         },
+
       );
     }
 

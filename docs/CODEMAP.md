@@ -36,7 +36,8 @@
 - `src/app/api/` — auth endpoints (guest/register/login/upgrade/session/rt-token) + characters (list/create)
 - `src/ui/` — GameCanvas (mount bridge), DebugOverlay (F3), debug-overlay-logic (pure reducer)
 - `src/ui/store/` — Zustand vanilla store bridge (HUD state, engine→UI one-way, no React import in the vanilla file)
-- `src/ui/panels/` — shared panel/window framework (P2-preface, DG spec §13): panel-stack (pure z-order reducer) + PanelContext (Provider/`usePanelManager`, blocks keydown from reaching the engine while a panel is open) + Panel (presentational window, desktop float / mobile bottom sheet) + use-media-query. Consumed by inventory (P2-07) / shop (P2-11) / help-hint (P2-12) — no real panel content lives here yet.
+- `src/ui/panels/` — shared panel/window framework (P2-preface, DG spec §13): panel-stack (pure z-order reducer) + PanelContext (Provider/`usePanelManager`, blocks keydown from reaching the engine while a panel is open) + Panel (presentational window, desktop float / mobile bottom sheet) + use-media-query. `PanelProvider` mounted in `src/ui/GameCanvas.tsx` (first host).
+- `src/ui/panels/inventory/` — inventory/equipment panel (P2-07): inventory-view (pure grid/label/reject-reason logic) + InventoryPanel (bag grid + equipment list + equip/unequip buttons, no drag-drop) + InventoryHudButton (HUD corner button + "I" hotkey). Reads HudState.inventory/inventoryRejection via the Zustand bridge; sends equip/unequip/move intents through EngineHandle.net directly (imperative, like setDepthDebug). Item name/icon still raw itemId — TODO tag points at the future client item-catalog (SVG-01).
 
 ## server (Colyseus realtime process, separate from Next — L4)
 
