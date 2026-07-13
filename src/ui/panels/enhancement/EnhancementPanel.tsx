@@ -13,6 +13,7 @@
 import { useEffect, useState } from "react";
 import type { EngineHandle } from "@/engine/runtime/app";
 import { Panel } from "@/ui/panels";
+import { ContextHelpButton } from "@/ui/panels/help/ContextHelpButton";
 import { findItemByInstanceId } from "@/ui/panels/inventory/inventory-view";
 import { selectEnhanceResult, selectInventory } from "@/ui/store/game-store";
 import { useGameStore } from "@/ui/store/use-game-store";
@@ -106,6 +107,10 @@ export function EnhancementPanel({ getHandle }: EnhancementPanelProps) {
   return (
     <Panel id={ENHANCEMENT_PANEL_ID} title="เสริมแกร่ง" widthPx={380}>
       <div className="space-y-3 text-sm">
+        {/* P2-12: context help "?" (DG §5.4) — เปิดบทความ "เสริมแกร่งยังไง" (มี hint R8 ในตัว) */}
+        <div className="flex justify-end">
+          <ContextHelpButton articleId="enhancement" />
+        </div>
         {selected ? (
           <>
             <div className="rounded border border-amber-700/40 bg-black/30 px-2 py-2">

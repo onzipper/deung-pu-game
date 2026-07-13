@@ -8,6 +8,8 @@ import {
   selectGold,
   selectInventory,
   selectInventoryRejection,
+  selectLastKillAtMs,
+  selectPlayerLevel,
   selectShopList,
   selectShopResult,
   setGoldFromProgress,
@@ -243,5 +245,31 @@ describe("setGoldFromProgress", () => {
     expect(gameStore.getState().gold).toBe(500);
     resetHudState();
     expect(gameStore.getState()).toEqual(INITIAL_HUD_STATE);
+  });
+
+  // P2-12: playerLevel/lastKillAtMs — input ของ guidance rule engine + tutorial checklist (ดู help/)
+  test("อัปเดต playerLevel เสมอ (ไม่มี sentinel แบบ gold)", () => {
+    resetHudState();
+    expect(selectPlayerLevel(gameStore.getState())).toBeNull();
+    setGoldFromProgress(PROGRESS_A, 1000);
+    expect(selectPlayerLevel(gameStore.getState())).toBe(PROGRESS_A.level);
+    resetHudState();
+  });
+
+  test("อัปเดต lastKillAtMs ด้วย nowMs ที่ inject เข้ามา (default Date.now() ตอนไม่ inject)", () => {
+    resetHudState();
+    expect(selectLastKillAtMs(gameStore.getState())).toBeNull();
+    setGoldFromProgress(PROGRESS_A, 12345);
+    expect(selectLastKillAtMs(gameStore.getState())).toBe(12345);
+    resetHudState();
+  });
+
+  test("GOLD_UNKNOWN ก็ยังอัปเดต playerLevel/lastKillAtMs ตามปกติ (แยกจาก gold sentinel)", () => {
+    resetHudState();
+    setGoldFromProgress({ ...PROGRESS_A, gold: -1, level: 7 }, 999);
+    expect(selectPlayerLevel(gameStore.getState())).toBe(7);
+    expect(selectLastKillAtMs(gameStore.getState())).toBe(999);
+    expect(gameStore.getState().gold).toBeNull(); // gold ไม่ถูกแตะ (ยัง sentinel เดิม)
+    resetHudState();
   });
 });

@@ -23,6 +23,9 @@ import { EnhancementHudButton } from "@/ui/panels/enhancement/EnhancementHudButt
 import { EnhancementPanel } from "@/ui/panels/enhancement/EnhancementPanel";
 import { ShopHudButton } from "@/ui/panels/shop/ShopHudButton";
 import { ShopPanel } from "@/ui/panels/shop/ShopPanel";
+import { HelpFocusProvider } from "@/ui/panels/help/help-focus-context";
+import { HelpHudButton } from "@/ui/panels/help/HelpHudButton";
+import { HelpPanel } from "@/ui/panels/help/HelpPanel";
 import { resolveGameEntry } from "@/app/game/boot-gate";
 import {
   readSelectedCharacterId,
@@ -108,21 +111,28 @@ export function GameCanvas() {
     // เผื่ออนาคตต้องคุยกับ panel state (ตอนนี้ยังไม่ต้อง).
     <PanelProvider>
       {/* P2-10: EnhancementTargetProvider ครอบ InventoryPanel (ปุ่ม "เสริมแกร่ง" ตั้ง target) +
-          EnhancementHudButton/Panel (อ่าน target) — ดู rationale ที่ enhancement-target-context.tsx */}
+          EnhancementHudButton/Panel (อ่าน target) — ดู rationale ที่ enhancement-target-context.tsx.
+          P2-12: HelpFocusProvider ครอบเช่นกัน (ContextHelpButton ในแต่ละจอ + HelpHudButton/Panel อ่าน
+          focusedArticleId เดียวกัน) — ดู rationale ที่ help-focus-context.tsx */}
       <EnhancementTargetProvider>
-        <div
-          ref={containerRef}
-          className="h-screen w-screen overflow-hidden"
-          aria-label="game viewport"
-        />
-        <DebugOverlay getHandle={() => engineRef.current} />
-        <InventoryHudButton />
-        <InventoryPanel getHandle={() => engineRef.current} />
-        <EnhancementHudButton />
-        <EnhancementPanel getHandle={() => engineRef.current} />
-        {/* P2-11: ปุ่มร้านค้า render เฉพาะ available:true (city-hub) — ดู ShopHudButton.tsx */}
-        <ShopHudButton />
-        <ShopPanel getHandle={() => engineRef.current} />
+        <HelpFocusProvider>
+          <div
+            ref={containerRef}
+            className="h-screen w-screen overflow-hidden"
+            aria-label="game viewport"
+          />
+          <DebugOverlay getHandle={() => engineRef.current} />
+          <InventoryHudButton />
+          <InventoryPanel getHandle={() => engineRef.current} />
+          <EnhancementHudButton />
+          <EnhancementPanel getHandle={() => engineRef.current} />
+          {/* P2-11: ปุ่มร้านค้า render เฉพาะ available:true (city-hub) — ดู ShopHudButton.tsx */}
+          <ShopHudButton />
+          <ShopPanel getHandle={() => engineRef.current} />
+          {/* P2-12: ปุ่ม "?" หลัก render เสมอ (DG §5.2) */}
+          <HelpHudButton />
+          <HelpPanel />
+        </HelpFocusProvider>
       </EnhancementTargetProvider>
     </PanelProvider>
   );

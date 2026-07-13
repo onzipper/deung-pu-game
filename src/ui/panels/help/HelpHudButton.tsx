@@ -1,0 +1,28 @@
+"use client";
+
+// ปุ่ม HUD หลักของระบบ guidance (P2-12, DG §5.2) — render เสมอ (ต่างจาก ShopHudButton ที่ conditional)
+// มุมขวาบน ห่างจาก panel อื่น ๆ (inventory/enhancement/shop อยู่แถวล่าง). เปิดที่แท็บล่าสุด ไม่ set focus
+// article ใหม่ (ต่างจาก ContextHelpButton ที่ focus บทความเฉพาะจอ) — เปิดจากตรงนี้ = ทางเข้าทั่วไป.
+
+import { usePanelManager } from "@/ui/panels";
+import { HELP_PANEL_ID } from "./help-view";
+import { useHelpFocus } from "./help-focus-context";
+
+export function HelpHudButton() {
+  const manager = usePanelManager();
+  const { setFocusedArticleId } = useHelpFocus();
+
+  return (
+    <button
+      type="button"
+      onClick={() => {
+        setFocusedArticleId(null); // ทางเข้าทั่วไป — ไม่ focus บทความไหนเฉพาะ (ต่างจาก context help)
+        manager.openPanel(HELP_PANEL_ID);
+      }}
+      aria-label="เปิดตัวช่วยเหลือ"
+      className="pointer-events-auto fixed right-3 top-3 z-50 flex h-9 w-9 items-center justify-center rounded-full border border-amber-700/50 bg-black/60 text-base font-bold text-amber-200 shadow-lg hover:bg-black/80"
+    >
+      ?
+    </button>
+  );
+}
