@@ -1,24 +1,21 @@
 # Decision index โ€” locked decisions. Do not re-propose. Rationale: docs/decisions/ (Thai).
 
+Superseded -> archived in `docs/history/`: D-002->D-012 · D-007/D-010->D-011 · D-016/D-031->D-058 · D-017->D-030->D-056 · D-049->D-055
+
 | ID | Date | Decision | Status | TH |
 |---|---|---|---|---|
 | D-001 | 2026-07-11 | Spec-first: never guess | Locked | `docs/decisions/D-001-spec-first.md` |
-| D-002 | 2026-07-11 | v14 spec (old) | Superseded->D-012 | `docs/decisions/D-002-spec-v14-old.md` |
 | D-003 | 2026-07-11 | Skill fields follow v15 ยง50.1 | Locked | `docs/decisions/D-003-skill-schema.md` |
 | D-004 | 2026-07-11 | Locked tech decisions L1-L17 (ยง0.1) | Locked | `docs/decisions/D-004-tech-l1-l17.md` |
 | D-005 | 2026-07-11 | Docs-for-AI system | Locked | `docs/decisions/D-005-ai-starter-kit.md` |
 | D-006 | 2026-07-11 | Branch from develop, PR back | Locked | `docs/decisions/D-006-branch-model.md` |
-| D-007 | 2026-07-11 | ClickUp tracking | Superseded->D-011 | `docs/decisions/D-007-clickup-tracking.md` |
 | D-008 | 2026-07-11 | Balance: tech proposes, owner OKs | Locked | `docs/decisions/D-008-balance-values.md` |
 | D-009 | 2026-07-11 | Art ref A=style, B=layout only | Locked | `docs/decisions/D-009-art-ref-groups.md` |
-| D-010 | 2026-07-11 | ClickUp tokens | Superseded->D-011 | `docs/decisions/D-010-clickup-tokens.md` |
 | D-011 | 2026-07-12 | ClickUp cancelled | Locked | `docs/decisions/D-011-clickup-cancelled.md` |
 | D-012 | 2026-07-12 | Canonical spec = v15, tech = v1.5 | Locked | `docs/decisions/D-012-spec-v15.md` |
 | D-013 | 2026-07-12 | P0 exec: per-issue commits | Locked | `docs/decisions/D-013-p0-exec.md` |
 | D-014 | 2026-07-12 | AI efficiency: trim state | Locked | `docs/decisions/D-014-ai-efficiency.md` |
 | D-015 | 2026-07-12 | P0+P1 merged->main PR#6 | Locked | `docs/decisions/D-015-close-p0-p1.md` |
-| D-016 | 2026-07-12 | Render free+UptimeRobot | Superseded->D-058 | `docs/decisions/D-016-render-free.md` |
-| D-017 | 2026-07-12 | BG tab P1 | Superseded->D-030 | `docs/decisions/D-017-bg-tab-p1.md` |
 | D-018 | 2026-07-12 | Start+map memory -> P2 | Locked | `docs/decisions/D-018-start-map-p2.md` |
 | D-019 | 2026-07-12 | P0/P1 spec amend; baseline PROD->D-055 | Locked | `docs/decisions/D-019-spec-update.md` |
 | D-020 | 2026-07-12 | Extend P0/P1 run | Locked | `docs/decisions/D-020-extend-p1-run.md` |
@@ -31,8 +28,6 @@
 | D-027 | 2026-07-12 | Vertical Slice First | Locked | `docs/decisions/D-027-vertical-slice.md` |
 | D-028 | 2026-07-12 | Clock P2B, weather P3 | Locked | `docs/decisions/D-028-living-world.md` |
 | D-029 | 2026-07-12 | Onboarding: create P2 | Locked | `docs/decisions/D-029-onboarding.md` |
-| D-030 | 2026-07-12 | BG tab prod | Superseded->D-056 | `docs/decisions/D-030-bg-tab-prod.md` |
-| D-031 | 2026-07-12 | Render->paid on trigger | Superseded->D-058 | `docs/decisions/D-031-render-paid.md` |
 | D-032 | 2026-07-12 | Docs routing: low/high tier | Locked | `docs/decisions/D-032-docs-routing.md` |
 | D-033 | 2026-07-12 | P2 exec: PR per wave; archer->P2B | Locked | `docs/decisions/D-033-p2-exec.md` |
 | D-034 | 2026-07-12 | New specs: Companion+Achievement | Locked | `docs/decisions/D-034-companion-guide.md` |
@@ -50,7 +45,6 @@
 | D-046 | 2026-07-12 | Caveman-code skill not adopted | Locked | `docs/decisions/D-046-caveman-code.md` |
 | D-047 | 2026-07-12 | E1: Map 1 boss id + lv8 | Locked | `docs/decisions/D-047-e1-boss-map1.md` |
 | D-048 | 2026-07-12 | E2: reinforcement +1, cap +15 | Locked | `docs/decisions/D-048-e2-reinforcement.md` |
-| D-049 | 2026-07-12 | E3 open | Closed->D-055 | `docs/decisions/D-049-e3-monster-stats.md` |
 | D-050 | 2026-07-12 | Rename reinforcement, tradable | Locked | `docs/decisions/D-050-reinf-rename.md` |
 | D-051 | 2026-07-13 | Fragment boss-only 10.7% | Locked | `docs/decisions/D-051-reinf-fragment.md` |
 | D-052 | 2026-07-13 | R1-R10 closed | Locked | `docs/decisions/D-052-r1-r10-closed.md` |
@@ -60,3 +54,7 @@
 | D-056 | 2026-07-13 | Tab: AFK stays, no force-DC | Locked | `docs/decisions/D-056-tab-policy-afk.md` |
 | D-057 | 2026-07-13 | Single DB: Hostinger = prod | Locked | `docs/decisions/D-057-single-db-hostinger-prod.md` |
 | D-058 | 2026-07-13 | Render free until breaks | Locked | `docs/decisions/D-058-render-free-until-break.md` |
+| D-059 | 2026-07-13 | DB backup: after Open Beta | Locked | `docs/decisions/D-059-db-backup-defer.md` |
+| D-060 | 2026-07-13 | Bot = duration pass 1/10/30d | Locked | `docs/decisions/D-060-bot-duration-pass.md` |
+| D-061 | 2026-07-13 | Payment mock thru Open Beta | Locked | `docs/decisions/D-061-payment-mock-beta.md` |
+| D-062 | 2026-07-13 | Email via Hostinger SMTP | Locked | `docs/decisions/D-062-smtp-hostinger.md` |

@@ -139,6 +139,8 @@ describe("agent context guard", () => {
         const abs = join(ROOT, relDir);
         if (!existsSync(abs)) return;
         for (const entry of readdirSync(abs, { withFileTypes: true })) {
+          // ข้าม agent worktrees — สำเนา repo ทั้งชุดของ subagent ไม่ใช่ live docs
+          if (entry.isDirectory() && entry.name === "worktrees") continue;
           const rel = join(relDir, entry.name);
           if (entry.isDirectory()) walkClaude(rel);
           else if (entry.name.endsWith(".md")) mdFiles.push(rel);
