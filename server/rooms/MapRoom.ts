@@ -41,6 +41,7 @@
 //   - AOI filter บังคับ (P1+/map ใหญ่, §18.2) · resource/mana pool (proposal §5 [8] PENDING OWNER)
 //   - progression/EXP/loot (P2) — P1 ผู้เล่นทุกคน lv1 นักดาบ (stat จาก combatBalance)
 
+import { randomUUID } from "node:crypto";
 import { Room, ServerError, type AuthContext, type Client } from "colyseus";
 import { MapRoomState, MobState, PlayerState } from "../schema/MapRoomState";
 import { authorizeHandshake } from "../security/handshake";
@@ -51,7 +52,9 @@ import { acquireLease, releaseLease } from "../security/session-lease";
 import {
   fetchCharacterOwner,
   loadCharacterState,
+  loadCharacterProgress,
   saveCharacterState,
+  saveCharacterProgress,
   updateLastPlayed,
 } from "../characters/character-state";
 import {
@@ -74,6 +77,28 @@ import {
   MSG_MOVE,
   MSG_POSITION_CORRECTION,
   MSG_SKILL_RESULT,
+  MSG_INVENTORY_STATE,
+  MSG_INVENTORY_OP_REJECTED,
+  MSG_PLAYER_PROGRESS,
+  GOLD_UNKNOWN,
+  MSG_EQUIP_ITEM,
+  MSG_UNEQUIP_ITEM,
+  MSG_MOVE_ITEM,
+  MSG_ENHANCE_ITEM,
+  MSG_ENHANCE_RESULT,
+  MSG_SHOP_LIST_REQUEST,
+  MSG_SHOP_LIST,
+  MSG_SHOP_BUY,
+  MSG_SHOP_SELL,
+  MSG_SHOP_RESULT,
+  MSG_STORAGE_OPEN,
+  MSG_STORAGE_STATE,
+  MSG_STORAGE_DEPOSIT,
+  MSG_STORAGE_WITHDRAW,
+  MSG_STORAGE_RESULT,
+  MSG_DELIVERY_STATE,
+  MSG_DELIVERY_CLAIM,
+  MSG_DELIVERY_RESULT,
   WS_CLOSE_SESSION_TAKEN_OVER,
   type CastRejectedMessage,
   type CastSkillMessage,
@@ -83,6 +108,25 @@ import {
   type PositionCorrectionMessage,
   type SkillHit,
   type SkillResultMessage,
+  type EquipItemMessage,
+  type MoveItemMessage,
+  type EnhanceItemMessage,
+  type EnhanceResultMessage,
+  type InventoryOp,
+  type InventoryOpRejectedMessage,
+  type PlayerProgressMessage,
+  type ShopListRequestMessage,
+  type ShopListMessage,
+  type ShopBuyMessage,
+  type ShopSellMessage,
+  type ShopResultMessage,
+  type StorageMoveMessage,
+  type StorageStateMessage,
+  type StorageResultMessage,
+  type StorageOp,
+  type DeliveryClaimMessage,
+  type DeliveryStateMessage,
+  type DeliveryResultMessage,
 } from "../../src/shared/net-protocol";
 import {
   validateMove,
@@ -97,12 +141,66 @@ import {
   type MapConfig,
 } from "../../src/engine/map/types";
 import { resolveSpawnPosition, type ReconnectVec2 } from "../../src/shared/reconnect";
+import { isIdleAfk, exceedsAfkHardCap } from "../../src/shared/afk";
 import { snapToTile } from "../../src/engine/iso/coords";
 import {
   DEFAULT_ENGINE_CONFIG,
   soloChannelCapacityForZone,
   type CombatBalanceConfig,
+  type PlayerCombatStats,
 } from "../../src/engine/config";
+import {
+  equipItem,
+  unequipItem,
+  moveItem,
+  buildSnapshot,
+  type InventoryOpResult,
+} from "../../src/server/inventory/service";
+import {
+  enhanceEquipment,
+  type EnhanceResult,
+} from "../../src/server/inventory/enhancement-service";
+import {
+  depositToStorage,
+  withdrawFromStorage,
+  claimDeliveryEntry,
+  buildStorageSnapshot,
+  buildDeliverySnapshot,
+  type StorageServiceDeps,
+  type DeliveryServiceDeps,
+  type StorageOpResult,
+  type DeliveryClaimResult,
+} from "../../src/server/inventory/storage-service";
+import { aggregateEquipmentBonus } from "../../src/server/inventory/equipment-stats";
+import { applyEquipmentBonus } from "../../src/server/inventory/item-catalog";
+import {
+  INVENTORY_CAPACITY,
+  ITEM_CATALOG,
+  ENHANCEMENT_CURVE,
+  REINFORCEMENT_RULES,
+  ENHANCEMENT_CONFIG_VERSION,
+  STORAGE_CONFIG,
+  STORAGE_CAPACITY,
+  storageAvailableForMap,
+  getStorageRepository,
+  getInventoryRepository,
+  inventoryPersistenceAvailable,
+  loadCharacterItemsBestEffort,
+} from "../inventory/inventory-state";
+import {
+  grantKillRewardsForMob,
+  PLAYER_BASELINE_TABLE,
+  EXP_CURVE,
+} from "../economy/kill-rewards";
+import { SHOP_CONFIG, shopForMap, shopItemMeta } from "../economy/shop-state";
+import {
+  buyShopItem,
+  sellItem,
+  type ShopBuyResult,
+  type ShopSellResult,
+} from "../../src/server/economy/shop";
+import { appendEntry } from "../db/ledger";
+import { playerBaselineForLevel } from "../../src/server/economy/exp";
 import {
   createMobSimulation,
   type MobSimulation,
@@ -149,6 +247,12 @@ const handshakeRateLimiter = createRateLimiter({
 
 /** P2-04: เตือนครั้งเดียวเมื่อ ALLOWED_ORIGINS ว่าง (dev mode = เปิดทุก origin) — production ต้องตั้ง. */
 let openOriginWarned = false;
+
+/**
+ * P2-13 (D-056): cadence ตรวจ AFK (ms) — เดินทุก 1s แล้วเทียบ idle กับ idleIndicatorSec (60s). granularity
+ * 1s พอสำหรับป้าย AFK (ไม่ใช่ค่า balance → operational const เหมือน session-lease HEARTBEAT_INTERVAL_MS).
+ */
+const AFK_CHECK_INTERVAL_MS = 1_000;
 
 /** P2-04: อ่าน accountId ที่ static onAuth ผูกไว้ใน client.auth (null = dev bypass / ไม่ผูกบัญชี). */
 function accountIdOf(client: Client): string | null {
@@ -237,6 +341,17 @@ interface MoveTracker {
    * เฉพาะตอน "เพิ่งเข้า" exit (เปลี่ยนจาก null/other → exitId นี้) — กัน spam ทุก MSG_MOVE ระหว่างยืนใน area.
    */
   lastExitId: string | null;
+  /**
+   * P2-13 (D-056): เวลา (ms, Date.now) ที่มี input ล่าสุด (movement/cast) — idle เกิน idleIndicatorSec →
+   * ป้าย AFK. แยกจาก lastMoveTime (ใช้คำนวณ move elapsed) เพราะ cast ก็นับเป็น input แต่ต้องไม่ไปกวน
+   * elapsed ของ move validation.
+   */
+  lastInputMs: number;
+  /**
+   * P2-13 (D-056): เวลา (ms) ที่ seat นี้เริ่มมี connection (join / reconnect ครั้งแรก) — จุดอ้างของ
+   * afkHardCapHours (inert P2). tracker คงข้าม reconnect-within-grace → นับ connection duration จริง.
+   */
+  connectedAtMs: number;
 }
 
 export class MapRoom extends Room<MapRoomState> {
@@ -255,6 +370,26 @@ export class MapRoom extends Room<MapRoomState> {
   private balance!: CombatBalanceConfig;
   /** cooldown state ต่อ (sessionId → skillId → readyAtMs) — server clock authority (§16.3). ไม่ broadcast. */
   private readonly cooldowns = new Map<string, Map<string, number>>();
+  /**
+   * P2-07: effective combat stats ต่อ session = base (นักดาบ lv1) + equipment bonus (aggregate จากของที่สวม).
+   * recompute ตอน join + หลังทุก equip/unequip สำเร็จ. ไม่อยู่ใน schema (server-only, ใช้ในสูตร damage §15.2).
+   * default = this.balance.player (anonymous / ไม่มีของ). never-downgrade zone (combat calc) — ต่อผ่าน pure fn.
+   */
+  private readonly effectiveStats = new Map<string, PlayerCombatStats>();
+  /**
+   * P2-09: per-session progression (level + total cumulative EXP). Loaded best-effort on join (Character
+   * level/exp), mutated on each eligible kill, persisted best-effort. Drives the per-level combat baseline
+   * (D-055 §2). anonymous/no-DB = in-memory only (levels within a session, not persisted).
+   */
+  private readonly sessionProgress = new Map<string, { level: number; exp: number }>();
+  /**
+   * P2-09: last-known worn gear per session (itemId + enhancementLevel) — cached so a level-up can recompute
+   * combat stats without re-reading the DB (equipment didn't change, only the per-level base did).
+   */
+  private readonly sessionEquipment = new Map<
+    string,
+    readonly { itemId: string; enhancementLevel: number }[]
+  >();
   /** P1-08: partyId ของ channel นี้ ("" = solo channel, ≠"" = party channel) — จาก options คนแรก */
   private partyId = DEFAULT_PARTY_ID;
   /** P1-08: display channelId (CH.n) ที่ registry จ่ายให้ตอน onCreate — release ตอน onDispose */
@@ -284,6 +419,16 @@ export class MapRoom extends Room<MapRoomState> {
   private readonly transitioningSessions = new Set<string>();
   /** P2-05: ระยะ throttle save (ms) = knob persistence.saveIntervalMs — set ตอน onCreate. */
   private saveIntervalMs = 30_000;
+  /**
+   * P2-13 (D-056): ป้าย AFK หลัง no-input N วินาที (knob afk.idleIndicatorSec = 60) — set ตอน onCreate.
+   * ≤ 0 = ปิดป้าย. ป้ายเป็น display-only ให้ผู้เล่นอื่นเห็น (isAfk บน schema) — **ไม่ผูก disconnect**.
+   */
+  private afkIdleIndicatorSec = 60;
+  /**
+   * P2-13 (D-056): เพดานชั่วโมง connection ค้าง (knob afk.afkHardCapHours) — **null = inert (P2)**: ไม่ตัด
+   * connection. เดินสาย + จุดเช็คใน evaluateAfk ไว้พร้อม แต่ null → ไม่มีวันทำงาน (ทบทวนก่อน open alpha).
+   */
+  private afkHardCapHours: number | null = null;
 
   /**
    * P2-04 (Bible 5.2, TA §6.2): **static** onAuth — Colyseus เรียกตอน matchmaking (fresh join/create) ก่อน
@@ -424,9 +569,86 @@ export class MapRoom extends Room<MapRoomState> {
     this.saveIntervalMs = DEFAULT_ENGINE_CONFIG.persistence.saveIntervalMs;
     this.clock.setInterval(() => this.saveAllCharacters(), this.saveIntervalMs);
 
+    // P2-13 (D-056): AFK indicator + inert hard cap. knob = afk.idleIndicatorSec/afkHardCapHours (single
+    //   source of truth = DEFAULT_ENGINE_CONFIG). ตรวจทุก 1s: idle เกิน 60s → ตั้งป้าย isAfk (ให้ผู้เล่นอื่น
+    //   เห็น) — **ไม่มี disconnect** (D-056 supersede §59.1.2). hardCap null = inert (จุดเช็คพร้อม ไม่ทำงาน).
+    this.afkIdleIndicatorSec = DEFAULT_ENGINE_CONFIG.afk.idleIndicatorSec;
+    this.afkHardCapHours = DEFAULT_ENGINE_CONFIG.afk.afkHardCapHours;
+    this.clock.setInterval(() => this.evaluateAfk(), AFK_CHECK_INTERVAL_MS);
+
     // P1-05: server combat authority (TA §15/§16.2) — client ส่ง cast intent → validate → damage → broadcast.
     this.onMessage(MSG_CAST_SKILL, (client: Client, message: CastSkillMessage) => {
       this.handleCast(client, message);
+    });
+
+    // P2-07: inventory/equipment mutation (server-authoritative, TA §7/§8). client ส่ง intent (+expectedVersion)
+    //   → service ตัดสินด้วย optimistic lock → สำเร็จ: ส่ง snapshot + recompute combat stats; ปฏิเสธ: เงียบ ๆ.
+    this.onMessage(MSG_EQUIP_ITEM, (client: Client, message: EquipItemMessage) => {
+      void this.runInventoryOp(client, "equip", (characterId) =>
+        equipItem(getInventoryRepository(), ITEM_CATALOG, {
+          characterId,
+          instanceId: String(message?.instanceId ?? ""),
+          expectedVersion: Number(message?.expectedVersion),
+          capacity: INVENTORY_CAPACITY,
+        }),
+      );
+    });
+    this.onMessage(MSG_UNEQUIP_ITEM, (client: Client, message: EquipItemMessage) => {
+      void this.runInventoryOp(client, "unequip", (characterId) =>
+        unequipItem(getInventoryRepository(), ITEM_CATALOG, {
+          characterId,
+          instanceId: String(message?.instanceId ?? ""),
+          expectedVersion: Number(message?.expectedVersion),
+          capacity: INVENTORY_CAPACITY,
+        }),
+      );
+    });
+    this.onMessage(MSG_MOVE_ITEM, (client: Client, message: MoveItemMessage) => {
+      void this.runInventoryOp(client, "move", (characterId) =>
+        moveItem(getInventoryRepository(), {
+          characterId,
+          instanceId: String(message?.instanceId ?? ""),
+          expectedVersion: Number(message?.expectedVersion),
+          toSlot: Number(message?.toSlot),
+          capacity: INVENTORY_CAPACITY,
+        }),
+      );
+    });
+
+    // P2-10: guaranteed reinforcement (+1, cap +15) — server-authoritative, atomic, 100% success no RNG.
+    //   client ส่ง intent (+expectedVersion + idempotencyKey) → สำเร็จ: result + snapshot + recompute stats;
+    //   ปฏิเสธ (flag inert P2 / no material / max / lock): MSG_ENHANCE_RESULT ok:false + reason. (§2.3/R8)
+    this.onMessage(MSG_ENHANCE_ITEM, (client: Client, message: EnhanceItemMessage) => {
+      void this.runEnhanceOp(client, message);
+    });
+
+    // P2-11: starter NPC shop (Economy §8) — buy/sell ผ่าน ledger + inventory transaction, ราคา = server config.
+    //   list = catalog ของร้านบน map ปัจจุบัน (ไม่มีร้าน → available:false); buy/sell = server-authoritative +
+    //   idempotent → MSG_SHOP_RESULT (+ MSG_INVENTORY_STATE เมื่อสำเร็จ). available ตรวจจาก map (starter district).
+    this.onMessage(MSG_SHOP_LIST_REQUEST, (client: Client, _message: ShopListRequestMessage) => {
+      this.handleShopList(client);
+    });
+    this.onMessage(MSG_SHOP_BUY, (client: Client, message: ShopBuyMessage) => {
+      void this.runShopBuy(client, message);
+    });
+    this.onMessage(MSG_SHOP_SELL, (client: Client, message: ShopSellMessage) => {
+      void this.runShopSell(client, message);
+    });
+
+    // P2-17: personal storage (200 shared slots) + delivery box (Storage §10–§16/§22) — server-authoritative +
+    //   idempotent. open = storage+delivery snapshot บน map ที่มี NPC (§10.4); deposit/withdraw/claim = intent
+    //   → service ตัดสิน (policy จาก config + optimistic lock + capacity) → MSG_*_RESULT (+ snapshot ใหม่).
+    this.onMessage(MSG_STORAGE_OPEN, (client: Client) => {
+      void this.handleStorageOpen(client);
+    });
+    this.onMessage(MSG_STORAGE_DEPOSIT, (client: Client, message: StorageMoveMessage) => {
+      void this.runStorageMove(client, "deposit", message);
+    });
+    this.onMessage(MSG_STORAGE_WITHDRAW, (client: Client, message: StorageMoveMessage) => {
+      void this.runStorageMove(client, "withdraw", message);
+    });
+    this.onMessage(MSG_DELIVERY_CLAIM, (client: Client, message: DeliveryClaimMessage) => {
+      void this.runDeliveryClaim(client, message);
     });
 
     this.onMessage(MSG_MOVE, (client: Client, message: MoveMessage) => {
@@ -438,6 +660,9 @@ export class MapRoom extends Room<MapRoomState> {
       const elapsedMs = now - tracker.lastMoveTime;
       // reference เวลา = ตอนนี้เสมอ (ทั้ง accept/reject) → allowance รอบถัดไปคิดจากตำแหน่ง valid ปัจจุบัน
       tracker.lastMoveTime = now;
+      // P2-13 (D-056): MSG_MOVE = input activity → reset idle timer + เคลียร์ป้าย AFK ทันที (กันรอ interval
+      //   ถัดไปถึง 1s ค่อยหาย — ผู้เล่นขยับแล้วป้ายควรหายทันตา). ใช้กับทั้ง move ที่ผ่าน/ถูกปฏิเสธ (ยังถือ active).
+      this.markInput(client.sessionId, tracker, now);
 
       const result = validateMove(
         { tx: tracker.tx, ty: tracker.ty },
@@ -578,6 +803,10 @@ export class MapRoom extends Room<MapRoomState> {
     const player = this.state.players.get(sessionId);
     if (!player || !message) return;
 
+    // P2-13 (D-056): cast intent = input activity → reset idle timer + เคลียร์ป้าย AFK (แม้ cast จะถูก
+    //   ปฏิเสธ cooldown/range ก็ยังถือว่าผู้เล่น active). tracker อาจไม่มี (race) → markInput ข้ามเงียบ ๆ.
+    this.markInput(sessionId, this.trackers.get(sessionId), Date.now());
+
     const skillId = typeof message.skillId === "string" ? message.skillId : "";
     const skill = this.skills.get(skillId);
     const cds = this.cooldowns.get(sessionId);
@@ -638,20 +867,23 @@ export class MapRoom extends Room<MapRoomState> {
     // สกิลที่ทำ damage: targetType enemy + baseMultiplier>0 + hitCount>0 (utility เช่น taunt = valid cast แต่ไม่ damage)
     const dealsDamage = def.targetType === "enemy" && def.baseMultiplier > 0 && def.hitCount > 0;
     const hits: SkillHit[] = [];
+    const killedMobTypes: string[] = []; // P2-09: mobType ต่อ mob ที่ตายรอบนี้ → reward ให้ caster
     if (dealsDamage) {
       for (const mobId of hitIds) {
         const mobType = mobTypeById.get(mobId);
         if (mobType === undefined) continue;
         const ms = this.balance.mobs[mobType] ?? this.balance.defaultMob;
+        // P2-07: ใช้ effective stats (base + equipment bonus) ของผู้ cast — default = base ถ้าไม่มี entry.
+        const stats = this.effectiveStats.get(sessionId) ?? this.balance.player;
         const dmg = computeSkillDamage(
           {
-            atk: this.balance.player.atk,
+            atk: stats.atk,
             baseMultiplier: def.baseMultiplier,
             targetDef: ms.def,
-            penetration: this.balance.player.penetration,
+            penetration: stats.penetration,
             k: this.balance.k,
-            critRate: this.balance.player.critRate,
-            critDmg: this.balance.player.critDmg,
+            critRate: stats.critRate,
+            critDmg: stats.critDmg,
             // bossModifier ใช้เฉพาะเมื่อ target เป็น boss — P1 มีแต่ normal mob → 1.0 (proposal §1)
             bossModifier: 1.0,
             pvpModifier: this.balance.pvpModifier,
@@ -663,6 +895,7 @@ export class MapRoom extends Room<MapRoomState> {
         const applied = this.sim.damageMob(mobId, dmg.damage);
         if (!applied) continue;
         hits.push({ mobId, dmg: dmg.damage, crit: dmg.crit, killed: applied.killed });
+        if (applied.killed) killedMobTypes.push(mobType);
       }
       // sync ทันที → hp ที่ลด + มอนที่ตาย (despawn) สะท้อนใน state broadcast รอบนี้ (ไม่รอ sim tick ถัดไป)
       this.syncMobsToState();
@@ -670,6 +903,497 @@ export class MapRoom extends Room<MapRoomState> {
 
     const result: SkillResultMessage = { casterId: sessionId, skillId, hits };
     this.broadcast(MSG_SKILL_RESULT, result);
+
+    // P2-09: มอนตาย → reward (EXP/gold/drop/audit) ให้ caster ผู้ฆ่า. best-effort (async, ไม่ block broadcast).
+    //   damageMob คืน killed=true ครั้งเดียวต่อมอน (ถูกลบจาก sim) → grant ครั้งเดียว (idempotent ที่ระดับ sim).
+    for (const mobType of killedMobTypes) {
+      void this.grantKillReward(client, mobType);
+    }
+  }
+
+  /**
+   * P2-07/P2-09: cache worn gear + recompute effective combat stats. Called on join + after every equip/unequip
+   * success. `equipped` = snapshot.equipment (itemId + enhancementLevel is enough to aggregate).
+   */
+  private applyEquipmentStats(
+    sessionId: string,
+    equipped: readonly { itemId: string; enhancementLevel: number }[],
+  ): void {
+    this.sessionEquipment.set(
+      sessionId,
+      equipped.map((e) => ({ itemId: e.itemId, enhancementLevel: e.enhancementLevel })),
+    );
+    this.recomputeEffectiveStats(sessionId);
+  }
+
+  /**
+   * P2-09: effective combat stats = per-level player baseline (D-055 §2) + gear bonus (pure). The level base
+   * changes on level-up; secondaries (crit/critDmg/penetration) stay from the engine lv1 baseline (D-055 §2).
+   * P2-10: worn enhancementLevel folds through the D-054 curve (§16.3.1). never-downgrade zone (combat calc).
+   */
+  private recomputeEffectiveStats(sessionId: string): void {
+    const level = this.sessionProgress.get(sessionId)?.level ?? 1;
+    const base = playerBaselineForLevel(level, PLAYER_BASELINE_TABLE, {
+      critRate: this.balance.player.critRate,
+      critDmg: this.balance.player.critDmg,
+      penetration: this.balance.player.penetration,
+    });
+    const equipped = this.sessionEquipment.get(sessionId) ?? [];
+    const bonus = aggregateEquipmentBonus(equipped, ITEM_CATALOG, ENHANCEMENT_CURVE);
+    this.effectiveStats.set(sessionId, applyEquipmentBonus(base, bonus));
+  }
+
+  /**
+   * P2-09: grant one eligible kill's rewards to the caster (§12 personal reward). EXP is always computed
+   * (in-memory levelling works with no DB); Gold + Drops + DropAudit run only for a character-bound session
+   * with a DB. Best-effort at this boundary: a DB error is logged (money-loud) but never crashes the room —
+   * the ledger stays strict inside (no faked success). Sends MSG_PLAYER_PROGRESS + a fresh MSG_INVENTORY_STATE
+   * when the bag changed. mobType unmapped / boss (P2B) → no-op.
+   */
+  private async grantKillReward(client: Client, mobType: string): Promise<void> {
+    const sessionId = client.sessionId;
+    const progress = this.sessionProgress.get(sessionId);
+    if (!progress) return;
+    const rec = this.sessionCharacters.get(sessionId);
+
+    let outcome: Awaited<ReturnType<typeof grantKillRewardsForMob>>;
+    try {
+      outcome = await grantKillRewardsForMob({
+        mobType,
+        characterId: rec?.characterId ?? "",
+        accountId: rec?.accountId ?? "",
+        playerLevel: progress.level,
+        playerExp: progress.exp,
+        eligibleMembers: 1, // §9.4 party split not wired yet (single killer — see P2-09 report)
+        killEventId: randomUUID(),
+        persist: !!rec,
+      });
+    } catch (err) {
+      console.error(
+        `[MapRoom ${this.roomId}] kill-reward DB error ${sessionId} (${mobType}): ` +
+          (err instanceof Error ? err.message : String(err)),
+      );
+      return;
+    }
+    if (!outcome) return; // unmapped mobType / non-P2 monster (boss = P2B)
+
+    // apply EXP/level (source of truth = returned total); recompute per-level combat stats.
+    progress.level = outcome.exp.level;
+    progress.exp = outcome.exp.exp;
+    this.recomputeEffectiveStats(sessionId);
+    // level-up is meaningful → persist promptly; routine EXP gain rides the throttled save cycle (persistSession).
+    if (rec && outcome.exp.leveledUp) void saveCharacterProgress(rec.characterId, progress.level, progress.exp);
+
+    // fresh inventory snapshot when loot actually landed in the bag.
+    if (rec && outcome.granted.length > 0) {
+      const items = await loadCharacterItemsBestEffort(rec.characterId);
+      client.send(MSG_INVENTORY_STATE, buildSnapshot(items, INVENTORY_CAPACITY));
+    }
+
+    const capRow = EXP_CURVE.levels.find((l) => l.level === progress.level);
+    const prevRow = EXP_CURVE.levels.find((l) => l.level === progress.level - 1);
+    const msg: PlayerProgressMessage = {
+      level: progress.level,
+      exp: progress.exp,
+      expFloor: prevRow ? prevRow.cumulative : 0,
+      expCeil: capRow && capRow.expToNext > 0 ? capRow.cumulative : 0,
+      gold: outcome.goldBalance !== null ? Number(outcome.goldBalance) : GOLD_UNKNOWN,
+      leveledUp: outcome.exp.leveledUp,
+      loot: outcome.granted,
+      lootOverflow: outcome.overflow,
+    };
+    client.send(MSG_PLAYER_PROGRESS, msg);
+  }
+
+  /**
+   * P2-10: run one guaranteed reinforcement (+1) then answer the client. Only character-bound sessions with a
+   * DB (anonymous/dev has nothing to persist → reject). Success → MSG_ENHANCE_RESULT(ok,level) +
+   * MSG_INVENTORY_STATE (new snapshot: bumped level + spent material) + recompute combat stats. Business
+   * reject (flag inert / no material / max / lock) → MSG_ENHANCE_RESULT(ok:false,reason). DB error → resync
+   * signal (ITEM_LOCKED) — the upgrade did not persist, never faked as success (never-downgrade zone).
+   */
+  private async runEnhanceOp(client: Client, message: EnhanceItemMessage): Promise<void> {
+    const instanceId = String(message?.instanceId ?? "");
+    const rec = this.sessionCharacters.get(client.sessionId);
+    if (!rec || !inventoryPersistenceAvailable()) {
+      const rejected: EnhanceResultMessage = { ok: false, instanceId, level: -1, reason: "NO_ITEM" };
+      client.send(MSG_ENHANCE_RESULT, rejected);
+      return;
+    }
+    let result: EnhanceResult;
+    try {
+      result = await enhanceEquipment(
+        {
+          repo: getInventoryRepository(),
+          catalog: ITEM_CATALOG,
+          reinforcement: REINFORCEMENT_RULES,
+          limits: { maxLevel: ENHANCEMENT_CURVE.maxLevel },
+          configVersion: ENHANCEMENT_CONFIG_VERSION,
+        },
+        {
+          characterId: rec.characterId,
+          instanceId,
+          expectedVersion: Number(message?.expectedVersion),
+          idempotencyKey: String(message?.idempotencyKey ?? ""),
+          capacity: INVENTORY_CAPACITY,
+        },
+      );
+    } catch (err) {
+      console.warn(
+        `[MapRoom ${this.roomId}] enhance DB error ${client.sessionId}: ` +
+          (err instanceof Error ? err.message : String(err)),
+      );
+      const rejected: EnhanceResultMessage = { ok: false, instanceId, level: -1, reason: "ITEM_LOCKED" };
+      client.send(MSG_ENHANCE_RESULT, rejected);
+      return;
+    }
+    if (!result.ok) {
+      const rejected: EnhanceResultMessage = { ok: false, instanceId, level: -1, reason: result.reason };
+      client.send(MSG_ENHANCE_RESULT, rejected);
+      return;
+    }
+    const ok: EnhanceResultMessage = { ok: true, instanceId, level: result.newLevel };
+    client.send(MSG_ENHANCE_RESULT, ok);
+    client.send(MSG_INVENTORY_STATE, result.snapshot);
+    this.applyEquipmentStats(client.sessionId, result.snapshot.equipment);
+  }
+
+  /**
+   * P2-07: รัน 1 inventory op (equip/unequip/move) แล้วตอบ client. เฉพาะ session ที่ผูกตัวละคร + DB พร้อม
+   *   (anonymous/dev ไม่มีของ persist → reject). สำเร็จ → ส่ง snapshot ใหม่ + recompute combat stats.
+   *   ปฏิเสธ business (version ชน/ช่องเต็ม ฯลฯ) → MSG_INVENTORY_OP_REJECTED. DB error → log + สั่ง client resync
+   *   (mutation ไม่ผ่านจริง — ไม่แกล้งสำเร็จ; reason version_conflict = สัญญาณให้ client โหลด snapshot ใหม่).
+   */
+  private async runInventoryOp(
+    client: Client,
+    op: InventoryOp,
+    run: (characterId: string) => Promise<InventoryOpResult>,
+  ): Promise<void> {
+    const rec = this.sessionCharacters.get(client.sessionId);
+    if (!rec || !inventoryPersistenceAvailable()) {
+      const rejected: InventoryOpRejectedMessage = { op, reason: "unknown_item" };
+      client.send(MSG_INVENTORY_OP_REJECTED, rejected);
+      return;
+    }
+    let result: InventoryOpResult;
+    try {
+      result = await run(rec.characterId);
+    } catch (err) {
+      console.warn(
+        `[MapRoom ${this.roomId}] inventory ${op} DB error ${client.sessionId}: ` +
+          (err instanceof Error ? err.message : String(err)),
+      );
+      const rejected: InventoryOpRejectedMessage = { op, reason: "version_conflict" };
+      client.send(MSG_INVENTORY_OP_REJECTED, rejected);
+      return;
+    }
+    if (!result.ok) {
+      const rejected: InventoryOpRejectedMessage = { op, reason: result.reason };
+      client.send(MSG_INVENTORY_OP_REJECTED, rejected);
+      return;
+    }
+    client.send(MSG_INVENTORY_STATE, result.snapshot);
+    this.applyEquipmentStats(client.sessionId, result.snapshot.equipment);
+  }
+
+  /**
+   * P2-11: ตอบ catalog ของร้านบน map ปัจจุบัน (Economy §8). ราคาซื้อมาจาก config (ไม่ bundle ในclient) — map
+   * ที่ไม่มีร้าน → available:false (client ซ่อนปุ่มร้าน). ไม่ต้องมี DB (ราคา = config).
+   */
+  private handleShopList(client: Client): void {
+    const shop = shopForMap(this.state.mapId);
+    const msg: ShopListMessage = shop
+      ? {
+          shopId: shop.shopId,
+          available: true,
+          entries: shop.entries.map((e) => ({
+            itemId: e.itemId,
+            buyPrice: e.buyPrice,
+            unlockCondition: e.unlockCondition,
+          })),
+        }
+      : { shopId: SHOP_CONFIG.shopId, available: false, entries: [] };
+    client.send(MSG_SHOP_LIST, msg);
+  }
+
+  /**
+   * P2-11: ซื้อ item จากร้าน (§8). เฉพาะ session ที่ผูกตัวละคร + DB พร้อม + อยู่ map ที่มีร้าน. สำเร็จ →
+   * MSG_SHOP_RESULT(ok, gold) + MSG_INVENTORY_STATE (snapshot ใหม่). ปฏิเสธ business → reason §23; DB error →
+   * surface (never-downgrade: เงินอาจถูก refund ด้วย compensating entry ในตัว service — ดู shop.ts header).
+   */
+  private async runShopBuy(client: Client, message: ShopBuyMessage): Promise<void> {
+    const itemId = String(message?.itemId ?? "");
+    const shop = shopForMap(this.state.mapId);
+    const rec = this.sessionCharacters.get(client.sessionId);
+    if (!shop || !rec || !inventoryPersistenceAvailable()) {
+      this.sendShopReject(client, "buy", itemId, "SHOP_ITEM_NOT_FOUND");
+      return;
+    }
+    let result: ShopBuyResult;
+    try {
+      result = await buyShopItem(
+        {
+          shop,
+          itemMeta: shopItemMeta,
+          ledger: { appendEntry: (e) => appendEntry(e) },
+          inventory: getInventoryRepository(),
+        },
+        {
+          characterId: rec.characterId,
+          accountId: rec.accountId,
+          capacity: INVENTORY_CAPACITY,
+          itemId,
+          quantity: Number(message?.quantity),
+          idempotencyKey: String(message?.idempotencyKey ?? ""),
+        },
+      );
+    } catch (err) {
+      console.error(
+        `[MapRoom ${this.roomId}] shop buy DB error ${client.sessionId} (${itemId}): ` +
+          (err instanceof Error ? err.message : String(err)),
+      );
+      this.sendShopReject(client, "buy", itemId, "TRANSACTION_CONFLICT");
+      return;
+    }
+    if (!result.ok) {
+      this.sendShopReject(client, "buy", itemId, result.reason);
+      return;
+    }
+    const ok: ShopResultMessage = {
+      op: "buy",
+      ok: true,
+      itemId: result.itemId,
+      quantity: result.quantity,
+      gold: Number(result.gold),
+    };
+    client.send(MSG_SHOP_RESULT, ok);
+    await this.sendInventorySnapshot(client, rec.characterId);
+  }
+
+  /**
+   * P2-11: ขาย item ที่ถืออยู่ให้ร้าน (§8). สำเร็จ → MSG_SHOP_RESULT(ok, gold) + MSG_INVENTORY_STATE. ปฏิเสธ
+   * business (ไม่ถือ/สวมอยู่/ขายไม่ได้/version ชน) → reason §23. DB error หลังหักของ → surface (money-loud).
+   */
+  private async runShopSell(client: Client, message: ShopSellMessage): Promise<void> {
+    const instanceId = String(message?.instanceId ?? "");
+    const shop = shopForMap(this.state.mapId);
+    const rec = this.sessionCharacters.get(client.sessionId);
+    if (!shop || !rec || !inventoryPersistenceAvailable()) {
+      this.sendShopReject(client, "sell", instanceId, "SHOP_ITEM_NOT_FOUND");
+      return;
+    }
+    let result: ShopSellResult;
+    try {
+      result = await sellItem(
+        {
+          shop,
+          ledger: { appendEntry: (e) => appendEntry(e) },
+          inventory: getInventoryRepository(),
+        },
+        {
+          characterId: rec.characterId,
+          capacity: INVENTORY_CAPACITY,
+          instanceId,
+          expectedVersion: Number(message?.expectedVersion),
+          quantity: Number(message?.quantity),
+          idempotencyKey: String(message?.idempotencyKey ?? ""),
+        },
+      );
+    } catch (err) {
+      console.error(
+        `[MapRoom ${this.roomId}] shop sell DB error ${client.sessionId} (${instanceId}): ` +
+          (err instanceof Error ? err.message : String(err)),
+      );
+      this.sendShopReject(client, "sell", instanceId, "TRANSACTION_CONFLICT");
+      return;
+    }
+    if (!result.ok) {
+      this.sendShopReject(client, "sell", instanceId, result.reason);
+      return;
+    }
+    const ok: ShopResultMessage = {
+      op: "sell",
+      ok: true,
+      itemId: result.itemId,
+      quantity: result.quantity,
+      gold: Number(result.gold),
+    };
+    client.send(MSG_SHOP_RESULT, ok);
+    await this.sendInventorySnapshot(client, rec.characterId);
+  }
+
+  /** P2-11: send a fresh bag/equipment snapshot after a shop mutation (equipment unchanged → no stat recompute). */
+  private async sendInventorySnapshot(client: Client, characterId: string): Promise<void> {
+    const items = await loadCharacterItemsBestEffort(characterId);
+    client.send(MSG_INVENTORY_STATE, buildSnapshot(items, INVENTORY_CAPACITY));
+  }
+
+  /** P2-11: uniform shop reject (op + echoed item + §23 error code; quantity 0, gold unknown). */
+  private sendShopReject(client: Client, op: "buy" | "sell", itemId: string, reason: string): void {
+    const rejected: ShopResultMessage = { op, ok: false, itemId, quantity: 0, gold: GOLD_UNKNOWN, reason };
+    client.send(MSG_SHOP_RESULT, rejected);
+  }
+
+  // ── P2-17 personal storage + delivery box ──────────────────────────────────
+  /** storage service Design Knobs (config) + the account-level repo — rebuilt per call (env-free, cheap). */
+  private storageServiceDeps(): StorageServiceDeps {
+    return {
+      repo: getStorageRepository(),
+      catalog: ITEM_CATALOG,
+      capacity: STORAGE_CAPACITY,
+      fill: STORAGE_CONFIG.fill,
+    };
+  }
+  private deliveryServiceDeps(): DeliveryServiceDeps {
+    return {
+      repo: getStorageRepository(),
+      maxEntries: STORAGE_CONFIG.deliveryMaxEntries,
+      warnDaysBeforeExpiry: STORAGE_CONFIG.deliveryExpiry.warnDaysBeforeExpiry,
+      urgentDaysBeforeExpiry: STORAGE_CONFIG.deliveryExpiry.urgentDaysBeforeExpiry,
+    };
+  }
+
+  /** unavailable snapshots (map has no storage NPC / anonymous / no DB) — client hides the storage UI. */
+  private sendStorageUnavailable(client: Client): void {
+    const storage: StorageStateMessage = {
+      available: false,
+      capacity: STORAGE_CAPACITY,
+      used: 0,
+      fillState: "normal",
+      items: [],
+    };
+    const delivery: DeliveryStateMessage = {
+      available: false,
+      maxEntries: STORAGE_CONFIG.deliveryMaxEntries,
+      used: 0,
+      entries: [],
+    };
+    client.send(MSG_STORAGE_STATE, storage);
+    client.send(MSG_DELIVERY_STATE, delivery);
+  }
+
+  /**
+   * P2-17: open the storage NPC → send both the account-storage snapshot (§11.1) and the delivery snapshot
+   * (§16.6, with server-computed expiry status). Gated by map (§10.4) + a character-bound session + DB.
+   */
+  private async handleStorageOpen(client: Client): Promise<void> {
+    const rec = this.sessionCharacters.get(client.sessionId);
+    if (!storageAvailableForMap(this.state.mapId) || !rec || !inventoryPersistenceAvailable()) {
+      this.sendStorageUnavailable(client);
+      return;
+    }
+    try {
+      const stored = await getStorageRepository().listAccountStorage(rec.accountId);
+      const storage = buildStorageSnapshot(stored, STORAGE_CAPACITY, STORAGE_CONFIG.fill, true);
+      const delivery = await buildDeliverySnapshot(this.deliveryServiceDeps(), rec.accountId, Date.now(), true);
+      client.send(MSG_STORAGE_STATE, storage);
+      client.send(MSG_DELIVERY_STATE, delivery);
+    } catch (err) {
+      console.warn(
+        `[MapRoom ${this.roomId}] storage open DB error ${client.sessionId}: ` +
+          (err instanceof Error ? err.message : String(err)),
+      );
+      this.sendStorageUnavailable(client);
+    }
+  }
+
+  /**
+   * P2-17: deposit/withdraw one item between the bag and account storage (§13/§14) — server-authoritative +
+   * idempotent (replay = no-op). Success → MSG_STORAGE_RESULT(ok) + MSG_STORAGE_STATE + MSG_INVENTORY_STATE.
+   * Business reject → reason (§13.2/§14). DB error → surface (never-downgrade: an un-persisted move must not
+   * look done) as TRANSACTION_CONFLICT so the client re-syncs.
+   */
+  private async runStorageMove(
+    client: Client,
+    op: StorageOp,
+    message: StorageMoveMessage,
+  ): Promise<void> {
+    const instanceId = String(message?.instanceId ?? "");
+    const rec = this.sessionCharacters.get(client.sessionId);
+    if (!storageAvailableForMap(this.state.mapId) || !rec || !inventoryPersistenceAvailable()) {
+      this.sendStorageReject(client, op, instanceId, "STORAGE_UNAVAILABLE");
+      return;
+    }
+    const intent = {
+      accountId: rec.accountId,
+      characterId: rec.characterId,
+      instanceId,
+      expectedVersion: Number(message?.expectedVersion),
+      idempotencyKey: String(message?.idempotencyKey ?? ""),
+    };
+    let result: StorageOpResult;
+    try {
+      result =
+        op === "deposit"
+          ? await depositToStorage(this.storageServiceDeps(), intent)
+          : await withdrawFromStorage(this.storageServiceDeps(), { ...intent, bagCapacity: INVENTORY_CAPACITY });
+    } catch (err) {
+      console.error(
+        `[MapRoom ${this.roomId}] storage ${op} DB error ${client.sessionId} (${instanceId}): ` +
+          (err instanceof Error ? err.message : String(err)),
+      );
+      this.sendStorageReject(client, op, instanceId, "TRANSACTION_CONFLICT");
+      return;
+    }
+    if (!result.ok) {
+      this.sendStorageReject(client, op, instanceId, result.reason);
+      return;
+    }
+    const ok: StorageResultMessage = { op, ok: true, instanceId };
+    client.send(MSG_STORAGE_RESULT, ok);
+    client.send(MSG_STORAGE_STATE, result.storage);
+    await this.sendInventorySnapshot(client, rec.characterId);
+  }
+
+  /**
+   * P2-17: claim one delivery entry's items into the bag (§16.5) — all-or-nothing per entry, idempotent.
+   * Success → MSG_DELIVERY_RESULT(ok, granted) + MSG_DELIVERY_STATE + MSG_INVENTORY_STATE. Reject → reason.
+   */
+  private async runDeliveryClaim(client: Client, message: DeliveryClaimMessage): Promise<void> {
+    const entryId = String(message?.entryId ?? "");
+    const rec = this.sessionCharacters.get(client.sessionId);
+    if (!storageAvailableForMap(this.state.mapId) || !rec || !inventoryPersistenceAvailable()) {
+      this.sendDeliveryReject(client, entryId, "STORAGE_UNAVAILABLE");
+      return;
+    }
+    let result: DeliveryClaimResult;
+    try {
+      result = await claimDeliveryEntry(this.deliveryServiceDeps(), {
+        accountId: rec.accountId,
+        characterId: rec.characterId,
+        entryId,
+        bagCapacity: INVENTORY_CAPACITY,
+        nowMs: Date.now(),
+        idempotencyKey: String(message?.idempotencyKey ?? ""),
+      });
+    } catch (err) {
+      console.error(
+        `[MapRoom ${this.roomId}] delivery claim DB error ${client.sessionId} (${entryId}): ` +
+          (err instanceof Error ? err.message : String(err)),
+      );
+      this.sendDeliveryReject(client, entryId, "TRANSACTION_CONFLICT");
+      return;
+    }
+    if (!result.ok) {
+      this.sendDeliveryReject(client, entryId, result.reason);
+      return;
+    }
+    const ok: DeliveryResultMessage = { ok: true, entryId, granted: result.granted };
+    client.send(MSG_DELIVERY_RESULT, ok);
+    client.send(MSG_DELIVERY_STATE, result.delivery);
+    await this.sendInventorySnapshot(client, rec.characterId);
+  }
+
+  /** P2-17: uniform storage reject (op + echoed instance + §13.2 error code). */
+  private sendStorageReject(client: Client, op: StorageOp, instanceId: string, reason: string): void {
+    const rejected: StorageResultMessage = { op, ok: false, instanceId, reason };
+    client.send(MSG_STORAGE_RESULT, rejected);
+  }
+
+  /** P2-17: uniform delivery reject (echoed entry + §16 error code; empty grant). */
+  private sendDeliveryReject(client: Client, entryId: string, reason: string): void {
+    const rejected: DeliveryResultMessage = { ok: false, entryId, granted: [], reason };
+    client.send(MSG_DELIVERY_RESULT, rejected);
   }
 
   async onJoin(client: Client, options: JoinOptions): Promise<void> {
@@ -710,6 +1434,9 @@ export class MapRoom extends Room<MapRoomState> {
       lastCorrectionTime: 0,
       // P1-10: spawn อยู่นอก exit area (targetSpawn ออกแบบมานอก exit ปลายทาง) → เริ่ม null.
       lastExitId: null,
+      // P2-13 (D-056): เพิ่ง join = active (นับ idle จากตอนนี้) + จุดอ้าง connection duration (hard cap inert).
+      lastInputMs: Date.now(),
+      connectedAtMs: Date.now(),
     });
     if (spawn.usedSafeCamp) {
       console.log(
@@ -719,6 +1446,12 @@ export class MapRoom extends Room<MapRoomState> {
     }
     // P1-05: cooldown state ต่อ player (ว่างตอน join → ทุกสกิลพร้อมใช้)
     this.cooldowns.set(client.sessionId, new Map());
+    // P2-09: โหลด progression (level/exp) best-effort → ตั้ง base combat stat ตามเลเวล (D-055 §2). ไม่มี
+    //   DB/ตัวละคร → lv1 (in-memory). ต้องตั้งก่อน applyEquipmentStats เพื่อให้ base ถูกต้องตั้งแต่เฟรมแรก.
+    const progress = (characterId ? await loadCharacterProgress(characterId) : null) ?? { level: 1, exp: 0 };
+    this.sessionProgress.set(client.sessionId, { level: progress.level, exp: progress.exp });
+    // P2-07: combat stats เริ่มต้น = base ตามเลเวล — override ด้วย equipment bonus หลังโหลด inventory ด้านล่าง.
+    this.recomputeEffectiveStats(client.sessionId);
 
     // P2-04 (Storage §4.1/§4.2): มี accountId (verified token) → ยึด 1-active-session ต่อบัญชี.
     //   in-process registry เตะ session เดิมของ account เดียวกัน (SESSION_TAKEN_OVER, takeover-wins);
@@ -743,6 +1476,13 @@ export class MapRoom extends Room<MapRoomState> {
       });
       void updateLastPlayed(accountId, characterId);
     }
+
+    // P2-07 (Storage §22 · TA §7/§8): ส่ง inventory/equipment snapshot ตอน join + ตั้ง combat stats จากของที่สวม.
+    //   best-effort load (ไม่มี DB/ตัวละคร → []); anonymous ก็ได้ snapshot ว่างเพื่อ init HUD (flow เดิมไม่พัง).
+    const items = characterId ? await loadCharacterItemsBestEffort(characterId) : [];
+    const snapshot = buildSnapshot(items, INVENTORY_CAPACITY);
+    client.send(MSG_INVENTORY_STATE, snapshot);
+    this.applyEquipmentStats(client.sessionId, snapshot.equipment);
 
     console.log(
       `[MapRoom ${this.roomId}] join ${client.sessionId} @(${player.tx.toFixed(1)},${player.ty.toFixed(1)}) — ${this.clients.length} online`,
@@ -782,6 +1522,9 @@ export class MapRoom extends Room<MapRoomState> {
     this.state.players.delete(sessionId);
     this.trackers.delete(sessionId);
     this.cooldowns.delete(sessionId);
+    this.effectiveStats.delete(sessionId);
+    this.sessionProgress.delete(sessionId);
+    this.sessionEquipment.delete(sessionId);
     this.sessionCharacters.delete(sessionId);
     this.transitioningSessions.delete(sessionId);
     console.log(`[MapRoom ${this.roomId}] remove ${sessionId} (${reason})`);
@@ -806,11 +1549,53 @@ export class MapRoom extends Room<MapRoomState> {
     );
     rec.lastSaveMs = now;
     void saveCharacterState(rec.characterId, this.state.mapId, pos.tx, pos.ty);
+    // P2-09: persist progression on the same throttled cycle (level-up already saved promptly on gain).
+    const prog = this.sessionProgress.get(sessionId);
+    if (prog) void saveCharacterProgress(rec.characterId, prog.level, prog.exp);
   }
 
   /** P2-05: interval save ทุก session ที่ผูกตัวละคร (throttled) — เรียกจาก clock.setInterval (onCreate). */
   private saveAllCharacters(): void {
     this.sessionCharacters.forEach((_rec, sessionId) => this.persistSession(sessionId, false));
+  }
+
+  /**
+   * P2-13 (D-056): บันทึกว่ามี input (movement/cast) → reset idle timer + เคลียร์ป้าย AFK ทันที. tracker
+   * undefined (race: cast มาก่อน tracker set / หลัง remove) → no-op เงียบ ๆ. ไม่เขียน schema ถ้า isAfk เดิม
+   * false อยู่แล้ว (กัน schema patch ฟรี ๆ ทุก MSG_MOVE).
+   */
+  private markInput(sessionId: string, tracker: MoveTracker | undefined, nowMs: number): void {
+    if (!tracker) return;
+    tracker.lastInputMs = nowMs;
+    const player = this.state.players.get(sessionId);
+    if (player && player.isAfk) player.isAfk = false;
+  }
+
+  /**
+   * P2-13 (D-056 · GS §59.1.3): ทุก 1s — ตั้ง/ถอดป้าย AFK ตาม idle (no movement/cast ครบ idleIndicatorSec).
+   * เขียน schema เฉพาะเมื่อค่าเปลี่ยน (กัน patch ฟรี). **ไม่มี disconnect** — character ค้างในโลกต่อ (D-056
+   * supersede §59.1.2 forced disconnect ทั้งชุด). afkHardCapHours = จุดเช็ค inert (null → exceedsAfkHardCap
+   * คืน false เสมอ → ไม่มีวันตัด). > 0 (เปิดตอน open alpha) → เอา client ออกด้วย consented leave.
+   */
+  private evaluateAfk(): void {
+    const now = Date.now();
+    this.trackers.forEach((tracker, sessionId) => {
+      const player = this.state.players.get(sessionId);
+      if (!player) return;
+      const afk = isIdleAfk(tracker.lastInputMs, now, this.afkIdleIndicatorSec);
+      if (player.isAfk !== afk) player.isAfk = afk;
+      // hard cap: inert ใน P2 (afkHardCapHours=null → false เสมอ). เดินสายไว้ให้ open alpha เปิดได้โดยไม่
+      //   แก้ flow — เกินเพดาน → consented leave (ลบทันที ไม่เข้า grace เหมือนออกเอง).
+      if (exceedsAfkHardCap(tracker.connectedAtMs, now, this.afkHardCapHours)) {
+        const client = this.clients.find((c) => c.sessionId === sessionId);
+        if (client) {
+          console.log(
+            `[MapRoom ${this.roomId}] ${sessionId} เกิน afkHardCapHours (${this.afkHardCapHours}h) — เอาออก`,
+          );
+          client.leave();
+        }
+      }
+    });
   }
 
   /**

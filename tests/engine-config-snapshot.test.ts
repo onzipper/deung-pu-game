@@ -5,6 +5,7 @@
 
 import { describe, expect, test } from "vitest";
 import {
+  DEFAULT_AFK_CONFIG,
   DEFAULT_CAMERA_CONFIG,
   DEFAULT_COMBAT_BALANCE_CONFIG,
   DEFAULT_COMBAT_FEEL_CONFIG,
@@ -12,6 +13,7 @@ import {
   DEFAULT_DEBUG_OVERLAY_CONFIG,
   DEFAULT_ENGINE_CONFIG,
   DEFAULT_EXIT_MARKER_CONFIG,
+  DEFAULT_INPUT_CONFIG,
   DEFAULT_MOB_CONFIG,
   DEFAULT_MOVEMENT_VALIDATION_CONFIG,
   DEFAULT_NET_CONFIG,
@@ -29,6 +31,7 @@ import {
   soloChannelCapacityForZone,
 } from "@/engine/config";
 import type {
+  AfkConfig,
   AttackShapeConfig,
   CameraConfig,
   CombatBalanceConfig,
@@ -47,6 +50,8 @@ import type {
   HitboxDebugConfig,
   HitStopConfig,
   HitTolerance,
+  InputConfig,
+  JoystickConfig,
   MapZoneType,
   MobAiConfig,
   MobAnimationConfig,
@@ -79,6 +84,7 @@ import type {
   ScreenShakeConfig,
   ScreenShakeLevelConfig,
   StressHarnessConfig,
+  TargetAssistConfig,
   TileSize,
   TransitionConfig,
 } from "@/engine/config";
@@ -89,6 +95,7 @@ import type {
  * no-unused-vars treats it as used; carries no runtime footprint.
  */
 export type _ConfigTypeSurface =
+  | AfkConfig
   | AttackShapeConfig
   | CameraConfig
   | CombatBalanceConfig
@@ -107,6 +114,8 @@ export type _ConfigTypeSurface =
   | HitboxDebugConfig
   | HitStopConfig
   | HitTolerance
+  | InputConfig
+  | JoystickConfig
   | MapZoneType
   | MobAiConfig
   | MobAnimationConfig
@@ -139,12 +148,14 @@ export type _ConfigTypeSurface =
   | ScreenShakeConfig
   | ScreenShakeLevelConfig
   | StressHarnessConfig
+  | TargetAssistConfig
   | TileSize
   | TransitionConfig;
 
-// The 22 runtime value exports (19 DEFAULT_* consts + 3 functions). Types erase at runtime,
+// The 24 runtime value exports (21 DEFAULT_* consts + 3 functions). Types erase at runtime,
 // so Object.keys(module) returns exactly these — a dropped/renamed value export fails here.
 const EXPECTED_VALUE_EXPORTS = [
+  "DEFAULT_AFK_CONFIG",
   "DEFAULT_CAMERA_CONFIG",
   "DEFAULT_COMBAT_BALANCE_CONFIG",
   "DEFAULT_COMBAT_FEEL_CONFIG",
@@ -152,6 +163,7 @@ const EXPECTED_VALUE_EXPORTS = [
   "DEFAULT_DEBUG_OVERLAY_CONFIG",
   "DEFAULT_ENGINE_CONFIG",
   "DEFAULT_EXIT_MARKER_CONFIG",
+  "DEFAULT_INPUT_CONFIG",
   "DEFAULT_MOB_CONFIG",
   "DEFAULT_MOVEMENT_VALIDATION_CONFIG",
   "DEFAULT_NET_CONFIG",
@@ -172,13 +184,14 @@ const EXPECTED_VALUE_EXPORTS = [
 const MAP_ZONE_TYPES: MapZoneType[] = ["safe", "field"];
 
 describe("engine config — export-name identity", () => {
-  test("module exposes exactly the 22 runtime value exports", async () => {
+  test("module exposes exactly the 24 runtime value exports", async () => {
     const mod = await import("@/engine/config");
     expect(Object.keys(mod).sort()).toEqual(EXPECTED_VALUE_EXPORTS);
   });
 });
 
 describe("engine config — value identity (DEFAULT_* consts)", () => {
+  test("DEFAULT_AFK_CONFIG", () => expect(DEFAULT_AFK_CONFIG).toMatchSnapshot());
   test("DEFAULT_CAMERA_CONFIG", () => expect(DEFAULT_CAMERA_CONFIG).toMatchSnapshot());
   test("DEFAULT_COMBAT_BALANCE_CONFIG", () => expect(DEFAULT_COMBAT_BALANCE_CONFIG).toMatchSnapshot());
   test("DEFAULT_COMBAT_FEEL_CONFIG", () => expect(DEFAULT_COMBAT_FEEL_CONFIG).toMatchSnapshot());
@@ -186,6 +199,7 @@ describe("engine config — value identity (DEFAULT_* consts)", () => {
   test("DEFAULT_DEBUG_OVERLAY_CONFIG", () => expect(DEFAULT_DEBUG_OVERLAY_CONFIG).toMatchSnapshot());
   test("DEFAULT_ENGINE_CONFIG", () => expect(DEFAULT_ENGINE_CONFIG).toMatchSnapshot());
   test("DEFAULT_EXIT_MARKER_CONFIG", () => expect(DEFAULT_EXIT_MARKER_CONFIG).toMatchSnapshot());
+  test("DEFAULT_INPUT_CONFIG", () => expect(DEFAULT_INPUT_CONFIG).toMatchSnapshot());
   test("DEFAULT_MOB_CONFIG", () => expect(DEFAULT_MOB_CONFIG).toMatchSnapshot());
   test("DEFAULT_MOVEMENT_VALIDATION_CONFIG", () =>
     expect(DEFAULT_MOVEMENT_VALIDATION_CONFIG).toMatchSnapshot());

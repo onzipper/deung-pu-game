@@ -11,6 +11,10 @@ const MIGRATION = readFileSync(
   resolve(ROOT, "prisma/migrations/0001_init/migration.sql"),
   "utf8",
 );
+const MIGRATION_0002 = readFileSync(
+  resolve(ROOT, "prisma/migrations/0002_shop_ledger_reasons/migration.sql"),
+  "utf8",
+);
 
 /** ดึงบล็อก `CREATE TABLE \`name\` ( ... )` ของตารางที่ระบุจาก migration SQL */
 function tableBlock(name: string): string {
@@ -180,5 +184,27 @@ describe("P2-02 DB schema", () => {
     expect(block).toMatch(/`tx` DOUBLE/);
     expect(block).toMatch(/`ty` DOUBLE/);
     expect(block).toMatch(/`updated_at`/);
+  });
+});
+
+describe("P2-09 migration 0002 (LedgerReason += shop_buy/shop_sell)", () => {
+  test("schema.prisma LedgerReason มี shop_buy + shop_sell (P2-11 faucet/sink)", () => {
+    const enumBlock = SCHEMA.slice(
+      SCHEMA.indexOf("enum LedgerReason"),
+      SCHEMA.indexOf("}", SCHEMA.indexOf("enum LedgerReason")),
+    );
+    expect(enumBlock).toMatch(/\bshop_buy\b/);
+    expect(enumBlock).toMatch(/\bshop_sell\b/);
+  });
+
+  test("migration 0002 ALTER currency_ledger.reason enum ให้มี shop_buy/shop_sell (MariaDB MODIFY)", () => {
+    expect(MIGRATION_0002).toMatch(/ALTER TABLE `currency_ledger`/);
+    expect(MIGRATION_0002).toMatch(/MODIFY `reason` ENUM\([^)]*'shop_buy'[^)]*'shop_sell'[^)]*\) NOT NULL/);
+  });
+
+  test("ไม่มี crack column (crack mechanic ถูกตัด — R-decision): schema/migration ไม่มี cracked_at เลย", () => {
+    expect(SCHEMA).not.toMatch(/cracked_at|crackedAt/i);
+    expect(MIGRATION).not.toMatch(/cracked_at/i);
+    expect(MIGRATION_0002).not.toMatch(/cracked_at/i);
   });
 });

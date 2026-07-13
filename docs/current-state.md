@@ -4,36 +4,38 @@ _Last updated: 2026-07-13 · Status board only — history & detail: `docs/histo
 
 ## Now
 
-- **Phase:** P2 waves 1+2 merged to `develop` (PR #9, #10). Next: **wave 3** — starts on owner's order.
-- **Live:** server `https://deung-pu-game.onrender.com` (Render free tier + UptimeRobot, `/healthz`) · client `https://deung-pu.softrock.space/game` (Hostinger).
-- **Spec:** game v15.3 / tech v1.5.2 + Production Bible Set v1 (`docs/design/bibles/`). Reinforcement system fully decided (R1–R10 closed) → `docs/design/deungpu_REINFORCEMENT_SYSTEM_DECISION_v1.md`, D-048..D-052.
-- **DB:** test DB = Hostinger **MariaDB** (not MySQL 8), migration `0001_init` applied (13 tables). Production data stays EMPTY until P2-16 single apply. Rename `upg_kraeng` → `upg_reinforcement` must land before P2-16.
-- **Infra:** agent-context-optimization PR pending owner review (docs restructure + config split; onboarding ~42K → ~9K tokens; MapRoom split deferred to a future PR).
+- **Phase:** P2 wave 3 **code-complete** (P2-07..17 all ✅). Two PRs await review: **PR #16** (value loop, MERGEABLE) + **PR #2** `feat/p2-wave3-polish`→develop (carries D-063/064/065 + amendment 0.0.4). Gates: vitest 1333, tsc client+server, eslint 0, build, e2e 8/8. Next after merge: **P2-16** handoff (rename `upg_kraeng`→`upg_reinforcement`, wipe test data, verify migrations).
+- **SVG-01** merged (PR #15). Open point: rasterizer dep (sharp vs @resvg/resvg-js) before real atlas builds.
+- **Live:** server `https://deung-pu-game.onrender.com` (Render free tier + UptimeRobot, `/healthz`, D-058) · client `https://deung-pu.softrock.space/game` (Hostinger). Guest login + realtime connect verified 2026-07-13.
+- **Spec:** game v15.3 / tech v1.5.2 + Production Bible Set v1. Reinforcement → D-048..D-055. P2B value-loop rulings → D-063/064/065 (bot pricing, merchant dual-sink, event calendar, boss tiers, Arc1 Ch1, audio, art; Open Beta = full systems + Map 1 only). Amendment 0.0.4 done. Field Boss Map 1 id = `boss_map1_boiling_boar` (pity/fragment rebound in config).
+- **DB:** Hostinger MariaDB is production (D-057), migrations `0001_init`+`0002` applied.
 
-## Task board — P2 wave 3 (awaiting owner start order)
+## Task board — P2 wave 3 (code-complete)
 
-| ID | Task | Note |
+| ID | Task | Status |
 |---|---|---|
-| P2-07 | Inventory/equipment UI | first up |
-| P2-08 | Currency ledger | never-downgrade zone |
-| P2-09 | Drop + EXP + reinforcement/fragment config | config/loader only; live drops arrive P2B |
-| P2-10 | Guaranteed reinforcement (+15 cap) | UI ships inert in P2 (`NO_REINFORCEMENT`) |
-| P2-11 | Shop | — |
-| P2-12 | DG lite + hint panel | hint copy: "ของหายากมากับบอส" |
-| P2-13 | Tab policy | — |
-| P2-15 | Mobile pass | — |
-| P2-17 | Storage/Delivery | — |
-| SVG-01 | SVG pipeline foundation | content track C0/C1 pairs with it |
+| P2-07 | Inventory/equipment UI | ✅ done |
+| P2-08 | Currency ledger (never-downgrade) | ✅ done |
+| P2-09 | Drop + EXP + reinforcement/fragment (config+runtime) | ✅ done |
+| P2-10 | Guaranteed reinforcement (+15 cap) | ✅ done |
+| P2-11 | Shop (buy/sell, city-hub) | ✅ done |
+| P2-12 | DG lite + hint panel | ✅ done |
+| P2-13 | Tab policy (D-056: AFK stays) | ✅ done |
+| P2-15 | Mobile pass | ✅ done |
+| P2-17 | Storage/Delivery | ✅ done |
+
+## Follow-up (P2B, not blocking PR merge)
+
+Ground-loot entity (full inventory → lootOverflow reported, not persisted) · party share (§10.2, waits for party system) · starter loadout §7.7 not yet granted · shop unlockCondition tutorial not enforced · config loader DB override not wired into MapRoom (uses DEFAULT) · Field Boss `boss_map1_boiling_boar`: E3 stats + boss loot rebinding = P2B prep (D-064).
 
 ## Open with owner (not blocking structure)
 
-- Balance numbers batched for P2B: Gold amounts replacing old grants (D-052) · enhancement stat curve +6..+15 · E3 "Map 1 Monster Combat Stat Table" (blocks production tuning + final combat QA only).
-- Render free-tier upgrade when Bible 5.1 hard triggers hit (latest at P2-16).
-- Production smoke test round (deploy-checklist §3) still owed — does not block P2.
+- Production smoke test full round (deploy-checklist §3) — 2-tab sync / combat / map-cross not yet.
+- D-040 open items: only **L2** (final-art order) remains — owner will decide later; L1/L3–L7 closed via D-063..D-065.
 
 ## Do not touch
 
-`docs/design/**` + `docs/tech/**` — owner-gated spec (tech DRAFTs editable per work). Canonical IDs lock once save data exists.
+`docs/design/**` + `docs/tech/**` — owner-gated spec. Canonical IDs lock once save data exists.
 
 ## Pointers
 

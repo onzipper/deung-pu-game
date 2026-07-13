@@ -34,20 +34,59 @@ import {
   MAP_ROOM_NAME,
   MSG_CAST_SKILL,
   MSG_CAST_REJECTED,
+  MSG_ENHANCE_ITEM,
+  MSG_ENHANCE_RESULT,
+  MSG_EQUIP_ITEM,
+  MSG_INVENTORY_OP_REJECTED,
+  MSG_INVENTORY_STATE,
   MSG_MAP_TRANSITION,
   MSG_MOVE,
+  MSG_MOVE_ITEM,
+  MSG_PLAYER_PROGRESS,
   MSG_POSITION_CORRECTION,
+  MSG_DELIVERY_CLAIM,
+  MSG_DELIVERY_RESULT,
+  MSG_DELIVERY_STATE,
+  MSG_SHOP_BUY,
+  MSG_SHOP_LIST,
+  MSG_SHOP_LIST_REQUEST,
+  MSG_SHOP_RESULT,
+  MSG_SHOP_SELL,
   MSG_SKILL_RESULT,
+  MSG_STORAGE_DEPOSIT,
+  MSG_STORAGE_OPEN,
+  MSG_STORAGE_RESULT,
+  MSG_STORAGE_STATE,
+  MSG_STORAGE_WITHDRAW,
+  MSG_UNEQUIP_ITEM,
   WS_CLOSE_SESSION_TAKEN_OVER,
   type CastRejectedMessage,
   type CastSkillMessage,
+  type DeliveryClaimMessage,
+  type DeliveryResultMessage,
+  type DeliveryStateMessage,
+  type EnhanceItemMessage,
+  type EnhanceResultMessage,
+  type EquipItemMessage,
+  type InventoryOpRejectedMessage,
+  type InventorySnapshot,
   type JoinOptions,
   type MapTransitionMessage,
   type MobSnapshot,
+  type MoveItemMessage,
   type MoveMessage,
+  type PlayerProgressMessage,
   type PlayerSnapshot,
   type PositionCorrectionMessage,
+  type ShopBuyMessage,
+  type ShopListMessage,
+  type ShopListRequestMessage,
+  type ShopResultMessage,
+  type ShopSellMessage,
   type SkillResultMessage,
+  type StorageMoveMessage,
+  type StorageResultMessage,
+  type StorageStateMessage,
 } from "@/shared/net-protocol";
 import { canSendLocalMove, coerceAnim, coerceDirection, computePlayerCount, type ConnectionState } from "@/engine/net/sync";
 
@@ -127,6 +166,70 @@ export interface NetClientHandlers {
    * เดิมก่อน refresh (กัน "วาร์ปกลับ" + กัน exit detection พลาดเพราะ desync). ยิงครั้งเดียวต่อ 1 connection. optional.
    */
   onSelfSpawn?(snap: PlayerSnapshot): void;
+  /**
+   * P2-13 (D-056): self AFK flag เปลี่ยน (server ตั้งเมื่อ idle ครบ idleIndicatorSec) → caller (app.ts) ให้
+   * local player แสดง/ซ่อนป้าย "AFK" ของตัวเอง. self ไม่ผูก onChange ตำแหน่ง (client-predicted) — listen
+   * เฉพาะ field นี้ (display-only, ไม่กระทบ prediction). ยิง immediate ครั้งแรก (false) ตอน wire. optional.
+   */
+  onSelfAfkChange?(isAfk: boolean): void;
+  /**
+   * P2-07: snapshot inventory/equipment ล่าสุด (server → client เดียว) — ยิงตอน join + หลังทุก mutation
+   * สำเร็จ (equip/unequip/move). caller (app.ts) push เข้า Zustand bridge ตรง ๆ (event-driven, ไม่ throttle
+   * ผ่าน hudPublisher — ต่างจาก debugInfo ที่เป็น per-frame poll). optional.
+   */
+  onInventoryState?(snapshot: InventorySnapshot): void;
+  /**
+   * P2-07: mutation ถูก server ปฏิเสธ (unknown_item/not_equippable/.../version_conflict) — เงียบ ๆ ไม่ throw,
+   * caller โชว์ toast สั้น ๆ แล้ว resync จาก MSG_INVENTORY_STATE ล่าสุดที่มีอยู่แล้ว (ไม่ต้อง request ใหม่). optional.
+   */
+  onInventoryOpRejected?(rejected: InventoryOpRejectedMessage): void;
+  /**
+   * P2-10: ผลการเสริมแกร่ง (server → client เดียว, MSG_ENHANCE_RESULT) — ok=true มากับ MSG_INVENTORY_STATE
+   * snapshot ใหม่แยกต่างหาก (server ส่งสองข้อความ), ok=false มี reason (NO_ITEM/NO_REINFORCEMENT/MAX_LEVEL/
+   * ITEM_LOCKED, §2.4). caller push เข้า Zustand bridge ตรง ๆ (event-driven เหมือน onInventoryOpRejected). optional.
+   */
+  onEnhanceResult?(result: EnhanceResultMessage): void;
+  /**
+   * P2-11: catalog ของร้านบน map ปัจจุบัน (ตอบ MSG_SHOP_LIST_REQUEST) — `available: false` = map นี้ไม่มี
+   * ร้าน (HUD ปุ่ม "ร้านค้า" อ่านค่านี้ตัดสินว่าโชว์ปุ่มไหม). caller push เข้า Zustand bridge ตรง ๆ
+   * (event-driven เหมือน onInventoryState). optional.
+   */
+  onShopList?(list: ShopListMessage): void;
+  /**
+   * P2-11: ผลซื้อ/ขาย (ok/reject, Economy §23) — สำเร็จมากับ MSG_INVENTORY_STATE snapshot ใหม่แยกต่างหาก
+   * (server ส่งสองข้อความ เหมือน enhance) + ยอด gold authoritative หลังทำ. caller push เข้า Zustand bridge
+   * ตรง ๆ (event-driven). optional.
+   */
+  onShopResult?(result: ShopResultMessage): void;
+  /**
+   * P2-09: progression + loot สรุปหลังฆ่ามอน (level/exp/gold/loot) — P2-11 shop ใช้เฉพาะ `gold` เพื่อโชว์
+   * ยอดปัจจุบันในร้าน (ยังไม่มี HUD gold bar แยกต่างหากรอบนี้). caller push เข้า Zustand bridge ตรง ๆ
+   * (event-driven). optional.
+   */
+  onPlayerProgress?(msg: PlayerProgressMessage): void;
+  /**
+   * P2-17: snapshot คลังบัญชีล่าสุด (server → client เดียว, MSG_STORAGE_STATE) — ยิงตอบ MSG_STORAGE_OPEN
+   * + หลังทุก deposit/withdraw สำเร็จ. `available: false` = map นี้ไม่มี storage NPC (HUD ปุ่ม "คลัง" อ่าน
+   * ค่านี้ตัดสินว่าโชว์ปุ่มไหม, pattern เดียวกับ onShopList). caller push เข้า Zustand bridge ตรง ๆ
+   * (event-driven). optional.
+   */
+  onStorageState?(state: StorageStateMessage): void;
+  /**
+   * P2-17: ผลฝาก/ถอนล่าสุด (server → client เดียว, MSG_STORAGE_RESULT) — สำเร็จมากับ MSG_STORAGE_STATE +
+   * MSG_INVENTORY_STATE snapshot ใหม่แยกต่างหาก (server ส่งหลายข้อความ เหมือน shop/enhance). caller push
+   * เข้า Zustand bridge ตรง ๆ (event-driven). optional.
+   */
+  onStorageResult?(result: StorageResultMessage): void;
+  /**
+   * P2-17: snapshot กล่องส่งของล่าสุด (server → client เดียว, MSG_DELIVERY_STATE) — ยิงตอบ MSG_STORAGE_OPEN
+   * (เปิดพร้อม storage) + หลัง claim สำเร็จ. caller push เข้า Zustand bridge ตรง ๆ (event-driven). optional.
+   */
+  onDeliveryState?(state: DeliveryStateMessage): void;
+  /**
+   * P2-17: ผล claim ล่าสุด (server → client เดียว, MSG_DELIVERY_RESULT) — สำเร็จมากับ MSG_DELIVERY_STATE +
+   * MSG_INVENTORY_STATE snapshot ใหม่แยกต่างหาก. caller push เข้า Zustand bridge ตรง ๆ (event-driven). optional.
+   */
+  onDeliveryResult?(result: DeliveryResultMessage): void;
 }
 
 /** อ่าน MobState schema (reflection → any) → MobSnapshot (coerce state). */
@@ -205,6 +308,28 @@ export interface NetClientHandle {
   sendMove(msg: MoveMessage): void;
   /** P1-05: ส่ง cast intent (skillId + aim + ทิศ) ขึ้น server (no-op ถ้ายังไม่ online). */
   sendCast(msg: CastSkillMessage): void;
+  /** P2-07: ขอสวม item จากกระเป๋า (no-op ถ้ายังไม่ online) — server หา equip slot จาก item def เอง. */
+  sendEquipItem(msg: EquipItemMessage): void;
+  /** P2-07: ขอถอด item ที่สวมอยู่กลับกระเป๋า (no-op ถ้ายังไม่ online). */
+  sendUnequipItem(msg: EquipItemMessage): void;
+  /** P2-07: ขอย้าย item ในกระเป๋าไปช่องอื่น (bag↔bag เท่านั้น, no-op ถ้ายังไม่ online). */
+  sendMoveItem(msg: MoveItemMessage): void;
+  /** P2-10: ขอเสริมแกร่ง equipment ที่ถืออยู่ +1 (no-op ถ้ายังไม่ online) — server ตัดสินทั้งหมด (§2.3). */
+  sendEnhanceItem(msg: EnhanceItemMessage): void;
+  /** P2-11: ขอ catalog ร้านของ map ปัจจุบัน (no-op ถ้ายังไม่ online) — เรียกตอน join/เปลี่ยน map. */
+  sendShopListRequest(msg: ShopListRequestMessage): void;
+  /** P2-11: ขอซื้อ item จากร้าน (no-op ถ้ายังไม่ online) — ราคา/เงื่อนไขทั้งหมด server ตัดสิน. */
+  sendShopBuy(msg: ShopBuyMessage): void;
+  /** P2-11: ขอขาย item ที่ถืออยู่ให้ร้าน (no-op ถ้ายังไม่ online). */
+  sendShopSell(msg: ShopSellMessage): void;
+  /** P2-17: ขอเปิดคลัง+กล่องส่งของบน map ปัจจุบัน (no-op ถ้ายังไม่ online) — server ตอบ 2 snapshot. */
+  sendStorageOpen(): void;
+  /** P2-17: ขอฝากของจากกระเป๋าเข้าคลัง (no-op ถ้ายังไม่ online). */
+  sendStorageDeposit(msg: StorageMoveMessage): void;
+  /** P2-17: ขอถอนของจากคลังกลับกระเป๋า (no-op ถ้ายังไม่ online). */
+  sendStorageWithdraw(msg: StorageMoveMessage): void;
+  /** P2-17: ขอรับของจาก delivery entry เข้ากระเป๋า (no-op ถ้ายังไม่ online). */
+  sendDeliveryClaim(msg: DeliveryClaimMessage): void;
   /** ออกจาก room + ปิด connection (idempotent) */
   disconnect(): void;
 }
@@ -216,6 +341,7 @@ function snapshotOf(player: {
   direction: string;
   anim: string;
   partyId?: string;
+  isAfk?: boolean;
 }): PlayerSnapshot {
   return {
     tx: player.tx,
@@ -223,6 +349,8 @@ function snapshotOf(player: {
     direction: coerceDirection(player.direction),
     anim: coerceAnim(player.anim),
     partyId: typeof player.partyId === "string" ? player.partyId : "",
+    // P2-13 (D-056): AFK flag (server-set) → remote manager แสดงป้าย. coerce เป็น boolean แท้ (default false).
+    isAfk: player.isAfk === true,
   };
 }
 
@@ -344,6 +472,9 @@ export function createNetClient(
           // = client-predicted → ไม่ผูก onChange (reconcile ต่อเนื่องผ่าน MSG_POSITION_CORRECTION เท่านั้น).
           selfAdopted = true;
           handlers.onSelfSpawn?.(snapshotOf(player));
+          // P2-13 (D-056): listen เฉพาะ field isAfk ของ self (display-only) → local player แสดงป้ายตัวเอง.
+          // ไม่ผูก onChange ตำแหน่ง (client-predicted). listen ยิง immediate ครั้งแรก (false) — harmless.
+          $(player).listen("isAfk", (v: unknown) => handlers.onSelfAfkChange?.(v === true));
           return;
         }
         status.remoteCount += 1;
@@ -402,6 +533,43 @@ export function createNetClient(
     // P1-10: server สั่งข้าม map (player เข้า exit area) → caller ทำ transition (leave + join room ใหม่)
     joinedRoom.onMessage(MSG_MAP_TRANSITION, (msg: MapTransitionMessage) => {
       handlers.onMapTransition?.(msg);
+    });
+
+    // P2-07: inventory/equipment snapshot (ตอน join + หลัง mutation สำเร็จ) + mutation ถูกปฏิเสธ (เงียบ ๆ)
+    joinedRoom.onMessage(MSG_INVENTORY_STATE, (snap: InventorySnapshot) => {
+      handlers.onInventoryState?.(snap);
+    });
+    joinedRoom.onMessage(MSG_INVENTORY_OP_REJECTED, (rejected: InventoryOpRejectedMessage) => {
+      handlers.onInventoryOpRejected?.(rejected);
+    });
+    // P2-10: ผลเสริมแกร่ง (ok/reject) — สำเร็จมากับ MSG_INVENTORY_STATE snapshot ใหม่แยกอีกข้อความ (ด้านบน)
+    joinedRoom.onMessage(MSG_ENHANCE_RESULT, (result: EnhanceResultMessage) => {
+      handlers.onEnhanceResult?.(result);
+    });
+    // P2-11: catalog ร้าน (ตอบ MSG_SHOP_LIST_REQUEST) + ผลซื้อ/ขาย
+    joinedRoom.onMessage(MSG_SHOP_LIST, (list: ShopListMessage) => {
+      handlers.onShopList?.(list);
+    });
+    joinedRoom.onMessage(MSG_SHOP_RESULT, (result: ShopResultMessage) => {
+      handlers.onShopResult?.(result);
+    });
+    // P2-09: progression หลังฆ่ามอน — P2-11 shop ใช้เฉพาะ gold (ดู comment ที่ onPlayerProgress ด้านบน)
+    joinedRoom.onMessage(MSG_PLAYER_PROGRESS, (msg: PlayerProgressMessage) => {
+      handlers.onPlayerProgress?.(msg);
+    });
+    // P2-17: snapshot คลัง (ตอบ MSG_STORAGE_OPEN + หลัง deposit/withdraw สำเร็จ) + ผลฝาก/ถอน
+    joinedRoom.onMessage(MSG_STORAGE_STATE, (state: StorageStateMessage) => {
+      handlers.onStorageState?.(state);
+    });
+    joinedRoom.onMessage(MSG_STORAGE_RESULT, (result: StorageResultMessage) => {
+      handlers.onStorageResult?.(result);
+    });
+    // P2-17: snapshot กล่องส่งของ (ตอบ MSG_STORAGE_OPEN + หลัง claim สำเร็จ) + ผล claim
+    joinedRoom.onMessage(MSG_DELIVERY_STATE, (state: DeliveryStateMessage) => {
+      handlers.onDeliveryState?.(state);
+    });
+    joinedRoom.onMessage(MSG_DELIVERY_RESULT, (result: DeliveryResultMessage) => {
+      handlers.onDeliveryResult?.(result);
     });
 
     // channel/map อาจถูก set หลัง state แรก → sync ค่าล่าสุด
@@ -566,6 +734,50 @@ export function createNetClient(
     sendCast(msg: CastSkillMessage): void {
       if (!room || status.state !== "online") return;
       room.send(MSG_CAST_SKILL, msg);
+    },
+    sendEquipItem(msg: EquipItemMessage): void {
+      if (!room || status.state !== "online") return;
+      room.send(MSG_EQUIP_ITEM, msg);
+    },
+    sendUnequipItem(msg: EquipItemMessage): void {
+      if (!room || status.state !== "online") return;
+      room.send(MSG_UNEQUIP_ITEM, msg);
+    },
+    sendMoveItem(msg: MoveItemMessage): void {
+      if (!room || status.state !== "online") return;
+      room.send(MSG_MOVE_ITEM, msg);
+    },
+    sendEnhanceItem(msg: EnhanceItemMessage): void {
+      if (!room || status.state !== "online") return;
+      room.send(MSG_ENHANCE_ITEM, msg);
+    },
+    sendShopListRequest(msg: ShopListRequestMessage): void {
+      if (!room || status.state !== "online") return;
+      room.send(MSG_SHOP_LIST_REQUEST, msg);
+    },
+    sendShopBuy(msg: ShopBuyMessage): void {
+      if (!room || status.state !== "online") return;
+      room.send(MSG_SHOP_BUY, msg);
+    },
+    sendShopSell(msg: ShopSellMessage): void {
+      if (!room || status.state !== "online") return;
+      room.send(MSG_SHOP_SELL, msg);
+    },
+    sendStorageOpen(): void {
+      if (!room || status.state !== "online") return;
+      room.send(MSG_STORAGE_OPEN);
+    },
+    sendStorageDeposit(msg: StorageMoveMessage): void {
+      if (!room || status.state !== "online") return;
+      room.send(MSG_STORAGE_DEPOSIT, msg);
+    },
+    sendStorageWithdraw(msg: StorageMoveMessage): void {
+      if (!room || status.state !== "online") return;
+      room.send(MSG_STORAGE_WITHDRAW, msg);
+    },
+    sendDeliveryClaim(msg: DeliveryClaimMessage): void {
+      if (!room || status.state !== "online") return;
+      room.send(MSG_DELIVERY_CLAIM, msg);
     },
     disconnect(): void {
       if (disposed) return;

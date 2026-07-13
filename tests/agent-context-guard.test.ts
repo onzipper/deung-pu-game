@@ -12,8 +12,13 @@ import { join } from "node:path";
 
 const ROOT = join(__dirname, "..");
 
+// Normalize CRLF→LF before measuring: git autocrlf on Windows re-materializes
+// checked-out files with CRLF, inflating on-disk size past the cap while the
+// committed content (and its token cost — what the budget actually models) is
+// unchanged. Caps are content budgets, not disk budgets.
 function bytesOf(relPath: string): number {
-  return Buffer.byteLength(readFileSync(join(ROOT, relPath)));
+  const raw = readFileSync(join(ROOT, relPath), "utf8");
+  return Buffer.byteLength(raw.replace(/\r\n/g, "\n"));
 }
 
 function textOf(relPath: string): string {
@@ -45,7 +50,9 @@ describe("agent context guard", () => {
     "AI.md": 6_656,
     "docs/agent-rules.md": 10_240,
     "docs/token-budget.md": 2_560,
-    "docs/decision-index.md": 6_144,
+    // 6144 → 8192 approved by owner 2026-07-13: the index grows ~110 B per
+    // decision by design (integrity test pins every D-NNN file to one row).
+    "docs/decision-index.md": 8_192,
     "docs/current-state.md": 3_072,
     "docs/feature-map.md": 6_144,
     "docs/CODEMAP.md": 8_192,
@@ -132,6 +139,8 @@ describe("agent context guard", () => {
         const abs = join(ROOT, relDir);
         if (!existsSync(abs)) return;
         for (const entry of readdirSync(abs, { withFileTypes: true })) {
+          // ข้าม agent worktrees — สำเนา repo ทั้งชุดของ subagent ไม่ใช่ live docs
+          if (entry.isDirectory() && entry.name === "worktrees") continue;
           const rel = join(relDir, entry.name);
           if (entry.isDirectory()) walkClaude(rel);
           else if (entry.name.endsWith(".md")) mdFiles.push(rel);

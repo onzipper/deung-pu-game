@@ -20,6 +20,7 @@ Scope: `src/engine/**` (+ `src/game/**` combat mechanics that sit on it) · Read
 - `src/engine/render/` — depth registry, camera, scene graph, object pool, screen shake, exit marker
 - `src/engine/runtime/app.ts` — createEngine(): per-map world mount + master tick
 - `src/engine/movement/` — mover (stepMovement), direction resolver, path-follower
+- `src/engine/input/` — keyboard intent + `src/engine/input/joystick.ts` (touch → 8-dir intent, same as WASD) + `src/engine/input/target-assist.ts` (per-input-mode click radius, Combat Bible §3, P2-15). LocalPlayerHandle.setMoveVector feeds joystick intent; combat-stub/pressAttack (app.ts) use the assist radius.
 - `src/engine/pathfinding/` — A* on the iso grid (click-to-move)
 - `src/engine/config.ts` — barrel re-exporting every tunable engine value (Design Knobs) from domain modules under `src/engine/config/`
 - `src/engine/assets/registry.ts` — runtime atlas registry (engine-scope): fail-soft, missing asset/atlas → placeholder, never crash

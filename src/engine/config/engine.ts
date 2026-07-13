@@ -5,15 +5,19 @@ import type { CombatBalanceConfig, CombatStubConfig } from "./combat";
 import { DEFAULT_COMBAT_BALANCE_CONFIG, DEFAULT_COMBAT_STUB_CONFIG } from "./combat";
 import type { CombatFeelConfig, StressHarnessConfig } from "./combat-feel";
 import { DEFAULT_COMBAT_FEEL_CONFIG, DEFAULT_STRESS_HARNESS_CONFIG } from "./combat-feel";
+import type { InputConfig } from "./input";
+import { DEFAULT_INPUT_CONFIG } from "./input";
 import type { MobConfig } from "./mob";
 import { DEFAULT_MOB_CONFIG } from "./mob";
 import type {
+  AfkConfig,
   MovementValidationConfig,
   NetConfig,
   PersistenceConfig,
   ReconnectConfig,
 } from "./net";
 import {
+  DEFAULT_AFK_CONFIG,
   DEFAULT_MOVEMENT_VALIDATION_CONFIG,
   DEFAULT_NET_CONFIG,
   DEFAULT_PERSISTENCE_CONFIG,
@@ -77,6 +81,8 @@ export interface EngineConfig {
   player: PlayerConfig;
   /** pathfinding + click-to-move + touch knob (P1-09, TA §17.3 · L11) */
   pathfinding: PathfindingConfig;
+  /** input knob (P2-15) — virtual joystick touch (deadzone + ขนาดวาด) */
+  input: InputConfig;
   /** map transition fade knob (P1-10, GS §57.3) — fade overlay ตอนข้าม map */
   transition: TransitionConfig;
   /** exit marker knob (P1 fix) — highlight พื้น exit area ให้เห็นทางออก (placeholder art) */
@@ -103,6 +109,8 @@ export interface EngineConfig {
   persistence: PersistenceConfig;
   /** pixelate render style knob (D-065 art path ①) — low-res + nearest upscale ทั้งเกม + asset base URL */
   render: RenderStyleConfig;
+  /** AFK / background-tab knob (P2-13, D-056) — server knob (idle indicator + inert hard cap) */
+  afk: AfkConfig;
 }
 
 export const DEFAULT_ENGINE_CONFIG: EngineConfig = {
@@ -119,6 +127,7 @@ export const DEFAULT_ENGINE_CONFIG: EngineConfig = {
   camera: DEFAULT_CAMERA_CONFIG,
   player: DEFAULT_PLAYER_CONFIG,
   pathfinding: DEFAULT_PATHFINDING_CONFIG,
+  input: DEFAULT_INPUT_CONFIG,
   transition: DEFAULT_TRANSITION_CONFIG,
   exitMarker: DEFAULT_EXIT_MARKER_CONFIG,
   movementValidation: DEFAULT_MOVEMENT_VALIDATION_CONFIG,
@@ -132,6 +141,7 @@ export const DEFAULT_ENGINE_CONFIG: EngineConfig = {
   debugOverlay: DEFAULT_DEBUG_OVERLAY_CONFIG,
   persistence: DEFAULT_PERSISTENCE_CONFIG,
   render: DEFAULT_RENDER_STYLE_CONFIG,
+  afk: DEFAULT_AFK_CONFIG,
 };
 
 /**
@@ -164,6 +174,7 @@ export function createEngineConfig(
     theme: overrides.theme ?? DEFAULT_ENGINE_CONFIG.theme,
     player: overrides.player ?? DEFAULT_ENGINE_CONFIG.player,
     pathfinding: overrides.pathfinding ?? DEFAULT_ENGINE_CONFIG.pathfinding,
+    input: overrides.input ?? DEFAULT_ENGINE_CONFIG.input,
     movementValidation:
       overrides.movementValidation ?? DEFAULT_ENGINE_CONFIG.movementValidation,
     mob: overrides.mob ?? DEFAULT_ENGINE_CONFIG.mob,
@@ -181,6 +192,8 @@ export function createEngineConfig(
     persistence: { ...DEFAULT_ENGINE_CONFIG.persistence, ...overrides.persistence },
     // render = shallow-merge (override เช่น pixelate/renderResolution โดยคงค่าอื่นเดิม)
     render: { ...DEFAULT_ENGINE_CONFIG.render, ...overrides.render },
+    // afk = shallow-merge (override idleIndicatorSec/afkHardCapHours โดยคงค่าอื่นเดิม)
+    afk: { ...DEFAULT_ENGINE_CONFIG.afk, ...overrides.afk },
   };
 }
 

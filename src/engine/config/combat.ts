@@ -179,7 +179,8 @@ export const DEFAULT_COMBAT_BALANCE_CONFIG: CombatBalanceConfig = {
     pointBlankRadiusTiles: 1.4,
   },
   player: {
-    // นักดาบ lv1 (proposal §2.1)
+    // นักดาบ lv1 baseline — production lock (D-055 §2 = P1 Balance Proposal §2.1). lv2–10 progression
+    // (HP+20/ATK+3/DEF+~1.5) = server-side level-up (server/config economy §9) — engine ถือแค่ lv1.
     hp: 100,
     atk: 12,
     def: 8,
@@ -188,9 +189,12 @@ export const DEFAULT_COMBAT_BALANCE_CONFIG: CombatBalanceConfig = {
     penetration: 0, // P1 = 0 (โตจาก gear ภายหลัง)
   },
   mobs: {
-    // proposal §2.2 — HP/ATK/DEF/tierReduction ต่อ mobType
-    slime: { hp: 45, atk: 6, def: 4, tierReduction: 1.0 }, // ดึ๋งปุ๊ (normal-swarm)
-    mushroom: { hp: 130, atk: 11, def: 10, tierReduction: 1.0 }, // หมูพอง (normal-tough)
+    // Map 1 production (D-055 §9.3 — HP/ATK/DEF/tierReduction; key = MobPocket.mobType ใน map1.ts).
+    slime: { hp: 45, atk: 6, def: 3, tierReduction: 1.0 }, // mon_map1_slime (สไลม์เมือกดึ๋ง)
+    bird: { hp: 70, atk: 7, def: 4, tierReduction: 1.0 }, // mon_map1_bird (นกจิกปุ๊)
+    boar: { hp: 150, atk: 12, def: 10, tierReduction: 1.0 }, // mon_map1_boar (หมูป่าพอง)
+    boar_elite: { hp: 420, atk: 17, def: 14, tierReduction: 0.8 }, // elite_map1_boar_rampage (หมูป่าพองคลั่ง)
+    mushroom: { hp: 130, atk: 11, def: 10, tierReduction: 1.0 }, // หมูพอง — test-field placeholder (ไม่ใช่ Map 1/D-055)
   },
   defaultMob: { hp: 45, atk: 6, def: 4, tierReduction: 1.0 },
 };

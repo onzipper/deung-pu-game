@@ -95,6 +95,46 @@ export async function saveCharacterState(
   }
 }
 
+/**
+ * P2-09: โหลด level/exp ของตัวละคร (progression) ตอน join. best-effort — DB ล่ม/ไม่มี row → null (spawn lv1).
+ * exp เก็บเป็น BigInt ใน DB (schema Character.exp) — P2 cap cumulative = 7,440 → แปลงเป็น number ได้ปลอดภัย.
+ */
+export async function loadCharacterProgress(
+  characterId: string,
+): Promise<{ level: number; exp: number } | null> {
+  if (!dbConfigured()) return null;
+  try {
+    const row = await getPrisma().character.findUnique({
+      where: { id: characterId },
+      select: { level: true, exp: true },
+    });
+    return row ? { level: row.level, exp: Number(row.exp) } : null;
+  } catch (err) {
+    warnDbError("progress-load", err);
+    return null;
+  }
+}
+
+/**
+ * P2-09: persist level/exp หลังได้ EXP/level-up (best-effort — save ล้ม = เกมเดินต่อ, persist รอบหน้า).
+ * ต่างจาก ledger (strict): EXP เป็น progression state แบบ character-state — DB ล่มไม่ break combat.
+ */
+export async function saveCharacterProgress(
+  characterId: string,
+  level: number,
+  exp: number,
+): Promise<void> {
+  if (!dbConfigured()) return;
+  try {
+    await getPrisma().character.update({
+      where: { id: characterId },
+      data: { level, exp: BigInt(Math.max(0, Math.floor(exp))) },
+    });
+  } catch (err) {
+    warnDbError("progress-save", err);
+  }
+}
+
 /** อัปเดต Account.lastPlayedCharacterId (§7.2 Continue default) ตอน join. best-effort. */
 export async function updateLastPlayed(
   accountId: string,

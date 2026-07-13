@@ -8,6 +8,18 @@
 
 ---
 
+## 0.0 Amendment Log — (2026-07-13) — Bot Economy Final + Production Path (D-063/D-065)
+
+ไฟล์นี้แก้ **in-place** ตาม `docs/spec-update-playbook.md` โหมด A (ห้าม rename/สร้างไฟล์ใหม่). Owner เคาะปิด L1 (bot/เศรษฐกิจ) + production path (เสียง/art/launch scope) 2026-07-13. decision records = `docs/decisions/D-063-bot-economy-final.md`, `docs/decisions/D-065-production-path.md` (ทั้งคู่ Locked). เอกสารนี้บันทึกเฉพาะจุด supersede/หมายเหตุ — **additive, เนื้อเดิมคงไว้เพื่อ history**.
+
+Delta:
+
+1. **§6.3 Tier Baseline `hoursPerDay` (Free/Plus/Pro)** — **SUPERSEDED โดย D-063**: ทุก tier `hoursPerDay` เท่ากันหมด (24/7, ไม่จำกัดชั่วโมง) รวม Free — ความต่างระหว่าง tier ยังคงเป็น `profiles`/`rules`/`reportRetentionDays`/`notifications`/`schedules`/`analytics` ตามเดิม (ค่าพวกนี้ยังมีผล ไม่ supersede)
+2. **§6.6 Price Baseline (`plusMonthly: 99` / `proMonthly: 199` / `supporterMonthly: 299`)** — **SUPERSEDED โดย D-063**: เปลี่ยนโมเดลจากรายเดือน → **duration pass 1/10/30 วัน** นับอายุจริงจากวันซื้อ ไม่มี pause · ราคา canon: Plus 9/39/79฿ · Pro 15/69/149฿ · Supporter (cosmetic รายเดือน) พักไว้ ตัดสินหลัง beta
+3. **§18 Launch Scope Gates → "Beta" (Maps 1–7)** — หมายเหตุ re-scope (ไม่ supersede เนื้อเดิม เพราะเป็นแผนเดิมที่ยังอ้างอิงได้): ตาม D-065 **Open Beta = ระบบครบ + Map 1 เท่านั้น** ไม่ต้องรอ Maps 1–7 ครบก่อนเปิด — Map 2–10 ทยอย develop แล้วปล่อยเป็นรอบ ๆ หลัง beta
+
+---
+
 # 0. Decision Authority
 
 เอกสารนี้เป็น Owner-approved production baseline
@@ -550,6 +562,8 @@ Manual expert ต้องดีที่สุด
 
 ## 6.3 Tier Baseline
 
+> **`hoursPerDay` ทุก tier ด้านล่าง — SUPERSEDED โดย D-063 (2026-07-13) → §0.0 ด้านบน**: ทุก tier 24/7 ไม่จำกัดชั่วโมงเท่ากันหมด รวม Free (ค่า `hoursPerDay` ที่เหลืออยู่ในบล็อก yaml ด้านล่างเป็น history เดิม ไม่ใช่ค่าที่ใช้จริงอีกต่อไป). ค่าอื่นในแต่ละ tier ยังมีผลตามเดิม.
+
 ### Free
 
 ```yaml
@@ -616,6 +630,8 @@ Cap ใช้:
 - captcha/anti-abuse challenge
 
 ## 6.6 Price Baseline
+
+> **บล็อก yaml ด้านล่าง — SUPERSEDED โดย D-063 (2026-07-13) → §0.0 ด้านบน**: โมเดลรายเดือน (`*Monthly`) เปลี่ยนเป็น **duration pass 1/10/30 วัน** — ราคา canon: Plus 9/39/79฿ · Pro 15/69/149฿ · Supporter พักไว้ตัดสินหลัง beta (ยังไม่ใช่ monthly cosmetic ที่เคาะแล้ว)
 
 ราคายังเป็น tunable แต่ production proposal ใช้:
 
@@ -1273,6 +1289,8 @@ Draft ได้ แต่ต้อง legal review ก่อน launch
 - final core art
 - verified email
 - legal complete
+
+> **หมายเหตุ re-scope (D-065, 2026-07-13 → §0.0 ด้านบน, ไม่ supersede):** **Open Beta = ระบบครบ + Map 1 เท่านั้น** — ไม่ต้องรอ Maps 1–7 ครบก่อนเปิด Open Beta อีกต่อไป; Map 2–10 ทยอย develop แล้วปล่อยเป็นรอบ ๆ หลัง beta
 
 ## Launch
 
