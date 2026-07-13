@@ -253,6 +253,14 @@ export function setPlayerLevel(level: number): void {
 /** typed selector — level ตัวละครล่าสุดที่รู้ (P2-12) */
 export const selectPlayerLevel = (state: HudState): number | null => state.playerLevel;
 
+/**
+ * E3 (§8.2 EXP bar): engine เรียกเมื่อ exp ของ self เปลี่ยน (schema listen — join + kill) → set playerExp ตรง ๆ.
+ * source นี้มาเร็ว (join) กว่า MSG_PLAYER_PROGRESS (kill แรก) → แถบ EXP + ตัวเลข % แสดงค่าจริงตั้งแต่เกิด.
+ */
+export function setPlayerExp(exp: number, floor: number, ceil: number): void {
+  gameStore.setState({ playerExp: { exp, floor, ceil } });
+}
+
 /** typed selector — exp progress ของ local player (E3 §8.2 EXP bar) */
 export const selectPlayerExp = (state: HudState): HudState["playerExp"] => state.playerExp;
 

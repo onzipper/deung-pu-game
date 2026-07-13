@@ -24,6 +24,7 @@ export function StatusCluster() {
   const hpFrac = hpBarFraction(hp, maxHp);
   const lowHp = isLowHp(hpFrac);
   const expFrac = expBarFraction(exp);
+  const expPct = (expFrac * 100).toFixed(2); // owner: ตัวเลข EXP format xx.xx%
 
   return (
     <div className="pointer-events-none fixed left-4 top-4 z-30 flex select-none items-center gap-2">
@@ -69,6 +70,8 @@ export function StatusCluster() {
             style={{ transform: `scaleX(${expFrac})` }} // scaleX (GPU) แทน width
           />
         </div>
+        {/* EXP % (owner request: format xx.xx%) — คิดจาก expFrac ที่ server sync มา */}
+        <span className="text-[10px] font-medium leading-none text-amber-200/90">EXP {expPct}%</span>
       </div>
     </div>
   );
