@@ -27,6 +27,11 @@ export class PlayerState extends Schema {
    */
   @type("number") hp = 0;
   @type("number") maxHp = 0;
+  /**
+   * E3 (§8.2 level badge) — server-authoritative level (จาก sessionProgress). sync ทันทีตอน join + level-up →
+   * HUD แสดงเลเวลจริงทันที (ไม่ต้องรอ MSG_PLAYER_PROGRESS หลัง kill แรก) + ปลดล็อกสกิล A3 (unlock-by-level) ถูกตั้งแต่เกิด.
+   */
+  @type("number") level = 1;
 }
 
 /**

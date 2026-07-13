@@ -8,7 +8,7 @@
 import { useEffect, useState } from "react";
 import { useGameStore } from "@/ui/store/use-game-store";
 import { selectDeathAtMs } from "@/ui/store/game-store";
-import { Toast, ToastViewport } from "@/ui/components/Toast";
+import { Toast } from "@/ui/components/Toast";
 
 /** ระยะแสดง death toast (ms) — operational const (§4.7 error toast persist), ไม่ใช่ balance. */
 const DEATH_TOAST_MS = 4000;
@@ -28,12 +28,13 @@ export function DeathToast() {
   const visible = deathAtMs !== null && deathAtMs !== dismissedAt;
   if (!visible) return null;
   return (
-    <ToastViewport>
+    // E4 (owner feedback): แสดง "กลางจอ" ให้เด่น (ไม่ใช่มุมบนแบบ toast ปกติ). container ไม่รับ pointer (Toast รับเอง).
+    <div className="pointer-events-none fixed inset-0 z-(--dp-z-toast) flex items-center justify-center px-4">
       <Toast
         type="error"
         message="คุณล้มลงแล้ว — เกิดใหม่ที่ค่ายปลอดภัย"
         onDismiss={() => setDismissedAt(deathAtMs)}
       />
-    </ToastViewport>
+    </div>
   );
 }

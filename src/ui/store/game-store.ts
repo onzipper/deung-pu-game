@@ -242,6 +242,14 @@ export const selectShopResult = (state: HudState): ShopResultMessage | null => s
 /** typed selector — ยอด gold ล่าสุดที่รู้ (P2-09/P2-11) */
 export const selectGold = (state: HudState): number | null => state.gold;
 
+/**
+ * E3 (§8.2 level badge): engine เรียกเมื่อ level ของ self เปลี่ยน (schema listen — ทันทีตอน join/level-up) →
+ * set playerLevel ตรง ๆ. source นี้มาเร็วกว่า MSG_PLAYER_PROGRESS (ไม่ต้องรอ kill แรก) → badge โชว์เลขจริงตั้งแต่เกิด.
+ */
+export function setPlayerLevel(level: number): void {
+  gameStore.setState({ playerLevel: level });
+}
+
 /** typed selector — level ตัวละครล่าสุดที่รู้ (P2-12) */
 export const selectPlayerLevel = (state: HudState): number | null => state.playerLevel;
 

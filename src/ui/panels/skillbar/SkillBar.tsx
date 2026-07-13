@@ -96,12 +96,21 @@ function useCooldownFraction(readyAtMs: number, totalMs: number): number {
   const [frac, setFrac] = useState(0);
   useEffect(() => {
     if (totalMs <= 0) return;
-    // schedule ผ่าน RAF (ไม่ setState synchronous ใน effect) — อ่าน clock ใน callback เท่านั้น (render pure).
-    let raf = requestAnimationFrame(function tick(): void {
+    let raf = 0;
+    let lastStep = -1;
+    // RAF ทุกเฟรม (callback เบา) แต่ **setState เฉพาะตอน step (~60 ขั้น/cooldown) เปลี่ยน** → ลด React re-render
+    // ตอน cooldown (เดิม setState ทุกเฟรม = fps ตกช่วงหลัง cast). อ่าน clock ใน callback (async) — render pure.
+    const tick = (): void => {
       const remaining = readyAtMs - performance.now();
-      setFrac(remaining > 0 ? Math.min(1, remaining / totalMs) : 0);
+      const f = remaining > 0 ? Math.min(1, remaining / totalMs) : 0;
+      const step = Math.round(f * 60);
+      if (step !== lastStep) {
+        lastStep = step;
+        setFrac(f);
+      }
       if (remaining > 0) raf = requestAnimationFrame(tick);
-    });
+    };
+    raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
   }, [readyAtMs, totalMs]);
   return frac;

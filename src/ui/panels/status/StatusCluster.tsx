@@ -45,8 +45,11 @@ export function StatusCluster() {
           aria-valuemax={maxHp}
         >
           <div
-            className={"h-full transition-[width] duration-200 " + (lowHp ? "bg-red-500" : "bg-lime-500")}
-            style={{ width: `${hpFrac * 100}%` }}
+            className={
+              "h-full w-full origin-left transition-transform duration-200 " +
+              (lowHp ? "bg-red-500" : "bg-lime-500")
+            }
+            style={{ transform: `scaleX(${hpFrac})` }} // scaleX (GPU) แทน width (layout) → ลด repaint คุม fps
           />
           <span className="absolute inset-0 flex items-center justify-center text-[11px] font-semibold text-white/95">
             {Math.ceil(hp)} / {maxHp}
@@ -62,8 +65,8 @@ export function StatusCluster() {
           aria-valuemax={100}
         >
           <div
-            className="h-full bg-amber-400/90 transition-[width] duration-300"
-            style={{ width: `${expFrac * 100}%` }}
+            className="h-full w-full origin-left bg-amber-400/90 transition-transform duration-300"
+            style={{ transform: `scaleX(${expFrac})` }} // scaleX (GPU) แทน width
           />
         </div>
       </div>
