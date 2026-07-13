@@ -91,13 +91,16 @@ describe("MAP1 — production layout ผ่าน validation (P1-10)", () => {
     );
   });
 
-  test("pocket density ตรง MAP_SCALE §6 (activeCap)", () => {
+  test("pocket density (owner tune 2026-07-13 — มอนธรรมดาเยอะ+ไวขึ้น; elite/boss คงเดิม)", () => {
     const map = requireMap(MAP1_ID);
     const byId = new Map(map.mobPockets.map((p) => [p.pocketId, p]));
-    expect(byId.get("map1-slime-center")?.activeCap).toBe(18);
-    expect(byId.get("map1-bird-east")?.activeCap).toBe(12);
-    expect(byId.get("map1-boar-southwest")?.activeCap).toBe(18);
+    // owner tune: normal mobs activeCap สูงขึ้น (Design Knob §48; เดิม §6 = 18/12/18)
+    expect(byId.get("map1-slime-center")?.activeCap).toBe(24);
+    expect(byId.get("map1-bird-east")?.activeCap).toBe(16);
+    expect(byId.get("map1-boar-southwest")?.activeCap).toBe(24);
+    // elite + boss = ไม่แตะ (cap 1 เดิม)
     expect(byId.get("map1-boar-elite")?.activeCap).toBe(1);
+    expect(byId.get("map1-boss-boiling-boar")?.activeCap).toBe(1);
   });
 });
 
