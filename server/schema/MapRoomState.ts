@@ -32,6 +32,13 @@ export class PlayerState extends Schema {
    * HUD แสดงเลเวลจริงทันที (ไม่ต้องรอ MSG_PLAYER_PROGRESS หลัง kill แรก) + ปลดล็อกสกิล A3 (unlock-by-level) ถูกตั้งแต่เกิด.
    */
   @type("number") level = 1;
+  /**
+   * E3 (§8.2 EXP bar) — server-authoritative exp progress. sync ตอน join + kill → HUD แถบ EXP + ตัวเลข % แสดง
+   * ตั้งแต่เกิด (ไม่รอ kill แรก). exp = cumulative รวม; expFloor/expCeil = ขอบเลเวลปัจจุบัน (§9.1/§9.2, expCeil 0 = ตัน cap).
+   */
+  @type("number") exp = 0;
+  @type("number") expFloor = 0;
+  @type("number") expCeil = 0;
 }
 
 /**

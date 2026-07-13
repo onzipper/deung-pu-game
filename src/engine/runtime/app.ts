@@ -76,6 +76,7 @@ import {
   setInventoryRejection,
   setInventoryState,
   setPlayerDead,
+  setPlayerExp,
   setPlayerLevel,
   setPlayerVitals,
   setShopList,
@@ -420,6 +421,8 @@ export async function createEngine(
               publishSkillSlots();
             }
           },
+          // E3 (§8.2): exp ของ self (schema) → store (แถบ EXP + ตัวเลข % xx.xx%) — แสดงตั้งแต่เกิด
+          onSelfExp: (exp, floor, ceil) => setPlayerExp(exp, floor, ceil),
           // A2 (§10): self ตาย → death state (E4 overlay อ่านต่อ). remote death anim = E-work ภายหลัง.
           onPlayerDeath: (msg) => {
             if (net !== null && net.status.selfSessionId === msg.sessionId) {

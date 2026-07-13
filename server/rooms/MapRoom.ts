@@ -920,6 +920,21 @@ export class MapRoom extends Room<MapRoomState> {
   }
 
   /**
+   * E3 (§8.2 EXP bar): sync PlayerState.exp/expFloor/expCeil จาก sessionProgress + EXP_CURVE (§9.1/§9.2) → HUD
+   * แถบ EXP + ตัวเลข % แสดงตั้งแต่เกิด (ไม่รอ kill แรก). คิดขอบเลเวลเหมือน MSG_PLAYER_PROGRESS. เรียกตอน join + หลัง kill.
+   */
+  private syncPlayerExpSchema(sessionId: string): void {
+    const player = this.state.players.get(sessionId);
+    const progress = this.sessionProgress.get(sessionId);
+    if (!player || !progress) return;
+    const capRow = EXP_CURVE.levels.find((l) => l.level === progress.level);
+    const prevRow = EXP_CURVE.levels.find((l) => l.level === progress.level - 1);
+    player.exp = progress.exp;
+    player.expFloor = prevRow ? prevRow.cumulative : 0;
+    player.expCeil = capRow && capRow.expToNext > 0 ? capRow.cumulative : 0;
+  }
+
+  /**
    * เขียน mob จาก simulation → schema (state.mobs). upsert ตัวที่มี + ลบตัวที่หายไป (ตาย/ยังไม่ respawn).
    *
    * **AOI filter point (§18.2 — ยังไม่บังคับ P1):** ตอนนี้เขียน mob **ทุกตัว** ลง shared state → ทุก client
@@ -1152,8 +1167,15 @@ export class MapRoom extends Room<MapRoomState> {
 
     // P2-09: มอนตาย → reward (EXP/gold/drop/audit) ให้ caster ผู้ฆ่า. best-effort (async, ไม่ block broadcast).
     //   damageMob คืน killed=true ครั้งเดียวต่อมอน (ถูกลบจาก sim) → grant ครั้งเดียว (idempotent ที่ระดับ sim).
-    for (const mobType of killedMobTypes) {
-      void this.grantKillReward(client, mobType);
+    // ⚠️ ต้อง **sequential** (await ทีละตัว): grantKillReward อ่าน+เขียน progress.exp คร่อม await — ถ้ายิงพร้อมกัน
+    //   (AoE ฆ่าหลายตัวรอบเดียว เช่น S2 คลื่นดาบ) ทุก call อ่าน exp เดิมค่าเดียวกัน → เขียนทับ = EXP หาย (ได้แค่ตัวเดียว).
+    //   fire-and-forget wrapper (void) ไม่บล็อก broadcast; ข้างใน await เรียงตัว → แต่ละตัวเห็น exp อัปเดตแล้ว = ได้ครบ.
+    if (killedMobTypes.length > 0) {
+      void (async () => {
+        for (const mobType of killedMobTypes) {
+          await this.grantKillReward(client, mobType);
+        }
+      })();
     }
   }
 
@@ -1234,6 +1256,7 @@ export class MapRoom extends Room<MapRoomState> {
     // E3: sync level → schema (HUD badge + A3 unlock อัปเดตทันทีตอน level-up)
     const lvPlayer = this.state.players.get(sessionId);
     if (lvPlayer) lvPlayer.level = progress.level;
+    this.syncPlayerExpSchema(sessionId); // E3: sync exp/floor/ceil → แถบ EXP + % อัปเดตทุก kill
     this.recomputeEffectiveStats(sessionId);
     // A1/A2: level-up ยก maxHp ต่อเลเวล → sync PlayerState.maxHp (ไม่ heal hp ปัจจุบัน; §10 respawn เท่านั้นที่เต็ม).
     this.refreshPlayerMaxHp(sessionId);
@@ -1745,6 +1768,7 @@ export class MapRoom extends Room<MapRoomState> {
     player.hp = player.maxHp;
     // E3: sync level ทันทีตอน join (จาก sessionProgress ที่โหลดแล้ว) → HUD badge + A3 unlock ถูกตั้งแต่เกิด
     player.level = this.sessionProgress.get(client.sessionId)?.level ?? 1;
+    this.syncPlayerExpSchema(client.sessionId); // E3: exp → แถบ EXP + % แสดงตั้งแต่เกิด
 
     console.log(
       `[MapRoom ${this.roomId}] join ${client.sessionId} @(${player.tx.toFixed(1)},${player.ty.toFixed(1)}) — ${this.clients.length} online`,

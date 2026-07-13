@@ -190,6 +190,11 @@ export interface NetClientHandlers {
    */
   onSelfLevel?(level: number): void;
   /**
+   * E3 (§8.2 EXP bar): exp progress ของ self (schema exp/expFloor/expCeil) → caller push เข้า store (แถบ EXP + %
+   * xx.xx%). ยิงตอน join + ทุก kill (server-authoritative). optional.
+   */
+  onSelfExp?(exp: number, floor: number, ceil: number): void;
+  /**
    * A1: มอน contact ใส่ผู้เล่น (broadcast) — client juice (hit flash/damage number). hp จริงมาทาง schema/onSelfVitals.
    * caller ใช้ทำ juice (E3/E4). optional — ไม่ผูก HP truth (server-authoritative).
    */
@@ -515,6 +520,16 @@ export function createNetClient(
           $(player).listen("maxHp", emitVitals);
           // E3 (§8.2): level ของ self (server-authoritative) → HUD badge + A3 unlock. ยิง immediate ตอน wire.
           $(player).listen("level", (v: unknown) => handlers.onSelfLevel?.(Number(v) || 1));
+          // E3 (§8.2): exp progress ของ self → HUD แถบ EXP + ตัวเลข %. emit ทั้ง 3 ค่าเมื่อตัวใดเปลี่ยน.
+          const emitExp = (): void =>
+            handlers.onSelfExp?.(
+              Number(player.exp) || 0,
+              Number(player.expFloor) || 0,
+              Number(player.expCeil) || 0,
+            );
+          $(player).listen("exp", emitExp);
+          $(player).listen("expFloor", emitExp);
+          $(player).listen("expCeil", emitExp);
           return;
         }
         status.remoteCount += 1;
