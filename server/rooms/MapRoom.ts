@@ -57,6 +57,7 @@ import {
   saveCharacterProgress,
   updateLastPlayed,
 } from "../characters/character-state";
+import { carryKey, recallProgress, stashProgress } from "../characters/progress-carrier";
 import {
   decideOwnership,
   pickLoadPosition,
@@ -786,6 +787,10 @@ export class MapRoom extends Room<MapRoomState> {
       // P2-05 (Storage §24): save จุดหมาย (map+targetSpawn ปลายทาง) ตอนสั่ง transition — client กำลังจะ
       //   consented-leave room นี้แล้ว join room ปลายทาง. mark transitioning เพื่อให้ onLeave ไม่ save ทับ
       //   ด้วยตำแหน่ง exit ของ map เก่า. targetSpawn = registry-validated (เดินได้ในปลายทาง).
+      // fix/level-persist-map-cross: ขน progression (level/exp) ข้ามห้องก่อน room เดิมถูกทำลาย — synchronous
+      //   process-cache write (fires ก่อน room teardown เสมอ ต่างจาก void save async) → รอดแม้ไม่มี DB /
+      //   ไม่มี characterId ผูก (มีแต่ accountId). ต้องเรียกก่อน early-return path ใด ๆ ด้านล่าง.
+      this.stashProgressForCarry(client);
       const rec = this.sessionCharacters.get(client.sessionId);
       if (rec) {
         this.transitioningSessions.add(client.sessionId);
@@ -796,6 +801,10 @@ export class MapRoom extends Room<MapRoomState> {
           exit.targetSpawn.x,
           exit.targetSpawn.y,
         );
+        // fix/level-persist-map-cross: เดิม transition save "ตำแหน่งอย่างเดียว" → level/exp หลุดตอนข้าม map
+        //   (persistOnLeave ก็ skip เพราะ transitioning). save progression คู่ตำแหน่งปลายทางด้วย (durable DB).
+        const prog = this.sessionProgress.get(client.sessionId);
+        if (prog) void saveCharacterProgress(rec.characterId, prog.level, prog.exp);
       }
     }
     tracker.lastExitId = exitId;
@@ -1727,7 +1736,11 @@ export class MapRoom extends Room<MapRoomState> {
     this.cooldowns.set(client.sessionId, new Map());
     // P2-09: โหลด progression (level/exp) best-effort → ตั้ง base combat stat ตามเลเวล (D-055 §2). ไม่มี
     //   DB/ตัวละคร → lv1 (in-memory). ต้องตั้งก่อน applyEquipmentStats เพื่อให้ base ถูกต้องตั้งแต่เฟรมแรก.
-    const progress = (characterId ? await loadCharacterProgress(characterId) : null) ?? { level: 1, exp: 0 };
+    // fix/level-persist-map-cross: resolve progression = DB load (durable) → process-cache carrier (รอด
+    //   ข้าม map แม้ไม่มี DB / มีแต่ accountId) → default lv1. carrier key = identity ที่ verify แล้วเท่านั้น.
+    const carrierKey = carryKey(accountId, characterId);
+    const progress = (characterId ? await loadCharacterProgress(characterId) : null) ??
+      (carrierKey ? recallProgress(carrierKey) : null) ?? { level: 1, exp: 0 };
     this.sessionProgress.set(client.sessionId, { level: progress.level, exp: progress.exp });
     // P2-07: combat stats เริ่มต้น = base ตามเลเวล — override ด้วย equipment bonus หลังโหลด inventory ด้านล่าง.
     this.recomputeEffectiveStats(client.sessionId);
@@ -1891,9 +1904,24 @@ export class MapRoom extends Room<MapRoomState> {
    * กำลัง transition (checkExit save จุดหมายไปแล้ว → ไม่ทับด้วย map เก่า). เรียกก่อน removePlayer เสมอ
    * (ต้องมี tracker/rec อยู่). takeover ไม่เรียก (session ใหม่ authoritative แล้ว).
    */
-  private persistOnLeave(sessionId: string): void {
+  private persistOnLeave(client: Client, sessionId: string): void {
+    // fix/level-persist-map-cross: ขน progression เข้า process-cache ก่อน removePlayer ทุก leave path
+    //   (consented/grace-expired) — ต้องทำแม้ transitioning (checkExit stash ไปแล้วก็ตาม; idempotent).
+    this.stashProgressForCarry(client);
     if (this.transitioningSessions.has(sessionId)) return; // transition save จุดหมายไปแล้ว
     this.persistSession(sessionId, true);
+  }
+
+  /**
+   * fix/level-persist-map-cross: เขียน {level,exp} ล่าสุดเข้า process-level carrier ใต้ key ที่ server verify
+   * แล้ว (characterId/accountId จาก client.auth — ไม่ใช่ค่าดิบจาก client). ทำให้ level รอดข้าม map แม้ไม่มี DB
+   * (local dev) หรือ session ที่ยังไม่ผูก characterId (มีแต่ accountId). ไม่มี identity ที่ verify → no-op.
+   */
+  private stashProgressForCarry(client: Client): void {
+    const key = carryKey(accountIdOf(client), characterIdOf(client));
+    if (!key) return;
+    const prog = this.sessionProgress.get(client.sessionId);
+    if (prog) stashProgress(key, prog.level, prog.exp);
   }
 
   /**
@@ -1919,7 +1947,7 @@ export class MapRoom extends Room<MapRoomState> {
 
     if (consented) {
       // P2-05: save ตำแหน่งล่าสุดก่อนลบ (เว้นถ้ากำลัง transition — checkExit save จุดหมายไปแล้ว).
-      this.persistOnLeave(sessionId);
+      this.persistOnLeave(client, sessionId);
       this.releaseAccountSession(client);
       this.removePlayer(sessionId, "consented");
       return;
@@ -1942,7 +1970,7 @@ export class MapRoom extends Room<MapRoomState> {
       // เดียวกัน takeover (forceTakeover mark sessionId ตอน await กำลังรอ) → เก็บกวาด set ที่นี่ด้วย.
       // P2-05: save ตำแหน่งล่าสุดก่อนลบ (ผู้เล่นหลุดจริง ไม่กลับใน grace) — เว้นถ้าถูก takeover (ตัวใหม่คุมแล้ว).
       const wasTakenOverDuringGrace = this.takenOverSessions.delete(sessionId);
-      if (!wasTakenOverDuringGrace) this.persistOnLeave(sessionId);
+      if (!wasTakenOverDuringGrace) this.persistOnLeave(client, sessionId);
       this.releaseAccountSession(client);
       this.removePlayer(sessionId, "grace_expired");
     }
