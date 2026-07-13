@@ -127,6 +127,32 @@ export interface MobHpBarConfig {
   borderColor: number;
 }
 
+/**
+ * Nameplate เหนือหัวมอน/บอส (nameplates feature, client visual ล้วน) — โชว์ชื่อไทยจาก name catalog
+ * (src/game/mob/name-catalog.ts) เสมอ ไม่ผูกกับการโดนตี (ต่างจาก hpBar). สีต่อ rank (ไม่มี spec, ใช้ default
+ * นี้เป็น knob): normal = ขาว, elite = ส้ม, boss = แดง+ใหญ่กว่า. วางเหนือ hpBar เสมอ (offsetY ติดลบกว่า hpBar.offsetY).
+ */
+export interface MobNameplateConfig {
+  /** ระยะ (px) เหนือ foot ของมอน (ลบ = ขึ้นบน) — ต้องอยู่เหนือ hpBar.offsetY เสมอ (ติดลบกว่า) */
+  offsetY: number;
+  /** ขนาดตัวอักษร (px) มอนปกติ/elite */
+  fontSize: number;
+  /** ขนาดตัวอักษร (px) boss — ใหญ่กว่าปกติเล็กน้อยให้เด่น */
+  bossFontSize: number;
+  /** font family ตัวอักษร (มอนวรรค monospace เหมือน afk-label/damage-number) */
+  fontFamily: string;
+  /** สีตัวอักษรมอนปกติ (rank "normal") */
+  normalColor: number;
+  /** สีตัวอักษร elite (rank "elite") */
+  eliteColor: number;
+  /** สีตัวอักษร boss (rank "boss") */
+  bossColor: number;
+  /** สีเส้นขอบตัวอักษร (อ่านออกทุกพื้นหลัง) */
+  strokeColor: number;
+  /** ความหนาเส้นขอบ (px) */
+  strokeWidth: number;
+}
+
 /** รวม config ของ mob ทั้งหมด (P0-09 spawn/wander/render + P1-03 ai/lod/respawn + P1-05 hpBar) — Design Knob. */
 export interface MobConfig {
   spawn: MobSpawnConfig;
@@ -140,6 +166,8 @@ export interface MobConfig {
   respawnDelayMs: number;
   /** HP bar เหนือมอนที่โดนตี (P1-05, client visual) */
   hpBar: MobHpBarConfig;
+  /** nameplate ชื่อมอน/บอส เหนือหัว (client visual) */
+  nameplate: MobNameplateConfig;
   /** style เริ่มต้นเมื่อ mobType ไม่ตรงใน styles map */
   defaultStyle: MobStyle;
   /** style ต่อ mobType (key ต้องตรง MobPocket.mobType ที่ map config ใช้ เช่น "slime"/"mushroom") */
@@ -212,6 +240,19 @@ export const DEFAULT_MOB_CONFIG: MobConfig = {
     bgColor: 0x3a1a1a, // แดงเข้ม = hp ที่หาย
     fgColor: 0x4fbf6b, // เขียว = hp เหลือ
     borderColor: 0x0a0a0a,
+  },
+  nameplate: {
+    // hpBar.offsetY = -46 (เหนือหัว) → nameplate ต้องอยู่เหนือกว่านั้นอีก (ติดลบมากกว่า) กันซ้อนทับ
+    // (hpBar.height 4 + gap ~6px ≈ -56)
+    offsetY: -56,
+    fontSize: 11, // เท่า afk-label (src/engine/render/afk-label.ts) ให้ตัวอักษรสม่ำเสมอ
+    bossFontSize: 13, // ใหญ่กว่าปกติเล็กน้อยให้เด่นว่าเป็นบอส (ไม่มี spec — nameplate rank knob)
+    fontFamily: "monospace",
+    normalColor: 0xffffff, // ขาว = มอนปกติ
+    eliteColor: 0xff9d2e, // ส้ม = elite (Fire tone ใกล้เคียง MASTER_PALETTE)
+    bossColor: 0xff4040, // แดง = บอส
+    strokeColor: 0x000000,
+    strokeWidth: 3,
   },
   defaultStyle: {
     bodyColor: 0x8a8a8a,

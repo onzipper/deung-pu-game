@@ -24,6 +24,7 @@
 ## src/game (combat/entity logic on top of the engine)
 
 - `src/game/mob/` — spawn/wander, AI (aggro/leash/LOD), authoritative sim, view manager
+- `src/game/mob/name-catalog.ts` — mobType → Thai nameplate name + rank (undefined = show no mob nameplate)
 - `src/game/item/icon-catalog.ts` — itemId → icon URL map (null = show raw id)
 - `src/game/skill/` — SkillDefinition (37 fields, GS §50.1) loader + server/client view split (TA §16.1)
 - `src/game/skill/data/warrior-skills-server.ts` (+ client sibling) — **SERVER-ONLY vs CLIENT-SAFE split**: server literals must never reach the client bundle

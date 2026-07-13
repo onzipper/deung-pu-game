@@ -627,6 +627,17 @@ exports[`engine config — value identity (DEFAULT_* consts) > DEFAULT_ENGINE_CO
       "aoiRadius": 14,
       "idleTickHz": 2,
     },
+    "nameplate": {
+      "bossColor": 16728128,
+      "bossFontSize": 13,
+      "eliteColor": 16751918,
+      "fontFamily": "monospace",
+      "fontSize": 11,
+      "normalColor": 16777215,
+      "offsetY": -56,
+      "strokeColor": 0,
+      "strokeWidth": 3,
+    },
     "respawnDelayMs": 5000,
     "spawn": {
       "maxPlacementAttempts": 20,
@@ -937,6 +948,17 @@ exports[`engine config — value identity (DEFAULT_* consts) > DEFAULT_MOB_CONFI
   "lod": {
     "aoiRadius": 14,
     "idleTickHz": 2,
+  },
+  "nameplate": {
+    "bossColor": 16728128,
+    "bossFontSize": 13,
+    "eliteColor": 16751918,
+    "fontFamily": "monospace",
+    "fontSize": 11,
+    "normalColor": 16777215,
+    "offsetY": -56,
+    "strokeColor": 0,
+    "strokeWidth": 3,
   },
   "respawnDelayMs": 5000,
   "spawn": {
@@ -1559,6 +1581,17 @@ exports[`engine config — value identity (factory / pure functions) > createEng
       "aoiRadius": 14,
       "idleTickHz": 2,
     },
+    "nameplate": {
+      "bossColor": 16728128,
+      "bossFontSize": 13,
+      "eliteColor": 16751918,
+      "fontFamily": "monospace",
+      "fontSize": 11,
+      "normalColor": 16777215,
+      "offsetY": -56,
+      "strokeColor": 0,
+      "strokeWidth": 3,
+    },
     "respawnDelayMs": 5000,
     "spawn": {
       "maxPlacementAttempts": 20,
@@ -2136,6 +2169,17 @@ exports[`engine config — value identity (factory / pure functions) > createEng
     "lod": {
       "aoiRadius": 14,
       "idleTickHz": 2,
+    },
+    "nameplate": {
+      "bossColor": 16728128,
+      "bossFontSize": 13,
+      "eliteColor": 16751918,
+      "fontFamily": "monospace",
+      "fontSize": 11,
+      "normalColor": 16777215,
+      "offsetY": -56,
+      "strokeColor": 0,
+      "strokeWidth": 3,
     },
     "respawnDelayMs": 5000,
     "spawn": {
