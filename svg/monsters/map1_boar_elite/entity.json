@@ -1,0 +1,37 @@
+{
+  "assetId": "mon_map1_boar_elite",
+  "category": "monsters",
+  "frameSize": [
+    64,
+    64
+  ],
+  "pivot": [
+    32,
+    54
+  ],
+  "mirrorSafe": true,
+  "drawnDirections": [
+    "S",
+    "N"
+  ],
+  "mirrorMap": {
+    "SW": "S",
+    "SE": "S",
+    "W": "S",
+    "E": "S",
+    "NW": "N",
+    "NE": "N"
+  },
+  "animations": {
+    "idle": {
+      "fps": 3,
+      "loop": true,
+      "frameCount": 2
+    },
+    "walk": {
+      "fps": 6,
+      "loop": true,
+      "frameCount": 4
+    }
+  }
+}

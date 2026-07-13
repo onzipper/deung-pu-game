@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" shape-rendering="crispEdges">
+  <!-- mon_map1_bird walk S frame 2 — ขนนกปุ๊ (Moon/Sky family), pivot (32,54) -->
+  <ellipse cx="32" cy="30" rx="14" ry="16" fill="#B0B9EC" stroke="#4B568E" stroke-width="1"/>
+  <ellipse cx="24" cy="32" rx="6" ry="9" fill="#7786C8"/>
+  <ellipse cx="32" cy="36" rx="6" ry="7" fill="#A4CCC0"/>
+  <ellipse cx="32" cy="54" rx="11" ry="2" fill="#2B2230"/>
+  <circle cx="27" cy="27" r="2" fill="#171820"/>
+  <circle cx="37" cy="27" r="2" fill="#171820"/>
+  <polygon points="29,43 35,43 32,50" fill="#D8AE70"/>
+</svg>

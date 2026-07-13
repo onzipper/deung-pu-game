@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" shape-rendering="crispEdges">
+  <!-- prop_map1_tree idle S frame 0 — ต้นไม้ใหญ่พุ่มเขียว, pivot (32,54) -->
+  <ellipse cx="32" cy="54" rx="14" ry="3" fill="#2B2230"/>
+  <rect x="28" y="40" width="8" height="14" fill="#68483A" stroke="#171820" stroke-width="1"/>
+  <rect x="28" y="40" width="2" height="14" fill="#4A332E"/>
+  <ellipse cx="32" cy="20" rx="20" ry="18" fill="#284536" stroke="#171820" stroke-width="1"/>
+  <ellipse cx="22" cy="15" rx="14" ry="13" fill="#3F6845"/>
+  <ellipse cx="42" cy="16" rx="13" ry="12" fill="#3F6845"/>
+  <ellipse cx="32" cy="8" rx="12" ry="10" fill="#6F9658"/>
+  <ellipse cx="27" cy="10" rx="3" ry="2" fill="#C8D691"/>
+</svg>
