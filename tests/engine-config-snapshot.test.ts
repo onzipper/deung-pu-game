@@ -26,6 +26,7 @@ import {
   DEFAULT_SCENE_THEME,
   DEFAULT_STRESS_HARNESS_CONFIG,
   DEFAULT_TRANSITION_CONFIG,
+  DEFAULT_WORLD_CONFIG,
   createEngineConfig,
   resolveResolution,
   soloChannelCapacityForZone,
@@ -69,6 +70,8 @@ import type {
   PathfindingConfig,
   PathMarkerStyle,
   PersistenceConfig,
+  PhaseTintConfig,
+  PhaseTintTableConfig,
   PlayerAnimationConfig,
   PlayerCombatStats,
   PlayerConfig,
@@ -76,6 +79,8 @@ import type {
   PlayerStyle,
   PowerPreference,
   PropStyle,
+  RainConfig,
+  RainDegradeConfig,
   ReconnectClientRetryConfig,
   ReconnectConfig,
   RendererPreference,
@@ -87,6 +92,9 @@ import type {
   TargetAssistConfig,
   TileSize,
   TransitionConfig,
+  WeatherKind,
+  WorldConfig,
+  WorldPhase,
 } from "@/engine/config";
 
 /**
@@ -133,6 +141,8 @@ export type _ConfigTypeSurface =
   | PathfindingConfig
   | PathMarkerStyle
   | PersistenceConfig
+  | PhaseTintConfig
+  | PhaseTintTableConfig
   | PlayerAnimationConfig
   | PlayerCombatStats
   | PlayerConfig
@@ -140,6 +150,8 @@ export type _ConfigTypeSurface =
   | PlayerStyle
   | PowerPreference
   | PropStyle
+  | RainConfig
+  | RainDegradeConfig
   | ReconnectClientRetryConfig
   | ReconnectConfig
   | RendererPreference
@@ -150,9 +162,12 @@ export type _ConfigTypeSurface =
   | StressHarnessConfig
   | TargetAssistConfig
   | TileSize
-  | TransitionConfig;
+  | TransitionConfig
+  | WeatherKind
+  | WorldConfig
+  | WorldPhase;
 
-// The 24 runtime value exports (21 DEFAULT_* consts + 3 functions). Types erase at runtime,
+// The 26 runtime value exports (22 DEFAULT_* consts + 4 functions). Types erase at runtime,
 // so Object.keys(module) returns exactly these — a dropped/renamed value export fails here.
 const EXPECTED_VALUE_EXPORTS = [
   "DEFAULT_AFK_CONFIG",
@@ -176,7 +191,9 @@ const EXPECTED_VALUE_EXPORTS = [
   "DEFAULT_SCENE_THEME",
   "DEFAULT_STRESS_HARNESS_CONFIG",
   "DEFAULT_TRANSITION_CONFIG",
+  "DEFAULT_WORLD_CONFIG",
   "createEngineConfig",
+  "rainParticleCount",
   "resolveResolution",
   "soloChannelCapacityForZone",
 ].sort();
@@ -184,7 +201,7 @@ const EXPECTED_VALUE_EXPORTS = [
 const MAP_ZONE_TYPES: MapZoneType[] = ["safe", "field"];
 
 describe("engine config — export-name identity", () => {
-  test("module exposes exactly the 24 runtime value exports", async () => {
+  test("module exposes exactly the 26 runtime value exports", async () => {
     const mod = await import("@/engine/config");
     expect(Object.keys(mod).sort()).toEqual(EXPECTED_VALUE_EXPORTS);
   });
@@ -214,6 +231,7 @@ describe("engine config — value identity (DEFAULT_* consts)", () => {
   test("DEFAULT_SCENE_THEME", () => expect(DEFAULT_SCENE_THEME).toMatchSnapshot());
   test("DEFAULT_STRESS_HARNESS_CONFIG", () => expect(DEFAULT_STRESS_HARNESS_CONFIG).toMatchSnapshot());
   test("DEFAULT_TRANSITION_CONFIG", () => expect(DEFAULT_TRANSITION_CONFIG).toMatchSnapshot());
+  test("DEFAULT_WORLD_CONFIG", () => expect(DEFAULT_WORLD_CONFIG).toMatchSnapshot());
 });
 
 describe("engine config — value identity (factory / pure functions)", () => {

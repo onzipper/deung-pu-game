@@ -34,6 +34,7 @@ import { applyEffectQualityPreferences } from "@/ui/panels/settings/settings-vie
 import { createEffectQualityPreferencesStore } from "@/ui/panels/settings/effect-quality-preference";
 import { StatusCluster } from "@/ui/panels/status/StatusCluster";
 import { Minimap } from "@/ui/panels/minimap/Minimap";
+import { WorldStatusChip } from "@/ui/panels/world-status/WorldStatusChip";
 import { DeathToast } from "@/ui/panels/status/DeathToast";
 import { SkillBar } from "@/ui/panels/skillbar/SkillBar";
 import { MobileControls } from "@/ui/panels/mobile/MobileControls";
@@ -157,6 +158,8 @@ export function GameCanvas() {
           {/* §8.4: minimap top-right — top-12 (แทน top-4 ที่ brief แนะนำ) กันชนกับปุ่ม DebugOverlay
               ที่ยุบอยู่ (right-2 top-2 z-50); z-30 = ต่ำกว่า DebugOverlay ตอนขยาย (F3) ตั้งใจ */}
           <Minimap />
+          {/* Living World LW0 (§18): World Status chip (phase + weather) top-center — display-only */}
+          <WorldStatusChip />
           {/* E4 (§13): death toast สั้น ๆ ตอนตาย (respawn instant ตามมาทันที, owner ruling) */}
           <DeathToast />
           {/* A3 (P2 UI §8.3): แถบสกิล hotbar (S1-S4) — desktop (Digit1-4/คลิก) + มือถือ (แตะช่อง) */}

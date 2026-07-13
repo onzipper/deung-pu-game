@@ -880,6 +880,50 @@ exports[`engine config — value identity (DEFAULT_* consts) > DEFAULT_ENGINE_CO
     "fadeInMs": 260,
     "fadeOutMs": 260,
   },
+  "world": {
+    "cyclePhaseKeyCode": "KeyT",
+    "cyclePhaseStepMinutes": 180,
+    "phaseTint": {
+      "dawn": {
+        "alpha": 0.1,
+        "color": 16763299,
+      },
+      "day": {
+        "alpha": 0,
+        "color": 16777215,
+      },
+      "dusk": {
+        "alpha": 0.18,
+        "color": 16747586,
+      },
+      "night": {
+        "alpha": 0.28,
+        "color": 1780315,
+      },
+      "transitionBlendSeconds": 90,
+    },
+    "rain": {
+      "degrade": {
+        "high": 140,
+        "low": 40,
+        "medium": 90,
+        "off": 0,
+      },
+      "fallAngleDegFromVertical": 12,
+      "fallSpeedPxPerSec": 620,
+      "particleCountHigh": 140,
+      "streakColor": 11450823,
+      "streakLengthPx": 14,
+      "streakOpacity": 0.35,
+      "streakWidthPx": 1.5,
+    },
+    "rainMapIds": [
+      "map1",
+    ],
+    "realMinutesPerGameDay": 240,
+    "toggleRainKeyCode": "KeyR",
+    "worldEpochMs": 0,
+  },
 }
 `;
 
@@ -1253,6 +1297,53 @@ exports[`engine config — value identity (DEFAULT_* consts) > DEFAULT_TRANSITIO
   "fadeColor": 0,
   "fadeInMs": 260,
   "fadeOutMs": 260,
+}
+`;
+
+exports[`engine config — value identity (DEFAULT_* consts) > DEFAULT_WORLD_CONFIG 1`] = `
+{
+  "cyclePhaseKeyCode": "KeyT",
+  "cyclePhaseStepMinutes": 180,
+  "phaseTint": {
+    "dawn": {
+      "alpha": 0.1,
+      "color": 16763299,
+    },
+    "day": {
+      "alpha": 0,
+      "color": 16777215,
+    },
+    "dusk": {
+      "alpha": 0.18,
+      "color": 16747586,
+    },
+    "night": {
+      "alpha": 0.28,
+      "color": 1780315,
+    },
+    "transitionBlendSeconds": 90,
+  },
+  "rain": {
+    "degrade": {
+      "high": 140,
+      "low": 40,
+      "medium": 90,
+      "off": 0,
+    },
+    "fallAngleDegFromVertical": 12,
+    "fallSpeedPxPerSec": 620,
+    "particleCountHigh": 140,
+    "streakColor": 11450823,
+    "streakLengthPx": 14,
+    "streakOpacity": 0.35,
+    "streakWidthPx": 1.5,
+  },
+  "rainMapIds": [
+    "map1",
+  ],
+  "realMinutesPerGameDay": 240,
+  "toggleRainKeyCode": "KeyR",
+  "worldEpochMs": 0,
 }
 `;
 
@@ -1850,6 +1941,50 @@ exports[`engine config — value identity (factory / pure functions) > createEng
     "fadeInMs": 260,
     "fadeOutMs": 260,
   },
+  "world": {
+    "cyclePhaseKeyCode": "KeyT",
+    "cyclePhaseStepMinutes": 180,
+    "phaseTint": {
+      "dawn": {
+        "alpha": 0.1,
+        "color": 16763299,
+      },
+      "day": {
+        "alpha": 0,
+        "color": 16777215,
+      },
+      "dusk": {
+        "alpha": 0.18,
+        "color": 16747586,
+      },
+      "night": {
+        "alpha": 0.28,
+        "color": 1780315,
+      },
+      "transitionBlendSeconds": 90,
+    },
+    "rain": {
+      "degrade": {
+        "high": 140,
+        "low": 40,
+        "medium": 90,
+        "off": 0,
+      },
+      "fallAngleDegFromVertical": 12,
+      "fallSpeedPxPerSec": 620,
+      "particleCountHigh": 140,
+      "streakColor": 11450823,
+      "streakLengthPx": 14,
+      "streakOpacity": 0.35,
+      "streakWidthPx": 1.5,
+    },
+    "rainMapIds": [
+      "map1",
+    ],
+    "realMinutesPerGameDay": 240,
+    "toggleRainKeyCode": "KeyR",
+    "worldEpochMs": 0,
+  },
 }
 `;
 
@@ -2446,6 +2581,50 @@ exports[`engine config — value identity (factory / pure functions) > createEng
     "fadeColor": 0,
     "fadeInMs": 260,
     "fadeOutMs": 260,
+  },
+  "world": {
+    "cyclePhaseKeyCode": "KeyT",
+    "cyclePhaseStepMinutes": 180,
+    "phaseTint": {
+      "dawn": {
+        "alpha": 0.1,
+        "color": 16763299,
+      },
+      "day": {
+        "alpha": 0,
+        "color": 16777215,
+      },
+      "dusk": {
+        "alpha": 0.18,
+        "color": 16747586,
+      },
+      "night": {
+        "alpha": 0.28,
+        "color": 1780315,
+      },
+      "transitionBlendSeconds": 90,
+    },
+    "rain": {
+      "degrade": {
+        "high": 140,
+        "low": 40,
+        "medium": 90,
+        "off": 0,
+      },
+      "fallAngleDegFromVertical": 12,
+      "fallSpeedPxPerSec": 620,
+      "particleCountHigh": 140,
+      "streakColor": 11450823,
+      "streakLengthPx": 14,
+      "streakOpacity": 0.35,
+      "streakWidthPx": 1.5,
+    },
+    "rainMapIds": [
+      "map1",
+    ],
+    "realMinutesPerGameDay": 240,
+    "toggleRainKeyCode": "KeyR",
+    "worldEpochMs": 0,
   },
 }
 `;

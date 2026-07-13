@@ -27,6 +27,8 @@ import type { PathfindingConfig, PlayerConfig } from "./player";
 import { DEFAULT_PATHFINDING_CONFIG, DEFAULT_PLAYER_CONFIG } from "./player";
 import type { RenderStyleConfig } from "./render";
 import { DEFAULT_RENDER_STYLE_CONFIG } from "./render";
+import type { WorldConfig } from "./world";
+import { DEFAULT_WORLD_CONFIG } from "./world";
 import type {
   CameraConfig,
   DebugOverlayConfig,
@@ -111,6 +113,8 @@ export interface EngineConfig {
   render: RenderStyleConfig;
   /** AFK / background-tab knob (P2-13, D-056) — server knob (idle indicator + inert hard cap) */
   afk: AfkConfig;
+  /** Living World LW0 visual knob (Living World Bible §3/§4/§20/§23) — world clock phase tint + Map-1 rain */
+  world: WorldConfig;
 }
 
 export const DEFAULT_ENGINE_CONFIG: EngineConfig = {
@@ -142,6 +146,7 @@ export const DEFAULT_ENGINE_CONFIG: EngineConfig = {
   persistence: DEFAULT_PERSISTENCE_CONFIG,
   render: DEFAULT_RENDER_STYLE_CONFIG,
   afk: DEFAULT_AFK_CONFIG,
+  world: DEFAULT_WORLD_CONFIG,
 };
 
 /**
@@ -194,6 +199,8 @@ export function createEngineConfig(
     render: { ...DEFAULT_ENGINE_CONFIG.render, ...overrides.render },
     // afk = shallow-merge (override idleIndicatorSec/afkHardCapHours โดยคงค่าอื่นเดิม)
     afk: { ...DEFAULT_ENGINE_CONFIG.afk, ...overrides.afk },
+    // world = override ทั้งก้อน (nested phaseTint/rain — override ทั้งอันเมื่อกำหนด, ไม่งั้น default)
+    world: overrides.world ?? DEFAULT_ENGINE_CONFIG.world,
   };
 }
 

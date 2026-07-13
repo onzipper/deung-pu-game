@@ -10,7 +10,8 @@
 // scene.ts เป็นแค่ "glue" ที่ apply ผล pure → pixi display objects.
 
 import { Application, Container, Graphics, Sprite, Text } from "pixi.js";
-import type { EngineConfig, ExitMarkerConfig, PropStyle } from "@/engine/config";
+import type { EffectQuality, EngineConfig, ExitMarkerConfig, PropStyle, WeatherKind } from "@/engine/config";
+import { createWeatherOverlay, type WeatherOverlay } from "@/engine/runtime/weather-overlay";
 import type { AssetRegistry } from "@/engine/assets/registry";
 import type { DiamondPolygon } from "@/engine/render/exit-marker";
 import type { ScreenPoint, TilePoint } from "@/engine/iso/coords";
@@ -70,6 +71,14 @@ export interface MapSceneHandle {
   removeEntity(id: string): void;
   /** จำนวน entity ปัจจุบันใน entity layer (props + player + mob) — P0-11 debug overlay */
   readonly entityCount: number;
+
+  // --- Living World LW0 visual (Bible §3/§4) — screen-space overlay เหนือ world, ไม่แตะ collision/depth ---
+  /** ตั้งสี+alpha ของ phase tint wash (app.ts onTick คำนวณจาก world-clock). alpha 0 = ใส. */
+  setPhaseTint(color: number, alpha: number): void;
+  /** ตั้ง weather ปัจจุบัน (clear = ไม่มีฝน; rain = Map 1 §4.1). ไม่มีผล gameplay §4.4. */
+  setWeather(weather: WeatherKind): void;
+  /** เดิน rain 1 frame (ขยับ streak + recycle) — จำนวน streak ลดตาม EffectQuality (degrade weather ก่อน §4.4). */
+  updateWeather(deltaMs: number, quality: EffectQuality): void;
 
   /**
    * เปิด/ปิด depth-debug: เปิด = สร้าง text เล็ก ๆ แสดง depth rank (ลำดับวาด, 0=วาดก่อน)
@@ -198,6 +207,16 @@ export function createMapScene(
   world.addChild(entityLayer);
   world.addChild(depthDebugLayer);
   app.stage.addChild(world);
+
+  // Living World LW0 (Bible §18 "Boss danger > Weather foreground"): screen-space weather overlay เพิ่ม
+  // **หลัง** world ในลำดับ stage → render เหนือ world (ground/entity) เสมอ. ไม่ใช่ child ของ world จึงไม่ถูก
+  // camera pan (screen-space). TODO LW1: เมื่อมี boss telegraph VFX ฝั่ง client ต้องวางเลเยอร์นั้นเหนือ overlay นี้.
+  const weather: WeatherOverlay = createWeatherOverlay(
+    config.world,
+    app.renderer.width,
+    app.renderer.height,
+  );
+  app.stage.addChild(weather.view);
 
   const registry = new DepthRegistry<Container>();
   const screenBounds: ScreenBounds = computeMapScreenBounds(map.bounds, tileSize);
@@ -347,6 +366,7 @@ export function createMapScene(
     resize(width: number, height: number): void {
       viewport = { width, height };
       app.stage.hitArea = app.screen;
+      weather.resize(width, height); // LW0: tint wash เต็มจอ redraw ตาม viewport ใหม่
       applyCamera();
     },
 
@@ -389,6 +409,16 @@ export function createMapScene(
       return registry.size;
     },
 
+    setPhaseTint(color: number, alpha: number): void {
+      weather.setPhaseTint(color, alpha);
+    },
+    setWeather(kind: WeatherKind): void {
+      weather.setWeather(kind);
+    },
+    updateWeather(deltaMs: number, quality: EffectQuality): void {
+      weather.update(deltaMs, quality);
+    },
+
     setDepthDebug(enabled: boolean): void {
       depthDebugEnabled = enabled;
       if (!enabled) {
@@ -402,6 +432,7 @@ export function createMapScene(
     destroy(): void {
       clearDepthLabels();
       registry.clear();
+      weather.destroy(); // LW0: overlay เป็น sibling ของ world บน stage (ไม่โดน world.destroy children) — destroy เอง
       world.destroy({ children: true });
     },
   };

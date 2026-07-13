@@ -62,6 +62,8 @@ import {
   pickBootMapId,
 } from "../net/character-session";
 import { createTransitionController } from "./transition";
+import { phaseAt, phaseTintAt, realMsPerGameMinute, worldMinuteAt } from "./world-clock";
+import type { WeatherKind } from "@/engine/config";
 import { attachResize } from "./resize";
 import { screenToTile, snapToTile, type TilePoint } from "../iso/coords";
 import { buildDebugInfo, IDLE_NET_DEBUG_INFO, type EngineDebugInfo } from "./debug-info";
@@ -243,6 +245,13 @@ export async function createEngine(
   // world ปัจจุบัน (mutable — สลับตอน transition). forward-declare ก่อน requestTransition/mountWorld.
   let currentWorld: WorldHandle;
 
+  // Living World LW0 (Bible §3/§4): client-side world clock + manual weather toggle (§23 "one weather/map").
+  // state ระดับ engine (คงข้ามการสลับ world/ข้าม map). rain แสดงเฉพาะ map ใน config.world.rainMapIds (§4.1 Map 1).
+  // TODO LW1: world clock → server-authoritative (MSG_WORLD_TIME §3.2) + weather §4.2/§4.3 scheduler.
+  let currentMapId = "";
+  let weather: WeatherKind = "clear";
+  let phaseOffsetMs = 0; // debug fast-forward (cyclePhaseKeyCode) — บวกกับ Date.now() เพื่อ demo phase
+
   /**
    * P1-10: ขอข้าม map. schedule swap ผ่าน transition controller — จอมืดสุด → teardown world เดิม +
    * mount world ใหม่ (map ปลายทาง, spawn = targetSpawn). no-op ถ้ากำลัง transition อยู่ (guard ใน controller).
@@ -266,6 +275,7 @@ export async function createEngine(
       rememberSelectedCharacterMapId(targetMapId);
       currentWorld.destroy();
       currentWorld = mountWorld(targetMap, targetSpawn);
+      currentMapId = targetMap.mapId; // LW0: rain gating ตาม map ใหม่ (§4.1)
       currentWorld.resize(viewW, viewH);
     });
   };
@@ -851,7 +861,21 @@ export async function createEngine(
     x: initialMap.spawnPoint.x,
     y: initialMap.spawnPoint.y,
   });
+  currentMapId = initialMap.mapId; // LW0: rain gating ตาม map แรก (§4.1)
   currentWorld.resize(viewW, viewH);
+
+  // Living World LW0 debug keys (dev demo, §23): toggle rain clear↔rain + fast-forward day phase. engine-scope
+  // listener (คงข้ามการสลับ world) — panel ที่เปิดอยู่ block keydown (PanelContext capture-phase) จึงไม่ชนกับ
+  // การพิมพ์ใน panel. TODO LW1: rain มาจาก weather scheduler (§4.2), phase มาจาก server clock (§3.2).
+  const onWorldDebugKey = (e: KeyboardEvent): void => {
+    if (e.repeat) return;
+    if (e.code === config.world.toggleRainKeyCode) {
+      weather = weather === "rain" ? "clear" : "rain";
+    } else if (e.code === config.world.cyclePhaseKeyCode) {
+      phaseOffsetMs += config.world.cyclePhaseStepMinutes * realMsPerGameMinute(config.world);
+    }
+  };
+  window.addEventListener("keydown", onWorldDebugKey);
 
   const detachResize = attachResize(container, (width, height) => {
     viewW = width;
@@ -875,6 +899,17 @@ export async function createEngine(
     // transition step (อาจ swap world ตอนจอมืดสุด — เกิดหลัง tick ของ world เดิมเสร็จแล้ว)
     transition.update(deltaMs);
 
+    // Living World LW0 (Bible §3.3 tint · §4 rain): client-side clock → phase tint + rain overlay (screen-space,
+    // ไม่แตะ collision/spawn §3.3). rain แสดงเฉพาะ map ใน rainMapIds (§4.1 Map 1); คำนวณ tint หลัง transition.update
+    // (ใช้ scene ปัจจุบันหลัง swap). effect quality ลดจำนวน streak ก่อน (§4.4 degrade weather ก่อน telegraph).
+    const worldNowMs = Date.now() + phaseOffsetMs;
+    const tint = phaseTintAt(worldNowMs, config.world);
+    const rainOn: WeatherKind =
+      weather === "rain" && config.world.rainMapIds.includes(currentMapId) ? "rain" : "clear";
+    currentWorld.scene.setPhaseTint(tint.color, tint.alpha);
+    currentWorld.scene.setWeather(rainOn);
+    currentWorld.scene.updateWeather(deltaMs, config.combatFeel.effectQuality.current);
+
     fpsSampleMs += ticker.deltaMS;
     if (fpsSampleMs >= FPS_SAMPLE_INTERVAL_MS) {
       fpsText.text = `FPS ${Math.round(app.ticker.FPS)}`;
@@ -886,6 +921,10 @@ export async function createEngine(
       debugInfo: currentWorld.getDebugInfo(app.ticker.FPS),
       // Minimap (§8.4): blips มากับ cadence เดียวกับ debugInfo (~4Hz) — ไม่เพิ่ม frequency ใหม่
       blips: currentWorld.getBlips(),
+      // Living World LW0 (Bible §18 World Status chip): phase + weather ปัจจุบัน — throttled cadence เดียวกับ
+      // debugInfo (~4Hz) ไม่ push ต่อ frame เข้า React (tech §2). WorldStatusChip subscribe ค่านี้.
+      worldPhase: phaseAt(worldMinuteAt(worldNowMs, config.world)),
+      weather: rainOn,
     }));
   };
   app.ticker.add(onTick);
@@ -895,6 +934,7 @@ export async function createEngine(
     if (destroyed) return;
     destroyed = true;
     app.ticker.remove(onTick);
+    window.removeEventListener("keydown", onWorldDebugKey); // LW0 debug keys
     detachResize();
     transition.destroy();
     currentWorld.destroy();

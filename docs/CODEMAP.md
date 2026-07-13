@@ -1,12 +1,12 @@
 # CODEMAP — orientation only: which module owns what.
 
 > For symbol-level truth, grep `src/`, `server/`, `tests/` (see `AI.md` Search rules).
-> Update on file add/move/delete (path-guard enforced). Pre-restructure detail: `docs/history/2026-07-13-codemap-archive.md`.
+> Update on file add/move/delete (path-guard enforced). Archive: `docs/history/2026-07-13-codemap-archive.md`.
 
 ## src/engine (foundation layer — TA §17, plain TS + PixiJS, no React/Next.js)
 
-- `src/engine/config.ts` — barrel — Design Knobs/types (EngineConfig, DEFAULT_ENGINE_CONFIG); domain modules under `src/engine/config/` (scene, player, input, mob, combat, combat-feel, net, engine), re-exported here
-- `src/engine/runtime/` — engine lifecycle: transition (map fade), resize, assets, debug-info
+- `src/engine/config.ts` — barrel — Design Knobs/types (EngineConfig, DEFAULT_ENGINE_CONFIG); domain modules under `src/engine/config/` (scene, player, input, mob, combat, combat-feel, net, engine, world), re-exported
+- `src/engine/runtime/` — engine lifecycle: transition (map fade), resize, assets, debug-info · LW0: world-clock (§3) + weather-overlay (§4)
 - `src/engine/runtime/app.ts` — createEngine(): per-map world (player+mobs+combat+net+input), master tick, F3/F4, pressAttack/effect-quality knobs (P2-15)
 - `src/engine/iso/` — iso projection + depth-sort math (**never-downgrade zone**)
 - `src/engine/movement/` — mover (stepMovement), direction resolver, path-follower
@@ -43,7 +43,7 @@
 - `src/ui/theme/rarity.ts` — rarity color tokens (D-043)
 - `src/ui/components/` — token-driven presentational kit (P2 UI spec §4): PanelFrame, Button, TextInput, ItemSlot, Tooltip, ConfirmDialog(+hold-to-confirm), Toast
 - `src/ui/panels/` — shared panel framework (desktop float / mobile sheet, z-order, keydown block; DG §13) + hud-layout (P2-15). Provider in `src/ui/GameCanvas.tsx`
-- `src/ui/panels/` subdirs (inventory/enhancement/shop/storage/help/mobile/settings/skillbar/status/minimap) — per-feature panels: bag/equip (P2-07) · reinforcement (P2-10) · shop (P2-11) · storage+delivery (P2-17) · help (P2-12) · mobile/settings (P2-15) · **skillbar** S1-S4 (§8.3) · **status** HP/EXP/level (§8.2) · **minimap** (§8.4)
+- `src/ui/panels/` subdirs (inventory/enhancement/shop/storage/help/mobile/settings/skillbar/status/minimap/world-status) — per-feature: bag/equip · reinforcement · shop · storage+delivery · help · mobile/settings · skillbar (§8.3) · status (§8.2) · minimap (§8.4) · world-status LW0 chip (§18)
 
 ## server (Colyseus realtime process, separate from Next — L4)
 
