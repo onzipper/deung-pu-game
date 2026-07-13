@@ -4,7 +4,7 @@ _Last updated: 2026-07-13 · Status board only — history & detail: `docs/histo
 
 ## Now
 
-- **OB push:** PR #21+#22 merged → develop (combat two-way + death/respawn + boss depth + UI foundation + A3 skill hotbar: S2/S3/S4 unlock + cooldown + S4 taunt/dmg-reduction). **E3 cluster + E4 death toast** (§8.2/§13; instant-respawn) = `feat/e3-hud`→develop. Next: minimap.
+- **OB push:** PR #21-23 merged → develop (combat two-way + boss depth + UI foundation + A3 hotbar + E3 HP/EXP/level cluster + E4 death toast). **Title splash** (§6 → /hub, แทน Next default) = `feat/title-screen`→develop. B4 = post-OB (D-064). Next: minimap/D.
 - **Phase:** P2 wave 3 **code-complete** (P2-07..17 ✅, merged). Post-merge todo: **P2-16** handoff (rename `upg_kraeng`→`upg_reinforcement`, wipe test data, verify migrations).
 - **SVG-01** merged (PR #15); rasterizer = `@resvg/resvg-js`.
 - **Live:** server `https://deung-pu-game.onrender.com` (Render free tier + UptimeRobot, `/healthz`, D-058) · client `https://deung-pu.softrock.space/game` (Hostinger). Guest login + realtime connect verified 2026-07-13.
