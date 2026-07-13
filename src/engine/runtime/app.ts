@@ -217,7 +217,9 @@ export async function createEngine(
     text: "FPS —",
     style: { fill: 0xffffff, fontSize: 14, fontFamily: "monospace" },
   });
-  fpsText.position.set(12, 12);
+  // ย้ายลงใต้ E3 status cluster (HP/EXP/level มุมซ้ายบน left-4 top-4 ~ย 16-52) — เดิม (12,12) ถูก React overlay
+  // ทับจนมองไม่เห็น (owner feedback 2026-07-13). วางที่ y 64 = ใต้ cluster พอดี, มุมซ้ายบนโล่งบน desktop.
+  fpsText.position.set(12, 64);
   ui.addChild(fpsText);
 
   // --- transition controller (fade overlay บนสุด — ครอบ world + ui) ---
