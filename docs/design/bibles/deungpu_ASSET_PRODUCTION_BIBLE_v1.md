@@ -70,6 +70,8 @@ Rules:
 
 # 3. Master Palette v1 — 32 Semantic Colors
 
+> **Amendment (D-066, 2026-07-13): 32 → 35 สี** — owner เคาะเพิ่มตระกูล **Rift Violet 3 เฉด** (ม่วงผนึก = signature ตัวเอก + ธีมผนึก/เบาะแส): Rift Deep `#3E2A78` · Rift Violet `#7B4FCB` · Rift Light `#B79BEF` — **ห้ามใช้กับ rarity** (V3 เดิมไม่แตะ) และคนละความหมายกับตระกูล Corruption ที่ยังสงวนให้ lore · ตารางด้านล่างคงไว้ตามเดิมเป็น history; ตัวจริงที่ lint บังคับ = `MASTER_PALETTE` ใน `scripts/svg/palette.ts` (rename จาก PALETTE_32 ตาม D-066)
+
 | Role | Hex |
 |---|---|
 | Deep Ink | `#171820` |
