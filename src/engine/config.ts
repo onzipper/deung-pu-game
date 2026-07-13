@@ -10,4 +10,5 @@ export * from "./config/combat-feel";
 export * from "./config/input";
 export * from "./config/net";
 export * from "./config/render";
+export * from "./config/world";
 export * from "./config/engine";

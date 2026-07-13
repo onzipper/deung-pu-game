@@ -61,6 +61,14 @@ export interface MinimapBlip {
   kind: "normal" | "elite" | "boss";
 }
 
+/**
+ * Living World LW0 (Living World Bible §18 World Status chip): phase ของวัน + weather ปัจจุบัน. structural twin
+ * ของ engine `WorldPhase`/`WeatherKind` (config/world.ts) — ประกาศซ้ำที่นี่กัน UI import engine ตรง ๆ (ui.md
+ * contract, pattern เดียวกับ MinimapBlip). WorldStatusChip subscribe ค่านี้ (throttled publish จาก app.ts).
+ */
+export type WorldPhaseView = "dawn" | "day" | "dusk" | "night";
+export type WeatherView = "clear" | "rain";
+
 /** HUD state ที่ UI ทุกจอ subscribe ได้ — เพิ่ม slice ใหม่ที่นี่เมื่อ UI ตัวถัดไป (inventory/shop/...) ต้องใช้ */
 export interface HudState {
   /** snapshot ล่าสุดของ debug overlay (P0-11) — null ก่อน engine publish ครั้งแรก */
@@ -146,6 +154,13 @@ export interface HudState {
    * debugInfo (~4Hz, app.ts hudPublisher) ไม่ใช่ทุก frame. [] ก่อน engine publish ครั้งแรก/ไม่มีมอน.
    */
   blips: MinimapBlip[];
+  /**
+   * Living World LW0 (§18): phase ของวันปัจจุบัน (dawn/day/dusk/night) — publish throttled (~4Hz app.ts) เหมือน
+   * debugInfo/blips. null ก่อน engine publish ครั้งแรก (WorldStatusChip ซ่อนตอน null).
+   */
+  worldPhase: WorldPhaseView | null;
+  /** Living World LW0 (§18): weather ปัจจุบัน (clear/rain). null ก่อน engine publish ครั้งแรก. */
+  weather: WeatherView | null;
 }
 
 export const INITIAL_HUD_STATE: HudState = {
@@ -169,6 +184,8 @@ export const INITIAL_HUD_STATE: HudState = {
   deathAtMs: null,
   skillSlots: [],
   blips: [],
+  worldPhase: null,
+  weather: null,
 };
 
 /** store singleton ตัวเดียวทั้งแอป — engine publish เข้านี่, React component subscribe ผ่าน useGameStore */
@@ -362,6 +379,12 @@ export const selectSkillSlots = (state: HudState): SkillSlotView[] => state.skil
 
 /** typed selector — minimap blips ล่าสุด (§8.4) */
 export const selectBlips = (state: HudState): MinimapBlip[] => state.blips;
+
+/** typed selector — phase ของวันปัจจุบัน (Living World LW0 §18) */
+export const selectWorldPhase = (state: HudState): WorldPhaseView | null => state.worldPhase;
+
+/** typed selector — weather ปัจจุบัน (Living World LW0 §18) */
+export const selectWeather = (state: HudState): WeatherView | null => state.weather;
 
 export interface HudPublisher {
   /**
