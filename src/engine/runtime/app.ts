@@ -22,7 +22,7 @@ import { buildExitMarkerPolygons } from "../render/exit-marker";
 import { createAssetRegistry } from "../assets/registry";
 import { collectMapAssetIds } from "../assets/collect";
 import { createLocalPlayer, type LocalPlayerHandle } from "../player/local-player";
-import { createMobViewManager, type MobViewHandle } from "@/game/mob/manager";
+import { createMobViewManager, type MobViewHandle, type MobBlip } from "@/game/mob/manager";
 import { createMobSimulation, type MobSimulation } from "@/game/mob/simulation";
 import { createCombatStub, type CombatStubHandle } from "@/game/combat/combat-stub";
 import {
@@ -153,6 +153,8 @@ interface WorldHandle {
   /** A3 (P2 UI §8.3): cast สกิลช่อง slot (1-4) — ตรวจ unlock/cooldown แล้วส่ง cast (ดู castSlot ใน mountWorld). */
   castSlot(slot: number): void;
   getDebugInfo(fps: number): EngineDebugInfo;
+  /** Minimap (§8.4) danger/elite/normal blips — mob view render positions, throttled ผ่าน hudPublisher เดียวกับ debugInfo (ไม่ publish ทุก frame) */
+  getBlips(): MobBlip[];
   setDepthDebug(enabled: boolean): void;
   resize(width: number, height: number): void;
   destroy(): void;
@@ -803,10 +805,14 @@ export async function createEngine(
         return buildDebugInfo({
           fps,
           playerTile: player.position,
+          facing: player.facing, // Minimap (§8.4) player arrow — screen-space 8-dir, ไม่ sync จาก server
           pointerTile,
           entityCount: scene.entityCount,
           net: net ? net.getNetDebugInfo() : IDLE_NET_DEBUG_INFO,
         });
+      },
+      getBlips(): MobBlip[] {
+        return mobView.getBlips();
       },
       setDepthDebug(enabled): void {
         scene.setDepthDebug(enabled);
@@ -875,9 +881,11 @@ export async function createEngine(
       fpsSampleMs = 0;
     }
 
-    // build() เป็น thunk — publisher เรียกเฉพาะตอนถึงคิว throttle จริง (กันประกอบ EngineDebugInfo ทุก frame)
+    // build() เป็น thunk — publisher เรียกเฉพาะตอนถึงคิว throttle จริง (กันประกอบ EngineDebugInfo/blips ทุก frame)
     hudPublisher.publish(performance.now(), () => ({
       debugInfo: currentWorld.getDebugInfo(app.ticker.FPS),
+      // Minimap (§8.4): blips มากับ cadence เดียวกับ debugInfo (~4Hz) — ไม่เพิ่ม frequency ใหม่
+      blips: currentWorld.getBlips(),
     }));
   };
   app.ticker.add(onTick);

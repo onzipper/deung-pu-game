@@ -1,7 +1,7 @@
 # CODEMAP — orientation only: which module owns what.
 
 > For symbol-level truth, grep `src/`, `server/`, `tests/` (see `AI.md` Search rules).
-> Update on file add/move/delete (path-guard enforced). Full pre-restructure detail: `docs/history/2026-07-13-codemap-archive.md`.
+> Update on file add/move/delete (path-guard enforced). Pre-restructure detail: `docs/history/2026-07-13-codemap-archive.md`.
 
 ## src/engine (foundation layer — TA §17, plain TS + PixiJS, no React/Next.js)
 
@@ -17,7 +17,7 @@
 - `src/engine/animation/` — animation manifest (5-dir+mirror), sprite animator, placeholder textures, texture-set (non-owning handles)
 - `src/engine/assets/` — runtime atlas loader/registry (engine-scope, fail-soft → placeholder)
 - `src/engine/config/render.ts` — pixelate knob (on/scale/nearest-filter/CSS)
-- `src/engine/render/` — depth registry, camera, scene graph, pool, screen shake, exit marker, afk-label, name-label (player over-head name) · `src/engine/audio/` SFX (D-065)
+- `src/engine/render/` — depth registry, camera, scene graph, pool, screen shake, exit marker, afk-label, name-label (player over-head name) · `src/engine/audio/` SFX
 - `src/engine/map/` — MapConfig schema/loader/registry + map1/city-hub/p0-test-field configs
 - `src/engine/input/` — keyboard (WASD+attack) + joystick→8-dir intent + target-assist (per-mode click radius, Combat Bible §3, P2-15)
 
@@ -43,7 +43,7 @@
 - `src/ui/theme/rarity.ts` — rarity color tokens (D-043)
 - `src/ui/components/` — token-driven presentational kit (P2 UI spec §4): PanelFrame, Button, TextInput, ItemSlot, Tooltip, ConfirmDialog(+hold-to-confirm), Toast
 - `src/ui/panels/` — shared panel framework (desktop float / mobile sheet, z-order, keydown block; DG §13) + hud-layout (P2-15). Provider in `src/ui/GameCanvas.tsx`
-- `src/ui/panels/` subdirs (inventory/enhancement/shop/storage/help/mobile/settings/skillbar/status) — per-feature panels: bag/equip (P2-07) · reinforcement (P2-10) · shop (P2-11) · storage+delivery (P2-17) · help (P2-12) · mobile/settings (P2-15) · **skillbar** hotbar S1-S4 (A3 §8.3) · **status** HP/EXP/level (E3 §8.2)
+- `src/ui/panels/` subdirs (inventory/enhancement/shop/storage/help/mobile/settings/skillbar/status/minimap) — per-feature panels: bag/equip (P2-07) · reinforcement (P2-10) · shop (P2-11) · storage+delivery (P2-17) · help (P2-12) · mobile/settings (P2-15) · **skillbar** S1-S4 (§8.3) · **status** HP/EXP/level (§8.2) · **minimap** (§8.4)
 
 ## server (Colyseus realtime process, separate from Next — L4)
 

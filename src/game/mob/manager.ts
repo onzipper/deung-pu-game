@@ -32,7 +32,7 @@ import {
 } from "@/engine/net/interpolation";
 import { createMobAnimationManifest } from "@/game/mob/manifest";
 import { generateMobTextures } from "@/game/mob/placeholder";
-import { getMobNameEntry } from "@/game/mob/name-catalog";
+import { getMobNameEntry, type MobRank } from "@/game/mob/name-catalog";
 
 /** texture + manifest ต่อ mobType — atlas มี manifest ของตัวเอง (คนละตัวกับ placeholder ที่แชร์). */
 interface MobRenderSet {
@@ -68,6 +68,16 @@ export interface MobHitTarget {
   readonly pos: TilePoint;
 }
 
+/**
+ * Minimap blip (§8.4 "Danger/Boss = danger red") — ตำแหน่ง render ปัจจุบัน + rank (name-catalog.ts) เพื่อเลือกสี
+ * ฝั่ง UI (boss=แดง/elite=ส้ม/normal=จุดเล็ก). มอนที่ไม่มี catalog entry (test-field placeholder) → default "normal".
+ */
+export interface MobBlip {
+  readonly tx: number;
+  readonly ty: number;
+  readonly kind: MobRank;
+}
+
 export interface MobViewHandle {
   /** จำนวนมอนที่ render อยู่ตอนนี้ (debug). */
   readonly count: number;
@@ -85,6 +95,8 @@ export interface MobViewHandle {
   update(dtSeconds: number): void;
   /** ตำแหน่งมอนที่ render อยู่ (combat stub hit-test). */
   getAliveTargets(): MobHitTarget[];
+  /** Minimap (§8.4) blips — ตำแหน่ง + rank ของมอนที่ render อยู่ (throttled publish ที่ app.ts, ไม่ใช่ทุก frame). */
+  getBlips(): MobBlip[];
   /** ลบมอนทั้งหมด + ปล่อย texture ที่ generate (per mobType). */
   destroy(): void;
 }
@@ -297,6 +309,15 @@ export function createMobViewManager(
         targets.push({ id: mobId, pos: entry.current });
       }
       return targets;
+    },
+
+    getBlips(): MobBlip[] {
+      const blips: MobBlip[] = [];
+      for (const entry of mobs.values()) {
+        const rank: MobRank = getMobNameEntry(entry.mobType)?.rank ?? "normal";
+        blips.push({ tx: entry.current.tx, ty: entry.current.ty, kind: rank });
+      }
+      return blips;
     },
 
     destroy(): void {

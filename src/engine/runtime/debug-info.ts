@@ -4,6 +4,7 @@
 
 import type { TilePoint } from "@/engine/iso/coords";
 import type { NetDebugInfo } from "@/engine/net/net-client";
+import type { Direction } from "@/engine/movement/direction";
 
 /** ปัด TilePoint ให้เหลือ 2 ตำแหน่งทศนิยม (อ่านง่ายบน overlay) — ไม่กระทบตำแหน่งจริงใน world. */
 export function roundTile(tile: TilePoint): { tx: number; ty: number } {
@@ -20,6 +21,8 @@ export interface EngineDebugInfo {
   fps: number;
   /** ตำแหน่ง local player (tile, ปัด 2 ตำแหน่ง) */
   playerTile: { tx: number; ty: number };
+  /** ทิศหน้าล่าสุดของ local player (screen-space 8-dir) — Minimap (§8.4) ใช้วาดลูกศร teal ชี้ตามนี้ */
+  facing: Direction;
   /** tile ที่ pointer ชี้อยู่ตอนนี้ (integer, snapToTile ฝั่ง caller) — null ถ้า pointer ไม่อยู่บน canvas */
   pointerTile: { tx: number; ty: number } | null;
   /** จำนวน entity ทั้งหมดใน scene entity layer (props + player + mob) */
@@ -47,6 +50,7 @@ export const IDLE_NET_DEBUG_INFO: NetDebugInfo = {
 export function buildDebugInfo(input: {
   fps: number;
   playerTile: TilePoint;
+  facing: Direction;
   pointerTile: TilePoint | null;
   entityCount: number;
   net: NetDebugInfo;
@@ -54,6 +58,7 @@ export function buildDebugInfo(input: {
   return {
     fps: Math.round(input.fps),
     playerTile: roundTile(input.playerTile),
+    facing: input.facing,
     pointerTile: input.pointerTile ? roundTile(input.pointerTile) : null,
     entityCount: input.entityCount,
     net: input.net,

@@ -28,6 +28,7 @@ describe("debug-info — buildDebugInfo shape (P0-11, P0 §4.10)", () => {
     const info = buildDebugInfo({
       fps: 59.6,
       playerTile: { tx: 3.14159, ty: -2.71828 },
+      facing: "SW",
       pointerTile: { tx: 4, ty: 5 },
       entityCount: 12,
       net: onlineNet,
@@ -35,6 +36,7 @@ describe("debug-info — buildDebugInfo shape (P0-11, P0 §4.10)", () => {
     expect(info).toEqual({
       fps: 60,
       playerTile: { tx: 3.14, ty: -2.72 },
+      facing: "SW",
       pointerTile: { tx: 4, ty: 5 },
       entityCount: 12,
       net: onlineNet,
@@ -45,6 +47,7 @@ describe("debug-info — buildDebugInfo shape (P0-11, P0 §4.10)", () => {
     const info = buildDebugInfo({
       fps: 30,
       playerTile: { tx: 0, ty: 0 },
+      facing: "S",
       pointerTile: null,
       entityCount: 0,
       net: IDLE_NET_DEBUG_INFO,
