@@ -3,7 +3,7 @@
 > สถานะ: **P1/P2 Decision Tracking / Tech Alignment**
 > Scope: Reconnect, Offline Bot, Channel Assignment, Skill/Knobs Ownership
 > ใช้คู่กับ:
-> - `deungpu_project_checkpoint_v14_runtime_bot_channel_schema_ownership_ready.md`
+> - `deungpu_project_checkpoint_v15_p0_scope_lock_ready.md` (เดิมอ้าง v14 — v15 supersede, เนื้อหา §59 เดียวกัน)
 > - `deungpu_ENGINE_FOUNDATION_DECISIONS_v1.md`
 > - `deungpu_MAP_SCALE_AND_SPAWN_DENSITY_SPEC_v1.md`
 
@@ -219,8 +219,8 @@ Later/Beta/Launch:
 ### Design Owns
 
 อ้างอิงหลัก:
-- `v13/v14 §50.1` = canonical Skill Data Model
-- `v13/v14 §48` = canonical Design Knobs
+- `v15 §50.1` (สืบจาก v13/v14) = canonical Skill Data Model
+- `v15 §48` (สืบจาก v13/v14) = canonical Design Knobs
 
 Design เป็นเจ้าของ:
 - skill fields มีอะไรบ้าง
@@ -256,7 +256,7 @@ Tech เป็นเจ้าของ:
 
 ### Field Naming Source of Truth
 
-> **Field names in code/JSON must follow v13/v14 §50.1**
+> **Field names in code/JSON must follow v15 §50.1** (สืบจาก v13/v14 — schema เดียวกัน)
 
 ตัวอย่าง canonical names:
 - `skillId`

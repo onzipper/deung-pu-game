@@ -1,30 +1,25 @@
-# Feature map — feature → spec § / source / tests
+# Feature map — feature → entry files, spec §, tests
 
-> อ่านเฉพาะแถวของงานตัวเอง · spec path ย่อ: **GS** = game spec v14 (`docs/design/deungpu_project_checkpoint_v14_runtime_bot_channel_schema_ownership_ready.md`), **TA** = tech architecture (`docs/tech/deungpu_technical_architecture_v1.md`)
+Navigation only; grep for symbol-level truth (AI.md Search rules). P0/P1 full detail: `docs/history/2026-07-13-feature-map-archive.md`.
 
-## P0 — Combat Feel (current phase)
-
-| Feature | Spec | Source | Tests |
+| Feature | Spec | Entry | Tests |
 |---|---|---|---|
-| Iso foundation (projection/depth-sort/collision grid) | TA §17.1–17.3 · GS §57.1 | `src/engine/` (planned) | (planned) |
-| Direction resolver 5-dir + mirror | TA §17.4 · GS §57.2 | `src/engine/` (planned) | (planned) |
-| Combat juice (damage number, hit stop, shake, loot) | GS §17 ทั้งหมด · TA §11 (budget) | `src/game/` (planned) | (planned) |
-| Skill data model (config-driven) | GS §50.1 (canonical fields) · TA §16.1 | (planned) | (planned) |
-| Mob pack/spawn (local P0) | GS §17.2 · TA §18 · density spec | `src/game/` (planned) | (planned) |
-| Performance guardrails (quality tiers, pooling) | GS §17.10 · TA §11 | `src/engine/` (planned) | (planned) |
-
-## P1+ (ยังไม่เริ่ม — ดู TA §12 สำหรับ phase plan)
-
-| Feature | Spec |
-|---|---|
-| World sync / Colyseus rooms | TA §6 · GS §57.3, §59.1, §59.3 |
-| Persistence / inventory / enhancement | TA §7, §8 · GS §12 |
-| Bot & report | TA §9 · GS §4, §59.2 |
-| Market | TA §5, §7 · GS §5, §11 |
-| Audio | TA §22 · GS §22–§42 |
-
-## Infra
-
-| Feature | Spec | Source | Tests |
-|---|---|---|---|
+| P0+P1 foundations (engine/world sync) — see archive + `docs/context/engine.md` | GS v15 · TA v1.5 | `src/engine/`, `src/game/`, `server/rooms/MapRoom.ts` | see archive |
+| P2-02b Schema v2 (location model, append-only ledger, config-driven items) | TA §7–§8 · AJ §4.3/§20 | `prisma/schema.prisma`, `prisma/migrations/0001_init/migration.sql`, `server/db/client.ts` | `tests/db-schema.test.ts` |
+| P2-03 Auth (custom lightweight, guest→email upgrade, 6 endpoints) | Bible 5.x · D-044 | `src/server/auth/service.ts`, `src/app/api/auth/`, `src/server/db.ts` | `tests/server-auth-service.test.ts` |
+| P2-04 WS security (JWT handshake, origin allowlist, rate limit, session takeover) | Bible 5.2 · TA §6.2 | `server/security/handshake.ts`, `server/rooms/MapRoom.ts`, `src/engine/net/net-client.ts` | `tests/server-security.test.ts` |
+| P2-05 Character save/load (join with real character, best-effort persistence) | Storage §5 | `server/characters/persistence-decision.ts`, `server/characters/character-state.ts`, `src/engine/net/character-session.ts` | `tests/server-characters-persistence.test.ts` |
+| P2-06a Game Hub + character creation (5 slots, Thai name validator) | Storage §3–§9 · S4 | `src/app/hub/page.tsx`, `src/app/hub/HubShell.tsx`, `src/shared/character-name.ts` | `tests/shared-character-name.test.ts`, `tests/server-characters-service.test.ts` |
+| /game entry gate (boot-gate — redirect to hub if authenticated with no selected character, fresh map from API) | Storage §5/§5.3 | `src/app/game/boot-gate.ts`, `src/ui/GameCanvas.tsx` | `tests/app-game-boot-gate.test.ts` |
+| P2-07 Inventory/equipment (shared panel framework) | GS v15.2 §7 · Economy §6-7 | `src/ui/panels/`, `src/server/inventory/repository.ts` | `tests/server-inventory-service.test.ts`, `tests/ui-panels-inventory-view.test.ts`, `tests/ui-panels-panel-stack.test.ts` |
+| P2-08 Currency ledger (append-only, never-downgrade) | TA §7-8 | `server/economy/kill-rewards.ts`, `server/economy/shop-state.ts` | `tests/server-economy-kill-reward.test.ts` |
+| P2-09 Drop + EXP + reinforcement/fragment (config+runtime) | Economy §1.1/§6.1/§7 | `server/config/economy.ts`, `src/server/economy/exp.ts`, `src/server/economy/drop-roll.ts` | `tests/server-economy-exp.test.ts`, `tests/server-economy-drop-roll.test.ts`, `tests/server-inventory-grant.test.ts` |
+| P2-10 Guaranteed reinforcement (+1, cap +15) | Reinforcement §2 · D-048/D-054 | `src/server/inventory/enhancement-service.ts`, `src/ui/panels/enhancement/` | `tests/server-enhancement-service.test.ts`, `tests/ui-panels-enhancement-view.test.ts` |
+| P2-11 Shop (buy/sell, city-hub) | Economy §7 | `src/server/economy/shop.ts`, `server/economy/shop-state.ts`, `src/ui/panels/shop/` | `tests/server-economy-shop.test.ts`, `tests/ui-panels-shop-view.test.ts` |
+| SVG-01 SVG asset pipeline (no-dep, content track C0/C1) | D-042 | not merged to this branch yet — PR #15 open | (planned) |
+| P2-12 DG lite + hint panel (help registry, "ทำอะไรต่อดี" rule engine, tutorial checklist) | DG spec §13/§15.2 | `src/ui/panels/help/` | `tests/ui-panels-help-articles.test.ts`, `tests/ui-panels-help-rules.test.ts`, `tests/ui-panels-help-checklist.test.ts` |
+| P2-13 Tab policy AFK (D-056: visibility freeze/resync, AFK badge, no forced disconnect) | D-056 | `src/engine/net/visibility.ts`, `src/engine/runtime/app.ts`, `server/rooms/MapRoom.ts` | `tests/engine-net-visibility.test.ts`, `tests/shared-afk.test.ts` |
+| P2-15 Mobile pass (joystick, per-mode click radius, responsive HUD, settings) | Combat Bible §3 · TA §17.3 | `src/ui/panels/mobile/`, `src/engine/input/joystick.ts`, `src/ui/panels/hud-layout.ts` | `tests/engine-input-joystick.test.ts`, `tests/engine-input-target-assist.test.ts`, `tests/ui-mobile-os-notice.test.ts` |
+| P2-17 Storage/Delivery (200 slots account-shared + delivery box 50 entries) | Storage §10-18 | `src/server/inventory/storage-service.ts`, `src/ui/panels/storage/` | `tests/server-storage-deposit-withdraw.test.ts`, `tests/server-delivery-claim.test.ts`, `tests/ui-panels-storage-view.test.ts` |
+| Bot & report / Market / Audio | TA §9, §5, §22 · GS §4/§59.2, §5/§11, §22–§42 | not started | (planned) |
 | Docs system (AI OS) | ClickUp: AI Operating System — Starter Kit | `docs/`, `AI.md`, `CLAUDE.md` | `tests/docs-guard.test.ts` |

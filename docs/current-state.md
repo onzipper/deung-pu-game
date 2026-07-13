@@ -1,35 +1,45 @@
 # Current state
 
-> กติกา: อัปเดตไฟล์นี้ทุกรอบ · block ที่ถูก supersede → `docs/history/` · สั้นพออ่านได้ทุก session
+_Last updated: 2026-07-13 · Status board only — history & detail: `docs/history/` (full pre-restructure snapshot: `docs/history/2026-07-13-current-state-archive.md`)_
 
-_Last updated: 2026-07-11_
+## Now
 
-## Where we are
+- **OB push:** PR #21-23 merged → develop (combat two-way + boss depth + UI foundation + A3 hotbar + E3 HP/EXP/level cluster + E4 death toast). **Title splash** (§6 → /hub, แทน Next default) = `feat/title-screen`→develop. B4 = post-OB (D-064). Next: minimap/D.
+- **Phase:** P2 wave 3 **code-complete** (P2-07..17 ✅, merged). Post-merge todo: **P2-16** handoff (rename `upg_kraeng`→`upg_reinforcement`, wipe test data, verify migrations).
+- **SVG-01** merged (PR #15); rasterizer = `@resvg/resvg-js`.
+- **Live:** server `https://deung-pu-game.onrender.com` (Render free tier + UptimeRobot, `/healthz`, D-058) · client `https://deung-pu.softrock.space/game` (Hostinger). Guest login + realtime connect verified 2026-07-13.
+- **Spec:** game v15.3 / tech v1.5.2 + Production Bible Set v1. Reinforcement → D-048..D-055. P2B value-loop rulings → D-063/064/065 (bot pricing, merchant dual-sink, event calendar, boss tiers, Arc1 Ch1, audio, art; Open Beta = full systems + Map 1 only). Amendment 0.0.4 done. Field Boss Map 1 id = `boss_map1_boiling_boar` (pity/fragment rebound in config).
+- **DB:** Hostinger MariaDB is production (D-057), migrations `0001_init`+`0002` applied.
 
-Project bootstrap เสร็จ: repo ใหม่ (`onzipper/deung-pu-game`) มี Next.js 16 shell เปล่า + spec ครบใน `docs/design` + `docs/tech` + ระบบ docs-for-AI ตาม AI Operating System Starter Kit — **ยังไม่เริ่มเขียนโค้ดเกม** phase ถัดไปคือ **P0 Combat Feel** (tech §12)
+## Task board — P2 wave 3 (code-complete)
 
-## Latest work
+| ID | Task | Status |
+|---|---|---|
+| P2-07 | Inventory/equipment UI | ✅ done |
+| P2-08 | Currency ledger (never-downgrade) | ✅ done |
+| P2-09 | Drop + EXP + reinforcement/fragment (config+runtime) | ✅ done |
+| P2-10 | Guaranteed reinforcement (+15 cap) | ✅ done |
+| P2-11 | Shop (buy/sell, city-hub) | ✅ done |
+| P2-12 | DG lite + hint panel | ✅ done |
+| P2-13 | Tab policy (D-056: AFK stays) | ✅ done |
+| P2-15 | Mobile pass | ✅ done |
+| P2-17 | Storage/Delivery | ✅ done |
 
-- 2026-07-11: สร้าง Next.js project + push ขึ้น GitHub
-- 2026-07-11: นำ spec 6 ไฟล์เข้า repo (game spec v14 canonical + map bibles + tech architecture v1.4 + decision locks)
-- 2026-07-11: ตั้งระบบ docs-for-AI (AI.md, CODEMAP, feature-map, context packs, decision-index, known-traps, path-guard test, agent personas)
-- 2026-07-11: เพิ่ม specialist personas (engine/game/ui/qa/docs-curator) — realtime/worker/data/audio จดเป็น deferred รอ phase จริง (`.claude/README.md`)
+## Follow-up (P2B, not blocking PR merge)
 
-## Blockers / owed
+Ground-loot entity (full inventory → lootOverflow reported, not persisted) · party share (§10.2, waits for party system) · starter loadout §7.7 not yet granted · shop unlockCondition tutorial not enforced · config loader DB override not wired into MapRoom (uses DEFAULT) · Field Boss `boss_map1_boiling_boar`: E3 stats + boss loot rebinding = P2B prep (D-064).
 
-1. ยังไม่มีโค้ดเกม — P0 ต้องเริ่มจาก iso foundation (tech §17) — รอ owner สั่งเริ่ม
-2. Branch model ผมตั้ง default: feature branch → PR → owner อนุมัติ merge เข้า `main` — **รอ owner ยืนยันหรือปรับ**
-3. PixiJS 8 ยังไม่ได้ติดตั้ง (จะติดตั้งตอนเริ่ม P0)
+## Open with owner (not blocking structure)
 
-## Owner decisions affecting immediate work
+- Production smoke test full round (deploy-checklist §3) — 2-tab sync / combat / map-cross not yet.
+- D-040 open items: only **L2** (final-art order) remains — owner will decide later; L1/L3–L7 closed via D-063..D-065.
 
-- Spec-first rule: ห้ามเดา ห้ามคิดเอง — เกิน spec ต้องอัปเดต spec ก่อน (decision-index #1)
-- Locked decisions ทั้งหมด: tech architecture §0.1 (L1–L17) — server-authoritative, MySQL, Render, iso, 5 อาชีพ, ฯลฯ
+## Do not touch
 
-## Do not touch right now
+`docs/design/**` + `docs/tech/**` — owner-gated spec. Canonical IDs lock once save data exists.
 
-- `docs/design/**` + `docs/tech/**` — spec แก้ได้เฉพาะ owner เคาะ
+## Pointers
 
-## Next recommended work
-
-- เริ่ม P0 issue แรก: iso foundation (`src/engine/`) — projection converter + depth sort + fixed-timestep loop ตาม tech §17, Appendix B
+- Rules: `docs/agent-rules.md` · Decisions: `docs/decision-index.md` · Map: `docs/CODEMAP.md` · Worklogs: `docs/history/`
+- Run local realtime: T1 `npm run dev:server` · T2 `npm run dev` (no server → `/game` solo offline)
+- Deploy: `docs/deploy-checklist.md`

@@ -1,38 +1,43 @@
-# Context: engine (game engine / PixiJS / iso / combat)
-
-สำหรับงานชนิด: iso foundation, game loop, rendering, combat mechanics, spawn
-อ่าน pack นี้ + ไฟล์ที่แตะ พอ — รายละเอียดเต็มอยู่ใน spec § ที่อ้าง
+# Context pack: engine (src/engine — iso foundation + game loop)
+Scope: `src/engine/**` (+ `src/game/**` combat mechanics that sit on it) · Read this pack + the files in your brief. Spec detail via the cited §.
 
 ## Contract
+- `src/engine/**` = foundation layer: **never import React / Next.js** — plain TS + PixiJS only.
+- `src/game/**` = game logic on the engine (combat/entity/spawn), uses the engine via its public API.
+- UI reads/commands the game only through the Zustand bridge (TA §2) — world state must never enter React state.
+- Client = juice only; truth (damage/drop/RNG) belongs to the server from P1+ (TA §1). P0 may compute locally but calc must stay separable from render.
 
-- `src/engine/**` = foundation layer: **ห้าม import React / Next.js** — plain TS + PixiJS เท่านั้น
-- `src/game/**` = game logic บน engine (combat, entity, spawn) — ใช้ engine ผ่าน public API
-- UI คุยกับ game ผ่าน Zustand bridge เท่านั้น (tech §2) — world state **ห้าม**อยู่ใน React state
-- Client = juice เท่านั้น; truth (damage/drop/RNG) เป็นของ server เมื่อถึง P1+ (tech §1) — P0 local คำนวณ local ได้แต่โครงต้องแยก calc ออกจาก render ไว้
+## Locked decisions (don't relitigate — TA §17, GS §57)
+- True 2D isometric pixel art · diamond grid ~64×32 · fixed camera · no rotation.
+- Two coordinate systems: world/logical grid (logic/collision/pathfinding) ↔ screen (iso projection). The converter is the heart of the foundation.
+- Depth sort by iso position — sort only dirty entities per frame.
+- Directions: 5 drawn (S/SW/W/NW/N) + mirror (SE/E/NE); 8-dir override allowed (data-driven).
+- Object-pool everything that spawns/dies often (mobs, damage numbers, particles, loot) — never `new` in a hot loop. Damage number = `BitmapText` + pool (TA §11).
 
-## Locked engine decisions (ห้ามเถียง — tech §17, GS §57)
+## Key files
+- `src/engine/iso/` — iso projection + depth-sort math (**never-downgrade zone**)
+- `src/engine/render/placement.ts` — `entityFootToScreen`: the single foot-position convention (see Traps)
+- `src/engine/render/` — depth registry, camera, scene graph, object pool, screen shake, exit marker
+- `src/engine/runtime/app.ts` — createEngine(): per-map world mount + master tick
+- `src/engine/movement/` — mover (stepMovement), direction resolver, path-follower
+- `src/engine/input/` — keyboard intent + `src/engine/input/joystick.ts` (touch → 8-dir intent, same as WASD) + `src/engine/input/target-assist.ts` (per-input-mode click radius, Combat Bible §3, P2-15). LocalPlayerHandle.setMoveVector feeds joystick intent; combat-stub/pressAttack (app.ts) use the assist radius.
+- `src/engine/pathfinding/` — A* on the iso grid (click-to-move)
+- `src/engine/config.ts` — barrel re-exporting every tunable engine value (Design Knobs) from domain modules under `src/engine/config/`
+- `src/engine/assets/registry.ts` — runtime atlas registry (engine-scope): fail-soft, missing asset/atlas → placeholder, never crash
+- `src/engine/config/render.ts` — pixelate render knob (Design Knob)
 
-- **True 2D Isometric Pixel Art · diamond grid ~64×32 · fixed camera · no rotation**
-- Coordinate 2 ระบบ: world/logical grid (logic/collision/pathfinding) ↔ screen (iso projection) — converter คือหัวใจ foundation
-- Depth sort ตามตำแหน่ง iso — sort เฉพาะ dirty entity ต่อ frame
-- Direction: **5 ทิศวาดจริง (S/SW/W/NW/N) + mirror (SE/E/NE)** + 8-dir override ได้ (data-driven)
-- Object pooling ทุกอย่างที่เกิด-ตายถี่ (mob, damage number, particle, loot) — ห้าม `new` ใน hot loop
-- Damage number = `BitmapText` + pool (tech §11)
+## Invariants
+- Every balance value is a Design Knob (GS §48) → read from config, never hardcode.
+- Skill fields match GS §50.1 exactly (`baseMultiplier`, `cooldown`, `maxTargets`, ...) — never rename.
+- Boss telegraph must always be clear, never scaled by the quality setting (GS §18.5, TA §16.5).
+- Damage formula = multiplicative diminishing (TA §15.2); it lives on the calc side and must not ship in the client bundle from P1 (see game.md).
+- Perf budget (P0 success): desktop 60fps @ 40 mobs + 300 damage numbers/s + 3 stacked AoE; mobile 30fps @ 30 mobs, quality Low.
 
-## Performance budget (นิยาม success ของ P0 — tech §11)
+## Traps
+- **texture-set ownership**: `src/engine/animation/texture-set.ts` textures are non-owning — the animator borrows them from the atlas registry; never call `.destroy()` on a texture from animation code, only the registry owns lifecycle.
+- **iso placement: duplicated +0.5** — Symptom: a sprite floats ~half a tile (16px @ 64×32) off the cursor/camera, or the depth-sort order flips. Cause: mixing `tileCenterToScreen` (adds +0.5) with already-centered coords, or an entity on center basis while camera/depthKey use origin basis. Rule: one convention only — entity/prop APIs take a continuous foot position and render via `entityFootToScreen`; bake n+0.5 into the config coords. Never mix two bases inside a depth-sorted layer. Locked by `tests/engine-render-placement.test.ts`.
+  full story: docs/history/2026-07-13-known-traps-archive.md#iso-placement-duplicated-05-sprite-off-by-half-a-tile
 
-- Desktop กลาง: 60fps @ 40 mobs + 300 damage numbers/วิ + 3 AoE ต่อกัน
-- มือถือกลาง: 30fps @ 30 mobs, quality Low
-- Effect Quality: Low/Med/High/Cinematic map เป็นตัวเลขจริง (max particles, shake, resolution scale)
-
-## กติกาเฉพาะ / invariants
-
-- ค่า balance ทุกตัว = Design Knob (GS §48) → อ่านจาก config, ห้าม hardcode
-- Skill fields ตาม GS §50.1 เป๊ะ (`baseMultiplier`, `cooldown`, `maxTargets`, ...) — ห้าม rename
-- Boss telegraph ต้องชัดเสมอ ไม่แปรตาม quality setting (GS §18.5, tech §16.5)
-- Damage formula: multiplicative diminishing (tech §15.2) — สูตรอยู่ฝั่ง calc ไม่ ship ลง client bundle เมื่อถึง P1
-
-## Test
-
-- คำสั่ง: `npm test`
-- combat formula / RNG / pooling ต้องมี unit test (Vitest)
+## Tests & commands
+- `npm test` (Vitest + docs path-guard) · combat formula / RNG / pooling need unit tests.
+- If the npm shim fails (`'node' is not recognized`), run `node node_modules/vitest/vitest.mjs run` — see agent-rules "Shell & tooling traps".

@@ -4,23 +4,41 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "dev:server": "tsx watch --tsconfig server/tsconfig.json server/index.ts",
     "build": "next build",
     "start": "next start",
+    "start:server": "tsx --tsconfig server/tsconfig.json server/index.ts",
     "lint": "eslint",
-    "test": "vitest run"
+    "test": "vitest run",
+    "e2e": "node scripts/e2e/smoke.mjs",
+    "svg:lint": "tsx scripts/svg/lint.ts",
+    "svg:build": "tsx scripts/svg/build.ts"
+  },
+  "engines": {
+    "node": ">=20"
   },
   "dependencies": {
+    "@colyseus/schema": "^3.0.76",
+    "@colyseus/ws-transport": "0.16.5",
+    "@prisma/client": "^6.19.3",
+    "colyseus": "^0.16.5",
+    "colyseus.js": "^0.16.22",
     "next": "16.2.10",
+    "pixi.js": "^8.19.0",
     "react": "19.2.4",
-    "react-dom": "19.2.4"
+    "react-dom": "19.2.4",
+    "tsx": "^4.23.0",
+    "zustand": "^5.0.14"
   },
   "devDependencies": {
+    "@resvg/resvg-js": "^2.6.2",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.2.10",
+    "prisma": "^6.19.3",
     "tailwindcss": "^4",
     "typescript": "^5",
     "vitest": "^4.1.10"

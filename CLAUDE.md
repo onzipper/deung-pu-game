@@ -6,50 +6,42 @@
 
 ## Project
 
-**ดึ๋งปุ๊** — 2.5D Web MMORPG (True 2D Isometric Pixel Art) บน Next.js + PixiJS 8
-Source of truth = game spec v14 (`docs/design/`) + tech architecture v1.4 (`docs/tech/`) — **spec-first, ห้ามเดา** (ดู AI.md)
+**ดึ๋งปุ๊** — 2.5D web MMORPG (true 2D isometric, SVG-first art) on Next.js + PixiJS 8.
+Source of truth = game spec v15.3 (`docs/design/`) + tech architecture v1.5.2 (`docs/tech/`) — **spec-first, never guess** (AI.md).
 
-## Commands
+## Commands (npm)
 
-Package manager = **npm**
-
-| Command | ทำอะไร |
-|---|---|
-| `npm run dev` | dev server |
-| `npm run build` | production build |
-| `npm run lint` | ESLint |
-| `npm test` | Vitest + docs path-guard |
+`npm run dev` dev client · `npm run dev:server` Colyseus · `npm run build` prod build · `npm run lint` ESLint · `npm test` Vitest + docs/context guards · `npm run e2e` smoke.
 
 ## Architecture — the load-bearing rule
 
-- Layer แผน P0: `src/engine/**` (iso foundation + game loop, ห้ามพึ่ง React) · `src/game/**` (combat/entity บน engine) · `src/ui/**` (React overlay) · `src/app/**` (Next.js shell)
-- world state อยู่ใน game loop (plain TS/ECS-lite) — **ห้าม**เอาเข้า React state (tech §2)
-- อ่าน `docs/known-traps.md` ก่อนแตะโค้ด
+- Layers: `src/engine/**` (iso foundation + game loop, NO React) · `src/game/**` (combat/entities on engine) · `src/ui/**` (React overlay) · `src/app/**` (Next.js shell) · `server/**` (Colyseus authority).
+- World state lives in the game loop (plain TS/ECS-lite) — NEVER in React state (tech §2).
+- Before touching code: read your layer's context pack (`docs/context/`) + `docs/agent-rules.md` (Shell & tooling traps).
 
 ## Orchestration workflow
 
-คุณ = orchestrator: วางแผน, แตกงาน, สังเคราะห์; การลงมือส่ง subagent; เก็บ context ตัวเองให้บาง
+You = orchestrator: plan, split, synthesize; hands-on work goes to subagents; keep your own context thin.
 
-Routing = grade ตาม decision-making ที่เหลือ:
+Route by remaining decision-making:
 
-| ลักษณะงาน | Tier |
+| Work | Tier |
 |---|---|
-| ออกแบบ / debug ไม่รู้สาเหตุ / trade-off | สูงสุด (opus) — persona: deep-worker |
-| brief บอกไฟล์+pattern แล้ว เหลือลงมือ | กลาง (sonnet) — persona: fast-worker |
-| ไฟล์เดียว ระบุเป๊ะ (copy/label/knob) | ต่ำสุด (haiku) — persona: tiny-worker |
+| Design / unknown-cause debug / trade-offs | highest (opus) — deep-worker |
+| Brief names files+pattern, just execute | mid (sonnet) — fast-worker |
+| One file, exact change (copy/label/knob) | lowest (haiku) — tiny-worker |
 
-- Model override ชนะการสร้าง persona ใหม่
-- **Never-downgrade zones**: iso coordinate/depth-sort correctness, combat result calculation, DB schema, currency ledger → tier สูงเสมอ
-- CODEMAP-first briefs: paste ส่วน CODEMAP/context pack ลง brief แทนให้ agent สำรวจเอง
-- One agent = one task; parallel = โซนไฟล์ไม่ทับกัน
-- High-stakes = 2 มุมมองอิสระ สังเคราะห์เอง
+- Model override beats creating a new persona.
+- **Never-downgrade zones**: iso coordinate/depth-sort correctness, combat result calculation, DB schema, currency ledger → always top tier.
+- Briefs follow the **Brief contract** (`.claude/README.md`): FILES + CONTEXT (pasted excerpts) + SPEC + TESTS — don't make agents explore.
+- One agent = one task; parallel only on disjoint file zones. High-stakes = 2 independent views, synthesize yourself.
 
 ## Docs discipline
 
-ทุก code change อัปเดต docs ที่กระทบใน change เดียวกัน (CODEMAP test-enforced ผ่าน `npm test`)
-current-state อัปเดตทุกรอบ; block เก่า → `docs/history/`
-decision ใหม่ที่ owner เคาะ → `docs/decision-index.md` (วันที่ absolute เสมอ)
+Every code change updates affected docs in the SAME change (guards run via `npm test`).
+current-state.md updated every round; superseded blocks → `docs/history/`.
+New owner decisions → `docs/decision-index.md` row + `docs/decisions/D-NNN-*.md` (Thai rationale, absolute dates).
 
 ## Subagents
 
-ดู `.claude/README.md` — เริ่มด้วย 3 generic tiers; specialist ค่อยเพิ่มเมื่อมีโซนไฟล์จริง
+See `.claude/README.md` — 3 generic tiers + layer specialists + game-designer.

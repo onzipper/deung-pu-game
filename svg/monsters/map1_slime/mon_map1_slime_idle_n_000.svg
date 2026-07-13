@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" shape-rendering="crispEdges">
+  <!-- mon_map1_slime idle N frame 0 — เมือกดึ๋ง (Leaf family), pivot (32,54) -->
+  <polygon points="16,52 20,35 32,26 44,35 48,52" fill="#6F9658" stroke="#171820" stroke-width="1"/>
+  <rect x="16" y="50" width="32" height="4" fill="#3F6845"/>
+  <polygon points="23,33 33,29 27,37" fill="#FFF0C5"/>
+  <polygon points="32,35 37,41 32,47 27,41" fill="#284536"/>
+  <rect x="31" y="36" width="2" height="10" fill="#3F6845"/>
+</svg>
