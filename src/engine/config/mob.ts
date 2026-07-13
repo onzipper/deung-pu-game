@@ -17,8 +17,13 @@ export interface MobStyle {
   height: number;
   /** ระยะบีบ/เด้งสูงสุดตอน idle/walk (px) */
   bounceAmount: number;
-  /** รูปทรง placeholder ต่อ mobType (P0-09 มีแค่ 2 — เพิ่มได้ทีหลัง) */
+  /** รูปทรง placeholder ต่อ mobType (P0-09 มีแค่ 2 shape geometry — mobType ใหม่ reuse ได้ด้วยสีต่างกัน) */
   shape: "slime" | "mushroom";
+  /**
+   * assetId ของ atlas art จริง (SVG-01 pipeline) — มี = ใช้ atlas texture/manifest แทน placeholder.
+   * undefined = placeholder (path เดิม). ไม่ตั้ง default ใน P3 — Phase 5 ค่อยเปิดต่อ mobType.
+   */
+  assetId?: string;
 }
 
 /**
@@ -77,8 +82,13 @@ export interface MobAiConfig {
   aggroRadius: Record<string, number>;
   /** aggro radius เริ่มต้นเมื่อ mobType ไม่ตรงใน aggroRadius */
   defaultAggroRadius: number;
-  /** ระยะ (tile) จากจุดเกิดที่มอนถูกลากเกิน → leash กลับ (§18.3 "ลากนานเกิน/ออก pocket") */
-  leashRadius: number;
+  /**
+   * ระยะ (tile) จากจุดเกิดที่มอนถูกลากเกิน → leash กลับ **ต่อ mobType** (D-055 §9.3 — supersede §18.3 global).
+   * ไม่พบ key → defaultLeashRadius. ต้อง > aggroRadius ต่อ mobType (acquire ก่อน leash-out; boss กัน kite-reset).
+   */
+  leashRadius: Record<string, number>;
+  /** leash radius เริ่มต้นเมื่อ mobType ไม่ตรงใน leashRadius */
+  defaultLeashRadius: number;
   /** ระยะ (tile) ที่เป้าห่างมอนเกิน → เลิก aggro (ไล่ไม่ทัน → ปล่อย) */
   deaggroRadius: number;
   /** ระยะ (tile) จากจุดเกิดที่ถือว่ากลับถึงแล้ว → reset เป็น wander */
@@ -162,11 +172,26 @@ export const DEFAULT_MOB_CONFIG: MobConfig = {
     tickHz: 10, // TA §11 fixed 10Hz
     chaseSpeed: 2.4, // < player speed 4 → วิ่งหนีแล้วหลุด leash ได้ (เร็วกว่า wander 1.2 ชัดเจน)
     aggroRadius: {
-      slime: 4, // passive-ish swarm — ระยะสั้น
-      mushroom: 5, // ตัวอึด อาราม์ไกลกว่า
+      // Map 1 production (D-055 §9.3 aggroRadius tiles; key = MobPocket.mobType ใน map1.ts)
+      slime: 5, // mon_map1_slime
+      bird: 6, // mon_map1_bird
+      boar: 6, // mon_map1_boar
+      boar_elite: 8, // elite_map1_boar_rampage
+      boss_boiling_boar: 10, // Field Boss หมูป่าหม้อเดือด — aggro กว้าง (ประจำลาน boss)
+      mushroom: 5, // test-field placeholder (ไม่ใช่ Map 1/D-055)
     },
     defaultAggroRadius: 4,
-    leashRadius: 8, // ลากออกจากจุดเกิดเกิน 8 tile → กลับ (Map 1 pocket ~5–6 tile)
+    leashRadius: {
+      // Map 1 production (D-055 §9.3 leashRadius tiles; ต้อง > aggroRadius ต่อ mobType). boss 18 = ลากบอสออกไกล
+      // ได้ก่อน leash-return (กัน kite/soft-reset cheese; OWNER_PRODUCTION_DECISIONS §2.2 "boss ไม่ใช่ HP sponge").
+      slime: 9, // mon_map1_slime
+      bird: 11, // mon_map1_bird
+      boar: 10, // mon_map1_boar
+      boar_elite: 14, // elite_map1_boar_rampage
+      boss_boiling_boar: 18, // Field Boss หมูป่าหม้อเดือด
+      mushroom: 9, // test-field placeholder (ไม่ใช่ Map 1/D-055) — mirror slime
+    },
+    defaultLeashRadius: 8, // fallback เมื่อ mobType ไม่ตรง (tech default, > defaultAggroRadius 4)
     deaggroRadius: 9, // เป้าหนีห่างมอนเกิน 9 tile → ปล่อย
     returnResetRadius: 0.75, // ถึงจุดเกิดในระยะ < 1 tile → reset wander
     pullCap: 10, // §18.3 Map 1: 8–12 → กลางช่วง
@@ -180,7 +205,10 @@ export const DEFAULT_MOB_CONFIG: MobConfig = {
   hpBar: {
     width: 28,
     height: 4,
-    offsetY: -40, // เหนือหัวมอน (foot ที่ 0 → ลบ = ขึ้นบน)
+    // เหนือหัวมอน (foot ที่ 0 → ลบ = ขึ้นบน) — Phase 5: sprite atlas จริง frame 64×64,
+    // pivot เท้า y=54, ตัวมอนสูง ~28–40px ในเฟรม → -40 ชนหัวมอนตัวสูงสุดพอดี, ขยับเป็น -46
+    // เผื่อ margin ~6px พ้นหัว (คงเดิมได้กับ placeholder เก่าเช่นกัน)
+    offsetY: -46,
     bgColor: 0x3a1a1a, // แดงเข้ม = hp ที่หาย
     fgColor: 0x4fbf6b, // เขียว = hp เหลือ
     borderColor: 0x0a0a0a,
@@ -201,6 +229,7 @@ export const DEFAULT_MOB_CONFIG: MobConfig = {
       height: 18,
       bounceAmount: 3,
       shape: "slime",
+      assetId: "mon_map1_slime",
     },
     mushroom: {
       bodyColor: 0xe8d9a0, // ก้าน
@@ -209,6 +238,47 @@ export const DEFAULT_MOB_CONFIG: MobConfig = {
       height: 26,
       bounceAmount: 2,
       shape: "mushroom",
+      // mushroom = test style เดิม (P0-09) ไม่มี art จริงใน Map 1 → ไม่ตั้ง assetId
+    },
+    // ค่าสี bird/boar/boar_elite ด้านล่างเป็น "placeholder fallback" (atlas โหลดไม่ทัน/ไม่เจอ) เท่านั้น
+    // — เมื่อ atlas โหลดสำเร็จจะใช้ sprite จริงจาก assetId แทนเสมอ. shape reuse "slime" geometry.
+    bird: {
+      bodyColor: 0x7786c8, // Moon Blue (MASTER_PALETTE)
+      accentColor: 0x4b568e, // Moon Deep (MASTER_PALETTE)
+      width: 20,
+      height: 16,
+      bounceAmount: 3,
+      shape: "slime",
+      assetId: "mon_map1_bird",
+    },
+    boar: {
+      bodyColor: 0x8e6046, // Clay (MASTER_PALETTE)
+      accentColor: 0xd8ae70, // Sand (MASTER_PALETTE)
+      width: 30,
+      height: 20,
+      bounceAmount: 2,
+      shape: "slime",
+      assetId: "mon_map1_boar",
+    },
+    boar_elite: {
+      bodyColor: 0xdd6840, // Fire (MASTER_PALETTE)
+      accentColor: 0x9e3c32, // Fire Deep (MASTER_PALETTE)
+      width: 34,
+      height: 24,
+      bounceAmount: 2,
+      shape: "slime",
+      assetId: "mon_map1_boar_elite",
+    },
+    // Field Boss หมูป่าหม้อเดือด — sprite atlas จริง mon_map1_boss_boiling_boar (palette ร้อน). ใหญ่กว่า elite
+    // ชัดเจน (fallback สีถ้า atlas โหลดไม่ทัน); pixelate render (D-065) ทำให้อ่านเป็น boss.
+    boss_boiling_boar: {
+      bodyColor: 0x9e3c32, // Fire Deep (MASTER_PALETTE)
+      accentColor: 0xdd6840, // Fire (MASTER_PALETTE)
+      width: 44,
+      height: 32,
+      bounceAmount: 2,
+      shape: "slime",
+      assetId: "mon_map1_boss_boiling_boar",
     },
   },
 };

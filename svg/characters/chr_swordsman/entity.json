@@ -1,0 +1,14 @@
+{
+  "assetId": "chr_swordsman",
+  "category": "characters",
+  "frameSize": [64, 64],
+  "pivot": [32, 54],
+  "mirrorSafe": true,
+  "drawnDirections": ["S", "SW", "W", "NW", "N"],
+  "mirrorMap": { "SE": "SW", "E": "W", "NE": "NW" },
+  "animations": {
+    "idle": { "fps": 4, "loop": true, "frameCount": 2 },
+    "walk": { "fps": 8, "loop": true, "frameCount": 4 },
+    "attack": { "fps": 10, "loop": false, "frameCount": 3, "contactFrame": 1 }
+  }
+}

@@ -139,6 +139,7 @@ describe("resolveSkillHits — maxTargets cap (§18.4)", () => {
 
 describe("validateCast (composite, §16.2/§16.3)", () => {
   const base = {
+    playerLevel: 99, // A3: สูงพอให้ผ่าน unlock ทุก skill (เทสต์เดิมไม่เกี่ยวกับ locked)
     readyAtMs: undefined,
     nowMs: 1000,
     casterPos: { tx: 0, ty: 0 },
@@ -169,6 +170,42 @@ describe("validateCast (composite, §16.2/§16.3)", () => {
     expect(validateCast({ ...base, skill: makeSkill() })).toEqual({ ok: true });
   });
 
+  test("A3: playerLevel < unlockLevel → locked", () => {
+    expect(
+      validateCast({ ...base, skill: makeSkill({ unlockLevel: 5 }), playerLevel: 3 }),
+    ).toEqual({ ok: false, reason: "locked" });
+  });
+
+  test("A3: playerLevel = unlockLevel พอดี → ผ่าน (ok)", () => {
+    expect(
+      validateCast({ ...base, skill: makeSkill({ unlockLevel: 5 }), playerLevel: 5 }),
+    ).toEqual({ ok: true });
+  });
+
+  test("A3: self-target skill (S4, range 0) ข้าม range check — aim ไกลก็ ok (ไม่ out_of_range)", () => {
+    expect(
+      validateCast({
+        ...base,
+        skill: makeSkill({ targetType: "self", range: 0, radius: 3 }),
+        aimPos: { tx: 9, ty: 9 }, // ไกลจาก caster (0,0) มาก — enemy skill จะ out_of_range แต่ self ข้าม
+      }),
+    ).toEqual({ ok: true });
+  });
+
+  test("A3: ลำดับ locked มาก่อน cooldown/range (ยังไม่ปลด สำคัญกว่า timing)", () => {
+    // unlockLevel 5 > playerLevel 1 + cooldown ยังไม่ครบ + aim ไกล → เห็น locked ก่อน
+    expect(
+      validateCast({
+        ...base,
+        skill: makeSkill({ unlockLevel: 5, range: 2 }),
+        playerLevel: 1,
+        readyAtMs: 9999,
+        nowMs: 0,
+        aimPos: { tx: 10, ty: 0 },
+      }),
+    ).toEqual({ ok: false, reason: "locked" });
+  });
+
   test("zoneType 'field' / undefined → ไม่กระทบ (combat ปกติ)", () => {
     expect(validateCast({ ...base, skill: makeSkill(), zoneType: "field" })).toEqual({ ok: true });
     expect(validateCast({ ...base, skill: makeSkill() })).toEqual({ ok: true });
@@ -184,6 +221,7 @@ describe("validateCast (composite, §16.2/§16.3)", () => {
 
 describe("safe zone (P1-11, GS §14) — เมืองปฏิเสธ cast ทุกกรณี", () => {
   const base = {
+    playerLevel: 99, // A3: unlock ผ่าน (โฟกัสเทสต์ safe_zone)
     readyAtMs: undefined,
     nowMs: 1000,
     casterPos: { tx: 0, ty: 0 },

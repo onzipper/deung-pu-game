@@ -14,6 +14,31 @@ export class PlayerState extends Schema {
   @type("string") anim = "idle";
   /** partyId (P1-08) — "" = solo. สมาชิก party เดียวกันใน room นี้ share ค่าเดียวกัน (filterBy). */
   @type("string") partyId = "";
+  /**
+   * P2-13 (D-056): true เมื่อผู้เล่น idle ครบ idleIndicatorSec (ไม่มี movement/cast) — client แสดงป้าย
+   * "AFK" ให้ผู้เล่นอื่นเห็น. server-authoritative (input tracker); reset false ทันทีที่มี input. **ไม่ผูก
+   * disconnect** — D-056 ยกเลิก forced disconnect ทั้งชุด (character ค้างในโลกต่อ).
+   */
+  @type("boolean") isAfk = false;
+  /**
+   * A1/A2 (COMBAT_BIBLE §2/§10) — server-authoritative hp/maxHp. Colyseus auto-sync ให้ทุก client (แถบ HP =
+   * E3, death overlay = E4). onJoin ตั้ง hp = maxHp (เกิดเต็ม); มอนตี → server หัก hp (clamp 0) → ตาย → respawn
+   * safe camp เต็ม hp. maxHp = effective max HP ต่อเลเวล+gear (recompute ตอน equip/level-up). ค่า 0 = ก่อน init.
+   */
+  @type("number") hp = 0;
+  @type("number") maxHp = 0;
+  /**
+   * E3 (§8.2 level badge) — server-authoritative level (จาก sessionProgress). sync ทันทีตอน join + level-up →
+   * HUD แสดงเลเวลจริงทันที (ไม่ต้องรอ MSG_PLAYER_PROGRESS หลัง kill แรก) + ปลดล็อกสกิล A3 (unlock-by-level) ถูกตั้งแต่เกิด.
+   */
+  @type("number") level = 1;
+  /**
+   * E3 (§8.2 EXP bar) — server-authoritative exp progress. sync ตอน join + kill → HUD แถบ EXP + ตัวเลข % แสดง
+   * ตั้งแต่เกิด (ไม่รอ kill แรก). exp = cumulative รวม; expFloor/expCeil = ขอบเลเวลปัจจุบัน (§9.1/§9.2, expCeil 0 = ตัน cap).
+   */
+  @type("number") exp = 0;
+  @type("number") expFloor = 0;
+  @type("number") expCeil = 0;
 }
 
 /**
@@ -28,6 +53,16 @@ export class MobState extends Schema {
   @type("number") ty = 0;
   @type("string") state = "idle";
   @type("number") hp = 0;
+  /**
+   * workstream B (Field Boss): guard-gauge ปัจจุบัน + เต็ม (Colyseus auto-sync → client แถบ guard, E3 HUD).
+   * maxGuard > 0 = mob นี้เป็นบอส (มี guard gauge); normal mob = 0/0. server-authoritative (client ไม่ส่งค่านี้).
+   */
+  @type("number") guard = 0;
+  @type("number") maxGuard = 0;
+  /** workstream B: index ของ boss phase (§2.3: 0 Learn / 1 Pressure / 2 Enrage). normal mob = 0. */
+  @type("number") bossPhase = 0;
+  /** workstream B: true ช่วง BREAK/stagger (golden window) — client แสดง stagger + guard bar แตก (§2.4). */
+  @type("boolean") staggered = false;
 }
 
 /**

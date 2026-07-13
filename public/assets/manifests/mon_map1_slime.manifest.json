@@ -1,0 +1,55 @@
+{
+  "assetId": "mon_map1_slime",
+  "category": "monsters",
+  "frameSize": [
+    64,
+    64
+  ],
+  "pivot": [
+    32,
+    54
+  ],
+  "mirrorSafe": true,
+  "drawnDirections": [
+    "S",
+    "N"
+  ],
+  "mirrorMap": {
+    "SW": "S",
+    "SE": "S",
+    "W": "S",
+    "E": "S",
+    "NW": "N",
+    "NE": "N"
+  },
+  "animations": {
+    "idle": {
+      "frames": [
+        0,
+        1
+      ],
+      "frameDuration": 250,
+      "loop": true,
+      "fps": 4,
+      "directions": [
+        "s",
+        "n"
+      ]
+    },
+    "walk": {
+      "frames": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "frameDuration": 125,
+      "loop": true,
+      "fps": 8,
+      "directions": [
+        "s",
+        "n"
+      ]
+    }
+  }
+}

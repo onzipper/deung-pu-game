@@ -160,3 +160,109 @@ export function shouldStepPocket(
 export function isRespawnDue(dueAtMs: number, nowMs: number): boolean {
   return nowMs >= dueAtMs;
 }
+
+// ── Mob attack state machine (A1, COMBAT_BIBLE §4/§7) — pure decision ────────────────────────────────
+// "one readable attack + short anticipation" (§7). state: IDLE → ANTICIPATION → ACTIVE → RECOVERY → IDLE (§4).
+// contact ลงเฉพาะ ACTIVE frame และเฉพาะเมื่อเป้ายังอยู่ในระยะ (anticipation = dodge window; **ไม่มี i-frame**).
+// หลัง recovery → attackCooldown ก่อนเริ่ม swing ใหม่. pure/testable; simulation.ts ถือ state + feed ตำแหน่งจริง.
+
+/** phase ของการโจมตี 1 ครั้ง (§4). idle = ไม่ได้อยู่กลาง swing (ยัง chase/เดินได้). */
+export type MobAttackPhase = "idle" | "anticipation" | "active" | "recovery";
+
+/** timing/ระยะของการโจมตี (Design Knob D-055 §9.3 — ms ยกเว้น attackRange = tile). */
+export interface MobAttackTimings {
+  /** ระยะโจมตี (tile) — เป้าในระยะนี้ตอน ACTIVE = โดน */
+  attackRange: number;
+  /** cooldown หลัง recovery ก่อน swing ถัดไป (ms) */
+  attackCooldownMs: number;
+  /** anticipation/telegraph ก่อนตี (ms) — dodge window */
+  anticipationMs: number;
+  /** active frame ที่ contact เกิด (ms) */
+  activeMs: number;
+  /** recovery หลังตี (ms) */
+  recoveryMs: number;
+}
+
+/** state ของ attack machine ต่อมอน 1 ตัว — mutate โดย simulation ผ่านผลของ stepMobAttack (pure). */
+export interface MobAttackState {
+  phase: MobAttackPhase;
+  /** ms ที่ phase จับเวลาปัจจุบัน (anticipation/active/recovery) จะจบ */
+  phaseEndMs: number;
+  /** ms เร็วสุดที่เริ่ม swing ใหม่ได้ (ตั้งหลัง recovery = จบ + cooldown) */
+  readyAtMs: number;
+  /** contact ของ swing นี้ถูก resolve ไปแล้วหรือยัง (กันตีซ้ำใน active หลาย tick) */
+  contactResolved: boolean;
+}
+
+/** ผลของ stepMobAttack 1 tick (pure) — caller assign state, apply contact, และ gate การเดินด้วย rooted. */
+export interface MobAttackDecision {
+  state: MobAttackState;
+  /** true = tick นี้ contact ลง (caller หัก hp เป้า) */
+  contact: boolean;
+  /** true = มอนกลาง swing (anticipation/active/recovery) → ห้ามเดินรอบนี้ (commit ท่าโจมตี) */
+  rooted: boolean;
+}
+
+/** state เริ่มต้น = idle พร้อมตี (readyAt 0). */
+export function createMobAttackState(): MobAttackState {
+  return { phase: "idle", phaseEndMs: 0, readyAtMs: 0, contactResolved: false };
+}
+
+/**
+ * เดิน attack machine 1 tick (COMBAT_BIBLE §4/§7) — pure/deterministic.
+ *   • `inRange` = เป้าอยู่ในระยะ attackRange **ตอนนี้** (server วัดจากตำแหน่งจริงของ tick นี้).
+ *   • เริ่ม swing เมื่อ idle + inRange + nowMs ≥ readyAtMs → ANTICIPATION.
+ *   • contact ลงเฉพาะ ACTIVE + เป้ายัง inRange (anticipation ให้เวลาหลบ; **ไม่มี i-frame**) — ครั้งเดียว/swing.
+ *   • หลัง RECOVERY → idle + ตั้ง readyAt = nowMs + attackCooldownMs. catch-up phase ที่หมดเวลาใน tick เดียวได้.
+ */
+export function stepMobAttack(
+  prev: MobAttackState,
+  inRange: boolean,
+  nowMs: number,
+  t: MobAttackTimings,
+): MobAttackDecision {
+  let phase = prev.phase;
+  let phaseEndMs = prev.phaseEndMs;
+  let readyAtMs = prev.readyAtMs;
+  let contactResolved = prev.contactResolved;
+  let contact = false;
+
+  // เริ่ม swing จาก idle (เป้าในระยะ + พ้น cooldown)
+  if (phase === "idle" && inRange && nowMs >= readyAtMs) {
+    phase = "anticipation";
+    phaseEndMs = nowMs + t.anticipationMs;
+    contactResolved = false;
+  }
+
+  // เดิน phase ที่จับเวลา (catch-up ได้หลาย phase ใน tick เดียวถ้า dt ยาว) + resolve contact ใน ACTIVE
+  let guard = 0;
+  while (guard++ < 4) {
+    if (phase === "anticipation") {
+      if (nowMs < phaseEndMs) break;
+      phase = "active";
+      phaseEndMs = nowMs + t.activeMs;
+      continue;
+    }
+    if (phase === "active") {
+      // contact ครั้งเดียว/swing เฉพาะเมื่อยัง inRange (dodge window เคารพแล้ว)
+      if (!contactResolved && inRange) {
+        contact = true;
+        contactResolved = true;
+      }
+      if (nowMs < phaseEndMs) break;
+      phase = "recovery";
+      phaseEndMs = nowMs + t.recoveryMs;
+      continue;
+    }
+    if (phase === "recovery") {
+      if (nowMs < phaseEndMs) break;
+      phase = "idle";
+      readyAtMs = nowMs + t.attackCooldownMs;
+      continue;
+    }
+    break; // idle
+  }
+
+  const rooted = phase === "anticipation" || phase === "active" || phase === "recovery";
+  return { state: { phase, phaseEndMs, readyAtMs, contactResolved }, contact, rooted };
+}

@@ -9,8 +9,9 @@
 // แยก calc ออกจาก render: ลำดับ depth = DepthRegistry (pure), camera = camera.ts (pure).
 // scene.ts เป็นแค่ "glue" ที่ apply ผล pure → pixi display objects.
 
-import { Application, Container, Graphics, Text } from "pixi.js";
+import { Application, Container, Graphics, Sprite, Text } from "pixi.js";
 import type { EngineConfig, ExitMarkerConfig, PropStyle } from "@/engine/config";
+import type { AssetRegistry } from "@/engine/assets/registry";
 import type { DiamondPolygon } from "@/engine/render/exit-marker";
 import type { ScreenPoint, TilePoint } from "@/engine/iso/coords";
 import { tileToScreen } from "@/engine/iso/coords";
@@ -106,6 +107,31 @@ function styleFor(config: EngineConfig, propId: string): PropStyle {
 }
 
 /**
+ * สร้าง display ของ prop 1 ชิ้น: มี assetId + atlas โหลดสำเร็จ → static Sprite เฟรม "idle S" แรก
+ * (anchor foot จาก atlas — depth ตรง tile), ไม่งั้น Graphics placeholder เดิม. atlas texture เป็น
+ * non-owning (registry เป็นเจ้าของ) — Sprite.destroy() ปกติ (ไม่ส่ง texture:true) จึงไม่แตะ source ร่วม.
+ */
+function buildPropDisplay(
+  style: PropStyle,
+  registry?: AssetRegistry,
+): Container {
+  const atlas = style.assetId ? (registry?.peek(style.assetId) ?? null) : null;
+  if (atlas) {
+    try {
+      const tex = atlas.textures.get("idle", "S")[0];
+      if (tex) {
+        const sprite = new Sprite(tex);
+        sprite.anchor.set(atlas.textures.anchor.x, atlas.textures.anchor.y);
+        return sprite;
+      }
+    } catch {
+      // atlas ไม่มี idle/S (prop atlas อาจตั้ง anim อื่น) → ตกไป placeholder
+    }
+  }
+  return drawPropGraphic(style);
+}
+
+/**
  * วาด ground layer ทั้งใบ "ครั้งเดียว" ลง Graphics เดียว:
  * แต่ละ cell = diamond (มุม = tile-integer 4 จุด), checker fill หรือ blocked color,
  * แล้ว stroke เส้น grid. ไม่ต้อง depth sort (พื้นราบ coplanar ไม่ทับกัน).
@@ -150,6 +176,7 @@ export function createMapScene(
   app: Application,
   map: MapConfig,
   config: EngineConfig,
+  assetRegistry?: AssetRegistry,
 ): MapSceneHandle {
   const { tileSize } = config;
 
@@ -282,8 +309,8 @@ export function createMapScene(
 
   // ── seed props จาก config (เป็น entity depth-sorted) ────────────────────
   map.props.forEach((prop, i) => {
-    const g = drawPropGraphic(styleFor(config, prop.propId));
-    addEntity(`prop:${prop.propId}:${i}`, g, prop.tile, prop.zLayer ?? 0);
+    const display = buildPropDisplay(styleFor(config, prop.propId), assetRegistry);
+    addEntity(`prop:${prop.propId}:${i}`, display, prop.tile, prop.zLayer ?? 0);
   });
 
   // entity แบบ dynamic (local player, mob) มาจาก layer ถัดไปผ่าน addEntity/moveEntity

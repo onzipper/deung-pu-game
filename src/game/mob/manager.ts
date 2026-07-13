@@ -23,15 +23,21 @@ import {
   createSpriteAnimator,
   type SpriteAnimator,
 } from "@/engine/animation/animator";
+import type { AnimationManifest } from "@/engine/animation/manifest";
+import type { EntityTextureSet } from "@/engine/animation/texture-set";
+import type { AssetRegistry } from "@/engine/assets/registry";
 import {
   createInterpolationBuffer,
   type InterpolationBuffer,
 } from "@/engine/net/interpolation";
 import { createMobAnimationManifest } from "@/game/mob/manifest";
-import {
-  generateMobTextures,
-  type MobTextureSet,
-} from "@/game/mob/placeholder";
+import { generateMobTextures } from "@/game/mob/placeholder";
+
+/** texture + manifest ต่อ mobType — atlas มี manifest ของตัวเอง (คนละตัวกับ placeholder ที่แชร์). */
+interface MobRenderSet {
+  readonly manifest: AnimationManifest;
+  readonly textures: EntityTextureSet;
+}
 
 const INITIAL_FACING: Direction = "S";
 /** entity id prefix ใน scene registry — กันชนกับ local/remote player + prop. */
@@ -91,10 +97,12 @@ export function createMobViewManager(
   scene: MapSceneHandle,
   config: EngineConfig,
   renderer: Renderer,
+  registry?: AssetRegistry,
   now: () => number = () => performance.now(),
 ): MobViewHandle {
   const { mob, tileSize, net } = config;
-  const manifest = createMobAnimationManifest(mob.animation);
+  // manifest ร่วมของ placeholder ทุก mobType (idle/walk เท่า config). atlas ใช้ manifest ของตัวเอง (per set).
+  const placeholderManifest = createMobAnimationManifest(mob.animation);
   const interp = net.interpolation;
   const hpBarCfg = mob.hpBar;
   const balance = config.combatBalance;
@@ -117,14 +125,22 @@ export function createMobViewManager(
     g.rect(x, y, cfg.width * ratio, cfg.height).fill({ color: cfg.fgColor });
   };
 
-  // texture ต่อ mobType — generate ครั้งเดียว, แชร์ทุก instance (เหมือน P0-09; ห้าม generate ต่อตัว).
-  const texturesByType = new Map<string, MobTextureSet>();
+  // render set ต่อ mobType — resolve ครั้งเดียว, แชร์ทุก instance (เหมือน P0-09; ห้าม generate ต่อตัว).
+  // มี assetId + peek เจอ → atlas (manifest/texture ของ atlas เอง, non-owning); ไม่งั้น placeholder.
+  const setsByType = new Map<string, MobRenderSet>();
   const styleFor = (mobType: string): MobStyle => mob.styles[mobType] ?? mob.defaultStyle;
-  const texturesFor = (mobType: string): MobTextureSet => {
-    let set = texturesByType.get(mobType);
+  const setFor = (mobType: string): MobRenderSet => {
+    let set = setsByType.get(mobType);
     if (!set) {
-      set = generateMobTextures(renderer, manifest, styleFor(mobType));
-      texturesByType.set(mobType, set);
+      const style = styleFor(mobType);
+      const atlas = style.assetId ? (registry?.peek(style.assetId) ?? null) : null;
+      set = atlas
+        ? { manifest: atlas.manifest, textures: atlas.textures }
+        : {
+            manifest: placeholderManifest,
+            textures: generateMobTextures(renderer, placeholderManifest, style),
+          };
+      setsByType.set(mobType, set);
     }
     return set;
   };
@@ -144,8 +160,8 @@ export function createMobViewManager(
       existing.buffer.push(now(), snap.tx, snap.ty, "S", snap.state);
       return;
     }
-    const textures = texturesFor(snap.mobType);
-    const animator = createSpriteAnimator(textures, manifest, {
+    const set = setFor(snap.mobType);
+    const animator = createSpriteAnimator(set.textures, set.manifest, {
       animation: snap.state,
       direction: INITIAL_FACING,
     });
@@ -253,8 +269,9 @@ export function createMobViewManager(
     destroy(): void {
       // ไม่ destroy animator ต่อตัว (จะ destroy texture ที่แชร์กัน) — remove view แล้วปล่อย texture รวมทีเดียว
       for (const id of [...mobs.keys()]) remove(id);
-      for (const set of texturesByType.values()) set.destroy();
-      texturesByType.clear();
+      // placeholder set → ปล่อย texture ที่ generate; atlas set → no-op (registry เป็นเจ้าของ texture)
+      for (const set of setsByType.values()) set.textures.destroy();
+      setsByType.clear();
     },
   };
 }

@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" shape-rendering="crispEdges">
+  <!-- empty body slot — faint Ink silhouette -->
+  <rect x="10" y="10" width="44" height="44" fill="none" stroke="#2B2230" stroke-width="1" stroke-dasharray="4 3"/>
+  <path d="M24,18 L40,18 L44,26 L40,26 L40,48 L24,48 L24,26 L20,26 Z" fill="none" stroke="#2B2230" stroke-width="1.5" stroke-opacity="0.6"/>
+</svg>

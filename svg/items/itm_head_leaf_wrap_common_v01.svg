@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" shape-rendering="crispEdges">
+  <!-- eq_head_leaf_wrap — leaf-wrapped headband, rarity frame = Sand (common) -->
+  <rect x="8" y="8" width="48" height="48" fill="none" stroke="#D8AE70" stroke-width="2"/>
+  <path d="M18,30 A14,14 0 0 1 46,30" fill="none" stroke="#6F9658" stroke-width="5"/>
+  <polygon points="26,22 30,17 34,22 30,27" fill="#3F6845"/>
+  <polygon points="36,20 40,16 43,21 39,25" fill="#3F6845"/>
+</svg>

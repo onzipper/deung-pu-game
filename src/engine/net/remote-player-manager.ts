@@ -17,11 +17,12 @@
 // caster ที่ไม่ใช่ตัวเอง → ล็อกคลิป attack ชั่วคราว (timing pure ใน remote-attack.ts, pattern เดียวกับ
 // local-player.ts triggerAttack) แล้วคืน control ให้ anim จาก interpolation sample ต่อ (idle/walk).
 
-import type { Renderer } from "pixi.js";
+import type { Renderer, Text } from "pixi.js";
 import type { EngineConfig } from "@/engine/config";
 import type { TilePoint } from "@/engine/iso/coords";
 import type { MapSceneHandle } from "@/engine/render/scene";
 import type { PlayerSnapshot } from "@/shared/net-protocol";
+import { createAfkLabel, updateAfkLabel } from "@/engine/render/afk-label";
 import {
   createInterpolationBuffer,
   type InterpolationBuffer,
@@ -32,13 +33,24 @@ import {
   triggerRemoteAttack,
   type RemoteAttackState,
 } from "@/engine/net/remote-attack";
-import { createPlayerAnimationManifest } from "@/engine/animation/manifest";
+import {
+  createPlayerAnimationManifest,
+  type AnimationManifest,
+} from "@/engine/animation/manifest";
 import { generatePlayerTextures } from "@/engine/animation/player-placeholder";
+import type { EntityTextureSet } from "@/engine/animation/texture-set";
+import type { AssetRegistry } from "@/engine/assets/registry";
 import {
   createSpriteAnimator,
   type SpriteAnimator,
 } from "@/engine/animation/animator";
 import type { Direction } from "@/engine/movement/direction";
+
+/** anim ที่ต้องมีครบใน atlas ก่อนใช้แทน placeholder (attack ล็อกทับตอน playAttack). */
+const PLAYER_REQUIRED_ANIMS = ["idle", "walk", "attack"] as const;
+function playerAtlasUsable(m: AnimationManifest): boolean {
+  return PLAYER_REQUIRED_ANIMS.every((a) => a in m.animations);
+}
 
 /** prefix ของ entity id ฝั่ง remote — กันชนกับ local player / prop id ใน scene registry. */
 const REMOTE_ID_PREFIX = "remote:";
@@ -56,6 +68,10 @@ interface RemoteEntry {
   anim: string;
   /** attack animation timer (event-driven, ดู remote-attack.ts) — ไม่เกี่ยวกับ wire anim/interpolation */
   attack: RemoteAttackState;
+  /** P2-13 (D-056): ป้าย "AFK" (child ของ animator.view) — destroy พร้อม view ตอน removeEntity. */
+  label: Text;
+  /** P2-13: AFK flag ล่าสุดจาก snapshot (discrete, ไม่ interpolate ผ่าน buffer) */
+  afk: boolean;
 }
 
 export interface RemotePlayerManager {
@@ -68,6 +84,11 @@ export interface RemotePlayerManager {
    * รู้จัก sessionId นี้ (race เช่น attack event มาก่อน onPlayerAdd — ข้ามเงียบ ๆ ไม่ throw).
    */
   playAttack(sessionId: string): void;
+  /**
+   * P2-13 (D-056): fast-resync ตอนแท็บกลับมาเห็น — snap remote ทุกตัวไปตำแหน่ง snapshot ล่าสุดทันที (ข้าม
+   * interpolation lag) กัน rubber band หลัง rAF ถูก throttle ตอน hidden. no-op ถ้า buffer ยังว่าง.
+   */
+  resyncNow(): void;
   /** เรียกทุก frame (dt วินาที): sample buffer ที่ now−bufferMs → ขยับ entity + เดินเฟรม animator */
   update(dtSeconds: number): void;
   /** ลบ remote ทั้งหมด + ปล่อย texture */
@@ -83,9 +104,20 @@ export function createRemotePlayerManager(
   scene: MapSceneHandle,
   config: EngineConfig,
   renderer: Renderer,
+  registry?: AssetRegistry,
   now: () => number = () => performance.now(),
 ): RemotePlayerManager {
-  const manifest = createPlayerAnimationManifest(config.player.animation);
+  // atlas art ถ้ามี assetId (ตัวเดียวกับ local player) + peek เจอ + anim ครบ → ใช้ atlas manifest/texture
+  // (สีตัว remote คงที่ตาม art ไม่ปรับ); ไม่งั้น placeholder สีต่าง (remotePlayerColor) เหมือนเดิม.
+  const atlasId = config.player.animation.style.assetId;
+  const atlas = atlasId ? (registry?.peek(atlasId) ?? null) : null;
+  const useAtlas = atlas !== null && playerAtlasUsable(atlas.manifest);
+  const manifest: AnimationManifest = useAtlas
+    ? atlas.manifest
+    : createPlayerAnimationManifest(config.player.animation);
+  // texture ที่ทุก remote แชร์เมื่อใช้ atlas (non-owning — animator.destroy() no-op ต่อ atlas set).
+  const atlasTextures: EntityTextureSet | null =
+    useAtlas && atlas ? atlas.textures : null;
   const interp = config.net.interpolation;
   // ความยาวคลิป attack (ms) — สูตรเดียวกับ local-player.ts (attackFrameDuration × attackFrames จาก
   // config เดียวกัน) ให้ remote เล่นคลิปยาวเท่าตัวเองเป๊ะ (ไม่ hardcode ซ้ำ, ไม่ผูก wire anim).
@@ -113,13 +145,17 @@ export function createRemotePlayerManager(
       update(sessionId, snap);
       return;
     }
-    const textures = generatePlayerTextures(renderer, manifest, remoteStyle);
+    const textures =
+      atlasTextures ?? generatePlayerTextures(renderer, manifest, remoteStyle);
     const animator = createSpriteAnimator(textures, manifest, {
       animation: snap.anim,
       direction: snap.direction,
     });
     const pos: TilePoint = { tx: snap.tx, ty: snap.ty };
     scene.addEntity(entityId(sessionId), animator.view, pos);
+    // P2-13 (D-056): ป้าย AFK เป็น child ของ sprite view (Sprite = Container) → ลอยตามหัว + destroy พร้อม view.
+    const label = createAfkLabel(remoteStyle.bodyHeight, remoteStyle.walkBob);
+    animator.view.addChild(label);
     const buffer = newBuffer();
     // seed snapshot แรก ณ ตำแหน่ง spawn → entity เพิ่งเกิดจะ clamp ที่นี่ (ไม่ลากจากที่ไกล)
     buffer.push(now(), snap.tx, snap.ty, snap.direction, snap.anim);
@@ -130,6 +166,8 @@ export function createRemotePlayerManager(
       facing: snap.direction,
       anim: snap.anim,
       attack: createRemoteAttackState(),
+      label,
+      afk: snap.isAfk === true,
     });
   };
 
@@ -141,6 +179,8 @@ export function createRemotePlayerManager(
     }
     // stamp เวลารับ → push เข้า buffer (interpolation.ts จัดการ ordering/edge เอง)
     entry.buffer.push(now(), snap.tx, snap.ty, snap.direction, snap.anim);
+    // P2-13: AFK = discrete flag (ไม่ interpolate) → เก็บค่าล่าสุดตรง ๆ; render loop toggle ป้ายจากค่านี้.
+    entry.afk = snap.isAfk === true;
   };
 
   const remove = (sessionId: string): void => {
@@ -160,6 +200,22 @@ export function createRemotePlayerManager(
       const entry = remotes.get(sessionId);
       if (!entry) return; // race: event มาก่อน onPlayerAdd ของ session นี้ — ข้ามเงียบ ๆ
       triggerRemoteAttack(entry.attack);
+    },
+
+    resyncNow(): void {
+      // D-056 fast-resync: snap แต่ละ remote ไป snapshot ล่าสุด (renderTime = newest → ไม่มี lag/rubber band).
+      for (const [sessionId, entry] of remotes) {
+        const t = entry.buffer.newestTime;
+        if (t === null) continue;
+        const sample = entry.buffer.sampleAt(t);
+        if (!sample) continue;
+        entry.current.tx = sample.tx;
+        entry.current.ty = sample.ty;
+        scene.moveEntity(entityId(sessionId), entry.current);
+        entry.facing = sample.direction;
+        entry.anim = sample.anim;
+        entry.animator.setState(entry.anim, entry.facing);
+      }
     },
 
     update(dtSeconds: number): void {
@@ -182,6 +238,8 @@ export function createRemotePlayerManager(
         // attack ล็อกทับ anim จาก sample ชั่วคราว (event-driven, wire anim ไม่มี "attack" — header comment)
         const isAttacking = advanceRemoteAttack(entry.attack, dtSeconds * 1000, attackDurationMs);
         entry.animator.setState(isAttacking ? "attack" : entry.anim, entry.facing);
+        // P2-13 (D-056): toggle ป้าย AFK + counter-flip กัน mirror (หลัง setState — view.scale.x อาจเพิ่ง flip)
+        updateAfkLabel(entry.label, entry.animator.view, entry.afk);
         entry.animator.update(dtSeconds);
       }
     },

@@ -45,6 +45,24 @@ Delta:
 6. **E1 บอส Map 1** = `boss_map1_resonant_guardian` / "ผู้พิทักษ์เสียงสะท้อน" / lv8 / P2B (Canonical ID ล็อกหลัง save data; `boss_m1_boar_pot` = legacy placeholder)
 7. **E3 monster combat stat** = OPEN — Pending Design Item "Map 1 Monster Combat Stat Table" (blocks: production tuning + final combat QA; doesNotBlock: schema/loader/placeholder/test)
 
+## 0.0.3 Amendment Log — v15.3 (2026-07-13) — Tab Policy: AFK ค้างเต็มที่ (D-056)
+
+Owner เคาะปรับทิศ tab policy 2026-07-13. decision record = `docs/decisions/D-056-tab-policy-afk.md` (Locked). checkpoint นี้บันทึกเฉพาะจุด supersede — **additive, เนื้อเดิมคงไว้เพื่อ history**.
+
+Delta:
+
+1. **§59.1.2 ข้อ 3, 5, 6, 7** — **SUPERSEDED โดย §59.1.3 (D-056)**: ยกเลิก forced disconnect ทั้งชุด (field 15/30 countdown, city 60s, party 120–180s window, โหมด "ปักหลัก"). คงข้อ 1, 2, 4 (backgrounding ≠ bot, hidden→pause input/server ถือ entity, combat ยังรับ damage ไม่ auto-cast). ตายคาสนาม = Option A (ไม่มี idle de-aggro). knob: `afkHardCapHours=null` (inert), `idleIndicatorSec=60`, reconnect grace 30s ไม่แตะ. Party share ตัดเมื่อยืนนิ่งเกินเกณฑ์ AFK (contribution-based, P2B)
+
+## 0.0.4 Amendment Log — v15.3 (2026-07-13) — Bot Economy Final + Field Boss Note (D-063/D-064)
+
+Owner เคาะปิด L1 บอท/เศรษฐกิจครบชุด + โครงบอส 3 ชั้น 2026-07-13. decision records = `docs/decisions/D-063-bot-economy-final.md`, `docs/decisions/D-064-content-liveops.md` (ทั้งคู่ Locked). checkpoint นี้บันทึกเฉพาะจุด supersede/หมายเหตุ — **additive, เนื้อเดิมคงไว้เพื่อ history**.
+
+Delta:
+
+1. **§4 ราคา Assistant Plus/Pro (baseline 1/7/30 วัน + Hour Pack)** — **SUPERSEDED โดย D-063**: ทุก tier (Free/Plus/Pro) เวลาใช้งานเท่ากันหมด — **Free ฟรีตลอดไป ไม่จำกัดชั่วโมง ปล่อย 24/7 ได้** เช่นเดียวกับ tier จ่ายเงิน ความต่างระหว่าง tier = **ความสามารถ** (profile/rule/report/notification/schedule/analytics) ไม่ใช่เวลา · Paid เปลี่ยนโมเดลจาก "ราย 1/7/30 วัน + Hour Pack" → **duration pass 1/10/30 วัน** นับอายุจริงจากวันซื้อ ไม่มี pause ไม่มี Hour Pack อีกต่อไป · **ราคา canon ตัวเดียว: Plus 9/39/79฿ · Pro 15/69/149฿** · Supporter (cosmetic รายเดือน) พักไว้ ตัดสินหลัง beta
+2. **§19 ข้อ 11 "Pro Bot ทำงาน 12 ชั่วโมงต่อรอบ"** — **SUPERSEDED โดย D-063**: ไม่มี hour cap ต่อรอบอีกต่อไป ทุก tier ปล่อยรันได้ 24/7 เท่ากัน (Mandatory Stop 9 ข้อยังบังคับทุก tier เหมือนเดิม)
+3. **§6 Map 1 — "Boss: หมูป่าหม้อเดือด"** — หมายเหตุ (ไม่ supersede): ตาม D-064 (โครงบอส 3 ชั้น) หมูป่าหม้อเดือด = **Field Boss** ประจำ Map 1 (open-world respawn ~3–5 นาที, แหล่งเศษเสริมแกร่ง 10.7%) · Story Boss ของ Map 1 = `boss_map1_resonant_guardian` "ผู้พิทักษ์เสียงสะท้อน" lv8 (D-047, ดู §0.0.2 ข้อ 6 ด้านบน) — สองตัวอยู่คู่กัน ไม่ใช่ตัวเดียวกัน
+
 ---
 
 ## 0.1 v10 Audio Update
@@ -270,10 +288,7 @@ NPC หลัก:
 
 ราคา baseline:
 
-- 1 วัน: 19 บาท
-- 7 วัน: 99 บาท
-- 30 วัน: 299 บาท
-- Hour Pack 24 ชม.: 79 บาท
+- ~~1 วัน: 19 บาท~~ · ~~7 วัน: 99 บาท~~ · ~~30 วัน: 299 บาท~~ · ~~Hour Pack 24 ชม.: 79 บาท~~ **SUPERSEDED โดย D-063 (2026-07-13) → §0.0.4** — ราคา canon ใหม่ (duration pass 1/10/30 วัน ไม่มี Hour Pack): **9 / 39 / 79 บาท**
 
 ได้:
 
@@ -289,16 +304,11 @@ NPC หลัก:
 
 ราคา baseline:
 
-- 1 วัน: 39 บาท
-- 7 วัน: 199 บาท
-- 30 วัน: 599 บาท
-- Hour Pack 12 ชม.: 49 บาท
-- Hour Pack 36 ชม.: 129 บาท
-- Hour Pack 120 ชม.: 399 บาท
+- ~~1 วัน: 39 บาท~~ · ~~7 วัน: 199 บาท~~ · ~~30 วัน: 599 บาท~~ · ~~Hour Pack 12/36/120 ชม.: 49/129/399 บาท~~ **SUPERSEDED โดย D-063 (2026-07-13) → §0.0.4** — ราคา canon ใหม่ (duration pass 1/10/30 วัน ไม่มี Hour Pack): **15 / 69 / 149 บาท**
 
 ได้:
 
-- Bot 12 ชม. ต่อรอบ
+- ~~Bot 12 ชม. ต่อรอบ~~ **SUPERSEDED โดย D-063 → §0.0.4** — ทุก tier รันได้ 24/7 เท่ากัน ไม่มี hour cap ต่อรอบ
 - หลาย profile
 - Goal Chain 3 ขั้น
 - Daily/Event flow
@@ -379,6 +389,8 @@ Pacing:
 - Boss: หมูป่าหม้อเดือด
 - Material: เมือกดึ๋ง, หนังหมูพอง, ขนนกปุ๊
 - Hook: ดึ๋งปุ๊เป็นเรื่องที่ชาวเมืองเห็นจนชิน
+
+> **หมายเหตุ (D-064, 2026-07-13, ดู §0.0.4 ข้อ 3):** หมูป่าหม้อเดือด = **Field Boss** ประจำ Map 1 (โครงบอส 3 ชั้น: Field/Story/World) — ไม่ใช่ Story Boss · Story Boss ของ Map 1 = `boss_map1_resonant_guardian` "ผู้พิทักษ์เสียงสะท้อน" lv8 (D-047)
 
 ## Map 2 — ถนนชายไร่
 
@@ -1430,7 +1442,7 @@ Prototype scene ควรมี:
 8. Bot + Auto Pilot + Report รวมเป็นระบบผู้ช่วยนักล่า
 9. Free มี Bot/Auto Pilot/Report พื้นฐานถาวร
 10. Paid Assistant ไม่ถาวร เป็น pass/hour pack
-11. Pro Bot ทำงาน 12 ชั่วโมงต่อรอบ
+11. ~~Pro Bot ทำงาน 12 ชั่วโมงต่อรอบ~~ **SUPERSEDED โดย D-063 (2026-07-13) → §0.0.4** — ทุก tier (รวม Free) ปล่อยรันได้ 24/7 เท่ากัน ไม่มี hour cap ต่อรอบ; ความต่างระหว่าง tier = ความสามารถ ไม่ใช่เวลา
 12. Pro มี Goal Chain 3 ขั้น
 13. Market Helper เป็น paid-only feature แยก ไม่ใช่ trade bot
 14. Currency หลักมี ทอง / ตราสั่นพ้อง / เพชร
@@ -4051,11 +4063,21 @@ Tech impact:
 
 1. **หลักการ: backgrounding ≠ เปิด bot** — พับจอ/สลับแท็บไม่ใช่ช่องทาง farm; automation ต้องกด Online Bot ชัดเจนเท่านั้น (§59.2)
 2. Tab hidden → client หยุดส่ง active input; server ยังถือ character เป็น entity ในโลก
-3. **ในสนาม (field)**: ไม่อยู่ combat ครบ 15s → เริ่ม safe-disconnect countdown → ครบ 30s ยังไม่ combat → disconnect + save ตำแหน่ง safe-valid (login กลับ safe camp ถ้าตำแหน่งไม่ valid) — ไม่ทิ้ง ghost 30s แบบปิดแท็บ เพราะเป็นการออกแบบ deliberate ไม่ใช่หลุด
-4. **ระหว่าง combat**: ตัวละครยังรับ damage ตามปกติ ไม่ auto-cast; disconnect หลัง combat จบ/ตาย
-5. **ในเมือง/safe camp**: disconnect gracefully หลัง hidden 60s
-6. ตัวเลข 15/30/60 = **draft knobs PENDING tune** (Q5.3) · สมาชิก party ที่ยัง active อยู่ได้ **extended window ~120–180s** เป็น knob (Q5.2)
-7. **โหมด "ปักหลัก"** (Q5.4): toggle ชัดเจนสำหรับยืนโชว์ตัวในเมือง/จุดปลอดภัยแบบออนไลน์ค้างไว้ โดยไม่มี automation ใดๆ — ตอบโจทย์ social/show-off โดยไม่ละเมิดเส้น bot
+3. ~~**ในสนาม (field)**: ไม่อยู่ combat ครบ 15s → เริ่ม safe-disconnect countdown → ครบ 30s ยังไม่ combat → disconnect + save~~ **SUPERSEDED โดย D-056 (2026-07-13) → §59.1.3** — ไม่มี forced disconnect ในสนามอีกต่อไป
+4. **ระหว่าง combat**: ตัวละครยังรับ damage ตามปกติ ไม่ auto-cast (**คงไว้ตาม D-056** เพื่อกัน exploit หนีตายด้วยการ AFK)
+5. ~~**ในเมือง/safe camp**: disconnect gracefully หลัง hidden 60s~~ **SUPERSEDED โดย D-056** — ไม่มี disconnect ในเมือง
+6. ~~ตัวเลข 15/30/60 draft knobs · party extended window ~120–180s~~ **SUPERSEDED โดย D-056** — knob ชุด disconnect ถูกยกเลิก
+7. ~~**โหมด "ปักหลัก"** toggle~~ **SUPERSEDED โดย D-056** — ตัดทิ้ง; ใช้ป้าย AFK อัตโนมัติแทน
+
+### 59.1.3 Amendment (v15.3, 2026-07-13) — AFK ค้างเต็มที่ (D-056)
+
+**Supersede §59.1.2 ข้อ 3, 5, 6, 7.** owner เคาะ 2026-07-13 (verbatim): "อยากให้มันมีการ AFK ได้... ขอแค่เขาไม่ปิด tab หรือ ไม่ปิด บราวเซอร์ ไม่อยากให้มีการหยุดทำงานอะไรเลย"
+
+1. **ตราบใดไม่ปิดแท็บ/เบราว์เซอร์ → ตัวละครค้างในโลกได้เต็มที่ ไม่มี forced disconnect ที่ไหนเลย** (ทั้งสนาม/เมือง/party). คงข้อ 1–2 และ **ข้อ 4** (combat ยังรับ damage, ไม่ auto-cast) ของ §59.1.2 ไว้
+2. **ตายคาสนาม = Option A**: ไม่มี idle de-aggro — AFK กลาง combat มอนตีต่อ ตายได้ทุกโซน = ความเสี่ยงของผู้เล่นเอง
+3. `afkHardCapHours = null` (P2 ไม่ cap; เดินสาย knob inert, ทบทวนก่อน open alpha) · `idleIndicatorSec = 60` (ป้าย AFK อัตโนมัติ) · reconnect grace 30s (§59.1) ไม่แตะ
+4. **มือถือ = best-effort** — OS freeze/kill แท็บพื้นหลังเอง คุมไม่ได้; หลุด → grace 30s → มี **ข้อความอธิบายข้อจำกัด OS**
+5. **Party share (P2B)**: ยืนนิ่งเกิน `idleIndicatorSec` = ไม่รับ EXP/loot share (contribution-based); ระบบช่วยเล่นที่สร้าง contribution จริง = ไม่ตัด (owner verbatim: "หากเปิด BOT ช่วยไม่ตัด แต่ยืนเฉยๆ ตัดส่วนแบ่งครับ")
 
 ---
 

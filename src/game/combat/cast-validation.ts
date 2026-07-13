@@ -25,6 +25,7 @@ import type { MapZoneType, TileSize } from "@/engine/config";
 export type CastRejectReason =
   | "safe_zone"
   | "unknown_skill"
+  | "locked" // A3: playerLevel < skill.unlockLevel (§50.1 unlockLevel / P1_BALANCE §3 unlock-by-level)
   | "cooldown"
   | "out_of_range";
 
@@ -107,6 +108,11 @@ export function resolveSkillHits(
 export interface CastValidationInput {
   skill: SkillDefinition | undefined;
   /**
+   * A3 (§50.1 unlockLevel / P1_BALANCE §3): เลเวลปัจจุบันของผู้ cast — ต่ำกว่า skill.unlockLevel → reject "locked"
+   * (server-authoritative unlock gate; skill S2 unlock 3, S3/S4 unlock 5). server ส่ง sessionProgress.level เข้ามา.
+   */
+  playerLevel: number;
+  /**
    * P1-11 (GS §14 Safe Zone): zone ของ map ที่ cast — "safe" (เมือง) → ปฏิเสธเสมอ (ไม่มี combat ในเมือง).
    * optional; ไม่ระบุ → ถือว่า "field" (combat ปกติ). server ส่ง map.zoneType เข้ามา.
    */
@@ -123,17 +129,22 @@ export interface CastValidationInput {
 export type CastValidation = { ok: true } | { ok: false; reason: CastRejectReason };
 
 /**
- * ตัดสินว่า cast ผ่านไหม (pure) — ลำดับ: safe zone → รู้จัก skillId → cooldown → range.
+ * ตัดสินว่า cast ผ่านไหม (pure) — ลำดับ: safe zone → รู้จัก skillId → unlock-by-level → cooldown → range.
  * safe zone (เมือง, GS §14) ปฏิเสธ **ทุก** cast ก่อนเช็คอื่น (ไม่มี combat ในเมือง — reason เด่นที่สุด).
+ * "locked" (A3) มาก่อน cooldown/range = "ยังไม่ปลดสกิลนี้" สำคัญกว่า timing (§50.1 unlockLevel).
  * ผ่าน = caller apply (set cooldown + resolveSkillHits + damage). ไม่ผ่าน = ตอบ reason (ไม่ apply).
  */
 export function validateCast(input: CastValidationInput): CastValidation {
   if (input.zoneType === "safe") return { ok: false, reason: "safe_zone" };
   if (!input.skill) return { ok: false, reason: "unknown_skill" };
+  if (input.playerLevel < input.skill.unlockLevel) return { ok: false, reason: "locked" };
   if (!isSkillReady(input.readyAtMs, input.nowMs)) {
     return { ok: false, reason: "cooldown" };
   }
+  // self-target skill (A3: S4 sword_guard_domain, range 0) — "aim" = ตัวเอง, range check ไม่มีความหมาย (radius ใช้กับ
+  //   AoE/taunt รอบตัว ไม่ใช่ระยะ aim). ข้าม range กัน client/server pos ต่างเสี้ยว → false reject (§50.1 targetType).
   if (
+    input.skill.targetType !== "self" &&
     !isAimInRange(input.casterPos, input.aimPos, input.skill.range, input.rangeToleranceFactor)
   ) {
     return { ok: false, reason: "out_of_range" };

@@ -15,6 +15,28 @@ import { useRouter } from "next/navigation";
 import { createEngine, type EngineHandle } from "@/engine/runtime/app";
 import { DEFAULT_ENGINE_CONFIG, createEngineConfig } from "@/engine/config";
 import { DebugOverlay } from "@/ui/DebugOverlay";
+import { PanelProvider } from "@/ui/panels";
+import { InventoryHudButton } from "@/ui/panels/inventory/InventoryHudButton";
+import { InventoryPanel } from "@/ui/panels/inventory/InventoryPanel";
+import { EnhancementTargetProvider } from "@/ui/panels/enhancement/enhancement-target-context";
+import { EnhancementHudButton } from "@/ui/panels/enhancement/EnhancementHudButton";
+import { EnhancementPanel } from "@/ui/panels/enhancement/EnhancementPanel";
+import { ShopHudButton } from "@/ui/panels/shop/ShopHudButton";
+import { ShopPanel } from "@/ui/panels/shop/ShopPanel";
+import { StorageHudButton } from "@/ui/panels/storage/StorageHudButton";
+import { StoragePanel } from "@/ui/panels/storage/StoragePanel";
+import { HelpFocusProvider } from "@/ui/panels/help/help-focus-context";
+import { HelpHudButton } from "@/ui/panels/help/HelpHudButton";
+import { HelpPanel } from "@/ui/panels/help/HelpPanel";
+import { SettingsHudButton } from "@/ui/panels/settings/SettingsHudButton";
+import { SettingsPanel } from "@/ui/panels/settings/SettingsPanel";
+import { applyEffectQualityPreferences } from "@/ui/panels/settings/settings-view";
+import { createEffectQualityPreferencesStore } from "@/ui/panels/settings/effect-quality-preference";
+import { StatusCluster } from "@/ui/panels/status/StatusCluster";
+import { DeathToast } from "@/ui/panels/status/DeathToast";
+import { SkillBar } from "@/ui/panels/skillbar/SkillBar";
+import { MobileControls } from "@/ui/panels/mobile/MobileControls";
+import { MobileOsNotice } from "@/ui/panels/mobile/MobileOsNotice";
 import { resolveGameEntry } from "@/app/game/boot-gate";
 import {
   readSelectedCharacterId,
@@ -31,6 +53,9 @@ const ENGINE_CONFIG = RT_URL
       net: { ...DEFAULT_ENGINE_CONFIG.net, serverUrl: RT_URL },
     })
   : DEFAULT_ENGINE_CONFIG;
+
+// P2-15: effect quality preference (localStorage) — apply ตอน engine พร้อม (boot) + SettingsPanel ปรับ live ต่อ.
+const effectQualityStore = createEffectQualityPreferencesStore();
 
 export function GameCanvas() {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -77,6 +102,8 @@ export function GameCanvas() {
             }
             handle = created;
             engineRef.current = created;
+            // P2-15: ใช้ effect quality ที่ผู้เล่นเคยเลือก (ลด shake/particle บนมือถือ) ตั้งแต่ boot
+            applyEffectQualityPreferences(created, effectQualityStore.load());
           })
           .catch((err) => {
             console.error("[GameCanvas] engine init failed", err);
@@ -95,13 +122,51 @@ export function GameCanvas() {
   }, [router]);
 
   return (
-    <>
-      <div
-        ref={containerRef}
-        className="h-screen w-screen overflow-hidden"
-        aria-label="game viewport"
-      />
-      <DebugOverlay getHandle={() => engineRef.current} />
-    </>
+    // P2-07: PanelProvider mount ที่นี่ (ครั้งแรกในแอป) — ครอบทุก panel content ที่ใช้ usePanelManager()
+    // (inventory ตอนนี้, shop/help-hint ในงานถัดไปเข้าคู่เดียวกัน) รวม DebugOverlay ไว้ในต้นไม้เดียวกันด้วย
+    // เผื่ออนาคตต้องคุยกับ panel state (ตอนนี้ยังไม่ต้อง).
+    <PanelProvider>
+      {/* P2-10: EnhancementTargetProvider ครอบ InventoryPanel (ปุ่ม "เสริมแกร่ง" ตั้ง target) +
+          EnhancementHudButton/Panel (อ่าน target) — ดู rationale ที่ enhancement-target-context.tsx.
+          P2-12: HelpFocusProvider ครอบเช่นกัน (ContextHelpButton ในแต่ละจอ + HelpHudButton/Panel อ่าน
+          focusedArticleId เดียวกัน) — ดู rationale ที่ help-focus-context.tsx */}
+      <EnhancementTargetProvider>
+        <HelpFocusProvider>
+          <div
+            ref={containerRef}
+            className="h-screen w-screen overflow-hidden"
+            aria-label="game viewport"
+          />
+          <DebugOverlay getHandle={() => engineRef.current} />
+          <InventoryHudButton />
+          <InventoryPanel getHandle={() => engineRef.current} />
+          <EnhancementHudButton />
+          <EnhancementPanel getHandle={() => engineRef.current} />
+          {/* P2-11: ปุ่มร้านค้า render เฉพาะ available:true (city-hub) — ดู ShopHudButton.tsx */}
+          <ShopHudButton />
+          <ShopPanel getHandle={() => engineRef.current} />
+          {/* P2-17: ปุ่มคลัง render เฉพาะ available:true (city-hub) — ดู StorageHudButton.tsx */}
+          <StorageHudButton />
+          <StoragePanel getHandle={() => engineRef.current} />
+          {/* P2-12: ปุ่ม "?" หลัก render เสมอ (DG §5.2) */}
+          <HelpHudButton />
+          <HelpPanel />
+          {/* E3 (P2 UI §8.2): player status cluster (level + HP bar + EXP bar + low-HP pulse) top-left */}
+          <StatusCluster />
+          {/* E4 (§13): death toast สั้น ๆ ตอนตาย (respawn instant ตามมาทันที, owner ruling) */}
+          <DeathToast />
+          {/* A3 (P2 UI §8.3): แถบสกิล hotbar (S1-S4) — desktop (Digit1-4/คลิก) + มือถือ (แตะช่อง) */}
+          <SkillBar getHandle={() => engineRef.current} />
+          {/* P2-15: settings (effect quality/screen shake) + mobile controls + OS notice */}
+          <SettingsHudButton />
+          <SettingsPanel getHandle={() => engineRef.current} />
+          <MobileControls
+            getHandle={() => engineRef.current}
+            joystick={ENGINE_CONFIG.input.joystick}
+          />
+          <MobileOsNotice />
+        </HelpFocusProvider>
+      </EnhancementTargetProvider>
+    </PanelProvider>
   );
 }

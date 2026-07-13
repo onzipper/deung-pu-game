@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" shape-rendering="crispEdges">
+  <!-- eq_accessory_resonance_bead — resonance-teal bead necklace, rarity frame = Moon Blue (rare) -->
+  <rect x="8" y="8" width="48" height="48" fill="none" stroke="#7786C8" stroke-width="2"/>
+  <path d="M20,40 Q32,20 44,40" fill="none" stroke="#167C78" stroke-width="2"/>
+  <circle cx="24" cy="36" r="4" fill="#35C6B0" stroke="#171820" stroke-width="1"/>
+  <circle cx="32" cy="30" r="5" fill="#35C6B0" stroke="#171820" stroke-width="1"/>
+  <circle cx="40" cy="36" r="4" fill="#35C6B0" stroke="#171820" stroke-width="1"/>
+</svg>

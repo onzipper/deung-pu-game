@@ -8,6 +8,7 @@ type Mode = "default" | "login" | "register";
 
 // UI spec v1 §6 (Login/Guest Entry) — desktop panel 420px centered, primary=Continue/Guest, secondary=Email.
 // V1 tokens (decision-index 2026-07-12): radius 6/10/16 + pill · touch/hit area >=48px.
+// Token-driven (src/app/globals.css --dp-*) — was inline hex, migrated in the E6 visual-foundation pass.
 export function AuthPanel(): React.JSX.Element {
   const router = useRouter();
   const [mode, setMode] = useState<Mode>("default");
@@ -83,23 +84,23 @@ export function AuthPanel(): React.JSX.Element {
   }
 
   const inputClass =
-    "w-full min-h-[48px] rounded-[6px] border border-[#68483A] bg-[#171820] px-4 text-[16px] text-[#F2D6A0] placeholder:text-[#8E6046] focus:outline-none focus:ring-2 focus:ring-[#35C6B0]";
+    "w-full min-h-[48px] rounded-(--dp-radius-sm) border border-(--dp-soil-brown) bg-(--dp-deep-ink) px-4 text-[16px] text-(--dp-parchment) placeholder:text-(--dp-clay) focus:outline-none focus:ring-2 focus:ring-(--dp-resonance-teal)";
   const primaryBtnClass =
-    "w-full min-h-[48px] rounded-[10px] bg-[#35C6B0] px-5 text-[16px] font-semibold text-[#171820] transition-colors hover:bg-[#7CE9D0] disabled:cursor-not-allowed disabled:opacity-50";
+    "w-full min-h-[48px] rounded-(--dp-radius-md) bg-(--dp-resonance-teal) px-5 text-[16px] font-semibold text-(--dp-deep-ink) transition-colors hover:bg-(--dp-resonance-light) disabled:cursor-not-allowed disabled:opacity-50";
   const secondaryBtnClass =
-    "w-full min-h-[48px] rounded-[10px] border border-[#68483A] bg-transparent px-5 text-[16px] font-medium text-[#F2D6A0] transition-colors hover:bg-[#2B2230] disabled:cursor-not-allowed disabled:opacity-50";
+    "w-full min-h-[48px] rounded-(--dp-radius-md) border border-(--dp-soil-brown) bg-transparent px-5 text-[16px] font-medium text-(--dp-parchment) transition-colors hover:bg-(--dp-warm-ink) disabled:cursor-not-allowed disabled:opacity-50";
 
   return (
-    <div className="mx-auto w-full max-w-[420px] rounded-[16px] border border-[#4A332E] bg-[#2B2230] p-6 shadow-lg">
-      <h1 className="mb-1 text-center text-[28px] font-bold text-[#F2D6A0]">ดึ๋งปุ๊</h1>
-      <p className="mb-6 text-center text-[14px] text-[#D8AE70]">
+    <div className="mx-auto w-full max-w-[420px] rounded-(--dp-radius-lg) border border-(--dp-deep-brown) bg-(--dp-warm-ink) p-6 dp-shadow-panel">
+      <h1 className="mb-1 text-center text-[28px] font-bold text-(--dp-parchment)">ดึ๋งปุ๊</h1>
+      <p className="mb-6 text-center text-[14px] text-(--dp-sand)">
         เข้าเล่นแบบ Guest ได้ทันที หรือเข้าสู่ระบบด้วยอีเมล
       </p>
 
       {error && (
         <div
           role="alert"
-          className="mb-4 rounded-[6px] border border-[#D84848] bg-[#171820] px-4 py-3 text-[14px] text-[#D84848]"
+          className="mb-4 rounded-(--dp-radius-sm) border border-(--dp-danger-red) bg-(--dp-deep-ink) px-4 py-3 text-[14px] text-(--dp-danger-red)"
         >
           {error}
         </div>
@@ -115,7 +116,7 @@ export function AuthPanel(): React.JSX.Element {
           >
             {loading ? "กำลังเชื่อมต่อ..." : "เล่นแบบ Guest"}
           </button>
-          <p className="text-center text-[12px] text-[#8E6046]">
+          <p className="text-center text-[12px] text-(--dp-clay)">
             บัญชี Guest ผูกกับอุปกรณ์นี้ — เชื่อม Email ภายหลังได้
           </p>
           <button
@@ -128,7 +129,7 @@ export function AuthPanel(): React.JSX.Element {
           </button>
           <button
             type="button"
-            className="min-h-[48px] text-[14px] text-[#7CE9D0] underline underline-offset-2"
+            className="min-h-[48px] text-[14px] text-(--dp-resonance-light) underline underline-offset-2"
             disabled={loading}
             onClick={() => setMode("register")}
           >
@@ -160,7 +161,7 @@ export function AuthPanel(): React.JSX.Element {
           </button>
           <button
             type="button"
-            className="min-h-[48px] text-[14px] text-[#D8AE70]"
+            className="min-h-[48px] text-[14px] text-(--dp-sand)"
             disabled={loading}
             onClick={() => setMode("default")}
           >
@@ -200,7 +201,7 @@ export function AuthPanel(): React.JSX.Element {
           </button>
           <button
             type="button"
-            className="min-h-[48px] text-[14px] text-[#D8AE70]"
+            className="min-h-[48px] text-[14px] text-(--dp-sand)"
             disabled={loading}
             onClick={() => setMode("default")}
           >

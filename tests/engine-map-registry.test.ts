@@ -74,10 +74,12 @@ describe("CITY_HUB — นครอรุณผนึก (P1-11, GS §3.3 · §1
 });
 
 describe("MAP1 — production layout ผ่าน validation (P1-10)", () => {
-  test("โหลดผ่าน + ขนาด Small–Medium + 4 pocket + 1 exit", () => {
+  test("โหลดผ่าน + ขนาด Small–Medium + 4 farming pocket + 1 boss pocket + 1 exit", () => {
     const map = requireMap(MAP1_ID);
     expect(map.bounds).toEqual({ width: 40, height: 40 });
-    expect(map.mobPockets).toHaveLength(4); // MAP_SCALE §5 Map 1 = 4
+    // MAP_SCALE §5 Map 1 = 4 farming pocket + Field Boss หมูป่าหม้อเดือด (phase-based, ไม่นับ farming) = 5 รวม
+    expect(map.mobPockets).toHaveLength(5);
+    expect(map.mobPockets.filter((p) => p.mobType === "boss_boiling_boar")).toHaveLength(1);
     expect(map.exits).toHaveLength(1);
     expect(map.safeCamp).toBeDefined();
   });
@@ -89,13 +91,16 @@ describe("MAP1 — production layout ผ่าน validation (P1-10)", () => {
     );
   });
 
-  test("pocket density ตรง MAP_SCALE §6 (activeCap)", () => {
+  test("pocket density (owner tune 2026-07-13 — มอนธรรมดาเยอะ+ไวขึ้น; elite/boss คงเดิม)", () => {
     const map = requireMap(MAP1_ID);
     const byId = new Map(map.mobPockets.map((p) => [p.pocketId, p]));
-    expect(byId.get("map1-slime-center")?.activeCap).toBe(18);
-    expect(byId.get("map1-bird-east")?.activeCap).toBe(12);
-    expect(byId.get("map1-boar-southwest")?.activeCap).toBe(18);
+    // owner tune: normal mobs activeCap สูงขึ้น (Design Knob §48; เดิม §6 = 18/12/18)
+    expect(byId.get("map1-slime-center")?.activeCap).toBe(24);
+    expect(byId.get("map1-bird-east")?.activeCap).toBe(16);
+    expect(byId.get("map1-boar-southwest")?.activeCap).toBe(24);
+    // elite + boss = ไม่แตะ (cap 1 เดิม)
     expect(byId.get("map1-boar-elite")?.activeCap).toBe(1);
+    expect(byId.get("map1-boss-boiling-boar")?.activeCap).toBe(1);
   });
 });
 

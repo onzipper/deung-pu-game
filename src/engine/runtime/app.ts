@@ -13,12 +13,14 @@
 //   client อื่นเห็นหาย) → mount world ใหม่ (join room map ปลายทางที่ targetSpawn) → fade in. input lock ระหว่างนั้น.
 //   online = server ตัดสิน (MSG_MAP_TRANSITION) · offline = client ตรวจ exit เอง (findExitAt) → ข้าม map local ได้.
 
-import { Application, Container, Text, type Ticker } from "pixi.js";
+import { Application, Container, Text, TextureSource, type Ticker } from "pixi.js";
 import { type EngineConfig, resolveResolution } from "../config";
 import { requireMap, getMap, hasMap } from "../map/registry";
 import { findExitAt, type MapConfig } from "../map/types";
 import { createMapScene, type MapSceneHandle } from "../render/scene";
 import { buildExitMarkerPolygons } from "../render/exit-marker";
+import { createAssetRegistry } from "../assets/registry";
+import { collectMapAssetIds } from "../assets/collect";
 import { createLocalPlayer, type LocalPlayerHandle } from "../player/local-player";
 import { createMobViewManager, type MobViewHandle } from "@/game/mob/manager";
 import { createMobSimulation, type MobSimulation } from "@/game/mob/simulation";
@@ -31,8 +33,18 @@ import {
   type EngageState,
 } from "@/game/combat/target-engage";
 import { createStressHarness, type StressHarnessHandle } from "@/game/combat/stress-harness";
+import {
+  inputModeFromPointerType,
+  resolveTargetAssistRadius,
+} from "@/engine/input/target-assist";
+import type { EffectQuality } from "@/engine/config";
 import { WARRIOR_SKILLS_CLIENT } from "@/game/skill/data/warrior-skills-client";
 import { createNetClient, type NetClientHandle } from "../net/net-client";
+import {
+  clampDtMs,
+  createVisibilityController,
+  type VisibilityController,
+} from "../net/visibility";
 import { createSessionReconnectStore } from "../net/reconnect-store";
 import { createRemotePlayerManager } from "../net/remote-player-manager";
 import {
@@ -53,7 +65,27 @@ import { createTransitionController } from "./transition";
 import { attachResize } from "./resize";
 import { screenToTile, snapToTile, type TilePoint } from "../iso/coords";
 import { buildDebugInfo, IDLE_NET_DEBUG_INFO, type EngineDebugInfo } from "./debug-info";
-import { createHudPublisher, resetHudState } from "@/ui/store/game-store";
+import {
+  createHudPublisher,
+  resetHudState,
+  setDeathNotice,
+  setDeliveryResult,
+  setDeliveryState,
+  setEnhanceResult,
+  setGoldFromProgress,
+  setInventoryRejection,
+  setInventoryState,
+  setPlayerDead,
+  setPlayerExp,
+  setPlayerLevel,
+  setPlayerVitals,
+  setShopList,
+  setShopResult,
+  setSkillSlots,
+  setStorageResult,
+  setStorageState,
+} from "@/ui/store/game-store";
+import { getSoundManager } from "@/engine/audio/sound-manager";
 
 /** handle สาธารณะที่ React (หรือ caller อื่น) ใช้คุมกับ engine — ห้ามให้ caller แตะ pixi ตรง ๆ นอกจากผ่าน app */
 export interface EngineHandle {
@@ -75,11 +107,36 @@ export interface EngineHandle {
   getDebugInfo(): EngineDebugInfo;
   /** เปิด/ปิด depth-rank text เหนือ entity ทุกตัว (debug tool, P0-11) — passthrough ไปที่ scene */
   setDepthDebug(enabled: boolean): void;
+  /**
+   * P2-15: ปุ่มโจมตีบนจอ (มือถือ) — target assist + engage/attack. UI (AttackButton) เรียกผ่าน handle นี้.
+   * delegate ไป world ปัจจุบัน (getter live เหมือน scene/player/net).
+   */
+  pressAttack(): void;
+  /**
+   * A3 (P2 UI §8.3): cast สกิลช่อง slot (1-4 = S1-S4). Digit1-4 + ปุ่มสกิลมือถือเรียกผ่านนี้. ตรวจ unlock +
+   * client predictive cooldown ก่อนส่ง cast (server เป็น authority สุดท้าย). delegate ไป world ปัจจุบัน.
+   */
+  castSlot(slot: number): void;
+  /**
+   * P2-15 (GS §17.10): ตั้ง effect quality tier ตอน runtime (UI settings) — mutate config.combatFeel
+   * .effectQuality.current; combat-stub อ่านค่านี้ **live** ทุก frame (screen shake amplitude + damage
+   * number concurrent cap) จึงมีผลทันทีทุก world. boss telegraph ไม่ถูกลด (invariant GS §18.5).
+   */
+  setEffectQuality(quality: EffectQuality): void;
+  /** P2-15 (GS §17.5): เปิด/ปิด screen shake ตอน runtime — mutate config.combatFeel.screenShake.enabled (live). */
+  setScreenShakeEnabled(enabled: boolean): void;
   /** เก็บกวาดครบ: ticker, resize observer, canvas, GPU resources */
   destroy(): void;
 }
 
 const FPS_SAMPLE_INTERVAL_MS = 250;
+
+/**
+ * P2-13 (D-056): เพดาน delta-time (ms) ต่อ tick — กัน movement/interpolation ก้าวเดียวพุ่งไกลเมื่อ browser
+ * throttle rAF ตอนแท็บ hidden แล้ว refocus (dt กระโดดจากหลักวินาที). pixi ticker clamp ~100ms (minFPS 10)
+ * อยู่แล้ว; ทำซ้ำที่นี่ให้ชัด/รับประกันไม่ว่า ticker จะถูกตั้งค่าใด (operational const ไม่ใช่ balance).
+ */
+const MAX_TICK_DELTA_MS = 100;
 
 /**
  * "world" ต่อ 1 map (P1-10) — ทุกอย่างที่ผูกกับ map (scene/player/mobs/combat/net/input). สร้างใหม่
@@ -91,6 +148,10 @@ interface WorldHandle {
   readonly net: NetClientHandle | null;
   /** run 1 frame — locked=true (ระหว่าง transition) → freeze input/movement/net-send แต่ยัง render. */
   tick(dtSeconds: number, deltaMs: number, deltaTime: number, locked: boolean): void;
+  /** P2-15: ปุ่มโจมตีมือถือ — target assist (keyboardAssist) + engage/attack (ดู pressAttack ใน mountWorld). */
+  pressAttack(): void;
+  /** A3 (P2 UI §8.3): cast สกิลช่อง slot (1-4) — ตรวจ unlock/cooldown แล้วส่ง cast (ดู castSlot ใน mountWorld). */
+  castSlot(slot: number): void;
   getDebugInfo(fps: number): EngineDebugInfo;
   setDepthDebug(enabled: boolean): void;
   resize(width: number, height: number): void;
@@ -107,15 +168,30 @@ export async function createEngine(
 ): Promise<EngineHandle> {
   const app = new Application();
 
-  const resolution = resolveResolution(
-    config,
-    typeof globalThis !== "undefined" ? globalThis.devicePixelRatio : undefined,
-  );
+  // D-065 art path ①: pixelate mode → ตั้ง scaleMode ของ texture ทุกใบ (nearest) **ก่อน** สร้าง texture ใด ๆ.
+  // เป็น global default ของ pixi (module-level) — restore เป็น "linear" ใน destroy() กันค่าค้างข้าม
+  // React StrictMode remount (mount→destroy→mount ใช้ default ตัวเดียวกันทั้ง process).
+  if (config.render.pixelate) {
+    TextureSource.defaultOptions.scaleMode = config.render.textureScaleMode;
+  }
+
+  // engine-scope atlas registry (P3): สร้างหลังตั้ง scaleMode (texture ที่ slice จะได้ scaleMode ถูกตั้งแต่แรก).
+  // preload atlas ที่ map ต้องใช้ก่อน mount; call site (player/mob/prop) peek แล้วยืม texture (non-owning).
+  const registry = createAssetRegistry(config.render.assetBaseUrl);
+
+  // pixelate: ล็อก resolution สัมบูรณ์ (ไม่คูณ dpr → pixel size คงที่ทุกจอ) + ปิด antialias เสมอ.
+  // ปกติ: resolve resolution ตาม config.resolution ?? devicePixelRatio.
+  const resolution = config.render.pixelate
+    ? config.render.renderResolution
+    : resolveResolution(
+        config,
+        typeof globalThis !== "undefined" ? globalThis.devicePixelRatio : undefined,
+      );
 
   await app.init({
     backgroundColor: config.backgroundColor,
     backgroundAlpha: config.backgroundAlpha,
-    antialias: config.antialias,
+    antialias: config.render.pixelate ? false : config.antialias,
     resolution,
     autoDensity: config.autoDensity,
     preference: config.preference,
@@ -127,6 +203,11 @@ export async function createEngine(
 
   container.appendChild(app.canvas);
 
+  // pixelate: ให้ browser upscale canvas เองแบบ nearest (คมเป็นบล็อก ไม่เบลอ)
+  if (config.render.pixelate && config.render.cssImageRendering) {
+    app.canvas.style.imageRendering = "pixelated";
+  }
+
   let viewW = Math.max(1, container.clientWidth);
   let viewH = Math.max(1, container.clientHeight);
 
@@ -137,7 +218,9 @@ export async function createEngine(
     text: "FPS —",
     style: { fill: 0xffffff, fontSize: 14, fontFamily: "monospace" },
   });
-  fpsText.position.set(12, 12);
+  // ย้ายลงใต้ E3 status cluster (HP/EXP/level มุมซ้ายบน left-4 top-4 ~ย 16-52) — เดิม (12,12) ถูก React overlay
+  // ทับจนมองไม่เห็น (owner feedback 2026-07-13). วางที่ y 64 = ใต้ cluster พอดี, มุมซ้ายบนโล่งบน desktop.
+  fpsText.position.set(12, 64);
   ui.addChild(fpsText);
 
   // --- transition controller (fade overlay บนสุด — ครอบ world + ui) ---
@@ -166,6 +249,10 @@ export async function createEngine(
     targetMapId: string,
     targetSpawn: { x: number; y: number },
   ): void => {
+    // P3: preload atlas ของ map ปลายทางทันที (ระหว่าง fade-out) — พอถึง mountWorld ตอนจอมืด peek มักพร้อม
+    // (ยังไม่ทันก็ fallback placeholder). non-blocking — ไม่ถ่วง transition.
+    const preTarget = getMap(targetMapId);
+    if (preTarget) void registry.preload(collectMapAssetIds(preTarget, config));
     transition.start(() => {
       const targetMap = getMap(targetMapId);
       if (!targetMap) {
@@ -186,7 +273,7 @@ export async function createEngine(
    */
   function mountWorld(map: MapConfig, spawn: { x: number; y: number }): WorldHandle {
     // --- map scene ---
-    const scene = createMapScene(app, map, config);
+    const scene = createMapScene(app, map, config, registry);
     // P1 fix: highlight พื้น exit area ให้เห็น "ทางออก" (owner เดินหา exit ไม่เจอเพราะ placeholder art ล้วน).
     // ground-level overlay ใต้ entity, ไม่แตะ depth-sort. teardown = scene.destroy() (world.destroy children)
     // ตอนสลับ map. placeholder จนกว่าจะมี art จริง (ประตู/ป้าย sprite).
@@ -196,11 +283,11 @@ export async function createEngine(
     );
 
     // --- local player (P0-05): spawn ที่ map.spawnPoint แล้ว snap ไป spawn จริง (targetSpawn ตอน transition) ---
-    const player = createLocalPlayer(scene, map, config, app.renderer);
+    const player = createLocalPlayer(scene, map, config, app.renderer, registry);
     player.applyCorrection(spawn.x, spawn.y); // ย้าย + snap กล้องมาที่จุดเกิดจริง (idempotent ถ้า = spawnPoint)
 
     // --- mobs (P1-03): server-authoritative → view manager render จาก snapshot ---
-    const mobView: MobViewHandle = createMobViewManager(scene, config, app.renderer);
+    const mobView: MobViewHandle = createMobViewManager(scene, config, app.renderer, registry);
 
     // --- combat (P1-05 server-authoritative): S1 นักดาบจาก client manifest ---
     // P1-11 (GS §14): ปิด combat ในโซน safe (เมือง) — disable ปุ่มโจมตี client (server ปฏิเสธ cast ซ้ำอีกชั้น).
@@ -213,6 +300,50 @@ export async function createEngine(
       isOnline: () => net?.status.state === "online",
       combatEnabled: combatAllowed,
     });
+
+    // --- A3 skill hotbar (P2 UI §8.3 · P1_BALANCE §3.1): cast S2/S3/S4 (+S1 basic) จาก slot 1-4 (Digit1-4/มือถือ) ---
+    //   client predictive cooldown + unlock-by-level (grey ช่องที่ยังไม่ปลด) → publish HUD; **server เป็น authority
+    //   สุดท้าย** (unlock/cooldown/range re-validate ที่ handleCast). S1 (slot 1) route ผ่าน requestAttack เดิม
+    //   (auto-attack loop คุม cooldown/aim/juice ของ basic). S2-4 = discrete cast (สกิลนักดาบ anchor ที่ caster).
+    const skillCooldownReadyAt = new Map<string, number>(); // skillId → performance.now ms พร้อมใช้อีกครั้ง
+    let hotbarPlayerLevel = 1; // จาก MSG_PLAYER_PROGRESS.level (default 1 ก่อนรู้ค่า → เฉพาะ S1 ปลด, S2-4 locked)
+    const publishSkillSlots = (): void => {
+      setSkillSlots(
+        WARRIOR_SKILLS_CLIENT.map((s, i) => ({
+          slot: i + 1,
+          skillId: s.skillId,
+          displayName: s.skillName,
+          keyLabel: String(i + 1),
+          unlockLevel: s.unlockLevel,
+          unlocked: hotbarPlayerLevel >= s.unlockLevel,
+          cooldownReadyAtMs: skillCooldownReadyAt.get(s.skillId) ?? 0,
+          cooldownTotalMs: s.cooldown * 1000,
+          isPrimary: i === 0,
+        })),
+      );
+    };
+    const castSlot = (slot: number): void => {
+      if (!combatAllowed) return; // P1-11 safe zone (เมือง) → ไม่ cast (server ปฏิเสธซ้ำ)
+      const skill = WARRIOR_SKILLS_CLIENT[slot - 1];
+      if (!skill) return;
+      if (hotbarPlayerLevel < skill.unlockLevel) return; // ยังไม่ปลด (server re-validate → reject "locked")
+      const now = performance.now();
+      if (now < (skillCooldownReadyAt.get(skill.skillId) ?? 0)) return; // client predictive cooldown gate
+      if (slot === 1) {
+        player.requestAttack(); // S1 basic → auto-attack path เดิม (cooldown/aim/juice ของ basic)
+        return;
+      }
+      // S2-4: discrete cast — สกิลนักดาบ anchor ที่ caster (ไม่ ground-target) → aim = ตำแหน่ง+ทิศ caster ปัจจุบัน
+      net?.sendCast({
+        skillId: skill.skillId,
+        aimTx: player.position.tx,
+        aimTy: player.position.ty,
+        direction: player.facing,
+      });
+      skillCooldownReadyAt.set(skill.skillId, now + skill.cooldown * 1000);
+      publishSkillSlots();
+    };
+    publishSkillSlots(); // init (S1 ปลด; S2-4 locked จนกว่า progress แจ้ง level ใหม่)
 
     // --- stress harness (P1-06 §5, dev-only) — F4 synthetic load ---
     const stressHarness: StressHarnessHandle = createStressHarness({
@@ -235,7 +366,7 @@ export async function createEngine(
     let sendAccumMs = 0;
     let lastSent: PlayerSnapshot | null = null;
     if (config.net.enabled) {
-      remotes = createRemotePlayerManager(scene, config, app.renderer);
+      remotes = createRemotePlayerManager(scene, config, app.renderer, registry);
       // joinOptions: mapId ของ world นี้ + spawn (server spawn player ที่นี่ตั้งแต่เฟรมแรก / ตอน transition ที่ targetSpawn)
       const initial: PlayerSnapshot = {
         tx: spawn.x,
@@ -270,7 +401,46 @@ export async function createEngine(
             player.applyCorrection(snap.tx, snap.ty);
             lastSent = null;
             sendAccumMs = 0;
+            setPlayerDead(false); // A2: fresh join/reconnect → เคลียร์ death state ค้าง (กัน overlay ค้างข้าม world)
+            // P2-11: ขอ catalog ร้านทันทีที่ self เข้า room สำเร็จ (fresh join/reconnect/ข้าม map ใหม่)
+            // — server ตอบตาม map ปัจจุบัน (available:false = map นี้ไม่มีร้าน, HUD ปุ่มอ่านค่านี้).
+            net?.sendShopListRequest({});
+            // P2-17: ขอเปิดคลัง+กล่องส่งของทันทีเหมือนกัน — server ตอบ 2 snapshot (available:false = map
+            // นี้ไม่มี storage NPC, HUD ปุ่ม "คลัง" อ่านค่านี้ pattern เดียวกับ shop).
+            net?.sendStorageOpen();
           },
+          // P2-13 (D-056): self AFK flag (server-set) → toggle ป้าย "AFK" ของตัวเอง (display-only).
+          onSelfAfkChange: (isAfk) => player.setAfk(isAfk),
+          // A1/A2 (§2/§10): hp/maxHp ของ self (server-authoritative) → HUD แถบ HP (E3). event-driven ไม่ throttle.
+          onSelfVitals: (hp, maxHp) => setPlayerVitals(hp, maxHp),
+          // E3 (§8.2): level ของ self (schema) → badge + refresh A3 hotbar unlock (ปลดสกิลถูกตั้งแต่เกิด/level-up)
+          onSelfLevel: (level) => {
+            setPlayerLevel(level);
+            if (level !== hotbarPlayerLevel) {
+              hotbarPlayerLevel = level;
+              publishSkillSlots();
+            }
+          },
+          // E3 (§8.2): exp ของ self (schema) → store (แถบ EXP + ตัวเลข % xx.xx%) — แสดงตั้งแต่เกิด
+          onSelfExp: (exp, floor, ceil) => setPlayerExp(exp, floor, ceil),
+          // A2 (§10): self ตาย → death state (E4 overlay อ่านต่อ). remote death anim = E-work ภายหลัง.
+          onPlayerDeath: (msg) => {
+            if (net !== null && net.status.selfSessionId === msg.sessionId) {
+              setPlayerDead(true);
+              setDeathNotice(); // E4: stamp timestamp → DeathToast แสดง toast สั้น (respawn instant ตามมาทันที)
+            }
+          },
+          // A2 (§10): self respawn ที่ safe camp → snap local player + camera (client-predicted) + เคลียร์ death.
+          //   remote: ตำแหน่งมาทาง schema อยู่แล้ว. hp เต็มมาทาง onSelfVitals (schema).
+          onPlayerRespawn: (msg) => {
+            if (net === null || net.status.selfSessionId !== msg.sessionId) return;
+            player.applyCorrection(msg.tx, msg.ty);
+            lastSent = null;
+            sendAccumMs = 0;
+            setPlayerDead(false);
+          },
+          // A1 (§2): "player damaged" signal — hit flash/damage number juice = E3/E4 (hp truth มาทาง onSelfVitals).
+          //   ยังไม่ทำ visual รอบนี้ (out of scope); handler ผูกไว้ให้ E-work ต่อยอด (message ถูก consume ที่ net-client).
           onMobAdd: (snap) => mobView.onMobAdd(snap),
           onMobChange: (snap) => mobView.onMobChange(snap),
           onMobRemove: (mobId) => mobView.onMobRemove(mobId),
@@ -290,7 +460,33 @@ export async function createEngine(
               x: msg.targetSpawn.x,
               y: msg.targetSpawn.y,
             }),
+          // P2-07: inventory/equipment snapshot + mutation ปฏิเสธ → push เข้า Zustand bridge ตรง ๆ
+          // (event-driven, ไม่ผ่าน hudPublisher throttle — ดู comment ที่ game-store.ts setInventoryState).
+          onInventoryState: (snap) => setInventoryState(snap),
+          onInventoryOpRejected: (rejected) => setInventoryRejection(rejected),
+          // P2-10: ผลเสริมแกร่ง → Zustand bridge ตรง ๆ (event-driven, ดู comment ที่ game-store.ts setEnhanceResult)
+          onEnhanceResult: (result) => setEnhanceResult(result),
+          // P2-11: catalog ร้าน + ผลซื้อ/ขาย → Zustand bridge ตรง ๆ (event-driven, เหมือน onEnhanceResult)
+          onShopList: (list) => setShopList(list),
+          onShopResult: (result) => setShopResult(result),
+          // P2-09/P2-11: progression หลังฆ่ามอน — ใช้เฉพาะ gold รอบนี้ (ยังไม่มี HUD gold bar แยก)
+          // Wave 2 SFX (D-065): message นี้มาถึงเฉพาะหลังฆ่ามอนที่มีสิทธิ์เท่านั้น → ใช้เป็น "loot/reward" cue
+          onPlayerProgress: (msg) => {
+            setGoldFromProgress(msg);
+            getSoundManager().playSfx("loot");
+            // A3: level เปลี่ยน (level-up) → refresh unlock ของ hotbar (S2 lv3, S3/S4 lv5 ปลด)
+            if (msg.level !== hotbarPlayerLevel) {
+              hotbarPlayerLevel = msg.level;
+              publishSkillSlots();
+            }
+          },
+          // P2-17: คลัง+กล่องส่งของ → Zustand bridge ตรง ๆ (event-driven, เหมือน onShopList/onShopResult)
+          onStorageState: (state) => setStorageState(state),
+          onStorageResult: (result) => setStorageResult(result),
+          onDeliveryState: (state) => setDeliveryState(state),
+          onDeliveryResult: (result) => setDeliveryResult(result),
         },
+
       );
     }
 
@@ -365,10 +561,14 @@ export async function createEngine(
 
     // --- click-to-move + touch (P1-09, TA §17.3 · L11) ---
     const attackRange = firstWarriorSkill.range;
-    const pickRadiusSq = config.pathfinding.clickMobPickRadius ** 2;
-    const mobUnderClick = (foot: TilePoint): { id: string; pos: TilePoint } | null => {
+    // P2-15: รัศมี pick มอนแยกตาม input mode (Combat Bible §3) — caller ส่ง radius ที่ resolve ตาม pointerType.
+    // logic เลือก "มอนใกล้จุดสุดในรัศมี" เหมือนเดิมทุกอย่าง (never-downgrade: targeting เท่านั้น ไม่แตะ combat calc).
+    const mobUnderClick = (
+      foot: TilePoint,
+      radius: number,
+    ): { id: string; pos: TilePoint } | null => {
       let best: { id: string; pos: TilePoint } | null = null;
-      let bestSq = pickRadiusSq;
+      let bestSq = radius * radius;
       for (const t of mobView.getAliveTargets()) {
         const dsq = (t.pos.tx - foot.tx) ** 2 + (t.pos.ty - foot.ty) ** 2;
         if (dsq <= bestSq) {
@@ -384,21 +584,31 @@ export async function createEngine(
     // machine pure ใน target-engage.ts ตัดสิน attack/chase/idle ทุก tick, ที่นี่แค่ execute action จริง.
     let engageState: EngageState = IDLE_ENGAGE_STATE;
 
+    /** engage มอน (tap/press): ถึงระยะ → หัน+ตี, ไกล → เดินเข้าไป (walk-to-attack). ใช้ทั้ง click และ pressAttack. */
+    const engageMob = (mob: { id: string; pos: TilePoint }): void => {
+      engageState = startEngage(mob.id);
+      if (distTo(mob.pos) <= attackRange) {
+        player.faceToward(mob.pos);
+        player.requestAttack();
+        player.cancelPath();
+      } else {
+        player.moveTo(mob.pos);
+      }
+    };
+
     const onPointerDown = (e: PointerEvent): void => {
-      if (e.button !== 0) return;
+      if (e.button !== 0) return; // touch/pen primary contact = button 0 (PointerEvent ครอบ touch เอง)
       if (transition.isLocked()) return; // P1-10: input lock ระหว่างข้าม map
       const foot = footFromEvent(e);
+      // P2-15: รัศมี pick ตาม input mode (mouse 0.60 / touch 0.80, Combat Bible §3).
+      const assistRadius = resolveTargetAssistRadius(
+        inputModeFromPointerType(e.pointerType),
+        config.pathfinding.targetAssist,
+      );
       // P1-11: safe zone (เมือง) ไม่มี combat → คลิกมอน = เดินเฉย ๆ (ไม่ tap-to-attack). เมืองไม่มีมอนอยู่แล้ว.
-      const mob = combatAllowed ? mobUnderClick(foot) : null;
+      const mob = combatAllowed ? mobUnderClick(foot, assistRadius) : null;
       if (mob) {
-        engageState = startEngage(mob.id);
-        if (distTo(mob.pos) <= attackRange) {
-          player.faceToward(mob.pos);
-          player.requestAttack();
-          player.cancelPath();
-        } else {
-          player.moveTo(mob.pos);
-        }
+        engageMob(mob);
       } else {
         // คลิกพื้นเปล่า = ยกเลิก engage ที่ค้างอยู่ (manual override ชนะเสมอ, เหมือน WASD)
         player.moveTo(foot);
@@ -406,6 +616,21 @@ export async function createEngine(
       }
     };
     app.canvas.addEventListener("pointerdown", onPointerDown);
+
+    /**
+     * P2-15: ปุ่มโจมตีบนจอ (มือถือ, แทน Space) → target assist แบบ keyboard (Combat Bible §3, 0.65 tile):
+     * มีมอนใกล้ตัวในรัศมี → auto-engage (หัน+ตี/เดินเข้า, walk-to-attack เดิม); ไม่มี → ตีไปทางหน้าเฉย ๆ
+     * (requestAttack เหมือน Space; combat-stub gate cooldown/safe-zone ต่อ). ไม่มี combat semantics ใหม่ —
+     * reuse engage เดิม, แค่เลือกเป้าใกล้สุดในรัศมี assist.
+     */
+    const pressAttack = (): void => {
+      if (transition.isLocked()) return;
+      const assist = combatAllowed
+        ? mobUnderClick(player.position, config.pathfinding.targetAssist.keyboardAssistRadius)
+        : null;
+      if (assist) engageMob(assist);
+      else player.requestAttack();
+    };
 
     /**
      * รันทุก frame (caller เช็ค !locked แล้ว): WASD (manual override) ยกเลิก engage ทันที; ไม่งั้นประเมิน
@@ -469,25 +694,48 @@ export async function createEngine(
       localLastExitId = exitId;
     };
 
+    // P2-13 (D-056): Page Visibility — แท็บ hidden = **freeze input/net-send** (connection คงอยู่ ไม่มี
+    //   disconnect/countdown); กลับมาเห็น = **fast-resync** snap remote จาก state ปัจจุบัน (กัน rubber band
+    //   หลัง rAF ถูก browser throttle ตอน hidden). browser เท่านั้น (typeof document guard) → detach ตอน destroy.
+    let tabHidden = false;
+    const visibility: VisibilityController | null =
+      typeof document !== "undefined"
+        ? createVisibilityController({
+            onHidden: () => {
+              tabHidden = true;
+            },
+            onVisible: () => {
+              tabHidden = false;
+              remotes?.resyncNow();
+            },
+          })
+        : null;
+
     return {
       scene,
       player,
       net,
       tick(dtSeconds, deltaMs, deltaTime, locked): void {
-        // calc: player intent → movement (freeze ตอน transition lock)
-        if (!locked) player.update(dtSeconds);
-        // calc: mobs (server interpolation / offline sim) — render ต่อเนื่องแม้ locked
+        // P2-13 (D-056): freeze input/net-send ตอน transition lock **หรือ** แท็บ hidden (บาง browser ยัง
+        //   tick 1Hz ตอน background) — render (mob/combat/scene) เดินต่อ. connection ไม่ถูกแตะ (ไม่ disconnect).
+        const frozen = locked || tabHidden;
+        // calc: player intent → movement (freeze ตอน lock/hidden)
+        if (!frozen) player.update(dtSeconds);
+        // calc: mobs (server interpolation / offline sim) — render ต่อเนื่องแม้ frozen
         updateMobs(dtSeconds, deltaMs);
-        if (!locked) {
+        if (!frozen) {
           updateEngage();
+          // A3: poll ปุ่มสกิล (Digit1-4) → cast slot (edge-triggered, consume ครั้งเดียวต่อการกด)
+          const slot = player.consumeSlotPressed();
+          if (slot !== null) castSlot(slot);
         }
         // combat juice (damage number/fade) — no-op เมื่อไม่มี attack
         combat.update(dtSeconds);
         stressHarness.update(dtSeconds, deltaMs);
 
-        // net: throttle ส่ง local position (freeze ตอน locked) + lerp remote players (ต่อเนื่อง)
+        // net: throttle ส่ง local position (freeze ตอน lock/hidden) + lerp remote players (ต่อเนื่อง)
         if (net && remotes) {
-          if (!locked) {
+          if (!frozen) {
             const timer = advanceSendTimer(
               sendAccumMs,
               deltaMs,
@@ -505,14 +753,16 @@ export async function createEngine(
           remotes.update(dtSeconds);
         }
 
-        // P1-10: offline exit detection (online → server สั่งผ่าน message แทน)
-        if (!locked && net?.status.state !== "online") {
+        // P1-10: offline exit detection (online → server สั่งผ่าน message แทน) — freeze ตอน lock/hidden
+        if (!frozen && net?.status.state !== "online") {
           checkLocalExit();
         }
 
         // render: camera follow (lerp) + depth resort ถ้า dirty
         scene.update(deltaTime);
       },
+      pressAttack,
+      castSlot,
       getDebugInfo(fps): EngineDebugInfo {
         return buildDebugInfo({
           fps,
@@ -533,6 +783,7 @@ export async function createEngine(
         app.canvas.removeEventListener("pointerleave", onPointerLeave);
         app.canvas.removeEventListener("pointerdown", onPointerDown);
         window.removeEventListener("keydown", onStressToggleKeyDown);
+        visibility?.detach(); // P2-13: ถอด visibilitychange listener
         net?.disconnect();
         remotes?.destroy();
         stressHarness.destroy();
@@ -549,6 +800,9 @@ export async function createEngine(
   //     server ผ่าน onSelfSpawn adoption เหมือนเดิม — ที่นี่แค่เลือก "map ไหน" ให้ join ถูกห้อง) ---
   const bootMapId = pickBootMapId(readSelectedCharacterMapId(), hasMap, DEFAULT_MAP_ID);
   const initialMap = requireMap(bootMapId);
+  // P3: preload atlas ที่ map แรกต้องใช้ให้เสร็จก่อน mount (peek พร้อมตั้งแต่เฟรมแรก — ไม่กระพริบ placeholder→art).
+  // พลาด/ไม่มี assetId = คืน null → call site ใช้ placeholder เดิม (fail-soft).
+  await registry.preload(collectMapAssetIds(initialMap, config));
   currentWorld = mountWorld(initialMap, {
     x: initialMap.spawnPoint.x,
     y: initialMap.spawnPoint.y,
@@ -568,11 +822,14 @@ export async function createEngine(
   const hudPublisher = createHudPublisher(config.debugOverlay.pollIntervalMs);
   let fpsSampleMs = 0;
   const onTick = (ticker: Ticker): void => {
-    const dtSeconds = ticker.deltaMS / 1000;
+    // P2-13 (D-056): clamp dt กันพุ่งตอน refocus (rAF throttle ตอน hidden). deltaTime (frame unit) pixi
+    //   clamp เองตาม minFPS แล้ว → ส่งต่อได้; ที่ต้อง clamp คือ ms ที่ขับ movement/interpolation.
+    const deltaMs = clampDtMs(ticker.deltaMS, MAX_TICK_DELTA_MS);
+    const dtSeconds = deltaMs / 1000;
     const locked = transition.isLocked();
-    currentWorld.tick(dtSeconds, ticker.deltaMS, ticker.deltaTime, locked);
+    currentWorld.tick(dtSeconds, deltaMs, ticker.deltaTime, locked);
     // transition step (อาจ swap world ตอนจอมืดสุด — เกิดหลัง tick ของ world เดิมเสร็จแล้ว)
-    transition.update(ticker.deltaMS);
+    transition.update(deltaMs);
 
     fpsSampleMs += ticker.deltaMS;
     if (fpsSampleMs >= FPS_SAMPLE_INTERVAL_MS) {
@@ -595,6 +852,13 @@ export async function createEngine(
     detachResize();
     transition.destroy();
     currentWorld.destroy();
+    // P3: ทำลาย atlas ทั้งหมด (texture + source PNG) หลัง world ปล่อย view หมดแล้ว — ก่อน app.destroy
+    // ล้าง GPU context. entity ที่ยืม atlas texture ถูก remove ไปกับ currentWorld.destroy() แล้ว (non-owning).
+    registry.destroy();
+    // D-065: restore scaleMode global default กันค่าค้างข้าม StrictMode remount / engine ตัวถัดไป
+    if (config.render.pixelate) {
+      TextureSource.defaultOptions.scaleMode = "linear";
+    }
     resetHudState(); // engine ถูก destroy (unmount/StrictMode/transient) — เคลียร์ store กัน overlay ค้างค่าเก่า
     // removeView: true → เอา canvas ออกจาก DOM ด้วย; ล้าง GPU/texture/context ให้หมด
     app.destroy(
@@ -619,6 +883,19 @@ export async function createEngine(
     },
     setDepthDebug(enabled: boolean): void {
       currentWorld.setDepthDebug(enabled);
+    },
+    pressAttack(): void {
+      currentWorld.pressAttack();
+    },
+    castSlot(slot: number): void {
+      currentWorld.castSlot(slot);
+    },
+    setEffectQuality(quality: EffectQuality): void {
+      // mutate ตัว config เดียวกับที่ mountWorld/combat-stub อ่าน live — มีผลทุก world (คงค่าข้าม transition)
+      config.combatFeel.effectQuality.current = quality;
+    },
+    setScreenShakeEnabled(enabled: boolean): void {
+      config.combatFeel.screenShake.enabled = enabled;
     },
     destroy,
   };

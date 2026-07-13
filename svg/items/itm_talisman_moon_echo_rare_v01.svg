@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" shape-rendering="crispEdges">
+  <!-- eq_talisman_moon_echo — talisman tag with a crescent moon, rarity frame = Moon Blue (rare) -->
+  <rect x="8" y="8" width="48" height="48" fill="none" stroke="#7786C8" stroke-width="2"/>
+  <polygon points="24,14 40,14 40,44 32,52 24,44" fill="#F2D6A0" stroke="#171820" stroke-width="1"/>
+  <path d="M36,24 A8,8 0 1 0 36,40 A6,6 0 1 1 36,24 Z" fill="#7786C8"/>
+</svg>

@@ -130,8 +130,9 @@ export interface StressHarnessConfig {
 export const DEFAULT_COMBAT_FEEL_CONFIG: CombatFeelConfig = {
   damageNumber: {
     poolSize: 400, // TA §11: BitmapText pool 300–500 ตัว
-    normal: { fontFamily: "dmg-normal", color: 0xffe066, fontSize: 16 },
-    crit: { fontFamily: "dmg-crit", color: 0xff4d4d, fontSize: 24 }, // ใหญ่กว่า + สีต่าง (GS §17.3)
+    // art-ref README: เลขปกติ = ขาว, crit = ส้มทอง Fire Light (D-065 art path)
+    normal: { fontFamily: "dmg-normal", color: 0xffffff, fontSize: 16 },
+    crit: { fontFamily: "dmg-crit", color: 0xf4b852, fontSize: 24 }, // ใหญ่กว่า + ส้มทอง Fire Light (GS §17.3)
     aggregate: { fontFamily: "dmg-aggregate", color: 0xffffff, fontSize: 18 },
     riseDistance: 28,
     spawnOffsetY: -34,

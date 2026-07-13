@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" shape-rendering="crispEdges">
+  <!-- prop_map1_rock idle S frame 0 — หินเทา, pivot (32,54) -->
+  <ellipse cx="30" cy="54" rx="18" ry="3" fill="#2B2230"/>
+  <polygon points="14,54 18,38 28,30 40,32 48,44 46,54" fill="#3F7180" stroke="#171820" stroke-width="1"/>
+  <polygon points="14,54 18,38 24,40 22,54" fill="#294B5A"/>
+  <polygon points="30,32 40,32 34,38" fill="#64A0A0"/>
+  <ellipse cx="52" cy="52" rx="6" ry="4" fill="#3F7180" stroke="#171820" stroke-width="1"/>
+  <polygon points="48,52 55,50 53,54" fill="#64A0A0"/>
+</svg>

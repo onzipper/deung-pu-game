@@ -9,6 +9,7 @@ const MAX_SLOTS = 5;
 
 // UI spec v1 §9 (Character Management) — 5 slots, filled=Continue/Details, empty=Create.
 // Details/Storage tabs = future (P2-06a scope: creation + management list เท่านั้น).
+// Token-driven (src/app/globals.css --dp-*) — was inline hex, migrated in the E6 visual-foundation pass.
 export function CharacterGrid({
   characters,
   onCreateClick,
@@ -21,12 +22,12 @@ export function CharacterGrid({
   return (
     <div>
       <div className="mb-3 flex items-center justify-between">
-        <h2 className="text-[18px] font-semibold text-[#F2D6A0]">ตัวละครของฉัน</h2>
-        <span className="text-[14px] text-[#D8AE70]">{characters.length} / {MAX_SLOTS} slots</span>
+        <h2 className="text-[18px] font-semibold text-(--dp-parchment)">ตัวละครของฉัน</h2>
+        <span className="text-[14px] text-(--dp-sand)">{characters.length} / {MAX_SLOTS} slots</span>
       </div>
 
       {characters.length === 0 && (
-        <div className="mb-4 rounded-[10px] border border-[#68483A] bg-[#171820] p-4 text-[14px] text-[#D8AE70]">
+        <div className="mb-4 rounded-(--dp-radius-md) border border-(--dp-soil-brown) bg-(--dp-deep-ink) p-4 text-[14px] text-(--dp-sand)">
           ยังไม่มีตัวละคร — สร้างตัวละครแรกเพื่อเริ่มผจญภัย
         </div>
       )}
@@ -35,14 +36,14 @@ export function CharacterGrid({
         {characters.map((c) => (
           <div
             key={c.id}
-            className="flex min-h-[300px] flex-col justify-between rounded-[16px] border border-[#68483A] bg-[#2B2230] p-4"
+            className="flex min-h-[300px] flex-col justify-between rounded-(--dp-radius-lg) border border-(--dp-soil-brown) bg-(--dp-warm-ink) p-4"
           >
             <div>
-              <div className="mb-3 flex h-[80px] w-[80px] items-center justify-center rounded-[10px] border border-[#68483A] bg-[#171820] text-[24px] text-[#7CE9D0]">
+              <div className="mb-3 flex h-[80px] w-[80px] items-center justify-center rounded-(--dp-radius-md) border border-(--dp-soil-brown) bg-(--dp-deep-ink) text-[24px] text-(--dp-resonance-light)">
                 {c.name.charAt(0)}
               </div>
-              <p className="text-[18px] font-semibold text-[#F2D6A0]">{c.name}</p>
-              <p className="text-[14px] text-[#D8AE70]">
+              <p className="text-[18px] font-semibold text-(--dp-parchment)">{c.name}</p>
+              <p className="text-[14px] text-(--dp-sand)">
                 {classLabel(c.classId)} · Lv.{c.level}
               </p>
             </div>
@@ -50,7 +51,7 @@ export function CharacterGrid({
               <Link
                 href="/game"
                 onClick={() => rememberSelectedCharacter(c.id, c.lastMapId)}
-                className="flex min-h-[48px] items-center justify-center rounded-[10px] bg-[#35C6B0] px-4 text-[14px] font-semibold text-[#171820] hover:bg-[#7CE9D0]"
+                className="flex min-h-[48px] items-center justify-center rounded-(--dp-radius-md) bg-(--dp-resonance-teal) px-4 text-[14px] font-semibold text-(--dp-deep-ink) hover:bg-(--dp-resonance-light)"
               >
                 เข้าเกม
               </Link>
@@ -58,7 +59,7 @@ export function CharacterGrid({
                 type="button"
                 disabled
                 title="รายละเอียดตัวละคร — เร็ว ๆ นี้"
-                className="flex min-h-[48px] items-center justify-center rounded-[10px] border border-[#68483A] bg-transparent px-4 text-[14px] font-medium text-[#8E6046] disabled:cursor-not-allowed"
+                className="flex min-h-[48px] items-center justify-center rounded-(--dp-radius-md) border border-(--dp-soil-brown) bg-transparent px-4 text-[14px] font-medium text-(--dp-clay) disabled:cursor-not-allowed"
               >
                 รายละเอียด (เร็ว ๆ นี้)
               </button>
@@ -71,7 +72,7 @@ export function CharacterGrid({
             key={`empty-${i}`}
             type="button"
             onClick={onCreateClick}
-            className="flex min-h-[300px] flex-col items-center justify-center gap-2 rounded-[16px] border border-dashed border-[#68483A] bg-transparent p-4 text-[#D8AE70] transition-colors hover:border-[#35C6B0] hover:text-[#7CE9D0]"
+            className="flex min-h-[300px] flex-col items-center justify-center gap-2 rounded-(--dp-radius-lg) border border-dashed border-(--dp-soil-brown) bg-transparent p-4 text-(--dp-sand) transition-colors hover:border-(--dp-resonance-teal) hover:text-(--dp-resonance-light)"
           >
             <span className="text-[32px]">+</span>
             <span className="text-[14px] font-medium">สร้างตัวละคร</span>

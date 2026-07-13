@@ -59,7 +59,7 @@ export const MAP1: MapConfigInput = {
     { propId: "bush", tile: { tx: 31.5, ty: 23.5 } }, // พุ่มไม้โซนนก E
     { propId: "rock", tile: { tx: 26.5, ty: 26.5 } }, // ก้อนหิน secret SE ทุ่งสไลม์ (bible)
     { propId: "stump", tile: { tx: 10.5, ty: 33.5 } }, // ตอไม้ SW เนินหมูป่า
-    { propId: "rock", tile: { tx: 18.5, ty: 36.5 } }, // ลาน boss S (landmark; boss = out of scope P1)
+    { propId: "rock", tile: { tx: 18.5, ty: 36.5 } }, // ลาน boss S (landmark หมูป่าหม้อเดือด — pocket map1-boss-boiling-boar)
   ],
 
   // 4 farming pocket (MAP_SCALE §5 Map 1 = 4). pack/activeCap ตามตาราง §6; respawn = midpoint ของช่วง §6.
@@ -69,33 +69,46 @@ export const MAP1: MapConfigInput = {
       pocketId: "map1-slime-center",
       area: { tx: 14, ty: 14, width: 12, height: 10 },
       mobType: "slime",
-      packSize: { min: 5, max: 8 },
-      activeCap: 18,
-      respawnDelayMs: 20000,
+      // owner tune 2026-07-13: เกิดเยอะ+ไวขึ้นสำหรับมอนธรรมดา (Design Knob §48; เดิม §6 = 5–8/cap18/20s). ปรับได้อีก.
+      packSize: { min: 7, max: 10 },
+      activeCap: 24,
+      respawnDelayMs: 6000,
     },
     {
       // E: รังนกจิกปุ๊ — เคลื่อนที่เป็นวง (§6: 3–6, cap 12, respawn 20–30s → 25s)
       pocketId: "map1-bird-east",
       area: { tx: 28, ty: 14, width: 9, height: 10 },
       mobType: "bird",
-      packSize: { min: 3, max: 6 },
-      activeCap: 12,
-      respawnDelayMs: 25000,
+      // owner tune 2026-07-13: เกิดเยอะ+ไวขึ้น (เดิม §6 = 3–6/cap12/25s). Design Knob §48 — ปรับได้อีก.
+      packSize: { min: 5, max: 8 },
+      activeCap: 16,
+      respawnDelayMs: 7000,
     },
     {
       // SW: เนินหมูป่าพอง — pack ใหญ่ขึ้น (§6: 4–7, cap 18, respawn 25–35s → 30s)
       pocketId: "map1-boar-southwest",
       area: { tx: 4, ty: 26, width: 11, height: 10 },
       mobType: "boar",
-      packSize: { min: 4, max: 7 },
-      activeCap: 18,
-      respawnDelayMs: 30000,
+      // owner tune 2026-07-13: เกิดเยอะ+ไวขึ้น (เดิม §6 = 4–7/cap18/30s). Design Knob §48 — ปรับได้อีก.
+      packSize: { min: 6, max: 9 },
+      activeCap: 24,
+      respawnDelayMs: 8000,
     },
     {
       // ระหว่าง SW–S: Elite หมูป่าหนังหนา — เดี่ยว, respawn ยาว (§6: 1, cap 1, respawn 3–5m → 4m)
       pocketId: "map1-boar-elite",
       area: { tx: 16, ty: 31, width: 4, height: 4 },
       mobType: "boar_elite",
+      packSize: { min: 1, max: 1 },
+      activeCap: 1,
+      respawnDelayMs: 240000,
+    },
+    {
+      // S ลาน boss: Field Boss หมูป่าหม้อเดือด (D-064) — เดี่ยว cap 1, open-world respawn ~4 นาที (§: 3–5m).
+      // capstone Map 1 + แหล่งวัสดุเสริมแกร่ง (drop_map1_field_boss_v1). HP 2500 = damage sponge (มอนยังไม่ตีผู้เล่น).
+      pocketId: "map1-boss-boiling-boar",
+      area: { tx: 17, ty: 35, width: 4, height: 4 },
+      mobType: "boss_boiling_boar",
       packSize: { min: 1, max: 1 },
       activeCap: 1,
       respawnDelayMs: 240000,
