@@ -1,14 +1,13 @@
 # Agent rules — shared rules for every brief/subagent
 
-> Grew out of efficiency decision #3 (decision-index 2026-07-12) — consolidates the rules that used to get pasted into every brief into one place
-> **How to use it:** the orchestrator writes in the brief "read `docs/agent-rules.md` and follow it" instead of pasting the whole rule set · an agent that receives a brief must read this file before starting work
+> Briefs say "read `docs/agent-rules.md` and follow it" instead of pasting rules. Every briefed agent reads this file before starting work.
 
 ## Language policy
 
 - Effective 2026-07-13, approved by the owner.
-- **English**: AI-facing internal docs (CODEMAP, agent-rules, playbooks, context packs, token-budget, deploy-checklist, future tech notes), agent briefs, internal agent reports, and decision-index (thin navigation table — owner-approved 2026-07-13, rationale moved to `docs/decisions/`).
-- **Thai**: everything the owner reads or approves — `docs/design/**` (specs/bibles/decisions), `docs/decisions/` (decision rationale, verbatim), current-state, the P2 breakdown and other owner-reviewed tech docs, PR titles/bodies, commit messages, questions to the owner, and ALL in-game content. Canonical Thai game terms stay Thai even inside English text.
-- Existing Thai files other than the 3 translated here are **not** retro-translated (specs/bibles must stay owner-auditable).
+- **English**: AI-facing internal docs (CODEMAP, agent-rules, playbooks, context packs, token-budget, deploy-checklist, tech notes), agent briefs, internal reports, decision-index, current-state, CLAUDE.md/AI.md/AGENTS.md.
+- **Thai**: everything the owner reads or approves — `docs/design/**`, `docs/decisions/` (rationale, verbatim), the P2 breakdown, PR titles/bodies, commit messages, questions to the owner, and ALL in-game content. Canonical Thai game terms stay Thai even inside English text.
+- Other existing Thai files are **not** retro-translated (specs/bibles stay owner-auditable).
 
 ## Proposals & questions placement (owner rule, 2026-07-13)
 
@@ -18,7 +17,7 @@
 
 ## 1. Spec-first (summarized from AI.md — the full version always wins)
 
-- game semantics/balance follow game spec v15.2 + the Production Bible Set (`docs/design/bibles/`) · implementation follows tech architecture v1.5.2
+- game semantics/balance follow game spec v15.3 + the Production Bible Set (`docs/design/bibles/`) · implementation follows tech architecture v1.5.2
 - work that's outside of/conflicts with spec → **stop, report back** — don't guess, don't decide on the owner's behalf
 - field names must match v15 §50.1 exactly · every balance value is read from config (Design Knobs §48), never hardcoded
 - **Spec drift (design↔tech)**: never type a field/value from memory because "it's roughly this" — open the § feature-map points to and copy field names directly from v15 §50.1 every time. full story: docs/history/2026-07-13-known-traps-archive.md#spec-drift-between-design-and-tech
@@ -56,8 +55,8 @@ deviations: <where you diverged from the brief + why — the most important fiel
 notes: <only what the orchestrator needs to know next — e.g. a new trap, debt, an open question>
 ```
 
-- **never omit deviations** — if the brief was wrong/couldn't be followed exactly, say where you diverged and why (a real case: the brief said to invoke `tsx` directly, but it actually needed `--tsconfig server/tsconfig.json` — the agent diverged correctly and reported it, which is exactly the right move)
-- this rule only applies to internal reports — **docs in the repo and reports to the owner stay in full, readable Thai** (decision-index 2026-07-12: no caveman-code — only the terse-internal-report principle applies)
+- **never omit deviations** — if the brief was wrong/couldn't be followed exactly, say where you diverged and why. Diverging correctly + reporting it is the right move.
+- terse style applies to internal reports only — **reports to the owner stay in full, readable Thai** (D-046: no caveman-code toward the owner)
 
 ## 6. Token discipline
 

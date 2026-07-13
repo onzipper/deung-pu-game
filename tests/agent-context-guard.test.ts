@@ -41,7 +41,9 @@ describe("agent context guard", () => {
   // content to docs/history/ — do NOT raise the cap without owner approval.
   const BYTE_CAPS: Record<string, number> = {
     "AGENTS.md": 1_024,
+    "CLAUDE.md": 3_072,
     "AI.md": 6_656,
+    "docs/agent-rules.md": 10_240,
     "docs/token-budget.md": 2_560,
     "docs/decision-index.md": 6_144,
     "docs/current-state.md": 3_072,
@@ -55,6 +57,18 @@ describe("agent context guard", () => {
     "docs/context/ui.md": 8_192,
     "docs/context/server.md": 8_192,
   };
+
+  // The auto-import chain is injected into EVERY session's context (CLAUDE.md
+  // @-imports AGENTS.md + AI.md + docs/current-state.md) — the single most
+  // expensive recurring read in the project. Keep the sum hard-capped.
+  test("auto-import chain (CLAUDE+AGENTS+AI+current-state) <= 13,312 bytes", () => {
+    const chain =
+      bytesOf("CLAUDE.md") +
+      bytesOf("AGENTS.md") +
+      bytesOf("AI.md") +
+      bytesOf("docs/current-state.md");
+    expect(chain).toBeLessThanOrEqual(13_312);
+  });
 
   for (const [relPath, cap] of Object.entries(BYTE_CAPS)) {
     test(`byte cap: ${relPath} <= ${cap}`, () => {
