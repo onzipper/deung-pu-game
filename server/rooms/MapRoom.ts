@@ -1734,20 +1734,13 @@ export class MapRoom extends Room<MapRoomState> {
     }
     // P1-05: cooldown state ต่อ player (ว่างตอน join → ทุกสกิลพร้อมใช้)
     this.cooldowns.set(client.sessionId, new Map());
-    // P2-09: โหลด progression (level/exp) best-effort → ตั้ง base combat stat ตามเลเวล (D-055 §2). ไม่มี
-    //   DB/ตัวละคร → lv1 (in-memory). ต้องตั้งก่อน applyEquipmentStats เพื่อให้ base ถูกต้องตั้งแต่เฟรมแรก.
-    // fix/level-persist-map-cross: resolve progression = DB load (durable) → process-cache carrier (รอด
-    //   ข้าม map แม้ไม่มี DB / มีแต่ accountId) → default lv1. carrier key = identity ที่ verify แล้วเท่านั้น.
-    const carrierKey = carryKey(accountId, characterId);
-    const progress = (characterId ? await loadCharacterProgress(characterId) : null) ??
-      (carrierKey ? recallProgress(carrierKey) : null) ?? { level: 1, exp: 0 };
-    this.sessionProgress.set(client.sessionId, { level: progress.level, exp: progress.exp });
-    // P2-07: combat stats เริ่มต้น = base ตามเลเวล — override ด้วย equipment bonus หลังโหลด inventory ด้านล่าง.
-    this.recomputeEffectiveStats(client.sessionId);
-
     // P2-04 (Storage §4.1/§4.2): มี accountId (verified token) → ยึด 1-active-session ต่อบัญชี.
     //   in-process registry เตะ session เดิมของ account เดียวกัน (SESSION_TAKEN_OVER, takeover-wins);
     //   DB lease = authority ข้าม process (best-effort — dev/e2e ไม่มี accountId/DB → ข้าม ไม่พัง join).
+    // fix/refresh-progression-race: claimSession ต้องมา **ก่อน** resolve progression ด้านล่าง. refresh =
+    //   unclean disconnect → session เก่าค้างใน grace (ยังไม่ persist). join ใหม่ (same account, sessionId
+    //   ใหม่) ยิง takeover → forceTakeover stash progression ล่าสุดของตัวเก่าเข้า carrier (sync) ก่อน. ทำก่อน
+    //   recallProgress ด้านล่าง = อ่านค่าที่ตัวเก่า stash ไว้ทัน (ไม่ใช่ carrier ว่าง = reset lv1).
     if (accountId) {
       const tookOver = claimSession(accountId, client.sessionId, () => this.forceTakeover(client));
       if (tookOver) {
@@ -1757,6 +1750,19 @@ export class MapRoom extends Room<MapRoomState> {
       }
       void acquireLease(accountId, client.sessionId);
     }
+
+    // P2-09: โหลด progression (level/exp) best-effort → ตั้ง base combat stat ตามเลเวล (D-055 §2). ไม่มี
+    //   DB/ตัวละคร → lv1 (in-memory). ต้องตั้งก่อน applyEquipmentStats เพื่อให้ base ถูกต้องตั้งแต่เฟรมแรก.
+    // fix/level-persist-map-cross: resolve progression = DB load (durable) → process-cache carrier (รอด
+    //   ข้าม map แม้ไม่มี DB / มีแต่ accountId) → default lv1. carrier key = identity ที่ verify แล้วเท่านั้น.
+    // fix/refresh-progression-race: อ่าน carrier **หลัง** claimSession (ด้านบน) — refresh takeover stash
+    //   progression ล่าสุดของ session ที่ถูกเตะไปแล้วตอนนี้ → ได้ level ที่ carry มา ไม่ใช่ค่า default 1.
+    const carrierKey = carryKey(accountId, characterId);
+    const progress = (characterId ? await loadCharacterProgress(characterId) : null) ??
+      (carrierKey ? recallProgress(carrierKey) : null) ?? { level: 1, exp: 0 };
+    this.sessionProgress.set(client.sessionId, { level: progress.level, exp: progress.exp });
+    // P2-07: combat stats เริ่มต้น = base ตามเลเวล — override ด้วย equipment bonus หลังโหลด inventory ด้านล่าง.
+    this.recomputeEffectiveStats(client.sessionId);
 
     // P2-05 (Storage §7.2/§24): ผูก session กับตัวละคร → เปิด save cycle + ตั้ง lastPlayedCharacterId (Continue
     //   default). เฉพาะเมื่อมีทั้ง accountId + characterId (verified). anonymous/dev = ไม่ persist (flow เดิม).
@@ -1795,6 +1801,11 @@ export class MapRoom extends Room<MapRoomState> {
    */
   private forceTakeover(client: Client): void {
     this.takenOverSessions.add(client.sessionId);
+    // fix/refresh-progression-race: session ที่ถูกเตะจะไม่ save ที่ onLeave (taken_over path / grace-catch
+    //   ข้าม persist เพราะ wasTakenOver) — จุดนี้จึงเป็นที่ **เดียว** ที่บันทึกตัวเก่า. persistOnLeave = stash
+    //   progression เข้า carrier (sync, กัน race กับ join ตัวใหม่ที่ resolve หลัง claimSession) + flush DB
+    //   (เว้นถ้ากำลัง transition). ต้องทำ **ก่อน** client.leave (leave = trigger onLeave ที่ skip persist).
+    this.persistOnLeave(client, client.sessionId);
     try {
       client.leave(WS_CLOSE_SESSION_TAKEN_OVER);
     } catch {
@@ -1902,7 +1913,8 @@ export class MapRoom extends Room<MapRoomState> {
   /**
    * P2-05: save ตอน player ออกจริง (consented leave / grace หมด). force เขียนตำแหน่งปัจจุบัน **เว้น** ถ้า
    * กำลัง transition (checkExit save จุดหมายไปแล้ว → ไม่ทับด้วย map เก่า). เรียกก่อน removePlayer เสมอ
-   * (ต้องมี tracker/rec อยู่). takeover ไม่เรียก (session ใหม่ authoritative แล้ว).
+   * (ต้องมี tracker/rec อยู่). fix/refresh-progression-race: forceTakeover ก็เรียกด้วย — เป็นที่เดียวที่ save
+   * session ที่ถูกเตะ (onLeave ของมัน skip persist) + stash carrier ก่อน join ตัวใหม่ resolve.
    */
   private persistOnLeave(client: Client, sessionId: string): void {
     // fix/level-persist-map-cross: ขน progression เข้า process-cache ก่อน removePlayer ทุก leave path
@@ -1960,6 +1972,11 @@ export class MapRoom extends Room<MapRoomState> {
     console.log(
       `[MapRoom ${this.roomId}] ${sessionId} หลุด — เริ่ม grace ${this.graceSeconds}s (§59.1)`,
     );
+    // fix/refresh-progression-race: refresh = unclean disconnect เข้า grace — ระหว่าง await ด้านล่างไม่มี
+    //   stash/persist ใด ๆ. stash progression เข้า carrier **ก่อน** await (sync) เพื่อครอบ refresh ที่ไม่ถูก
+    //   resolve เป็น same-account takeover (เช่น grace หมดเฉย ๆ / ไม่มี claimSession). idempotent กับ stash
+    //   จุด takeover + grace-catch; same-session reconnect ใน grace อ่านค่านี้ไม่ผ่าน (resume in-memory เดิม).
+    this.stashProgressForCarry(client);
     try {
       await this.allowReconnection(client, this.graceSeconds);
       console.log(
