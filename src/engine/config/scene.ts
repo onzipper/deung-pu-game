@@ -32,6 +32,11 @@ export interface PropStyle {
   height: number;
   /** รูปทรง placeholder */
   shape: "box" | "ellipse";
+  /**
+   * assetId ของ atlas art จริง (SVG-01 pipeline) — มี = ใช้ Sprite เฟรม idle S แรกแทน Graphics.
+   * undefined = placeholder Graphics (path เดิม). ไม่ตั้ง default ใน P3 — Phase 5 ค่อยเปิด.
+   */
+  assetId?: string;
 }
 
 /**

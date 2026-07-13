@@ -19,6 +19,11 @@ export interface MobStyle {
   bounceAmount: number;
   /** รูปทรง placeholder ต่อ mobType (P0-09 มีแค่ 2 — เพิ่มได้ทีหลัง) */
   shape: "slime" | "mushroom";
+  /**
+   * assetId ของ atlas art จริง (SVG-01 pipeline) — มี = ใช้ atlas texture/manifest แทน placeholder.
+   * undefined = placeholder (path เดิม). ไม่ตั้ง default ใน P3 — Phase 5 ค่อยเปิดต่อ mobType.
+   */
+  assetId?: string;
 }
 
 /**

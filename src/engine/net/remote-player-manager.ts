@@ -32,13 +32,24 @@ import {
   triggerRemoteAttack,
   type RemoteAttackState,
 } from "@/engine/net/remote-attack";
-import { createPlayerAnimationManifest } from "@/engine/animation/manifest";
+import {
+  createPlayerAnimationManifest,
+  type AnimationManifest,
+} from "@/engine/animation/manifest";
 import { generatePlayerTextures } from "@/engine/animation/player-placeholder";
+import type { EntityTextureSet } from "@/engine/animation/texture-set";
+import type { AssetRegistry } from "@/engine/assets/registry";
 import {
   createSpriteAnimator,
   type SpriteAnimator,
 } from "@/engine/animation/animator";
 import type { Direction } from "@/engine/movement/direction";
+
+/** anim ที่ต้องมีครบใน atlas ก่อนใช้แทน placeholder (attack ล็อกทับตอน playAttack). */
+const PLAYER_REQUIRED_ANIMS = ["idle", "walk", "attack"] as const;
+function playerAtlasUsable(m: AnimationManifest): boolean {
+  return PLAYER_REQUIRED_ANIMS.every((a) => a in m.animations);
+}
 
 /** prefix ของ entity id ฝั่ง remote — กันชนกับ local player / prop id ใน scene registry. */
 const REMOTE_ID_PREFIX = "remote:";
@@ -83,9 +94,20 @@ export function createRemotePlayerManager(
   scene: MapSceneHandle,
   config: EngineConfig,
   renderer: Renderer,
+  registry?: AssetRegistry,
   now: () => number = () => performance.now(),
 ): RemotePlayerManager {
-  const manifest = createPlayerAnimationManifest(config.player.animation);
+  // atlas art ถ้ามี assetId (ตัวเดียวกับ local player) + peek เจอ + anim ครบ → ใช้ atlas manifest/texture
+  // (สีตัว remote คงที่ตาม art ไม่ปรับ); ไม่งั้น placeholder สีต่าง (remotePlayerColor) เหมือนเดิม.
+  const atlasId = config.player.animation.style.assetId;
+  const atlas = atlasId ? (registry?.peek(atlasId) ?? null) : null;
+  const useAtlas = atlas !== null && playerAtlasUsable(atlas.manifest);
+  const manifest: AnimationManifest = useAtlas
+    ? atlas.manifest
+    : createPlayerAnimationManifest(config.player.animation);
+  // texture ที่ทุก remote แชร์เมื่อใช้ atlas (non-owning — animator.destroy() no-op ต่อ atlas set).
+  const atlasTextures: EntityTextureSet | null =
+    useAtlas && atlas ? atlas.textures : null;
   const interp = config.net.interpolation;
   // ความยาวคลิป attack (ms) — สูตรเดียวกับ local-player.ts (attackFrameDuration × attackFrames จาก
   // config เดียวกัน) ให้ remote เล่นคลิปยาวเท่าตัวเองเป๊ะ (ไม่ hardcode ซ้ำ, ไม่ผูก wire anim).
@@ -113,7 +135,8 @@ export function createRemotePlayerManager(
       update(sessionId, snap);
       return;
     }
-    const textures = generatePlayerTextures(renderer, manifest, remoteStyle);
+    const textures =
+      atlasTextures ?? generatePlayerTextures(renderer, manifest, remoteStyle);
     const animator = createSpriteAnimator(textures, manifest, {
       animation: snap.anim,
       direction: snap.direction,
