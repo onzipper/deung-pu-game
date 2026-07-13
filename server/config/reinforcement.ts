@@ -1,9 +1,13 @@
 // P2-09 — DEFAULT reinforcement / fragment / pity config (server-authoritative Design Knobs).
 // Values copied verbatim from Reinforcement doc §3.5/§4 (never guessed — AI.md iron-rule #1).
 //
-// ⛔ P2 = config/loader/flag ONLY — boss=P2B, so `noReinforcement` ships true and NO real drop
-//    event runs on Map 1 in P2 (R8). ⛔ ids = `upg_reinforcement` / `upg_reinforcement_fragment`
-//    only (never `upg_kraeng`, R10). ⛔ SERVER-ONLY (see types.ts header). Plain TS only.
+// OPEN BETA (2026-07-13): the Field Boss `boss_map1_boiling_boar` now ships live, so it IS the
+// reinforcement source and `noReinforcement` is FALSE — the enhancement flow is active. For OB the boss
+// grants the full `upg_reinforcement` material directly (drop_map1_field_boss_v1, R8-exempt for this boss
+// only in kill-rewards.ts); the full pity ladder + fragment/exchange (§3.5/§4.2 below) stay configured but
+// are a post-OB upgrade (bossPity/fragment values kept verbatim, unused by the OB grant path).
+// ⛔ ids = `upg_reinforcement` / `upg_reinforcement_fragment` only (never `upg_kraeng`, R10).
+// ⛔ SERVER-ONLY (see types.ts header). Plain TS only.
 
 import type { ReinforcementConfig } from "./types";
 
@@ -41,6 +45,6 @@ export const DEFAULT_REINFORCEMENT_CONFIG: ReinforcementConfig = {
     exchangeOutputCount: 1,
     phase: "P2B",
   },
-  // R8 — P2 ไม่มีแหล่งเสริมแกร่งจริง (boss=P2B); UI ship inert (`NO_REINFORCEMENT`).
-  noReinforcement: true,
+  // OB — Field Boss หมูป่าหม้อเดือด ship live เป็นแหล่งวัสดุจริง → ปลุกระบบเสริมแกร่ง (ไม่ inert อีก).
+  noReinforcement: false,
 };

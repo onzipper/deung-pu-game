@@ -77,8 +77,10 @@ const MONSTER_REWARDS: MonsterReward[] = [
   { monsterId: "mon_map1_bird", level: 2, exp: 20, goldMin: 5, goldMax: 8, respawnSeconds: 10, dropTableId: "drop_map1_bird_v1", phase: "P2" },
   { monsterId: "mon_map1_boar", level: 4, exp: 30, goldMin: 8, goldMax: 12, respawnSeconds: 14, dropTableId: "drop_map1_boar_v1", phase: "P2" },
   { monsterId: "elite_map1_boar_rampage", level: 5, exp: 140, goldMin: 40, goldMax: 60, respawnSeconds: 720, dropTableId: "drop_map1_elite_boar_v1", phase: "P2" },
-  // boss = encounter-based (ไม่ตั้งเวลา respawn) → 0 · phase P2B (drop ยังไม่ ship จริง)
+  // Story Boss ผู้พิทักษ์เสียงสะท้อน (instanced, encounter-based) — เลื่อน post-OB (phase P2B, ไม่ ship)
   { monsterId: "boss_map1_resonant_guardian", level: 8, exp: 550, goldMin: 180, goldMax: 260, respawnSeconds: 0, dropTableId: "drop_map1_boss_v1", phase: "P2B" },
+  // Field Boss หมูป่าหม้อเดือด (D-064) — capstone Map 1, ship OB live (phase P2). open-world respawn ~4 นาที.
+  { monsterId: "boss_map1_boiling_boar", level: 6, exp: 300, goldMin: 120, goldMax: 200, respawnSeconds: 240, dropTableId: "drop_map1_field_boss_v1", phase: "P2" },
 ];
 
 // ── drop tables (Economy §11) — Kraeng/upg_kraeng rows SUPERSEDED to 0% (Reinforcement §4) ────
@@ -148,6 +150,23 @@ const DROP_TABLES: DropTable[] = [
     ],
     rolls: [
       { rollId: "rare_equipment", chancePercent: 20, itemId: null, poolId: "rare_map1_gear", quantity: { min: 1, max: 1 } },
+      { rollId: "potion", chancePercent: 100, itemId: "con_small_potion", poolId: null, quantity: { min: 3, max: 5 } },
+    ],
+  },
+  {
+    // Field Boss หมูป่าหม้อเดือด (D-064) — capstone Map 1, ship OB (phase P2).
+    // ⚠️ นี่คือ **ตารางเดียว** ที่ได้รับอนุญาตให้ดรอป `upg_reinforcement` (วัสดุเสริมแกร่งตัวเต็ม) — R8 guard
+    //    ใน kill-rewards.ts ยกเว้นเฉพาะ monsterId นี้. OB ให้ตัวเต็มตรง ๆ; pity ladder + fragment/exchange = post-OB.
+    dropTableId: "drop_map1_field_boss_v1",
+    monsterId: "boss_map1_boiling_boar",
+    phase: "P2",
+    guaranteed: [
+      { itemId: "upg_reinforcement", poolId: null, quantity: { min: 1, max: 2 } },
+      { itemId: "mat_boss_resonance_core", poolId: null, quantity: { min: 1, max: 3 } },
+    ],
+    rolls: [
+      { rollId: "uncommon_equipment", chancePercent: 70, itemId: null, poolId: "uncommon_boar_gear", quantity: { min: 1, max: 1 } },
+      { rollId: "rare_equipment", chancePercent: 15, itemId: null, poolId: "rare_map1_gear", quantity: { min: 1, max: 1 } },
       { rollId: "potion", chancePercent: 100, itemId: "con_small_potion", poolId: null, quantity: { min: 3, max: 5 } },
     ],
   },

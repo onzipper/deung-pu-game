@@ -38,14 +38,30 @@ const MONSTER_ID_BY_MOB_TYPE: Readonly<Record<string, string>> = {
   bird: "mon_map1_bird",
   boar: "mon_map1_boar",
   boar_elite: "elite_map1_boar_rampage",
+  boss_boiling_boar: "boss_map1_boiling_boar", // Field Boss (D-064) — ship OB (phase P2)
 };
 
 /** DropAudit.dropTableVersion = economy config version in effect (in-code DEFAULT). */
 const DROP_TABLE_VERSION = ECONOMY_CONFIG_DEF.defaultVersion;
 
-/** Kraeng/reinforcement ids that must never be granted as loot in P2 (R8 defence-in-depth). */
+/**
+ * R8 loot guard (defence-in-depth): reinforcement ids must never leak into GENERIC loot. The Field Boss is the
+ * one sanctioned exception (D-064) — it is the reinforcement-material source, so `upg_reinforcement` is an
+ * allowed drop for it and is NOT in its excluded set. Every other monster keeps the full exclusion.
+ */
 const EXCLUDED_ITEM_IDS: ReadonlySet<string> = new Set([
   DEFAULT_REINFORCEMENT_CONFIG.materialId,
+  DEFAULT_REINFORCEMENT_CONFIG.fragment.materialId,
+]);
+
+/** Field Boss monsterId (D-064) — the sanctioned reinforcement-material source. */
+const FIELD_BOSS_MONSTER_ID = DEFAULT_REINFORCEMENT_CONFIG.bossId;
+
+/**
+ * excluded set for the Field Boss: `upg_reinforcement` is ALLOWED (it is the boss's whole point), only the
+ * fragment stays blocked (fragment/exchange = post-OB, never dropped raw).
+ */
+const FIELD_BOSS_EXCLUDED_ITEM_IDS: ReadonlySet<string> = new Set([
   DEFAULT_REINFORCEMENT_CONFIG.fragment.materialId,
 ]);
 
@@ -101,9 +117,13 @@ export async function grantKillRewardsForMob(
   const monsterId = MONSTER_ID_BY_MOB_TYPE[req.mobType];
   if (!monsterId) return null;
   const reward = REWARD_BY_MONSTER_ID.get(monsterId);
-  if (!reward || reward.phase !== "P2") return null; // boss (P2B) / unknown → no live reward in P2
+  if (!reward || reward.phase !== "P2") return null; // Story boss (P2B) / unknown → no live reward
   const dropTable = DROP_TABLE_BY_ID.get(reward.dropTableId);
   if (!dropTable) return null;
+
+  // R8 exemption: the Field Boss may drop upg_reinforcement (its sanctioned role); everything else may not.
+  const excludedItemIds =
+    monsterId === FIELD_BOSS_MONSTER_ID ? FIELD_BOSS_EXCLUDED_ITEM_IDS : EXCLUDED_ITEM_IDS;
 
   const wired = req.persist && inventoryPersistenceAvailable() && req.characterId.length > 0;
 
@@ -121,7 +141,7 @@ export async function grantKillRewardsForMob(
       reward: rewardView,
       dropTable: dropTable as DropTable,
       pools: DEFAULT_ECONOMY_CONFIG.equipmentPools,
-      excludedItemIds: EXCLUDED_ITEM_IDS,
+      excludedItemIds,
       itemMeta,
       expCurve: EXP_CURVE,
       rng: Math.random,

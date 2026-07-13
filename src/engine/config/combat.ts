@@ -194,6 +194,10 @@ export const DEFAULT_COMBAT_BALANCE_CONFIG: CombatBalanceConfig = {
     bird: { hp: 70, atk: 7, def: 4, tierReduction: 1.0 }, // mon_map1_bird (นกจิกปุ๊)
     boar: { hp: 150, atk: 12, def: 10, tierReduction: 1.0 }, // mon_map1_boar (หมูป่าพอง)
     boar_elite: { hp: 420, atk: 17, def: 14, tierReduction: 0.8 }, // elite_map1_boar_rampage (หมูป่าพองคลั่ง)
+    // Field Boss หมูป่าหม้อเดือด (boss_map1_boiling_boar) — ค่า spec จาก P1 Balance Proposal §4/§56.5:
+    // HP 2500 / ATK 28 / DEF 25 · tierReduction field-boss 0.65 (§15.5). atk = ไว้ให้ mob→player combat เฟสหลัง
+    // (P2 มอนยังไม่ตีผู้เล่น → เป็น damage sponge). guard gauge §15.4 = เลื่อน post-OB.
+    boss_boiling_boar: { hp: 2500, atk: 28, def: 25, tierReduction: 0.65 },
     mushroom: { hp: 130, atk: 11, def: 10, tierReduction: 1.0 }, // หมูพอง — test-field placeholder (ไม่ใช่ Map 1/D-055)
   },
   defaultMob: { hp: 45, atk: 6, def: 4, tierReduction: 1.0 },

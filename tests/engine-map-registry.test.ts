@@ -74,10 +74,12 @@ describe("CITY_HUB — นครอรุณผนึก (P1-11, GS §3.3 · §1
 });
 
 describe("MAP1 — production layout ผ่าน validation (P1-10)", () => {
-  test("โหลดผ่าน + ขนาด Small–Medium + 4 pocket + 1 exit", () => {
+  test("โหลดผ่าน + ขนาด Small–Medium + 4 farming pocket + 1 boss pocket + 1 exit", () => {
     const map = requireMap(MAP1_ID);
     expect(map.bounds).toEqual({ width: 40, height: 40 });
-    expect(map.mobPockets).toHaveLength(4); // MAP_SCALE §5 Map 1 = 4
+    // MAP_SCALE §5 Map 1 = 4 farming pocket + Field Boss หมูป่าหม้อเดือด (phase-based, ไม่นับ farming) = 5 รวม
+    expect(map.mobPockets).toHaveLength(5);
+    expect(map.mobPockets.filter((p) => p.mobType === "boss_boiling_boar")).toHaveLength(1);
     expect(map.exits).toHaveLength(1);
     expect(map.safeCamp).toBeDefined();
   });
