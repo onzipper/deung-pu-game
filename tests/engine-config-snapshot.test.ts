@@ -20,6 +20,7 @@ import {
   DEFAULT_PLAYER_ANIMATION_CONFIG,
   DEFAULT_PLAYER_CONFIG,
   DEFAULT_RECONNECT_CONFIG,
+  DEFAULT_RENDER_STYLE_CONFIG,
   DEFAULT_SCENE_THEME,
   DEFAULT_STRESS_HARNESS_CONFIG,
   DEFAULT_TRANSITION_CONFIG,
@@ -73,6 +74,7 @@ import type {
   ReconnectClientRetryConfig,
   ReconnectConfig,
   RendererPreference,
+  RenderStyleConfig,
   SceneTheme,
   ScreenShakeConfig,
   ScreenShakeLevelConfig,
@@ -132,6 +134,7 @@ export type _ConfigTypeSurface =
   | ReconnectClientRetryConfig
   | ReconnectConfig
   | RendererPreference
+  | RenderStyleConfig
   | SceneTheme
   | ScreenShakeConfig
   | ScreenShakeLevelConfig
@@ -139,7 +142,7 @@ export type _ConfigTypeSurface =
   | TileSize
   | TransitionConfig;
 
-// The 21 runtime value exports (18 DEFAULT_* consts + 3 functions). Types erase at runtime,
+// The 22 runtime value exports (19 DEFAULT_* consts + 3 functions). Types erase at runtime,
 // so Object.keys(module) returns exactly these — a dropped/renamed value export fails here.
 const EXPECTED_VALUE_EXPORTS = [
   "DEFAULT_CAMERA_CONFIG",
@@ -157,6 +160,7 @@ const EXPECTED_VALUE_EXPORTS = [
   "DEFAULT_PLAYER_ANIMATION_CONFIG",
   "DEFAULT_PLAYER_CONFIG",
   "DEFAULT_RECONNECT_CONFIG",
+  "DEFAULT_RENDER_STYLE_CONFIG",
   "DEFAULT_SCENE_THEME",
   "DEFAULT_STRESS_HARNESS_CONFIG",
   "DEFAULT_TRANSITION_CONFIG",
@@ -168,7 +172,7 @@ const EXPECTED_VALUE_EXPORTS = [
 const MAP_ZONE_TYPES: MapZoneType[] = ["safe", "field"];
 
 describe("engine config — export-name identity", () => {
-  test("module exposes exactly the 21 runtime value exports", async () => {
+  test("module exposes exactly the 22 runtime value exports", async () => {
     const mod = await import("@/engine/config");
     expect(Object.keys(mod).sort()).toEqual(EXPECTED_VALUE_EXPORTS);
   });
@@ -192,6 +196,7 @@ describe("engine config — value identity (DEFAULT_* consts)", () => {
     expect(DEFAULT_PLAYER_ANIMATION_CONFIG).toMatchSnapshot());
   test("DEFAULT_PLAYER_CONFIG", () => expect(DEFAULT_PLAYER_CONFIG).toMatchSnapshot());
   test("DEFAULT_RECONNECT_CONFIG", () => expect(DEFAULT_RECONNECT_CONFIG).toMatchSnapshot());
+  test("DEFAULT_RENDER_STYLE_CONFIG", () => expect(DEFAULT_RENDER_STYLE_CONFIG).toMatchSnapshot());
   test("DEFAULT_SCENE_THEME", () => expect(DEFAULT_SCENE_THEME).toMatchSnapshot());
   test("DEFAULT_STRESS_HARNESS_CONFIG", () => expect(DEFAULT_STRESS_HARNESS_CONFIG).toMatchSnapshot());
   test("DEFAULT_TRANSITION_CONFIG", () => expect(DEFAULT_TRANSITION_CONFIG).toMatchSnapshot());

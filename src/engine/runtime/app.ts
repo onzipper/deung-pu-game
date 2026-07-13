@@ -13,7 +13,7 @@
 //   client อื่นเห็นหาย) → mount world ใหม่ (join room map ปลายทางที่ targetSpawn) → fade in. input lock ระหว่างนั้น.
 //   online = server ตัดสิน (MSG_MAP_TRANSITION) · offline = client ตรวจ exit เอง (findExitAt) → ข้าม map local ได้.
 
-import { Application, Container, Text, type Ticker } from "pixi.js";
+import { Application, Container, Text, TextureSource, type Ticker } from "pixi.js";
 import { type EngineConfig, resolveResolution } from "../config";
 import { requireMap, getMap, hasMap } from "../map/registry";
 import { findExitAt, type MapConfig } from "../map/types";
@@ -107,15 +107,26 @@ export async function createEngine(
 ): Promise<EngineHandle> {
   const app = new Application();
 
-  const resolution = resolveResolution(
-    config,
-    typeof globalThis !== "undefined" ? globalThis.devicePixelRatio : undefined,
-  );
+  // D-065 art path ①: pixelate mode → ตั้ง scaleMode ของ texture ทุกใบ (nearest) **ก่อน** สร้าง texture ใด ๆ.
+  // เป็น global default ของ pixi (module-level) — restore เป็น "linear" ใน destroy() กันค่าค้างข้าม
+  // React StrictMode remount (mount→destroy→mount ใช้ default ตัวเดียวกันทั้ง process).
+  if (config.render.pixelate) {
+    TextureSource.defaultOptions.scaleMode = config.render.textureScaleMode;
+  }
+
+  // pixelate: ล็อก resolution สัมบูรณ์ (ไม่คูณ dpr → pixel size คงที่ทุกจอ) + ปิด antialias เสมอ.
+  // ปกติ: resolve resolution ตาม config.resolution ?? devicePixelRatio.
+  const resolution = config.render.pixelate
+    ? config.render.renderResolution
+    : resolveResolution(
+        config,
+        typeof globalThis !== "undefined" ? globalThis.devicePixelRatio : undefined,
+      );
 
   await app.init({
     backgroundColor: config.backgroundColor,
     backgroundAlpha: config.backgroundAlpha,
-    antialias: config.antialias,
+    antialias: config.render.pixelate ? false : config.antialias,
     resolution,
     autoDensity: config.autoDensity,
     preference: config.preference,
@@ -126,6 +137,11 @@ export async function createEngine(
   });
 
   container.appendChild(app.canvas);
+
+  // pixelate: ให้ browser upscale canvas เองแบบ nearest (คมเป็นบล็อก ไม่เบลอ)
+  if (config.render.pixelate && config.render.cssImageRendering) {
+    app.canvas.style.imageRendering = "pixelated";
+  }
 
   let viewW = Math.max(1, container.clientWidth);
   let viewH = Math.max(1, container.clientHeight);
@@ -595,6 +611,10 @@ export async function createEngine(
     detachResize();
     transition.destroy();
     currentWorld.destroy();
+    // D-065: restore scaleMode global default กันค่าค้างข้าม StrictMode remount / engine ตัวถัดไป
+    if (config.render.pixelate) {
+      TextureSource.defaultOptions.scaleMode = "linear";
+    }
     resetHudState(); // engine ถูก destroy (unmount/StrictMode/transient) — เคลียร์ store กัน overlay ค้างค่าเก่า
     // removeView: true → เอา canvas ออกจาก DOM ด้วย; ล้าง GPU/texture/context ให้หมด
     app.destroy(

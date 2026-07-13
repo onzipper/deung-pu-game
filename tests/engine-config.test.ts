@@ -80,6 +80,23 @@ describe("engine config", () => {
     expect(cfg.debugOverlay.pollIntervalMs).toBe(DEFAULT_ENGINE_CONFIG.debugOverlay.pollIntervalMs);
   });
 
+  test("render default (D-065 art path ①) — pixelate on, low-res nearest upscale, assetBaseUrl", () => {
+    expect(DEFAULT_ENGINE_CONFIG.render.pixelate).toBe(true);
+    expect(DEFAULT_ENGINE_CONFIG.render.renderResolution).toBeGreaterThan(0);
+    expect(DEFAULT_ENGINE_CONFIG.render.renderResolution).toBeLessThanOrEqual(1);
+    expect(DEFAULT_ENGINE_CONFIG.render.textureScaleMode).toBe("nearest");
+    expect(DEFAULT_ENGINE_CONFIG.render.assetBaseUrl).toBe("/assets");
+  });
+
+  test("createEngineConfig() override render.renderResolution โดยคง render knob อื่น (shallow-merge)", () => {
+    const cfg = createEngineConfig({
+      render: { ...DEFAULT_ENGINE_CONFIG.render, renderResolution: 0.25 },
+    });
+    expect(cfg.render.renderResolution).toBe(0.25);
+    expect(cfg.render.pixelate).toBe(DEFAULT_ENGINE_CONFIG.render.pixelate);
+    expect(cfg.render.textureScaleMode).toBe(DEFAULT_ENGINE_CONFIG.render.textureScaleMode);
+  });
+
   test("resolveResolution ใช้ค่า config ถ้ากำหนด, มิฉะนั้น fallback devicePixelRatio", () => {
     expect(resolveResolution({ ...DEFAULT_ENGINE_CONFIG, resolution: 2 }, 3)).toBe(2);
     expect(resolveResolution(DEFAULT_ENGINE_CONFIG, 3)).toBe(3);

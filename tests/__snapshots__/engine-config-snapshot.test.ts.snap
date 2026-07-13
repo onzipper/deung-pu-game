@@ -58,13 +58,13 @@ exports[`engine config — value identity (DEFAULT_* consts) > DEFAULT_COMBAT_FE
     },
     "aggregateWindowMs": 500,
     "crit": {
-      "color": 16731469,
+      "color": 16037970,
       "fontFamily": "dmg-crit",
       "fontSize": 24,
     },
     "lifetimeMs": 650,
     "normal": {
-      "color": 16769126,
+      "color": 16777215,
       "fontFamily": "dmg-normal",
       "fontSize": 16,
     },
@@ -242,13 +242,13 @@ exports[`engine config — value identity (DEFAULT_* consts) > DEFAULT_ENGINE_CO
       },
       "aggregateWindowMs": 500,
       "crit": {
-        "color": 16731469,
+        "color": 16037970,
         "fontFamily": "dmg-crit",
         "fontSize": 24,
       },
       "lifetimeMs": 650,
       "normal": {
-        "color": 16769126,
+        "color": 16777215,
         "fontFamily": "dmg-normal",
         "fontSize": 16,
       },
@@ -484,6 +484,13 @@ exports[`engine config — value identity (DEFAULT_* consts) > DEFAULT_ENGINE_CO
     },
     "graceSeconds": 30,
     "sessionStorageKey": "deungpu:rt-reconnect",
+  },
+  "render": {
+    "assetBaseUrl": "/assets",
+    "cssImageRendering": true,
+    "pixelate": true,
+    "renderResolution": 0.5,
+    "textureScaleMode": "nearest",
   },
   "resolution": null,
   "stressHarness": {
@@ -759,6 +766,16 @@ exports[`engine config — value identity (DEFAULT_* consts) > DEFAULT_RECONNECT
 }
 `;
 
+exports[`engine config — value identity (DEFAULT_* consts) > DEFAULT_RENDER_STYLE_CONFIG 1`] = `
+{
+  "assetBaseUrl": "/assets",
+  "cssImageRendering": true,
+  "pixelate": true,
+  "renderResolution": 0.5,
+  "textureScaleMode": "nearest",
+}
+`;
+
 exports[`engine config — value identity (DEFAULT_* consts) > DEFAULT_SCENE_THEME 1`] = `
 {
   "blockedColor": 8014394,
@@ -902,13 +919,13 @@ exports[`engine config — value identity (factory / pure functions) > createEng
       },
       "aggregateWindowMs": 500,
       "crit": {
-        "color": 16731469,
+        "color": 16037970,
         "fontFamily": "dmg-crit",
         "fontSize": 24,
       },
       "lifetimeMs": 650,
       "normal": {
-        "color": 16769126,
+        "color": 16777215,
         "fontFamily": "dmg-normal",
         "fontSize": 16,
       },
@@ -1144,6 +1161,13 @@ exports[`engine config — value identity (factory / pure functions) > createEng
     },
     "graceSeconds": 30,
     "sessionStorageKey": "deungpu:rt-reconnect",
+  },
+  "render": {
+    "assetBaseUrl": "/assets",
+    "cssImageRendering": true,
+    "pixelate": true,
+    "renderResolution": 0.5,
+    "textureScaleMode": "nearest",
   },
   "resolution": null,
   "stressHarness": {
@@ -1288,13 +1312,13 @@ exports[`engine config — value identity (factory / pure functions) > createEng
       },
       "aggregateWindowMs": 500,
       "crit": {
-        "color": 16731469,
+        "color": 16037970,
         "fontFamily": "dmg-crit",
         "fontSize": 24,
       },
       "lifetimeMs": 650,
       "normal": {
-        "color": 16769126,
+        "color": 16777215,
         "fontFamily": "dmg-normal",
         "fontSize": 16,
       },
@@ -1530,6 +1554,13 @@ exports[`engine config — value identity (factory / pure functions) > createEng
     },
     "graceSeconds": 30,
     "sessionStorageKey": "deungpu:rt-reconnect",
+  },
+  "render": {
+    "assetBaseUrl": "/assets",
+    "cssImageRendering": true,
+    "pixelate": true,
+    "renderResolution": 0.5,
+    "textureScaleMode": "nearest",
   },
   "resolution": null,
   "stressHarness": {
