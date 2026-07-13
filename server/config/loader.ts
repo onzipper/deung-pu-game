@@ -137,6 +137,18 @@ function parseEconomyConfig(payload: unknown): EconomyConfig | null {
   if (!Array.isArray(p.milestones)) return null;
   if (!Array.isArray(p.monsterRewards)) return null;
   if (!Array.isArray(p.equipmentPools)) return null;
+
+  // shop (Economy §8) — buy catalog + sellPrices must be structurally sound (never-downgrade: bad price = 0 loss).
+  const shop = p.shop;
+  if (!isObject(shop) || typeof shop.shopId !== "string" || typeof shop.mapId !== "string") return null;
+  if (!Array.isArray(shop.entries)) return null;
+  for (const e of shop.entries) {
+    if (!isObject(e) || typeof e.itemId !== "string" || !isNum(e.buyPrice) || e.buyPrice < 0) return null;
+  }
+  if (!isObject(shop.sellPrices)) return null;
+  for (const v of Object.values(shop.sellPrices)) {
+    if (v !== null && (!isNum(v) || v < 0)) return null;
+  }
   return payload as unknown as EconomyConfig;
 }
 

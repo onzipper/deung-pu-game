@@ -138,4 +138,19 @@ export interface InventoryRepository {
    * like it worked). No RNG (guaranteed 100%): the log's `rngRoll` is a fixed sentinel.
    */
   commitEnhancement(commit: EnhancementCommit): Promise<void>;
+  /**
+   * P2-11 shop sell (never-downgrade zone: items are money-like): consume `quantity` from ONE owned bag
+   * instance in a single row-locked transaction. Lock the row (FOR UPDATE), verify `version` ===
+   * `expectedVersion` **and** the stock is ≥ `quantity`; then decrement `quantity` (bump version). A stack
+   * that hits 0 leaves the bag (location DESTROYED, slot cleared — tombstone for audit). Any version mismatch
+   * / insufficient stock → VersionConflictError (nothing applied). **Strict** — DB error propagates.
+   */
+  consumeForSale(input: ConsumeForSaleInput): Promise<void>;
+}
+
+/** one shop-sell consume (P2-11): spend `quantity` from a bag instance under an optimistic-version guard. */
+export interface ConsumeForSaleInput {
+  instanceId: string;
+  expectedVersion: number;
+  quantity: number;
 }

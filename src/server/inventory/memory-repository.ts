@@ -4,6 +4,7 @@
 
 import {
   VersionConflictError,
+  type ConsumeForSaleInput,
   type EnhancementCommit,
   type EnhancementLogInput,
   type GrantItemsInput,
@@ -160,6 +161,25 @@ export function createInMemoryInventoryRepository(): InMemoryInventoryRepository
         m.slot = null;
       }
       logs.push({ ...commit.log });
+    },
+
+    async consumeForSale(input: ConsumeForSaleInput): Promise<void> {
+      const r = byId.get(input.instanceId);
+      if (
+        !r ||
+        r.version !== input.expectedVersion ||
+        input.quantity < 1 ||
+        r.quantity < input.quantity
+      ) {
+        throw new VersionConflictError();
+      }
+      r.quantity -= input.quantity;
+      r.version += 1;
+      // a depleted stack leaves the bag (tombstone) so it never lingers as an empty slot.
+      if (r.quantity === 0) {
+        r.location = "DESTROYED";
+        r.slot = null;
+      }
     },
   };
 }

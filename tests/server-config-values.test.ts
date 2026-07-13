@@ -176,6 +176,36 @@ describe("drop tables (Economy §11 — Kraeng rows SUPERSEDED → 0%)", () => {
   });
 });
 
+describe("starter shop (Economy §8.2 buy / §7 sell)", () => {
+  const shop = DEFAULT_ECONOMY_CONFIG.shop;
+
+  test("6 buy entries ตรง §8.2 (ราคา + itemId)", () => {
+    expect(shop.mapId).toBe("city-hub"); // starter district / city hub (§8.1)
+    const buy = new Map(shop.entries.map((e) => [e.itemId, e.buyPrice]));
+    expect(buy.size).toBe(6);
+    expect(buy.get("con_small_potion")).toBe(18);
+    expect(buy.get("eq_weapon_training_blade")).toBe(120);
+    expect(buy.get("eq_head_cloth_band")).toBe(80);
+    expect(buy.get("eq_body_traveler_tunic")).toBe(140);
+    expect(buy.get("eq_accessory_plain_cord")).toBe(90);
+    expect(buy.get("eq_talisman_blank")).toBe(90);
+  });
+
+  test("sell price ตรง §7 (potion 4, blade 24, resonant coat 210)", () => {
+    expect(shop.sellPrices.con_small_potion).toBe(4);
+    expect(shop.sellPrices.mat_slime_gel).toBe(2);
+    expect(shop.sellPrices.eq_weapon_training_blade).toBe(24);
+    expect(shop.sellPrices.eq_body_resonant_coat).toBe(210);
+    expect(shop.sellPrices.mat_boss_resonance_core).toBe(20);
+  });
+
+  test("แกร่ง/เศษ ขายไม่ได้ (§8.3/§14.4 — ไม่มี sell price ใน config)", () => {
+    expect(shop.sellPrices.upg_reinforcement).toBeUndefined();
+    expect(shop.sellPrices.upg_reinforcement_fragment).toBeUndefined();
+    expect(JSON.stringify(shop.sellPrices)).not.toMatch(/kraeng|reinforcement/i);
+  });
+});
+
 describe("reinforcement / pity / fragment (Reinforcement doc §3.5/§4)", () => {
   const r = DEFAULT_REINFORCEMENT_CONFIG;
 

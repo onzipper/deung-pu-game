@@ -155,6 +155,32 @@ export interface EnhancementCurveConfig {
   scaledStats: string[];
 }
 
+// ── starter shop (Economy §8 · §21.4) ────────────────────────────────────────
+/**
+ * 1 buy-catalog entry (§8.2 / §21.4 shopEntry). `buyPrice` = Gold to purchase 1 unit; `unlockCondition` =
+ * gate key (§8.2 "Unlock" column — P2: "immediate" | "shop_tutorial_complete"). Stock = unlimited in P2
+ * (§8.3 "ไม่มี Restock System") so no stock field is modeled.
+ */
+export interface ShopEntry {
+  itemId: string;
+  buyPrice: number;
+  unlockCondition: string;
+}
+
+/**
+ * starter NPC shop (Economy §8, LOCKED). `mapId` = the map the shop NPC lives in (§8.1 starter district /
+ * city hub) — the server accepts shop MSGs only when the client is on this map (server-authoritative
+ * availability). `entries` = the buy catalog (§8.2, 6 items). `sellPrices` = per-item Gold the player
+ * receives on sell (§7 "Sell" column / §8.3 "Sell price อ่านจาก Item Definition"): an itemId absent from the
+ * map (or mapped to null) is **unsellable** (§8.3/§14.4 — Kraeng/quest items ขายไม่ได้).
+ */
+export interface ShopConfig {
+  shopId: string;
+  mapId: string;
+  entries: ShopEntry[];
+  sellPrices: Record<string, number | null>;
+}
+
 // ── economy config (bundle) ──────────────────────────────────────────────────
 export interface EconomyConfig {
   /** §2.2 — log ทุก transaction ด้วย version นี้ */
@@ -168,6 +194,8 @@ export interface EconomyConfig {
   equipmentPools: EquipmentPool[];
   milestones: MilestoneReward[];
   enhancementCurve: EnhancementCurveConfig;
+  /** starter NPC shop (Economy §8) — buy catalog + per-item sell prices. */
+  shop: ShopConfig;
 }
 
 // ── reinforcement / fragment / pity (Reinforcement doc §3.5/§4) ──────────────

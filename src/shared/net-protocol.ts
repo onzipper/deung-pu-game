@@ -391,3 +391,84 @@ export interface EnhanceResultMessage {
   /** reason เมื่อ ok=false — "NO_ITEM"|"NO_REINFORCEMENT"|"MAX_LEVEL"|"ITEM_LOCKED" (§2.4 UI states). */
   reason?: string;
 }
+
+// ── P2-11 starter NPC shop (buy/sell ผ่าน ledger + inventory transaction · Economy §8 · Bible 3.5) ─────────
+//
+// Server-authoritative + idempotent (§8.3): client ส่ง **intent เท่านั้น** — ราคาทั้งหมด (buy/sell) เป็น
+// server-side Design Knob (server/config/economy.ts) และ **ไม่ bundle เข้า client**; client รู้ราคาซื้อจาก
+// MSG_SHOP_LIST เท่านั้น (server ตอบตาม map ที่ client อยู่ = starter district/city hub). ทุก mutation ตอบ
+// MSG_SHOP_RESULT (ยอด gold authoritative หลังทำ) + ตามด้วย MSG_INVENTORY_STATE (snapshot ใหม่) เมื่อสำเร็จ.
+// error code = Economy §23 (Shop). idempotency: buy = ledger idempotencyKey; sell = optimistic `version`.
+
+/** message type: client → server — ขอ catalog ของร้านบน map ปัจจุบัน (P2-11). */
+export const MSG_SHOP_LIST_REQUEST = "shop_list_request";
+
+/** payload ของ MSG_SHOP_LIST_REQUEST (client → server). shopId optional (server ยึด map ปัจจุบันเป็นหลัก). */
+export interface ShopListRequestMessage {
+  shopId?: string;
+}
+
+/** 1 รายการซื้อในร้าน (server → client) — ราคา+เงื่อนไขปลดล็อกจาก config (client ไม่มีราคา). */
+export interface ShopCatalogEntry {
+  itemId: string;
+  buyPrice: number;
+  /** "immediate" | "shop_tutorial_complete" (§8.2) — client ใช้แสดงสถานะปลดล็อก. */
+  unlockCondition: string;
+}
+
+/** message type: server → **client เดียว** — catalog ของร้าน (ตอบ MSG_SHOP_LIST_REQUEST, P2-11). */
+export const MSG_SHOP_LIST = "shop_list";
+
+/** payload ของ MSG_SHOP_LIST (server → client เดียว). `available` = false เมื่อ map นี้ไม่มีร้าน. */
+export interface ShopListMessage {
+  shopId: string;
+  available: boolean;
+  entries: ShopCatalogEntry[];
+}
+
+/** message type: client → server (intent) — ซื้อ item จากร้าน (P2-11). ราคา = server config (ไม่แนบมา). */
+export const MSG_SHOP_BUY = "shop_buy";
+
+/** payload ของ MSG_SHOP_BUY (client → server, P2-11). idempotencyKey = 1 transaction (กัน replay หักเงินซ้ำ). */
+export interface ShopBuyMessage {
+  shopId: string;
+  itemId: string;
+  quantity: number;
+  idempotencyKey: string;
+}
+
+/** message type: client → server (intent) — ขาย item ที่ถืออยู่ให้ร้าน (P2-11). ราคาขาย = server config. */
+export const MSG_SHOP_SELL = "shop_sell";
+
+/** payload ของ MSG_SHOP_SELL (client → server, P2-11). expectedVersion = optimistic lock (กัน stale/concurrent). */
+export interface ShopSellMessage {
+  shopId: string;
+  instanceId: string;
+  expectedVersion: number;
+  quantity: number;
+  idempotencyKey: string;
+}
+
+/** ชนิด operation ของร้านที่ตอบกลับ (client แยก UI). */
+export type ShopOp = "buy" | "sell";
+
+/** message type: server → **client เดียว** — ผลซื้อ/ขาย (สำเร็จ/ปฏิเสธ) (P2-11). */
+export const MSG_SHOP_RESULT = "shop_result";
+
+/**
+ * payload ของ MSG_SHOP_RESULT (server → client เดียว, P2-11). สำเร็จ → บอก quantity ที่ทำจริง + ยอด gold
+ * authoritative หลังทำ (client อัปเดตแถบเงิน; snapshot กระเป๋ามาทาง MSG_INVENTORY_STATE). ปฏิเสธ → reason =
+ * Economy §23 shop error code ("SHOP_ITEM_NOT_FOUND"|"SHOP_LOCKED"|"INSUFFICIENT_GOLD"|"INVENTORY_FULL"|
+ * "ITEM_UNSELLABLE"|"ITEM_EQUIPPED"|"TRANSACTION_CONFLICT"). gold = GOLD_UNKNOWN เมื่ออ่านยอดไม่ได้.
+ */
+export interface ShopResultMessage {
+  op: ShopOp;
+  ok: boolean;
+  itemId: string;
+  /** จำนวนที่ทำรายการจริง (ซื้อ = ที่เข้ากระเป๋า, ขาย = ที่หักออก); 0 เมื่อปฏิเสธ. */
+  quantity: number;
+  /** ยอด gold ปัจจุบันหลังรายการ (จาก ledger) — GOLD_UNKNOWN เมื่ออ่านไม่ได้. */
+  gold: number;
+  /** Economy §23 shop error code เมื่อ ok=false. */
+  reason?: string;
+}

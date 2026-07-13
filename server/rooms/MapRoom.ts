@@ -86,6 +86,11 @@ import {
   MSG_MOVE_ITEM,
   MSG_ENHANCE_ITEM,
   MSG_ENHANCE_RESULT,
+  MSG_SHOP_LIST_REQUEST,
+  MSG_SHOP_LIST,
+  MSG_SHOP_BUY,
+  MSG_SHOP_SELL,
+  MSG_SHOP_RESULT,
   WS_CLOSE_SESSION_TAKEN_OVER,
   type CastRejectedMessage,
   type CastSkillMessage,
@@ -102,6 +107,11 @@ import {
   type InventoryOp,
   type InventoryOpRejectedMessage,
   type PlayerProgressMessage,
+  type ShopListRequestMessage,
+  type ShopListMessage,
+  type ShopBuyMessage,
+  type ShopSellMessage,
+  type ShopResultMessage,
 } from "../../src/shared/net-protocol";
 import {
   validateMove,
@@ -151,6 +161,14 @@ import {
   PLAYER_BASELINE_TABLE,
   EXP_CURVE,
 } from "../economy/kill-rewards";
+import { SHOP_CONFIG, shopForMap, shopItemMeta } from "../economy/shop-state";
+import {
+  buyShopItem,
+  sellItem,
+  type ShopBuyResult,
+  type ShopSellResult,
+} from "../../src/server/economy/shop";
+import { appendEntry } from "../db/ledger";
 import { playerBaselineForLevel } from "../../src/server/economy/exp";
 import {
   createMobSimulation,
@@ -537,6 +555,19 @@ export class MapRoom extends Room<MapRoomState> {
     //   ปฏิเสธ (flag inert P2 / no material / max / lock): MSG_ENHANCE_RESULT ok:false + reason. (§2.3/R8)
     this.onMessage(MSG_ENHANCE_ITEM, (client: Client, message: EnhanceItemMessage) => {
       void this.runEnhanceOp(client, message);
+    });
+
+    // P2-11: starter NPC shop (Economy §8) — buy/sell ผ่าน ledger + inventory transaction, ราคา = server config.
+    //   list = catalog ของร้านบน map ปัจจุบัน (ไม่มีร้าน → available:false); buy/sell = server-authoritative +
+    //   idempotent → MSG_SHOP_RESULT (+ MSG_INVENTORY_STATE เมื่อสำเร็จ). available ตรวจจาก map (starter district).
+    this.onMessage(MSG_SHOP_LIST_REQUEST, (client: Client, _message: ShopListRequestMessage) => {
+      this.handleShopList(client);
+    });
+    this.onMessage(MSG_SHOP_BUY, (client: Client, message: ShopBuyMessage) => {
+      void this.runShopBuy(client, message);
+    });
+    this.onMessage(MSG_SHOP_SELL, (client: Client, message: ShopSellMessage) => {
+      void this.runShopSell(client, message);
     });
 
     this.onMessage(MSG_MOVE, (client: Client, message: MoveMessage) => {
@@ -975,6 +1006,144 @@ export class MapRoom extends Room<MapRoomState> {
     }
     client.send(MSG_INVENTORY_STATE, result.snapshot);
     this.applyEquipmentStats(client.sessionId, result.snapshot.equipment);
+  }
+
+  /**
+   * P2-11: ตอบ catalog ของร้านบน map ปัจจุบัน (Economy §8). ราคาซื้อมาจาก config (ไม่ bundle ในclient) — map
+   * ที่ไม่มีร้าน → available:false (client ซ่อนปุ่มร้าน). ไม่ต้องมี DB (ราคา = config).
+   */
+  private handleShopList(client: Client): void {
+    const shop = shopForMap(this.state.mapId);
+    const msg: ShopListMessage = shop
+      ? {
+          shopId: shop.shopId,
+          available: true,
+          entries: shop.entries.map((e) => ({
+            itemId: e.itemId,
+            buyPrice: e.buyPrice,
+            unlockCondition: e.unlockCondition,
+          })),
+        }
+      : { shopId: SHOP_CONFIG.shopId, available: false, entries: [] };
+    client.send(MSG_SHOP_LIST, msg);
+  }
+
+  /**
+   * P2-11: ซื้อ item จากร้าน (§8). เฉพาะ session ที่ผูกตัวละคร + DB พร้อม + อยู่ map ที่มีร้าน. สำเร็จ →
+   * MSG_SHOP_RESULT(ok, gold) + MSG_INVENTORY_STATE (snapshot ใหม่). ปฏิเสธ business → reason §23; DB error →
+   * surface (never-downgrade: เงินอาจถูก refund ด้วย compensating entry ในตัว service — ดู shop.ts header).
+   */
+  private async runShopBuy(client: Client, message: ShopBuyMessage): Promise<void> {
+    const itemId = String(message?.itemId ?? "");
+    const shop = shopForMap(this.state.mapId);
+    const rec = this.sessionCharacters.get(client.sessionId);
+    if (!shop || !rec || !inventoryPersistenceAvailable()) {
+      this.sendShopReject(client, "buy", itemId, "SHOP_ITEM_NOT_FOUND");
+      return;
+    }
+    let result: ShopBuyResult;
+    try {
+      result = await buyShopItem(
+        {
+          shop,
+          itemMeta: shopItemMeta,
+          ledger: { appendEntry: (e) => appendEntry(e) },
+          inventory: getInventoryRepository(),
+        },
+        {
+          characterId: rec.characterId,
+          accountId: rec.accountId,
+          capacity: INVENTORY_CAPACITY,
+          itemId,
+          quantity: Number(message?.quantity),
+          idempotencyKey: String(message?.idempotencyKey ?? ""),
+        },
+      );
+    } catch (err) {
+      console.error(
+        `[MapRoom ${this.roomId}] shop buy DB error ${client.sessionId} (${itemId}): ` +
+          (err instanceof Error ? err.message : String(err)),
+      );
+      this.sendShopReject(client, "buy", itemId, "TRANSACTION_CONFLICT");
+      return;
+    }
+    if (!result.ok) {
+      this.sendShopReject(client, "buy", itemId, result.reason);
+      return;
+    }
+    const ok: ShopResultMessage = {
+      op: "buy",
+      ok: true,
+      itemId: result.itemId,
+      quantity: result.quantity,
+      gold: Number(result.gold),
+    };
+    client.send(MSG_SHOP_RESULT, ok);
+    await this.sendInventorySnapshot(client, rec.characterId);
+  }
+
+  /**
+   * P2-11: ขาย item ที่ถืออยู่ให้ร้าน (§8). สำเร็จ → MSG_SHOP_RESULT(ok, gold) + MSG_INVENTORY_STATE. ปฏิเสธ
+   * business (ไม่ถือ/สวมอยู่/ขายไม่ได้/version ชน) → reason §23. DB error หลังหักของ → surface (money-loud).
+   */
+  private async runShopSell(client: Client, message: ShopSellMessage): Promise<void> {
+    const instanceId = String(message?.instanceId ?? "");
+    const shop = shopForMap(this.state.mapId);
+    const rec = this.sessionCharacters.get(client.sessionId);
+    if (!shop || !rec || !inventoryPersistenceAvailable()) {
+      this.sendShopReject(client, "sell", instanceId, "SHOP_ITEM_NOT_FOUND");
+      return;
+    }
+    let result: ShopSellResult;
+    try {
+      result = await sellItem(
+        {
+          shop,
+          ledger: { appendEntry: (e) => appendEntry(e) },
+          inventory: getInventoryRepository(),
+        },
+        {
+          characterId: rec.characterId,
+          capacity: INVENTORY_CAPACITY,
+          instanceId,
+          expectedVersion: Number(message?.expectedVersion),
+          quantity: Number(message?.quantity),
+          idempotencyKey: String(message?.idempotencyKey ?? ""),
+        },
+      );
+    } catch (err) {
+      console.error(
+        `[MapRoom ${this.roomId}] shop sell DB error ${client.sessionId} (${instanceId}): ` +
+          (err instanceof Error ? err.message : String(err)),
+      );
+      this.sendShopReject(client, "sell", instanceId, "TRANSACTION_CONFLICT");
+      return;
+    }
+    if (!result.ok) {
+      this.sendShopReject(client, "sell", instanceId, result.reason);
+      return;
+    }
+    const ok: ShopResultMessage = {
+      op: "sell",
+      ok: true,
+      itemId: result.itemId,
+      quantity: result.quantity,
+      gold: Number(result.gold),
+    };
+    client.send(MSG_SHOP_RESULT, ok);
+    await this.sendInventorySnapshot(client, rec.characterId);
+  }
+
+  /** P2-11: send a fresh bag/equipment snapshot after a shop mutation (equipment unchanged → no stat recompute). */
+  private async sendInventorySnapshot(client: Client, characterId: string): Promise<void> {
+    const items = await loadCharacterItemsBestEffort(characterId);
+    client.send(MSG_INVENTORY_STATE, buildSnapshot(items, INVENTORY_CAPACITY));
+  }
+
+  /** P2-11: uniform shop reject (op + echoed item + §23 error code; quantity 0, gold unknown). */
+  private sendShopReject(client: Client, op: "buy" | "sell", itemId: string, reason: string): void {
+    const rejected: ShopResultMessage = { op, ok: false, itemId, quantity: 0, gold: GOLD_UNKNOWN, reason };
+    client.send(MSG_SHOP_RESULT, rejected);
   }
 
   async onJoin(client: Client, options: JoinOptions): Promise<void> {

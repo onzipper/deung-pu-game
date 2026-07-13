@@ -13,6 +13,7 @@ import type { EnhancementResult, ItemLocation } from "@prisma/client";
 import { getPrisma } from "../db";
 import {
   VersionConflictError,
+  type ConsumeForSaleInput,
   type EnhancementCommit,
   type GrantItemsInput,
   type GrantOutcome,
@@ -234,6 +235,34 @@ export function createPrismaInventoryRepository(): InventoryRepository {
             rngRoll: GUARANTEED_RNG_ROLL,
             configVersion: log.configVersion,
           },
+        });
+      });
+    },
+
+    async consumeForSale(input: ConsumeForSaleInput): Promise<void> {
+      await getPrisma().$transaction(async (tx) => {
+        // 1) LOCK the row (FOR UPDATE) → serialize against concurrent equip/move/enhance on the same instance.
+        const rows = await tx.$queryRaw<{ version: number; quantity: number }[]>`
+          SELECT version, quantity FROM item_instances WHERE id = ${input.instanceId} FOR UPDATE
+        `;
+        const cur = rows[0];
+        // 2) CHECK version + stock (mismatch / not enough held) → abort (nothing written).
+        if (
+          !cur ||
+          cur.version !== input.expectedVersion ||
+          input.quantity < 1 ||
+          cur.quantity < input.quantity
+        ) {
+          throw new VersionConflictError();
+        }
+        // 3) WRITE: spend `quantity`; a depleted stack leaves the bag (DESTROYED, slot cleared).
+        const nextQty = cur.quantity - input.quantity;
+        await tx.itemInstance.update({
+          where: { id: input.instanceId },
+          data:
+            nextQty === 0
+              ? { quantity: 0, location: "DESTROYED" as ItemLocation, slot: null, version: { increment: 1 } }
+              : { quantity: nextQty, version: { increment: 1 } },
         });
       });
     },

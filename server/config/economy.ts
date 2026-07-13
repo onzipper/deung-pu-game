@@ -11,6 +11,7 @@ import type {
   MonsterReward,
   DropTable,
   PlayerBaselineRow,
+  ShopConfig,
 } from "./types";
 
 /** §2.2 — economy version tag; log ทุก transaction ด้วยค่านี้. */
@@ -201,6 +202,60 @@ const PLAYER_BASELINE: PlayerBaselineRow[] = [
   { level: 10, hp: 280, atk: 40, def: 22 },
 ];
 
+// ── starter NPC shop (Economy §8, LOCKED) ────────────────────────────────────
+// buyPrice/unlock = §8.2 catalog (6 items) verbatim; mapId = city hub (starter district, §8.1) — mirrors
+// engine CITY_HUB_ID ("city-hub") as a Design-Knob string (same posture as MONSTER_ID_BY_MOB_TYPE keys).
+// sellPrices = §7 "Sell" column verbatim (§8.3 "Sell price อ่านจาก Item Definition"). Items NOT listed =
+// unsellable: `upg_reinforcement`/fragment (§8.3/§14.4 "Kraeng ขายไม่ได้"; sell-ability = R1/R2 undecided,
+// not set here — never decide balance) and any quest item.
+const STARTER_SHOP: ShopConfig = {
+  shopId: "starter_general_store", // §8 single P2 shop (shopId reserved for future multi-shop)
+  mapId: "city-hub", // = CITY_HUB_ID (src/engine/map/city-hub.ts) — starter district / city hub (§8.1)
+  entries: [
+    { itemId: "con_small_potion", buyPrice: 18, unlockCondition: "shop_tutorial_complete" },
+    { itemId: "eq_weapon_training_blade", buyPrice: 120, unlockCondition: "immediate" },
+    { itemId: "eq_head_cloth_band", buyPrice: 80, unlockCondition: "immediate" },
+    { itemId: "eq_body_traveler_tunic", buyPrice: 140, unlockCondition: "immediate" },
+    { itemId: "eq_accessory_plain_cord", buyPrice: 90, unlockCondition: "immediate" },
+    { itemId: "eq_talisman_blank", buyPrice: 90, unlockCondition: "immediate" },
+  ],
+  sellPrices: {
+    // §7.1 consumable / materials (mat_slime_gel..mat_boss_resonance_core)
+    con_small_potion: 4,
+    mat_slime_gel: 2,
+    mat_soft_feather: 3,
+    mat_coarse_hide: 5,
+    mat_sharp_tusk: 8,
+    mat_resonance_dust: 12,
+    mat_boss_resonance_core: 20,
+    // §7.2 weapons
+    eq_weapon_training_blade: 24,
+    eq_weapon_reed_edge: 36,
+    eq_weapon_boar_tusk_saber: 72,
+    eq_weapon_resonant_edge: 180,
+    // §7.3 head
+    eq_head_cloth_band: 16,
+    eq_head_leaf_wrap: 28,
+    eq_head_boarhide_cap: 60,
+    eq_head_moon_sand_circlet: 150,
+    // §7.4 body
+    eq_body_traveler_tunic: 28,
+    eq_body_padded_field_coat: 42,
+    eq_body_boarhide_vest: 84,
+    eq_body_resonant_coat: 210,
+    // §7.5 accessory
+    eq_accessory_plain_cord: 18,
+    eq_accessory_feather_knot: 30,
+    eq_accessory_tough_tusk_ring: 72,
+    eq_accessory_resonance_bead: 180,
+    // §7.6 talisman
+    eq_talisman_blank: 18,
+    eq_talisman_sprout: 30,
+    eq_talisman_firmness: 72,
+    eq_talisman_moon_echo: 180,
+  },
+};
+
 /** DEFAULT economy config (fallback ในโค้ด) — ดู loader.ts สำหรับการ override ผ่าน DB. */
 export const DEFAULT_ECONOMY_CONFIG: EconomyConfig = {
   economyVersion: ECONOMY_VERSION,
@@ -250,4 +305,5 @@ export const DEFAULT_ECONOMY_CONFIG: EconomyConfig = {
     minIncreasePerLevel: 1, // §16.3 rule
     scaledStats: ["attack", "defense", "maxHp", "breakPower"], // §16.3 (Crit/Move ไม่ scale)
   },
+  shop: STARTER_SHOP,
 };
