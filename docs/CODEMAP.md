@@ -58,4 +58,6 @@
 ## scripts + tests
 
 - `scripts/e2e/` — permanent E2E harness (Colyseus client, works local/prod): `scripts/e2e/lib.mjs` helpers, `scripts/e2e/smoke.mjs` 8-step scenario
+- `scripts/svg/` — SVG-first pipeline (SVG-01, D-042/D-043), no-dep: sanitizer + palette lint (32-color/rarity) + manifest gen (engine 5-dir+mirror + Asset Bible sec19) + raster atlas (PNG=TODO, needs dep); svg:lint/svg:build CLIs
+- `svg/` — SVG source tree + `svg/README.md` contract; entity folders carry entity.json; build artifacts in svg/.build (gitignored)
 - tests/ mirrors source module names — grep the test dir.

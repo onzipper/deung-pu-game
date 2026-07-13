@@ -1,0 +1,13 @@
+{
+  "assetId": "mon_bird",
+  "category": "monsters",
+  "frameSize": [64, 64],
+  "pivot": [32, 54],
+  "mirrorSafe": true,
+  "drawnDirections": ["S", "SW", "W", "NW", "N"],
+  "mirrorMap": { "SE": "SW", "E": "W", "NE": "NW" },
+  "animations": {
+    "idle": { "fps": 6, "loop": true, "frameCount": 2 },
+    "walk": { "fps": 12, "loop": true, "frameCount": 4 }
+  }
+}

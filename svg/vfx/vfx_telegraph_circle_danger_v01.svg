@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" shape-rendering="crispEdges">
+  <!-- vfx telegraph (danger AoE) — SOLID edge, never blur (D-043 V4). Danger Red only. -->
+  <ellipse cx="32" cy="32" rx="26" ry="13" fill="none" stroke="#D84848" stroke-width="2"/>
+  <ellipse cx="32" cy="32" rx="14" ry="7" fill="none" stroke="#D84848" stroke-width="2"/>
+</svg>
