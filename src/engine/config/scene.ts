@@ -32,6 +32,11 @@ export interface PropStyle {
   height: number;
   /** รูปทรง placeholder */
   shape: "box" | "ellipse";
+  /**
+   * assetId ของ atlas art จริง (SVG-01 pipeline) — มี = ใช้ Sprite เฟรม idle S แรกแทน Graphics.
+   * undefined = placeholder Graphics (path เดิม). ไม่ตั้ง default ใน P3 — Phase 5 ค่อยเปิด.
+   */
+  assetId?: string;
 }
 
 /**
@@ -117,19 +122,21 @@ export interface TransitionConfig {
   fadeInMs: number;
 }
 
+// Phase 5 retint — Master Palette v1 (MASTER_PALETTE, scripts/svg/palette.ts / Bible §3). ทุกค่าคอมเมนต์
+// ชื่อสีจาก palette กำกับ. Structure เดิมทั้งหมด — เปลี่ยนเฉพาะค่าสี + assetId.
 export const DEFAULT_SCENE_THEME: SceneTheme = {
-  tileColorA: 0x3a4a3f,
-  tileColorB: 0x33423a,
-  gridLineColor: 0x5c7a68,
+  tileColorA: 0x3f6845, // Leaf
+  tileColorB: 0x284536, // Deep Leaf
+  gridLineColor: 0x9db56c, // Moss
   gridLineAlpha: 0.35,
-  blockedColor: 0x7a4a3a,
-  defaultProp: { color: 0x8a8a8a, width: 20, height: 28, shape: "box" },
+  blockedColor: 0x171820, // Deep Ink (พื้นบล็อก/กำแพง = โทนเดียวกับพื้นหลัง Deep Ink)
+  defaultProp: { color: 0x68483a, width: 20, height: 28, shape: "box" }, // Soil Brown
   props: {
-    tree: { color: 0x2f7d4f, width: 22, height: 44, shape: "box" },
-    rock: { color: 0x9099a0, width: 24, height: 18, shape: "ellipse" },
-    bush: { color: 0x3f9d5f, width: 26, height: 20, shape: "ellipse" },
-    signpost: { color: 0xc9a24b, width: 12, height: 34, shape: "box" },
-    stump: { color: 0x7a5a3a, width: 20, height: 16, shape: "ellipse" },
+    tree: { color: 0x6f9658, width: 22, height: 44, shape: "box", assetId: "prop_map1_tree" }, // Fresh Leaf
+    rock: { color: 0xa4ccc0, width: 24, height: 18, shape: "ellipse", assetId: "prop_map1_rock" }, // Mist
+    bush: { color: 0x9db56c, width: 26, height: 20, shape: "ellipse", assetId: "prop_map1_bush" }, // Moss
+    signpost: { color: 0xb47e52, width: 12, height: 34, shape: "box", assetId: "prop_map1_signpost" }, // Warm Wood
+    stump: { color: 0x8e6046, width: 20, height: 16, shape: "ellipse", assetId: "prop_map1_stump" }, // Clay
   },
 };
 
@@ -151,9 +158,9 @@ export const DEFAULT_TRANSITION_CONFIG: TransitionConfig = {
  */
 export const DEFAULT_EXIT_MARKER_CONFIG: ExitMarkerConfig = {
   enabled: true,
-  fillColor: 0x2ee6c0, // teal สว่าง
+  fillColor: 0x35c6b0, // Resonance Teal (MASTER_PALETTE)
   fillAlpha: 0.3,
-  lineColor: 0x8affea, // ขอบ teal อ่อน
+  lineColor: 0x7ce9d0, // Resonance Light (MASTER_PALETTE)
   lineAlpha: 0.9,
   lineWidth: 2,
 };

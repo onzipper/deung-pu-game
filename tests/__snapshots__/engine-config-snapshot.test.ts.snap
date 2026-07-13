@@ -83,13 +83,13 @@ exports[`engine config — value identity (DEFAULT_* consts) > DEFAULT_COMBAT_FE
     },
     "aggregateWindowMs": 500,
     "crit": {
-      "color": 16731469,
+      "color": 16037970,
       "fontFamily": "dmg-crit",
       "fontSize": 24,
     },
     "lifetimeMs": 650,
     "normal": {
-      "color": 16769126,
+      "color": 16777215,
       "fontFamily": "dmg-normal",
       "fontSize": 16,
     },
@@ -289,13 +289,13 @@ exports[`engine config — value identity (DEFAULT_* consts) > DEFAULT_ENGINE_CO
       },
       "aggregateWindowMs": 500,
       "crit": {
-        "color": 16731469,
+        "color": 16037970,
         "fontFamily": "dmg-crit",
         "fontSize": 24,
       },
       "lifetimeMs": 650,
       "normal": {
-        "color": 16769126,
+        "color": 16777215,
         "fontFamily": "dmg-normal",
         "fontSize": 16,
       },
@@ -369,9 +369,9 @@ exports[`engine config — value identity (DEFAULT_* consts) > DEFAULT_ENGINE_CO
   "exitMarker": {
     "enabled": true,
     "fillAlpha": 0.3,
-    "fillColor": 3073728,
+    "fillColor": 3524272,
     "lineAlpha": 0.9,
-    "lineColor": 9109482,
+    "lineColor": 8186320,
     "lineWidth": 2,
   },
   "input": {
@@ -417,7 +417,7 @@ exports[`engine config — value identity (DEFAULT_* consts) > DEFAULT_ENGINE_CO
       "borderColor": 657930,
       "fgColor": 5226347,
       "height": 4,
-      "offsetY": -40,
+      "offsetY": -46,
       "width": 28,
     },
     "lod": {
@@ -429,6 +429,33 @@ exports[`engine config — value identity (DEFAULT_* consts) > DEFAULT_ENGINE_CO
       "maxPlacementAttempts": 20,
     },
     "styles": {
+      "bird": {
+        "accentColor": 4937358,
+        "assetId": "mon_map1_bird",
+        "bodyColor": 7833288,
+        "bounceAmount": 3,
+        "height": 16,
+        "shape": "slime",
+        "width": 20,
+      },
+      "boar": {
+        "accentColor": 14200432,
+        "assetId": "mon_map1_boar",
+        "bodyColor": 9330758,
+        "bounceAmount": 2,
+        "height": 20,
+        "shape": "slime",
+        "width": 30,
+      },
+      "boar_elite": {
+        "accentColor": 10370098,
+        "assetId": "mon_map1_boar_elite",
+        "bodyColor": 14510144,
+        "bounceAmount": 2,
+        "height": 24,
+        "shape": "slime",
+        "width": 34,
+      },
       "mushroom": {
         "accentColor": 12597547,
         "bodyColor": 15260064,
@@ -439,6 +466,7 @@ exports[`engine config — value identity (DEFAULT_* consts) > DEFAULT_ENGINE_CO
       },
       "slime": {
         "accentColor": 1776419,
+        "assetId": "mon_map1_slime",
         "bodyColor": 5226347,
         "bounceAmount": 3,
         "height": 18,
@@ -512,6 +540,7 @@ exports[`engine config — value identity (DEFAULT_* consts) > DEFAULT_ENGINE_CO
       "idleFrames": 2,
       "style": {
         "accentColor": 14042437,
+        "assetId": "chr_swordsman",
         "bodyColor": 16765514,
         "bodyHeight": 34,
         "bodyWidth": 20,
@@ -546,6 +575,13 @@ exports[`engine config — value identity (DEFAULT_* consts) > DEFAULT_ENGINE_CO
     "graceSeconds": 30,
     "sessionStorageKey": "deungpu:rt-reconnect",
   },
+  "render": {
+    "assetBaseUrl": "/assets",
+    "cssImageRendering": true,
+    "pixelate": true,
+    "renderResolution": 0.5,
+    "textureScaleMode": "nearest",
+  },
   "resolution": null,
   "stressHarness": {
     "damageNumberRatePerSec": 300,
@@ -555,49 +591,54 @@ exports[`engine config — value identity (DEFAULT_* consts) > DEFAULT_ENGINE_CO
   },
   "targetFps": 60,
   "theme": {
-    "blockedColor": 8014394,
+    "blockedColor": 1513504,
     "defaultProp": {
-      "color": 9079434,
+      "color": 6834234,
       "height": 28,
       "shape": "box",
       "width": 20,
     },
     "gridLineAlpha": 0.35,
-    "gridLineColor": 6060648,
+    "gridLineColor": 10335596,
     "props": {
       "bush": {
-        "color": 4169055,
+        "assetId": "prop_map1_bush",
+        "color": 10335596,
         "height": 20,
         "shape": "ellipse",
         "width": 26,
       },
       "rock": {
-        "color": 9476512,
+        "assetId": "prop_map1_rock",
+        "color": 10800320,
         "height": 18,
         "shape": "ellipse",
         "width": 24,
       },
       "signpost": {
-        "color": 13214283,
+        "assetId": "prop_map1_signpost",
+        "color": 11828818,
         "height": 34,
         "shape": "box",
         "width": 12,
       },
       "stump": {
-        "color": 8018490,
+        "assetId": "prop_map1_stump",
+        "color": 9330758,
         "height": 16,
         "shape": "ellipse",
         "width": 20,
       },
       "tree": {
-        "color": 3112271,
+        "assetId": "prop_map1_tree",
+        "color": 7312984,
         "height": 44,
         "shape": "box",
         "width": 22,
       },
     },
-    "tileColorA": 3820095,
-    "tileColorB": 3359290,
+    "tileColorA": 4155461,
+    "tileColorB": 2639158,
   },
   "tileSize": {
     "height": 32,
@@ -615,9 +656,9 @@ exports[`engine config — value identity (DEFAULT_* consts) > DEFAULT_EXIT_MARK
 {
   "enabled": true,
   "fillAlpha": 0.3,
-  "fillColor": 3073728,
+  "fillColor": 3524272,
   "lineAlpha": 0.9,
-  "lineColor": 9109482,
+  "lineColor": 8186320,
   "lineWidth": 2,
 }
 `;
@@ -669,7 +710,7 @@ exports[`engine config — value identity (DEFAULT_* consts) > DEFAULT_MOB_CONFI
     "borderColor": 657930,
     "fgColor": 5226347,
     "height": 4,
-    "offsetY": -40,
+    "offsetY": -46,
     "width": 28,
   },
   "lod": {
@@ -681,6 +722,33 @@ exports[`engine config — value identity (DEFAULT_* consts) > DEFAULT_MOB_CONFI
     "maxPlacementAttempts": 20,
   },
   "styles": {
+    "bird": {
+      "accentColor": 4937358,
+      "assetId": "mon_map1_bird",
+      "bodyColor": 7833288,
+      "bounceAmount": 3,
+      "height": 16,
+      "shape": "slime",
+      "width": 20,
+    },
+    "boar": {
+      "accentColor": 14200432,
+      "assetId": "mon_map1_boar",
+      "bodyColor": 9330758,
+      "bounceAmount": 2,
+      "height": 20,
+      "shape": "slime",
+      "width": 30,
+    },
+    "boar_elite": {
+      "accentColor": 10370098,
+      "assetId": "mon_map1_boar_elite",
+      "bodyColor": 14510144,
+      "bounceAmount": 2,
+      "height": 24,
+      "shape": "slime",
+      "width": 34,
+    },
     "mushroom": {
       "accentColor": 12597547,
       "bodyColor": 15260064,
@@ -691,6 +759,7 @@ exports[`engine config — value identity (DEFAULT_* consts) > DEFAULT_MOB_CONFI
     },
     "slime": {
       "accentColor": 1776419,
+      "assetId": "mon_map1_slime",
       "bodyColor": 5226347,
       "bounceAmount": 3,
       "height": 18,
@@ -778,6 +847,7 @@ exports[`engine config — value identity (DEFAULT_* consts) > DEFAULT_PLAYER_AN
   "idleFrames": 2,
   "style": {
     "accentColor": 14042437,
+    "assetId": "chr_swordsman",
     "bodyColor": 16765514,
     "bodyHeight": 34,
     "bodyWidth": 20,
@@ -800,6 +870,7 @@ exports[`engine config — value identity (DEFAULT_* consts) > DEFAULT_PLAYER_CO
     "idleFrames": 2,
     "style": {
       "accentColor": 14042437,
+      "assetId": "chr_swordsman",
       "bodyColor": 16765514,
       "bodyHeight": 34,
       "bodyWidth": 20,
@@ -837,51 +908,66 @@ exports[`engine config — value identity (DEFAULT_* consts) > DEFAULT_RECONNECT
 }
 `;
 
+exports[`engine config — value identity (DEFAULT_* consts) > DEFAULT_RENDER_STYLE_CONFIG 1`] = `
+{
+  "assetBaseUrl": "/assets",
+  "cssImageRendering": true,
+  "pixelate": true,
+  "renderResolution": 0.5,
+  "textureScaleMode": "nearest",
+}
+`;
+
 exports[`engine config — value identity (DEFAULT_* consts) > DEFAULT_SCENE_THEME 1`] = `
 {
-  "blockedColor": 8014394,
+  "blockedColor": 1513504,
   "defaultProp": {
-    "color": 9079434,
+    "color": 6834234,
     "height": 28,
     "shape": "box",
     "width": 20,
   },
   "gridLineAlpha": 0.35,
-  "gridLineColor": 6060648,
+  "gridLineColor": 10335596,
   "props": {
     "bush": {
-      "color": 4169055,
+      "assetId": "prop_map1_bush",
+      "color": 10335596,
       "height": 20,
       "shape": "ellipse",
       "width": 26,
     },
     "rock": {
-      "color": 9476512,
+      "assetId": "prop_map1_rock",
+      "color": 10800320,
       "height": 18,
       "shape": "ellipse",
       "width": 24,
     },
     "signpost": {
-      "color": 13214283,
+      "assetId": "prop_map1_signpost",
+      "color": 11828818,
       "height": 34,
       "shape": "box",
       "width": 12,
     },
     "stump": {
-      "color": 8018490,
+      "assetId": "prop_map1_stump",
+      "color": 9330758,
       "height": 16,
       "shape": "ellipse",
       "width": 20,
     },
     "tree": {
-      "color": 3112271,
+      "assetId": "prop_map1_tree",
+      "color": 7312984,
       "height": 44,
       "shape": "box",
       "width": 22,
     },
   },
-  "tileColorA": 3820095,
-  "tileColorB": 3359290,
+  "tileColorA": 4155461,
+  "tileColorB": 2639158,
 }
 `;
 
@@ -1002,13 +1088,13 @@ exports[`engine config — value identity (factory / pure functions) > createEng
       },
       "aggregateWindowMs": 500,
       "crit": {
-        "color": 16731469,
+        "color": 16037970,
         "fontFamily": "dmg-crit",
         "fontSize": 24,
       },
       "lifetimeMs": 650,
       "normal": {
-        "color": 16769126,
+        "color": 16777215,
         "fontFamily": "dmg-normal",
         "fontSize": 16,
       },
@@ -1082,9 +1168,9 @@ exports[`engine config — value identity (factory / pure functions) > createEng
   "exitMarker": {
     "enabled": true,
     "fillAlpha": 0.3,
-    "fillColor": 3073728,
+    "fillColor": 3524272,
     "lineAlpha": 0.9,
-    "lineColor": 9109482,
+    "lineColor": 8186320,
     "lineWidth": 2,
   },
   "input": {
@@ -1130,7 +1216,7 @@ exports[`engine config — value identity (factory / pure functions) > createEng
       "borderColor": 657930,
       "fgColor": 5226347,
       "height": 4,
-      "offsetY": -40,
+      "offsetY": -46,
       "width": 28,
     },
     "lod": {
@@ -1142,6 +1228,33 @@ exports[`engine config — value identity (factory / pure functions) > createEng
       "maxPlacementAttempts": 20,
     },
     "styles": {
+      "bird": {
+        "accentColor": 4937358,
+        "assetId": "mon_map1_bird",
+        "bodyColor": 7833288,
+        "bounceAmount": 3,
+        "height": 16,
+        "shape": "slime",
+        "width": 20,
+      },
+      "boar": {
+        "accentColor": 14200432,
+        "assetId": "mon_map1_boar",
+        "bodyColor": 9330758,
+        "bounceAmount": 2,
+        "height": 20,
+        "shape": "slime",
+        "width": 30,
+      },
+      "boar_elite": {
+        "accentColor": 10370098,
+        "assetId": "mon_map1_boar_elite",
+        "bodyColor": 14510144,
+        "bounceAmount": 2,
+        "height": 24,
+        "shape": "slime",
+        "width": 34,
+      },
       "mushroom": {
         "accentColor": 12597547,
         "bodyColor": 15260064,
@@ -1152,6 +1265,7 @@ exports[`engine config — value identity (factory / pure functions) > createEng
       },
       "slime": {
         "accentColor": 1776419,
+        "assetId": "mon_map1_slime",
         "bodyColor": 5226347,
         "bounceAmount": 3,
         "height": 18,
@@ -1225,6 +1339,7 @@ exports[`engine config — value identity (factory / pure functions) > createEng
       "idleFrames": 2,
       "style": {
         "accentColor": 14042437,
+        "assetId": "chr_swordsman",
         "bodyColor": 16765514,
         "bodyHeight": 34,
         "bodyWidth": 20,
@@ -1259,6 +1374,13 @@ exports[`engine config — value identity (factory / pure functions) > createEng
     "graceSeconds": 30,
     "sessionStorageKey": "deungpu:rt-reconnect",
   },
+  "render": {
+    "assetBaseUrl": "/assets",
+    "cssImageRendering": true,
+    "pixelate": true,
+    "renderResolution": 0.5,
+    "textureScaleMode": "nearest",
+  },
   "resolution": null,
   "stressHarness": {
     "damageNumberRatePerSec": 300,
@@ -1268,49 +1390,54 @@ exports[`engine config — value identity (factory / pure functions) > createEng
   },
   "targetFps": 60,
   "theme": {
-    "blockedColor": 8014394,
+    "blockedColor": 1513504,
     "defaultProp": {
-      "color": 9079434,
+      "color": 6834234,
       "height": 28,
       "shape": "box",
       "width": 20,
     },
     "gridLineAlpha": 0.35,
-    "gridLineColor": 6060648,
+    "gridLineColor": 10335596,
     "props": {
       "bush": {
-        "color": 4169055,
+        "assetId": "prop_map1_bush",
+        "color": 10335596,
         "height": 20,
         "shape": "ellipse",
         "width": 26,
       },
       "rock": {
-        "color": 9476512,
+        "assetId": "prop_map1_rock",
+        "color": 10800320,
         "height": 18,
         "shape": "ellipse",
         "width": 24,
       },
       "signpost": {
-        "color": 13214283,
+        "assetId": "prop_map1_signpost",
+        "color": 11828818,
         "height": 34,
         "shape": "box",
         "width": 12,
       },
       "stump": {
-        "color": 8018490,
+        "assetId": "prop_map1_stump",
+        "color": 9330758,
         "height": 16,
         "shape": "ellipse",
         "width": 20,
       },
       "tree": {
-        "color": 3112271,
+        "assetId": "prop_map1_tree",
+        "color": 7312984,
         "height": 44,
         "shape": "box",
         "width": 22,
       },
     },
-    "tileColorA": 3820095,
-    "tileColorB": 3359290,
+    "tileColorA": 4155461,
+    "tileColorB": 2639158,
   },
   "tileSize": {
     "height": 32,
@@ -1424,13 +1551,13 @@ exports[`engine config — value identity (factory / pure functions) > createEng
       },
       "aggregateWindowMs": 500,
       "crit": {
-        "color": 16731469,
+        "color": 16037970,
         "fontFamily": "dmg-crit",
         "fontSize": 24,
       },
       "lifetimeMs": 650,
       "normal": {
-        "color": 16769126,
+        "color": 16777215,
         "fontFamily": "dmg-normal",
         "fontSize": 16,
       },
@@ -1504,9 +1631,9 @@ exports[`engine config — value identity (factory / pure functions) > createEng
   "exitMarker": {
     "enabled": true,
     "fillAlpha": 0.3,
-    "fillColor": 3073728,
+    "fillColor": 3524272,
     "lineAlpha": 0.9,
-    "lineColor": 9109482,
+    "lineColor": 8186320,
     "lineWidth": 2,
   },
   "input": {
@@ -1552,7 +1679,7 @@ exports[`engine config — value identity (factory / pure functions) > createEng
       "borderColor": 657930,
       "fgColor": 5226347,
       "height": 4,
-      "offsetY": -40,
+      "offsetY": -46,
       "width": 28,
     },
     "lod": {
@@ -1564,6 +1691,33 @@ exports[`engine config — value identity (factory / pure functions) > createEng
       "maxPlacementAttempts": 20,
     },
     "styles": {
+      "bird": {
+        "accentColor": 4937358,
+        "assetId": "mon_map1_bird",
+        "bodyColor": 7833288,
+        "bounceAmount": 3,
+        "height": 16,
+        "shape": "slime",
+        "width": 20,
+      },
+      "boar": {
+        "accentColor": 14200432,
+        "assetId": "mon_map1_boar",
+        "bodyColor": 9330758,
+        "bounceAmount": 2,
+        "height": 20,
+        "shape": "slime",
+        "width": 30,
+      },
+      "boar_elite": {
+        "accentColor": 10370098,
+        "assetId": "mon_map1_boar_elite",
+        "bodyColor": 14510144,
+        "bounceAmount": 2,
+        "height": 24,
+        "shape": "slime",
+        "width": 34,
+      },
       "mushroom": {
         "accentColor": 12597547,
         "bodyColor": 15260064,
@@ -1574,6 +1728,7 @@ exports[`engine config — value identity (factory / pure functions) > createEng
       },
       "slime": {
         "accentColor": 1776419,
+        "assetId": "mon_map1_slime",
         "bodyColor": 5226347,
         "bounceAmount": 3,
         "height": 18,
@@ -1647,6 +1802,7 @@ exports[`engine config — value identity (factory / pure functions) > createEng
       "idleFrames": 2,
       "style": {
         "accentColor": 14042437,
+        "assetId": "chr_swordsman",
         "bodyColor": 16765514,
         "bodyHeight": 34,
         "bodyWidth": 20,
@@ -1681,6 +1837,13 @@ exports[`engine config — value identity (factory / pure functions) > createEng
     "graceSeconds": 30,
     "sessionStorageKey": "deungpu:rt-reconnect",
   },
+  "render": {
+    "assetBaseUrl": "/assets",
+    "cssImageRendering": true,
+    "pixelate": true,
+    "renderResolution": 0.5,
+    "textureScaleMode": "nearest",
+  },
   "resolution": null,
   "stressHarness": {
     "damageNumberRatePerSec": 300,
@@ -1690,49 +1853,54 @@ exports[`engine config — value identity (factory / pure functions) > createEng
   },
   "targetFps": 60,
   "theme": {
-    "blockedColor": 8014394,
+    "blockedColor": 1513504,
     "defaultProp": {
-      "color": 9079434,
+      "color": 6834234,
       "height": 28,
       "shape": "box",
       "width": 20,
     },
     "gridLineAlpha": 0.35,
-    "gridLineColor": 6060648,
+    "gridLineColor": 10335596,
     "props": {
       "bush": {
-        "color": 4169055,
+        "assetId": "prop_map1_bush",
+        "color": 10335596,
         "height": 20,
         "shape": "ellipse",
         "width": 26,
       },
       "rock": {
-        "color": 9476512,
+        "assetId": "prop_map1_rock",
+        "color": 10800320,
         "height": 18,
         "shape": "ellipse",
         "width": 24,
       },
       "signpost": {
-        "color": 13214283,
+        "assetId": "prop_map1_signpost",
+        "color": 11828818,
         "height": 34,
         "shape": "box",
         "width": 12,
       },
       "stump": {
-        "color": 8018490,
+        "assetId": "prop_map1_stump",
+        "color": 9330758,
         "height": 16,
         "shape": "ellipse",
         "width": 20,
       },
       "tree": {
-        "color": 3112271,
+        "assetId": "prop_map1_tree",
+        "color": 7312984,
         "height": 44,
         "shape": "box",
         "width": 22,
       },
     },
-    "tileColorA": 3820095,
-    "tileColorB": 3359290,
+    "tileColorA": 4155461,
+    "tileColorB": 2639158,
   },
   "tileSize": {
     "height": 32,

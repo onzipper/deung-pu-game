@@ -13,6 +13,8 @@ svg/
   .build/       # generated manifests + atlas layout — gitignored, produced by `npm run svg:build`
 ```
 
+Any folder (or subfolder) whose name starts with `_` is **WIP** — skipped by `svg:build` (not linted/rasterized/emitted).
+
 An **animated world entity** lives in its own folder with an `entity.json` next to its frame SVGs
 (e.g. `monsters/slime_leaf/`). **Icons / telegraphs** are single SVGs (no `entity.json`) — lint-only,
 loaded inline or cached, not atlas-animated.
@@ -51,5 +53,8 @@ The generated manifest is a superset of the engine format (`src/engine/animation
 ## Commands
 
 - `npm run svg:lint` — sanitizer (security) + palette lint over every `svg/**/*.svg`.
-- `npm run svg:build` — lint, then generate `svg/.build/manifests/*` + `svg/.build/atlases/*`.
-  PNG rasterization is a TODO (needs a rasterizer dependency — see `scripts/svg/raster.ts`).
+- `npm run svg:build` — lint, then generate `svg/.build/manifests/*` + `svg/.build/atlases/*`, then
+  rasterize via `scripts/svg/raster-resvg.ts` (`@resvg/resvg-js` backend) into PNG atlases. Output
+  mirrors to `public/assets/{manifests,atlases,icons}/` and is **committed to git** (not gitignored —
+  the client serves it directly). Single-SVG icons (no `entity.json`) are copied as-is to
+  `public/assets/icons/`.

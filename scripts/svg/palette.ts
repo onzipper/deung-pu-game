@@ -1,10 +1,12 @@
-// SVG palette lint — Master Palette v1 (32 semantic colors) + rarity alias (V3/D-043).
+// SVG palette lint — Master Palette v1 (35 semantic colors) + rarity alias (V3/D-043).
 // Source of truth: docs/design/bibles/deungpu_ASSET_PRODUCTION_BIBLE_v1.md §3
-//   + docs/decisions/D-043-v1-v4-tokens.md (rarity mapping, "ห้าม Corruption กับ rarity").
+//   + docs/decisions/D-043-v1-v4-tokens.md (rarity mapping, "ห้าม Corruption กับ rarity")
+//   + docs/decisions/D-066-*.md (Rift Violet family — protagonist signature, seal theme; never use for rarity;
+//     distinct meaning from Corruption (lore)).
 // Pure — no fs, no deps. The CLI (lint.ts/build.ts) feeds it SVG text.
 
-/** The 32 canonical colors (name → hex, uppercase #RRGGBB). Bible §3. */
-export const PALETTE_32: Readonly<Record<string, string>> = {
+/** The 35 canonical colors (name → hex, uppercase #RRGGBB). Bible §3 + D-066. */
+export const MASTER_PALETTE: Readonly<Record<string, string>> = {
   "Deep Ink": "#171820",
   "Warm Ink": "#2B2230",
   "Deep Brown": "#4A332E",
@@ -29,6 +31,11 @@ export const PALETTE_32: Readonly<Record<string, string>> = {
   "Moon Deep": "#4B568E",
   "Moon Blue": "#7786C8",
   "Moon Light": "#B0B9EC",
+  // Rift Violet family (D-066) — protagonist signature + seal theme. Never use for rarity;
+  // distinct from Corruption (lore) despite the neighboring violet hue.
+  "Rift Deep": "#3E2A78",
+  "Rift Violet": "#7B4FCB",
+  "Rift Light": "#B79BEF",
   "Corruption Deep": "#6E315F",
   Corruption: "#A84683",
   "Corruption Light": "#DA73B0",
@@ -50,7 +57,7 @@ export const RARITY_ALIAS: Readonly<Record<string, string>> = {
 };
 
 /** Set of every legal hex (normalized #RRGGBB uppercase). */
-const LEGAL_HEX: ReadonlySet<string> = new Set(Object.values(PALETTE_32));
+const LEGAL_HEX: ReadonlySet<string> = new Set(Object.values(MASTER_PALETTE));
 
 /**
  * Non-color keyword fills/strokes that are always allowed:

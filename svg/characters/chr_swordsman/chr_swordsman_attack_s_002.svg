@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" shape-rendering="crispEdges">
+  <!-- chr_swordsman attack S frame 2 — foot pivot (32,54). Colors: Sand/Warm Wood (tunic) · Parchment (skin) · Deep Brown/Soil Brown (hair+pants) · Rift Violet/Rift Light/Rift Deep (signature violet sword). -->
+  <rect x="27" y="40" width="6" height="9" fill="#68483A" stroke="#171820" stroke-width="1"/>
+  <rect x="26" y="40" width="1" height="9" fill="#4A332E"/>
+  <rect x="26" y="49" width="7" height="5" fill="#171820"/>
+  <rect x="32" y="40" width="6" height="9" fill="#68483A" stroke="#171820" stroke-width="1"/>
+  <rect x="31" y="40" width="1" height="9" fill="#4A332E"/>
+  <rect x="32" y="49" width="7" height="5" fill="#171820"/>
+  <rect x="19" y="27" width="6" height="12" fill="#D8AE70" stroke="#171820" stroke-width="1"/>
+  <rect x="19" y="39" width="6" height="4" fill="#F2D6A0"/>
+  <polygon points="24,26 40,26 38,40 26,40" fill="#D8AE70" stroke="#171820" stroke-width="1"/>
+  <polygon points="24,26 28,26 28,40 26,40" fill="#B47E52"/>
+  <rect x="30" y="29" width="4" height="2" fill="#FFF0C5"/>
+  <rect x="26" y="38" width="12" height="3" fill="#8E6046"/>
+  <rect x="31" y="38" width="2" height="3" fill="#FFF0C5"/>
+  <rect x="38" y="27" width="6" height="11" fill="#D8AE70" stroke="#171820" stroke-width="1"/>
+  <rect x="39" y="38" width="5" height="4" fill="#F2D6A0"/>
+  <rect x="38" y="38" width="4" height="3" fill="#68483A"/>
+  <rect x="36" y="41" width="7" height="2" fill="#171820"/>
+  <polygon points="35,43 38,43 30,53 28,52" fill="#7B4FCB" stroke="#171820" stroke-width="1"/>
+  <rect x="35" y="44" width="1" height="8" fill="#B79BEF"/>
+  <rect x="27" y="50" width="2" height="2" fill="#B79BEF"/>
+  <polygon points="26,8 38,8 42,12 42,22 38,26 26,26 22,22 22,12" fill="#F2D6A0" stroke="#171820" stroke-width="1"/>
+  <polygon points="22,12 24,6 27,10 30,5 34,5 37,10 40,6 42,12 42,15 22,15" fill="#4A332E" stroke="#171820" stroke-width="1"/>
+  <polygon points="30,6 33,6 31,10" fill="#68483A"/>
+  <rect x="27" y="18" width="2" height="2" fill="#171820"/>
+  <rect x="35" y="18" width="2" height="2" fill="#171820"/>
+</svg>

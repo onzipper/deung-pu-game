@@ -1,0 +1,55 @@
+{
+  "assetId": "mon_map1_boar",
+  "category": "monsters",
+  "frameSize": [
+    64,
+    64
+  ],
+  "pivot": [
+    32,
+    54
+  ],
+  "mirrorSafe": true,
+  "drawnDirections": [
+    "S",
+    "N"
+  ],
+  "mirrorMap": {
+    "SW": "S",
+    "SE": "S",
+    "W": "S",
+    "E": "S",
+    "NW": "N",
+    "NE": "N"
+  },
+  "animations": {
+    "idle": {
+      "frames": [
+        0,
+        1
+      ],
+      "frameDuration": 333,
+      "loop": true,
+      "fps": 3,
+      "directions": [
+        "s",
+        "n"
+      ]
+    },
+    "walk": {
+      "frames": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "frameDuration": 167,
+      "loop": true,
+      "fps": 6,
+      "directions": [
+        "s",
+        "n"
+      ]
+    }
+  }
+}

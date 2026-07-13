@@ -13,12 +13,14 @@
 //   client อื่นเห็นหาย) → mount world ใหม่ (join room map ปลายทางที่ targetSpawn) → fade in. input lock ระหว่างนั้น.
 //   online = server ตัดสิน (MSG_MAP_TRANSITION) · offline = client ตรวจ exit เอง (findExitAt) → ข้าม map local ได้.
 
-import { Application, Container, Text, type Ticker } from "pixi.js";
+import { Application, Container, Text, TextureSource, type Ticker } from "pixi.js";
 import { type EngineConfig, resolveResolution } from "../config";
 import { requireMap, getMap, hasMap } from "../map/registry";
 import { findExitAt, type MapConfig } from "../map/types";
 import { createMapScene, type MapSceneHandle } from "../render/scene";
 import { buildExitMarkerPolygons } from "../render/exit-marker";
+import { createAssetRegistry } from "../assets/registry";
+import { collectMapAssetIds } from "../assets/collect";
 import { createLocalPlayer, type LocalPlayerHandle } from "../player/local-player";
 import { createMobViewManager, type MobViewHandle } from "@/game/mob/manager";
 import { createMobSimulation, type MobSimulation } from "@/game/mob/simulation";
@@ -152,15 +154,30 @@ export async function createEngine(
 ): Promise<EngineHandle> {
   const app = new Application();
 
-  const resolution = resolveResolution(
-    config,
-    typeof globalThis !== "undefined" ? globalThis.devicePixelRatio : undefined,
-  );
+  // D-065 art path ①: pixelate mode → ตั้ง scaleMode ของ texture ทุกใบ (nearest) **ก่อน** สร้าง texture ใด ๆ.
+  // เป็น global default ของ pixi (module-level) — restore เป็น "linear" ใน destroy() กันค่าค้างข้าม
+  // React StrictMode remount (mount→destroy→mount ใช้ default ตัวเดียวกันทั้ง process).
+  if (config.render.pixelate) {
+    TextureSource.defaultOptions.scaleMode = config.render.textureScaleMode;
+  }
+
+  // engine-scope atlas registry (P3): สร้างหลังตั้ง scaleMode (texture ที่ slice จะได้ scaleMode ถูกตั้งแต่แรก).
+  // preload atlas ที่ map ต้องใช้ก่อน mount; call site (player/mob/prop) peek แล้วยืม texture (non-owning).
+  const registry = createAssetRegistry(config.render.assetBaseUrl);
+
+  // pixelate: ล็อก resolution สัมบูรณ์ (ไม่คูณ dpr → pixel size คงที่ทุกจอ) + ปิด antialias เสมอ.
+  // ปกติ: resolve resolution ตาม config.resolution ?? devicePixelRatio.
+  const resolution = config.render.pixelate
+    ? config.render.renderResolution
+    : resolveResolution(
+        config,
+        typeof globalThis !== "undefined" ? globalThis.devicePixelRatio : undefined,
+      );
 
   await app.init({
     backgroundColor: config.backgroundColor,
     backgroundAlpha: config.backgroundAlpha,
-    antialias: config.antialias,
+    antialias: config.render.pixelate ? false : config.antialias,
     resolution,
     autoDensity: config.autoDensity,
     preference: config.preference,
@@ -171,6 +188,11 @@ export async function createEngine(
   });
 
   container.appendChild(app.canvas);
+
+  // pixelate: ให้ browser upscale canvas เองแบบ nearest (คมเป็นบล็อก ไม่เบลอ)
+  if (config.render.pixelate && config.render.cssImageRendering) {
+    app.canvas.style.imageRendering = "pixelated";
+  }
 
   let viewW = Math.max(1, container.clientWidth);
   let viewH = Math.max(1, container.clientHeight);
@@ -211,6 +233,10 @@ export async function createEngine(
     targetMapId: string,
     targetSpawn: { x: number; y: number },
   ): void => {
+    // P3: preload atlas ของ map ปลายทางทันที (ระหว่าง fade-out) — พอถึง mountWorld ตอนจอมืด peek มักพร้อม
+    // (ยังไม่ทันก็ fallback placeholder). non-blocking — ไม่ถ่วง transition.
+    const preTarget = getMap(targetMapId);
+    if (preTarget) void registry.preload(collectMapAssetIds(preTarget, config));
     transition.start(() => {
       const targetMap = getMap(targetMapId);
       if (!targetMap) {
@@ -231,7 +257,7 @@ export async function createEngine(
    */
   function mountWorld(map: MapConfig, spawn: { x: number; y: number }): WorldHandle {
     // --- map scene ---
-    const scene = createMapScene(app, map, config);
+    const scene = createMapScene(app, map, config, registry);
     // P1 fix: highlight พื้น exit area ให้เห็น "ทางออก" (owner เดินหา exit ไม่เจอเพราะ placeholder art ล้วน).
     // ground-level overlay ใต้ entity, ไม่แตะ depth-sort. teardown = scene.destroy() (world.destroy children)
     // ตอนสลับ map. placeholder จนกว่าจะมี art จริง (ประตู/ป้าย sprite).
@@ -241,11 +267,11 @@ export async function createEngine(
     );
 
     // --- local player (P0-05): spawn ที่ map.spawnPoint แล้ว snap ไป spawn จริง (targetSpawn ตอน transition) ---
-    const player = createLocalPlayer(scene, map, config, app.renderer);
+    const player = createLocalPlayer(scene, map, config, app.renderer, registry);
     player.applyCorrection(spawn.x, spawn.y); // ย้าย + snap กล้องมาที่จุดเกิดจริง (idempotent ถ้า = spawnPoint)
 
     // --- mobs (P1-03): server-authoritative → view manager render จาก snapshot ---
-    const mobView: MobViewHandle = createMobViewManager(scene, config, app.renderer);
+    const mobView: MobViewHandle = createMobViewManager(scene, config, app.renderer, registry);
 
     // --- combat (P1-05 server-authoritative): S1 นักดาบจาก client manifest ---
     // P1-11 (GS §14): ปิด combat ในโซน safe (เมือง) — disable ปุ่มโจมตี client (server ปฏิเสธ cast ซ้ำอีกชั้น).
@@ -280,7 +306,7 @@ export async function createEngine(
     let sendAccumMs = 0;
     let lastSent: PlayerSnapshot | null = null;
     if (config.net.enabled) {
-      remotes = createRemotePlayerManager(scene, config, app.renderer);
+      remotes = createRemotePlayerManager(scene, config, app.renderer, registry);
       // joinOptions: mapId ของ world นี้ + spawn (server spawn player ที่นี่ตั้งแต่เฟรมแรก / ตอน transition ที่ targetSpawn)
       const initial: PlayerSnapshot = {
         tx: spawn.x,
@@ -670,6 +696,9 @@ export async function createEngine(
   //     server ผ่าน onSelfSpawn adoption เหมือนเดิม — ที่นี่แค่เลือก "map ไหน" ให้ join ถูกห้อง) ---
   const bootMapId = pickBootMapId(readSelectedCharacterMapId(), hasMap, DEFAULT_MAP_ID);
   const initialMap = requireMap(bootMapId);
+  // P3: preload atlas ที่ map แรกต้องใช้ให้เสร็จก่อน mount (peek พร้อมตั้งแต่เฟรมแรก — ไม่กระพริบ placeholder→art).
+  // พลาด/ไม่มี assetId = คืน null → call site ใช้ placeholder เดิม (fail-soft).
+  await registry.preload(collectMapAssetIds(initialMap, config));
   currentWorld = mountWorld(initialMap, {
     x: initialMap.spawnPoint.x,
     y: initialMap.spawnPoint.y,
@@ -719,6 +748,13 @@ export async function createEngine(
     detachResize();
     transition.destroy();
     currentWorld.destroy();
+    // P3: ทำลาย atlas ทั้งหมด (texture + source PNG) หลัง world ปล่อย view หมดแล้ว — ก่อน app.destroy
+    // ล้าง GPU context. entity ที่ยืม atlas texture ถูก remove ไปกับ currentWorld.destroy() แล้ว (non-owning).
+    registry.destroy();
+    // D-065: restore scaleMode global default กันค่าค้างข้าม StrictMode remount / engine ตัวถัดไป
+    if (config.render.pixelate) {
+      TextureSource.defaultOptions.scaleMode = "linear";
+    }
     resetHudState(); // engine ถูก destroy (unmount/StrictMode/transient) — เคลียร์ store กัน overlay ค้างค่าเก่า
     // removeView: true → เอา canvas ออกจาก DOM ด้วย; ล้าง GPU/texture/context ให้หมด
     app.destroy(

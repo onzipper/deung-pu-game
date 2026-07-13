@@ -25,6 +25,8 @@ import {
 } from "./net";
 import type { PathfindingConfig, PlayerConfig } from "./player";
 import { DEFAULT_PATHFINDING_CONFIG, DEFAULT_PLAYER_CONFIG } from "./player";
+import type { RenderStyleConfig } from "./render";
+import { DEFAULT_RENDER_STYLE_CONFIG } from "./render";
 import type {
   CameraConfig,
   DebugOverlayConfig,
@@ -105,6 +107,8 @@ export interface EngineConfig {
   debugOverlay: DebugOverlayConfig;
   /** character save/load persistence knob (P2-05, Storage §24) — server knob (save interval) */
   persistence: PersistenceConfig;
+  /** pixelate render style knob (D-065 art path ①) — low-res + nearest upscale ทั้งเกม + asset base URL */
+  render: RenderStyleConfig;
   /** AFK / background-tab knob (P2-13, D-056) — server knob (idle indicator + inert hard cap) */
   afk: AfkConfig;
 }
@@ -136,6 +140,7 @@ export const DEFAULT_ENGINE_CONFIG: EngineConfig = {
   stressHarness: DEFAULT_STRESS_HARNESS_CONFIG,
   debugOverlay: DEFAULT_DEBUG_OVERLAY_CONFIG,
   persistence: DEFAULT_PERSISTENCE_CONFIG,
+  render: DEFAULT_RENDER_STYLE_CONFIG,
   afk: DEFAULT_AFK_CONFIG,
 };
 
@@ -185,6 +190,8 @@ export function createEngineConfig(
     debugOverlay: { ...DEFAULT_ENGINE_CONFIG.debugOverlay, ...overrides.debugOverlay },
     // persistence = shallow-merge (override saveIntervalMs โดยคงค่าอื่นเดิม)
     persistence: { ...DEFAULT_ENGINE_CONFIG.persistence, ...overrides.persistence },
+    // render = shallow-merge (override เช่น pixelate/renderResolution โดยคงค่าอื่นเดิม)
+    render: { ...DEFAULT_ENGINE_CONFIG.render, ...overrides.render },
     // afk = shallow-merge (override idleIndicatorSec/afkHardCapHours โดยคงค่าอื่นเดิม)
     afk: { ...DEFAULT_ENGINE_CONFIG.afk, ...overrides.afk },
   };

@@ -14,7 +14,9 @@
 - `src/engine/player/` — local player pixi glue + correction-resume (server reconcile)
 - `src/engine/net/` — colyseus glue, interp buffer, reconnect store, remote player/attack, party, visibility (P2-13)
 - `src/engine/net/net-client.ts` — createNetClient(): connect/join, reconnect (§59.1), self-adopt gating, cast/skill messages
-- `src/engine/animation/` — animation manifest (5-dir+mirror), sprite animator, placeholder textures
+- `src/engine/animation/` — animation manifest (5-dir+mirror), sprite animator, placeholder textures, texture-set (non-owning handles)
+- `src/engine/assets/` — runtime atlas loader/registry (engine-scope, fail-soft → placeholder)
+- `src/engine/config/render.ts` — pixelate knob (on/scale/nearest-filter/CSS)
 - `src/engine/render/` — depth registry, camera, scene graph, object pool, screen shake, exit marker, afk-label (P2-13)
 - `src/engine/map/` — MapConfig schema/loader/registry + map1/city-hub/p0-test-field configs
 - `src/engine/input/` — keyboard (WASD+attack) + joystick→8-dir intent + target-assist (per-mode click radius, Combat Bible §3, P2-15)
@@ -22,6 +24,7 @@
 ## src/game (combat/entity logic on top of the engine)
 
 - `src/game/mob/` — spawn/wander, AI (aggro/leash/LOD), authoritative sim, view manager
+- `src/game/item/icon-catalog.ts` — itemId → icon URL map (null = show raw id)
 - `src/game/skill/` — SkillDefinition (37 fields, GS §50.1) loader + server/client view split (TA §16.1)
 - `src/game/skill/data/warrior-skills-server.ts` (+ client sibling) — **SERVER-ONLY vs CLIENT-SAFE split**: server literals must never reach the client bundle
 - `src/game/combat/` — hit-test, cast-validation, damage-number/hit-stop/screen-shake juice, combat-stub, target-engage
@@ -36,14 +39,15 @@
 - `src/app/api/` — auth endpoints (guest/register/login/upgrade/session/rt-token) + characters (list/create)
 - `src/ui/` — GameCanvas (mount bridge), DebugOverlay (F3), debug-overlay-logic (pure reducer)
 - `src/ui/store/` — Zustand vanilla store bridge (HUD state, engine→UI one-way, no React import in the vanilla file)
-- `src/ui/panels/` — shared panel/window framework (P2-preface, DG spec §13): panel-stack (z-order reducer) + PanelContext (`usePanelManager`, blocks keydown while open) + Panel (desktop float / mobile sheet) + use-media-query + hud-layout (responsive HUD slots, P2-15). `PanelProvider` in `src/ui/GameCanvas.tsx`.
-- `src/ui/panels/inventory/` — inventory/equipment (P2-07): inventory-view (pure) + InventoryPanel (bag grid, equip/unequip) + InventoryHudButton ("I"). Hosts "เสริมแกร่ง" button.
-- `src/ui/panels/enhancement/` — guaranteed reinforcement (P2-10, §2.4): enhancement-view (8-state, R8 hint) + EnhancementPanel/HudButton + enhancement-target-context. **P2: always `NO_REINFORCEMENT` (R8/D-052) — inert.**
-- `src/ui/panels/shop/` — NPC shop (P2-11): shop-view (pure) + ShopPanel (buy/sell) + ShopHudButton (available-only). HudState shop/gold.
-- `src/ui/panels/storage/` — storage + delivery box (P2-17): storage-view (pure) + StoragePanel (คลัง deposit/withdraw, กล่องส่งของ claim) + StorageHudButton (available-only). HudState storage/delivery.
-- `src/ui/panels/help/` — Guidance "DG lite" (P2-12, client-only): help-articles + guidance-rules (§7/§9) + tutorial-checklist + guidance-preferences + HelpPanel/HudButton/ContextHelpButton + help-focus-context.
-- `src/ui/panels/mobile/` — mobile controls (P2-15): VirtualJoystick + AttackButton (mobile-only) + MobileOsNotice show-once.
-- `src/ui/panels/settings/` — effect quality / screen shake toggle (P2-15): SettingsPanel/SettingsHudButton + effect-quality-preference (localStorage).
+- `src/ui/theme/rarity.ts` — rarity color tokens (D-043)
+- `src/ui/panels/` — shared panel framework (desktop float / mobile sheet, z-order, keydown block; DG §13) + hud-layout (P2-15). Provider in `src/ui/GameCanvas.tsx`
+- `src/ui/panels/inventory/` — bag/equipment panel (P2-07); hosts "เสริมแกร่ง" button
+- `src/ui/panels/enhancement/` — guaranteed reinforcement panel (P2-10) — inert `NO_REINFORCEMENT` ตลอด P2 (R8/D-052)
+- `src/ui/panels/shop/` — NPC shop buy/sell (P2-11)
+- `src/ui/panels/storage/` — storage + delivery box (P2-17)
+- `src/ui/panels/help/` — DG lite guidance/help/tutorial checklist (P2-12, client-only)
+- `src/ui/panels/mobile/` — virtual joystick + attack button (P2-15)
+- `src/ui/panels/settings/` — effect quality / screen-shake toggle (P2-15)
 
 ## server (Colyseus realtime process, separate from Next — L4)
 
@@ -72,6 +76,6 @@
 ## scripts + tests
 
 - `scripts/e2e/` — permanent E2E harness (Colyseus client, works local/prod): `scripts/e2e/lib.mjs` helpers, `scripts/e2e/smoke.mjs` 8-step scenario
-- `scripts/svg/` — SVG-first pipeline (SVG-01, D-042/D-043), no-dep: sanitizer + palette lint (32-color/rarity) + manifest gen (engine 5-dir+mirror + Asset Bible sec19) + raster atlas (PNG=TODO, needs dep); svg:lint/svg:build CLIs
-- `svg/` — SVG source tree + `svg/README.md` contract; entity folders carry entity.json; build artifacts in svg/.build (gitignored)
+- `scripts/svg/` — SVG-first pipeline (SVG-01, D-042/D-043): sanitizer + palette lint (32-color/rarity) + manifest gen (engine 5-dir+mirror + Asset Bible sec19) + `scripts/svg/raster-resvg.ts` (@resvg/resvg-js backend, builds PNG atlases + icons); svg:lint/svg:build CLIs
+- `svg/` — SVG source tree + `svg/README.md` contract; entity folders carry entity.json; `_`-prefixed folders = WIP, skipped by build; build output mirrors to `public/assets/` (manifests/atlases/icons, committed)
 - tests/ mirrors source module names — grep the test dir.

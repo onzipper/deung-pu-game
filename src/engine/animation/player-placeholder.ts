@@ -13,16 +13,13 @@ import {
   type Direction,
 } from "@/engine/movement/direction";
 import type { AnimationManifest } from "@/engine/animation/manifest";
+import type { EntityTextureSet } from "@/engine/animation/texture-set";
 
-/** ชุด texture ที่ generate แล้ว + anchor เท้า. animator ดึงผ่าน get(). */
-export interface PlayerTextureSet {
-  /** anchor ให้ sprite (foot ที่ local 0,0 → ตำแหน่งจริงบน tile) — x=0.5 บังคับให้ flip รอบเท้า */
-  readonly anchor: { x: number; y: number };
-  /** ดึง texture list ของ (animation, drawnDirection). ทิศต้องเป็นทิศที่ "วาดจริง" (post-mirror-resolve) */
-  get(animation: string, direction: Direction): readonly Texture[];
-  /** destroy ทุก RenderTexture ที่ generate (เรียกตอน player.destroy) */
-  destroy(): void;
-}
+/**
+ * ชุด texture ที่ generate แล้ว + anchor เท้า. animator ดึงผ่าน get().
+ * = EntityTextureSet (contract กลางใน texture-set.ts) — alias ไว้ให้ call sites เดิมไม่ต้องแก้.
+ */
+export type PlayerTextureSet = EntityTextureSet;
 
 const key = (animation: string, direction: Direction): string =>
   `${animation}:${direction}`;

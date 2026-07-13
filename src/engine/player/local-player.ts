@@ -28,13 +28,24 @@ import {
   type PathFollowParams,
   type PathFollowState,
 } from "@/engine/movement/path-follower";
-import { createPlayerAnimationManifest } from "@/engine/animation/manifest";
+import {
+  createPlayerAnimationManifest,
+  type AnimationManifest,
+} from "@/engine/animation/manifest";
 import { generatePlayerTextures } from "@/engine/animation/player-placeholder";
+import type { EntityTextureSet } from "@/engine/animation/texture-set";
+import type { AssetRegistry } from "@/engine/assets/registry";
 import {
   createSpriteAnimator,
   type SpriteAnimator,
 } from "@/engine/animation/animator";
 import { createAfkLabel, updateAfkLabel } from "@/engine/render/afk-label";
+
+/** anim ที่ player ต้องมีครบใน atlas ก่อนใช้แทน placeholder (attack ล็อกทับ walk/idle ตอนโจมตี). */
+const PLAYER_REQUIRED_ANIMS = ["idle", "walk", "attack"] as const;
+function playerAtlasUsable(m: AnimationManifest): boolean {
+  return PLAYER_REQUIRED_ANIMS.every((a) => a in m.animations);
+}
 
 /** id คงที่ของ local player ใน scene entity layer. */
 export const LOCAL_PLAYER_ID = "__local_player__";
@@ -125,6 +136,7 @@ export function createLocalPlayer(
   map: MapConfig,
   config: EngineConfig,
   renderer: Renderer,
+  registry?: AssetRegistry,
   target?: EventTarget,
 ): LocalPlayerHandle {
   const { tileSize, player, pathfinding, input } = config;
@@ -137,13 +149,25 @@ export function createLocalPlayer(
   let attackElapsedMs: number | null = null; // null = ไม่ได้กำลังโจมตี
   let clickAttackPending = false; // P1-09 programmatic attack (tap mob) — edge-triggered เหมือน Space
 
-  // --- animated sprite (P0-06) ---
-  const manifest = createPlayerAnimationManifest(player.animation);
-  const textures = generatePlayerTextures(
-    renderer,
-    manifest,
-    player.animation.style,
-  );
+  // --- animated sprite (P0-06 placeholder / P3 atlas art ถ้ามี assetId + โหลดสำเร็จ) ---
+  // มี assetId + peek เจอ + anim ครบ → ใช้ atlas (manifest/anchor/texture ของ atlas เอง); ไม่งั้น placeholder.
+  // animator.destroy() เรียก textures.destroy() เสมอ — atlas set เป็น non-owning (no-op) จึงปลอดภัยทั้งสองทาง.
+  const atlasId = player.animation.style.assetId;
+  const atlas = atlasId ? (registry?.peek(atlasId) ?? null) : null;
+  let manifest: AnimationManifest;
+  let textures: EntityTextureSet;
+  if (atlas && playerAtlasUsable(atlas.manifest)) {
+    manifest = atlas.manifest;
+    textures = atlas.textures;
+  } else {
+    if (atlas) {
+      console.warn(
+        `[player] atlas "${atlasId}" ขาด idle/walk/attack — ใช้ placeholder`,
+      );
+    }
+    manifest = createPlayerAnimationManifest(player.animation);
+    textures = generatePlayerTextures(renderer, manifest, player.animation.style);
+  }
   const animator: SpriteAnimator = createSpriteAnimator(textures, manifest, {
     animation,
     direction: facing,

@@ -43,6 +43,13 @@ export interface PlayerSpriteStyle {
   bodyHeight: number;
   /** ระยะเด้งตัวสูงสุดตอน walk (px) */
   walkBob: number;
+  /**
+   * assetId ของ atlas art จริง (SVG-01 pipeline) — มี = ใช้ atlas texture/manifest แทน placeholder
+   * (ต้องมี idle/walk/attack ครบ ไม่ครบ → fallback placeholder). undefined = placeholder (path เดิม).
+   * อยู่บน sprite style เพราะ collector (assets/collect.ts) อ่านจาก config.player.animation.style.assetId.
+   * ไม่ตั้ง default ใน P3 — Phase 5 ค่อยเปิด.
+   */
+  assetId?: string;
 }
 
 /**
@@ -151,6 +158,7 @@ export const DEFAULT_PLAYER_ANIMATION_CONFIG: PlayerAnimationConfig = {
     bodyWidth: 20,
     bodyHeight: 34,
     walkBob: 3,
+    assetId: "chr_swordsman", // Phase 5: atlas จริง (idle/walk/attack ครบ) แทน placeholder
   },
 };
 

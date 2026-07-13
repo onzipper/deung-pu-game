@@ -1,0 +1,81 @@
+{
+  "assetId": "mon_boar",
+  "category": "monsters",
+  "frameSize": [
+    64,
+    64
+  ],
+  "pivot": [
+    32,
+    54
+  ],
+  "mirrorSafe": true,
+  "drawnDirections": [
+    "S",
+    "SW",
+    "W",
+    "NW",
+    "N"
+  ],
+  "mirrorMap": {
+    "SE": "SW",
+    "E": "W",
+    "NE": "NW"
+  },
+  "animations": {
+    "idle": {
+      "frames": [
+        0,
+        1
+      ],
+      "frameDuration": 167,
+      "loop": true,
+      "fps": 6,
+      "directions": [
+        "s",
+        "sw",
+        "w",
+        "nw",
+        "n"
+      ]
+    },
+    "walk": {
+      "frames": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "frameDuration": 100,
+      "loop": true,
+      "fps": 10,
+      "directions": [
+        "s",
+        "sw",
+        "w",
+        "nw",
+        "n"
+      ]
+    },
+    "attack": {
+      "frames": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "frameDuration": 83,
+      "loop": false,
+      "fps": 12,
+      "directions": [
+        "s",
+        "sw",
+        "w",
+        "nw",
+        "n"
+      ],
+      "contactFrame": 3
+    }
+  }
+}

@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" shape-rendering="crispEdges">
+  <!-- mon_map1_boar walk N frame 3 — หมูป่า (Bark/Sand family), pivot (32,54) -->
+  <rect x="15" y="48" width="4" height="5" fill="#4A332E"/>
+  <rect x="24" y="46" width="4" height="7" fill="#4A332E"/>
+  <rect x="36" y="46" width="4" height="7" fill="#4A332E"/>
+  <rect x="45" y="48" width="4" height="5" fill="#4A332E"/>
+  <ellipse cx="32" cy="39" rx="19" ry="10" fill="#68483A" stroke="#4A332E" stroke-width="1"/>
+  <ellipse cx="32" cy="43" rx="10" ry="5" fill="#8E6046"/>
+  <polygon points="19,33 22,24 26,32" fill="#8E6046"/>
+  <polygon points="45,33 42,24 38,32" fill="#8E6046"/>
+  <rect x="30" y="46" width="4" height="5" fill="#4A332E"/>
+</svg>

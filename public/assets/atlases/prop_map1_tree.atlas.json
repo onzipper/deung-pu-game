@@ -1,0 +1,19 @@
+{
+  "image": "prop_map1_tree.png",
+  "rasterized": true,
+  "width": 64,
+  "height": 64,
+  "frameSize": [
+    64,
+    64
+  ],
+  "frames": [
+    {
+      "key": "idle_s_0",
+      "x": 0,
+      "y": 0,
+      "w": 64,
+      "h": 64
+    }
+  ]
+}

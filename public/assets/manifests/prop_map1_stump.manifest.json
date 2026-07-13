@@ -1,0 +1,38 @@
+{
+  "assetId": "prop_map1_stump",
+  "category": "environment",
+  "frameSize": [
+    64,
+    64
+  ],
+  "pivot": [
+    32,
+    54
+  ],
+  "mirrorSafe": true,
+  "drawnDirections": [
+    "S"
+  ],
+  "mirrorMap": {
+    "SW": "S",
+    "SE": "S",
+    "W": "S",
+    "E": "S",
+    "NW": "S",
+    "N": "S",
+    "NE": "S"
+  },
+  "animations": {
+    "idle": {
+      "frames": [
+        0
+      ],
+      "frameDuration": 1000,
+      "loop": true,
+      "fps": 1,
+      "directions": [
+        "s"
+      ]
+    }
+  }
+}

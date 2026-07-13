@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" shape-rendering="crispEdges">
+  <!-- prop_map1_bush idle S frame 0 — พุ่มเตี้ย, pivot (32,54) -->
+  <ellipse cx="32" cy="52" rx="18" ry="4" fill="#2B2230"/>
+  <ellipse cx="22" cy="46" rx="14" ry="10" fill="#3F6845" stroke="#171820" stroke-width="1"/>
+  <ellipse cx="42" cy="46" rx="14" ry="10" fill="#3F6845" stroke="#171820" stroke-width="1"/>
+  <ellipse cx="32" cy="40" rx="16" ry="12" fill="#6F9658" stroke="#171820" stroke-width="1"/>
+  <ellipse cx="32" cy="50" rx="16" ry="6" fill="#284536"/>
+  <ellipse cx="26" cy="34" rx="4" ry="3" fill="#C8D691"/>
+  <ellipse cx="40" cy="38" rx="3" ry="2" fill="#9DB56C"/>
+</svg>
