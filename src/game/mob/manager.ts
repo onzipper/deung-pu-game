@@ -35,6 +35,7 @@ import { generateMobTextures } from "@/game/mob/placeholder";
 import { getMobNameEntry, type MobRank } from "@/game/mob/name-catalog";
 import {
   selectVisibleMobNameplateIds,
+  stepNameplateAlpha,
   type MobNameplateCandidate,
 } from "@/game/mob/nameplate-visibility";
 
@@ -59,6 +60,7 @@ interface MobViewEntry {
   /** ป้ายชื่อที่เปิด/ปิดตาม rank, ระยะ และ density limit */
   readonly nameplate: Container | null;
   readonly rank: MobRank;
+  nameplateTargetVisible: boolean;
   /** hp สูงสุดของ mobType (จาก combatBalance) — คิด ratio ของ hp bar */
   readonly maxHp: number;
   /** hp ปัจจุบันจาก snapshot ล่าสุด (server-authoritative, P1-05) */
@@ -256,7 +258,11 @@ export function createMobViewManager(
     container.addChild(hpBar);
     const nameplate = createNameplate(snap.mobType, nameplateCfg);
     const rank: MobRank = getMobNameEntry(snap.mobType)?.rank ?? "normal";
-    if (nameplate) nameplate.visible = rank !== "normal";
+    const nameplateTargetVisible = rank !== "normal";
+    if (nameplate) {
+      nameplate.alpha = nameplateTargetVisible ? 1 : 0;
+      nameplate.visible = nameplateTargetVisible;
+    }
     if (nameplate) container.addChild(nameplate);
 
     const pos: TilePoint = { tx: snap.tx, ty: snap.ty };
@@ -273,6 +279,7 @@ export function createMobViewManager(
       hpBar,
       nameplate,
       rank,
+      nameplateTargetVisible,
       maxHp,
       hp: snap.hp,
       current: { tx: snap.tx, ty: snap.ty },
@@ -364,8 +371,19 @@ export function createMobViewManager(
           nameplateCfg,
         );
         for (const [mobId, entry] of mobs) {
-          if (entry.nameplate) entry.nameplate.visible = visibleIds.has(mobId);
+          entry.nameplateTargetVisible = visibleIds.has(mobId);
         }
+      }
+
+      for (const entry of mobs.values()) {
+        if (!entry.nameplate) continue;
+        entry.nameplate.alpha = stepNameplateAlpha(
+          entry.nameplate.alpha,
+          entry.nameplateTargetVisible,
+          dtSeconds,
+          nameplateCfg.fadeDurationMs,
+        );
+        entry.nameplate.visible = entry.nameplate.alpha > 0;
       }
     },
 

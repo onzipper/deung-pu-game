@@ -186,8 +186,12 @@ export interface MobNameplateConfig {
   normalRevealRadiusTiles: number;
   /** จำนวนป้ายชื่อมอนปกติสูงสุดที่แสดงพร้อมกัน (elite/boss ไม่นับรวม) */
   normalVisibleLimit: number;
+  /** ระยะขั้นต่ำโดยประมาณบนระนาบ isometric ก่อนแสดงป้ายชื่อมอนปกติอีกป้าย */
+  normalMinProjectedSpacingTiles: number;
   /** รอบเวลา (ms) สำหรับคำนวณชุดป้ายชื่อใหม่ เพื่อลดงานใน render loop */
   visibilityRefreshMs: number;
+  /** ระยะเวลา (ms) ที่ป้ายชื่อ fade เข้า/ออกเมื่อชุดที่ควรแสดงเปลี่ยน */
+  fadeDurationMs: number;
 }
 
 /** รวม config ของ mob ทั้งหมด (P0-09 spawn/wander/render + P1-03 ai/lod/respawn + P1-05 hpBar) — Design Knob. */
@@ -304,7 +308,9 @@ export const DEFAULT_MOB_CONFIG: MobConfig = {
     textResolution: 3, // glyph texture คมกว่า renderer resolution 0.5 ทั้งเกม (src/engine/config/render.ts)
     normalRevealRadiusTiles: 5,
     normalVisibleLimit: 6,
+    normalMinProjectedSpacingTiles: 1.25,
     visibilityRefreshMs: 200,
+    fadeDurationMs: 140,
   },
   defaultStyle: {
     bodyColor: 0x8a8a8a,

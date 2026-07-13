@@ -1,7 +1,6 @@
-# CODEMAP — orientation only: which module owns what.
+# CODEMAP — module ownership
 
-> For symbol-level truth, grep `src/`, `server/`, `tests/` (see `AI.md` Search rules).
-> Update on file add/move/delete (path-guard enforced). Archive: `docs/history/2026-07-13-codemap-archive.md`.
+> Use targeted grep for symbol truth (`AI.md`). Update for added/moved/deleted files. Archive: `docs/history/2026-07-13-codemap-archive.md`.
 
 ## src/engine (foundation layer — TA §17, plain TS + PixiJS, no React/Next.js)
 
@@ -23,7 +22,7 @@
 
 ## src/game (combat/entity logic on top of the engine)
 
-- `src/game/mob/` — mob sim, AI, views, and density-aware nameplates
+- `src/game/mob/` — mob sim, AI, views, and nameplate LOD/fade
 - `src/game/mob/name-catalog.ts` — mobType → Thai nameplate name + rank (undefined = no nameplate)
 - `src/game/npc/` — LW0 static NPC bark: catalog + nearest-click test + view manager (placeholder+label)
 - `src/game/item/icon-catalog.ts` — itemId → icon URL map (null = show raw id)

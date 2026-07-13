@@ -11,12 +11,22 @@ export interface MobNameplateCandidate {
 export interface MobNameplateDensityConfig {
   readonly normalRevealRadiusTiles: number;
   readonly normalVisibleLimit: number;
+  readonly normalMinProjectedSpacingTiles: number;
 }
 
 interface RankedNormalNameplate {
   readonly id: string;
+  readonly position: Readonly<TilePoint>;
   readonly distanceSquared: number;
   readonly damaged: boolean;
+}
+
+function projectedDistanceSquared(a: Readonly<TilePoint>, b: Readonly<TilePoint>): number {
+  const dtx = a.tx - b.tx;
+  const dty = a.ty - b.ty;
+  const projectedX = dtx - dty;
+  const projectedY = (dtx + dty) * 0.5;
+  return projectedX * projectedX + projectedY * projectedY;
 }
 
 /**
@@ -33,10 +43,14 @@ export function selectVisibleMobNameplateIds(
   const radius = Math.max(0, config.normalRevealRadiusTiles);
   const radiusSquared = radius * radius;
   const normalLimit = Math.max(0, Math.floor(config.normalVisibleLimit));
+  const minSpacing = Math.max(0, config.normalMinProjectedSpacingTiles);
+  const minSpacingSquared = minSpacing * minSpacing;
+  const occupiedPositions: Readonly<TilePoint>[] = [];
 
   for (const candidate of candidates) {
     if (candidate.rank !== "normal") {
       visibleIds.add(candidate.id);
+      occupiedPositions.push(candidate.position);
       continue;
     }
 
@@ -47,6 +61,7 @@ export function selectVisibleMobNameplateIds(
 
     rankedNormals.push({
       id: candidate.id,
+      position: candidate.position,
       distanceSquared,
       damaged: candidate.damaged,
     });
@@ -59,9 +74,32 @@ export function selectVisibleMobNameplateIds(
       a.id.localeCompare(b.id),
   );
 
-  for (const candidate of rankedNormals.slice(0, normalLimit)) {
+  let selectedNormalCount = 0;
+  for (const candidate of rankedNormals) {
+    if (selectedNormalCount >= normalLimit) break;
+    const overlapsVisibleLabel = occupiedPositions.some(
+      (position) => projectedDistanceSquared(candidate.position, position) < minSpacingSquared,
+    );
+    if (overlapsVisibleLabel) continue;
+
     visibleIds.add(candidate.id);
+    occupiedPositions.push(candidate.position);
+    selectedNormalCount += 1;
   }
 
   return visibleIds;
+}
+
+/** Advances a label opacity without overshoot; zero duration intentionally snaps. */
+export function stepNameplateAlpha(
+  currentAlpha: number,
+  targetVisible: boolean,
+  dtSeconds: number,
+  fadeDurationMs: number,
+): number {
+  const current = Math.max(0, Math.min(1, currentAlpha));
+  if (fadeDurationMs <= 0) return targetVisible ? 1 : 0;
+
+  const step = (Math.max(0, dtSeconds) * 1000) / fadeDurationMs;
+  return targetVisible ? Math.min(1, current + step) : Math.max(0, current - step);
 }
