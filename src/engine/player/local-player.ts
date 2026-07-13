@@ -82,6 +82,11 @@ export interface LocalPlayerHandle {
    * (กันกดค้างสแปม). P1-09: รวม programmatic attack (tap mob) เข้าช่องเดียวกับ Space → cooldown gate เดียว.
    */
   consumeAttackPressed(): boolean;
+  /**
+   * A3 hotbar: consume การกดปุ่มสกิล (Digit1-4) ตั้งแต่ครั้งก่อน — edge-triggered, คืน slot (1-4) ที่กดล่าสุด
+   * หรือ null. delegate ไป keyboard tracker (app.ts poll ต่อเฟรมแล้วเรียก castSlot).
+   */
+  consumeSlotPressed(): number | null;
   /** P1-09: ขอโจมตี 1 ครั้งแบบ programmatic (tap mob = เท่ากับ Space) — combat-stub gate cooldown ต่อ. */
   requestAttack(): void;
   /** P1-09: หันหน้าไปทาง tile (walk-to-attack — เล็งมอนก่อนตีแม้ยืนนิ่ง). ทิศ ~0 → คงเดิม. */
@@ -276,6 +281,10 @@ export function createLocalPlayer(
       const click = clickAttackPending;
       clickAttackPending = false;
       return kb || click;
+    },
+
+    consumeSlotPressed() {
+      return keyboard.consumeSlotPressed(); // A3: Digit1-4 (edge-triggered)
     },
 
     requestAttack(): void {

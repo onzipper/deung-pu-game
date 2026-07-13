@@ -243,3 +243,26 @@ export interface PlayerRespawn {
 export function respawnPlayer(safeCamp: RespawnPoint, maxHp: number): PlayerRespawn {
   return { pos: { tx: safeCamp.tx, ty: safeCamp.ty }, hp: maxHp, dead: false };
 }
+
+// ── A3 self damage-reduction buff (§50.1 statusEffects · P1_BALANCE §3.1 S4 sword_guard_domain) ──────────
+// Utility skill (นักดาบ S4) apply status "self_damage_reduction_30" ให้ caster → ลด damage มอน→player 30% ช่วง
+// activeTime. ค่า (0.30) มาจาก config knob (statusEffectDamageReduction) ไม่ hardcode. การ **ลดจริง** ทำโดย fold
+// (1 - reduction) เข้า mobAtk input ของ computeMobDamageToPlayer (scale input, ปัด integer ครั้งเดียว = คง
+// never-downgrade rounding invariant — ไม่ปัดซ้ำ). ฟังก์ชันนี้แค่ resolve "reduction เท่าไหร่" จาก statusEffects.
+
+/**
+ * ค่าลด damage รับ (0..1) จาก statusEffects ของสกิล เทียบ table (config knob). คืนค่า **มากสุด** ถ้ามีหลาย effect
+ * (ไม่สแต็กบวก — กัน buff ซ้อนเกิน 1). id ที่ไม่อยู่ใน table = 0. null/ว่าง = 0. pure.
+ */
+export function damageReductionFromStatus(
+  statusEffects: readonly string[] | null | undefined,
+  table: Record<string, number>,
+): number {
+  if (!statusEffects) return 0;
+  let max = 0;
+  for (const s of statusEffects) {
+    const v = table[s];
+    if (typeof v === "number" && v > max) max = v;
+  }
+  return Math.min(1, Math.max(0, max));
+}

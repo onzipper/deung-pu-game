@@ -14,6 +14,9 @@ const eslintConfig = defineConfig([
     "next-env.d.ts",
     // Colyseus server = แยก process + own tsconfig (legacy decorators, node env) — lint แยกไม่ผ่าน Next config
     "server/**",
+    // harness worktrees/cache (git-ignored) — เป็น checkout แยก + มี .next build artifacts ของตัวเอง; ห้าม lint
+    // (default ignores ".next/**"/"server/**" เป็น root-relative จึงไม่ครอบ path ซ้อนใน worktree).
+    ".claude/**",
   ]),
 ]);
 

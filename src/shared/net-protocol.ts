@@ -132,7 +132,10 @@ export interface SkillResultMessage {
  */
 export const MSG_CAST_REJECTED = "cast_rejected";
 
-/** payload ของ MSG_CAST_REJECTED (server → client เดียว, P1-05). reason = "unknown_skill"|"cooldown"|"out_of_range". */
+/**
+ * payload ของ MSG_CAST_REJECTED (server → client เดียว, P1-05).
+ * reason = "safe_zone" | "unknown_skill" | "locked" (A3: playerLevel < unlockLevel) | "cooldown" | "out_of_range".
+ */
 export interface CastRejectedMessage {
   skillId: string;
   reason: string;

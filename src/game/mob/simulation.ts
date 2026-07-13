@@ -189,6 +189,17 @@ export interface MobSimulation {
     nowMs: number,
     staggerWindowMs: number,
   ): BossBreakResult | null;
+  /**
+   * A3 (§50.1 crowdControl "taunt" · P1_BALANCE §3.1 S4 sword_guard_domain): บังคับมอนในรัศมี `radius` (tile)
+   * รอบ `center` ให้ aggro `playerId` (mode→chase) สูงสุด `maxTargets` ตัว (ใกล้→ไกล). คืนจำนวนที่ taunt จริง.
+   * มอนที่ target หายรอบถัดไป = leash/return ตามปกติ (guard §"chase→return") — ไม่ crash.
+   */
+  tauntMobsNear(
+    center: TilePoint,
+    radius: number,
+    maxTargets: number,
+    playerId: string,
+  ): number;
 }
 
 export interface MobSimulationParams {
@@ -561,6 +572,29 @@ export function createMobSimulation(params: MobSimulationParams): MobSimulation 
       let n = 0;
       for (const m of mobs.values()) {
         if (m.mode === "chase" && m.targetPlayerId === playerId) n++;
+      }
+      return n;
+    },
+
+    tauntMobsNear(
+      center: TilePoint,
+      radius: number,
+      maxTargets: number,
+      playerId: string,
+    ): number {
+      if (maxTargets <= 0 || radius <= 0) return 0;
+      const r2 = radius * radius;
+      const inRange: { mob: SimMob; d: number }[] = [];
+      for (const m of mobs.values()) {
+        const d = distSq(m.pos.tx, m.pos.ty, center.tx, center.ty);
+        if (d <= r2) inRange.push({ mob: m, d });
+      }
+      inRange.sort((a, b) => a.d - b.d); // ใกล้→ไกล (tie-break = ลำดับ map iteration = stable)
+      const n = Math.min(inRange.length, maxTargets);
+      for (let i = 0; i < n; i++) {
+        const m = inRange[i].mob;
+        m.mode = "chase";
+        m.targetPlayerId = playerId; // guard "chase→return" จัดการถ้า target หายรอบถัดไป (ไม่ crash)
       }
       return n;
     },

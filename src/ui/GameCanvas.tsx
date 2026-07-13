@@ -32,6 +32,7 @@ import { SettingsHudButton } from "@/ui/panels/settings/SettingsHudButton";
 import { SettingsPanel } from "@/ui/panels/settings/SettingsPanel";
 import { applyEffectQualityPreferences } from "@/ui/panels/settings/settings-view";
 import { createEffectQualityPreferencesStore } from "@/ui/panels/settings/effect-quality-preference";
+import { SkillBar } from "@/ui/panels/skillbar/SkillBar";
 import { MobileControls } from "@/ui/panels/mobile/MobileControls";
 import { MobileOsNotice } from "@/ui/panels/mobile/MobileOsNotice";
 import { resolveGameEntry } from "@/app/game/boot-gate";
@@ -148,6 +149,8 @@ export function GameCanvas() {
           {/* P2-12: ปุ่ม "?" หลัก render เสมอ (DG §5.2) */}
           <HelpHudButton />
           <HelpPanel />
+          {/* A3 (P2 UI §8.3): แถบสกิล hotbar (S1-S4) — desktop (Digit1-4/คลิก) + มือถือ (แตะช่อง) */}
+          <SkillBar getHandle={() => engineRef.current} />
           {/* P2-15: settings (effect quality/screen shake) + mobile controls + OS notice */}
           <SettingsHudButton />
           <SettingsPanel getHandle={() => engineRef.current} />
