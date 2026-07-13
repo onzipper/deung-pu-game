@@ -13,8 +13,8 @@
 // P1-05: server combat ฆ่ามอนจริง → despawn มาทาง onMobRemove; hp จาก snapshot → HP bar เล็ก ๆ
 //   เหนือมอนที่โดนตี (hp < maxHp; maxHp จาก combatBalance). object pooling (tech §11) = future.
 
-import { Container, Graphics, type Renderer } from "pixi.js";
-import type { EngineConfig, MobHpBarConfig, MobStyle } from "@/engine/config";
+import { Container, Graphics, Text, type Renderer } from "pixi.js";
+import type { EngineConfig, MobHpBarConfig, MobNameplateConfig, MobStyle } from "@/engine/config";
 import type { TilePoint } from "@/engine/iso/coords";
 import type { MapSceneHandle } from "@/engine/render/scene";
 import type { MobSnapshot } from "@/shared/net-protocol";
@@ -32,6 +32,7 @@ import {
 } from "@/engine/net/interpolation";
 import { createMobAnimationManifest } from "@/game/mob/manifest";
 import { generateMobTextures } from "@/game/mob/placeholder";
+import { getMobNameEntry } from "@/game/mob/name-catalog";
 
 /** texture + manifest ต่อ mobType — atlas มี manifest ของตัวเอง (คนละตัวกับ placeholder ที่แชร์). */
 interface MobRenderSet {
@@ -105,6 +106,7 @@ export function createMobViewManager(
   const placeholderManifest = createMobAnimationManifest(mob.animation);
   const interp = net.interpolation;
   const hpBarCfg = mob.hpBar;
+  const nameplateCfg = mob.nameplate;
   const balance = config.combatBalance;
   const maxHpFor = (mobType: string): number =>
     (balance.mobs[mobType] ?? balance.defaultMob).hp;
@@ -123,6 +125,32 @@ export function createMobViewManager(
     g.rect(x - 1, y - 1, cfg.width + 2, cfg.height + 2).fill({ color: cfg.borderColor });
     g.rect(x, y, cfg.width, cfg.height).fill({ color: cfg.bgColor });
     g.rect(x, y, cfg.width * ratio, cfg.height).fill({ color: cfg.fgColor });
+  };
+
+  /**
+   * สร้าง nameplate (ชื่อไทยเหนือหัว) จาก name catalog (src/game/mob/name-catalog.ts) — resolve ครั้งเดียว
+   * ตอน add() เพราะชื่อ/rank ผูกกับ mobType คงที่ (ไม่ต้อง redraw ทุก frame). ไม่พบ mobType ใน catalog →
+   * null (ไม่ render, ไม่ crash, ไม่โชว์ raw id — ดู brief nameplates).
+   */
+  const createNameplate = (mobType: string, cfg: MobNameplateConfig): Text | null => {
+    const entry = getMobNameEntry(mobType);
+    if (!entry) return null;
+    const isBoss = entry.rank === "boss";
+    const color =
+      entry.rank === "boss" ? cfg.bossColor : entry.rank === "elite" ? cfg.eliteColor : cfg.normalColor;
+    const label = new Text({
+      text: entry.nameTh,
+      style: {
+        fill: color,
+        fontSize: isBoss ? cfg.bossFontSize : cfg.fontSize,
+        fontFamily: cfg.fontFamily,
+        fontWeight: "bold",
+        stroke: { color: cfg.strokeColor, width: cfg.strokeWidth },
+      },
+    });
+    label.anchor.set(0.5, 1); // กึ่งกลางล่างของข้อความ = ลอยเหนือหัว (เหมือน afk-label)
+    label.position.set(0, cfg.offsetY);
+    return label;
   };
 
   // render set ต่อ mobType — resolve ครั้งเดียว, แชร์ทุก instance (เหมือน P0-09; ห้าม generate ต่อตัว).
@@ -165,13 +193,18 @@ export function createMobViewManager(
       animation: snap.state,
       direction: INITIAL_FACING,
     });
-    // wrap animator + hp bar ใน container เดียว (foot ที่ local 0,0) — scene.addEntity/moveEntity
-    // ขยับ container ทั้งก้อน; hp bar เป็น child ลอยเหนือหัวตาม offset. scene.removeEntity destroy
-    // container(children:true) → animator sprite + hp bar หาย, texture ที่แชร์ไม่โดน destroy (ดู destroy()).
+    // wrap animator + hp bar + nameplate ใน container เดียว (foot ที่ local 0,0) — scene.addEntity/moveEntity
+    // ขยับ container ทั้งก้อน; hp bar/nameplate เป็น child ลอยเหนือหัวตาม offset. scene.removeEntity destroy
+    // container(children:true) → animator sprite + hp bar + nameplate หาย, texture ที่แชร์ไม่โดน destroy (ดู
+    // destroy()). mirror: flip (scale.x = -1) เกิดที่ animator.view เอง (animator.ts ~61) ไม่ใช่ที่ container
+    // → hpBar/nameplate เป็น sibling ของ animator.view ใน container ไม่โดน flip ตาม ไม่ต้อง counter-flip
+    // (ต่างจาก afk-label ที่แปะเป็น child ของ sprite ที่ flip โดยตรง).
     const container = new Container();
     container.addChild(animator.view);
     const hpBar = new Graphics();
     container.addChild(hpBar);
+    const nameplate = createNameplate(snap.mobType, nameplateCfg);
+    if (nameplate) container.addChild(nameplate);
 
     const pos: TilePoint = { tx: snap.tx, ty: snap.ty };
     scene.addEntity(entityId(snap.mobId), container, pos);

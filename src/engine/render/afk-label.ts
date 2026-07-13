@@ -43,9 +43,18 @@ export function createAfkLabel(bodyHeight: number, walkBob: number): Text {
 }
 
 /**
+ * counter-flip ป้าย over-head กัน mirror เมื่อ host sprite flip (view.scale.x = -1 หันซ้าย/ขวา) → child Text
+ * จะพลิกกลับด้าน. ตั้ง label.scale.x = ±1 หักล้างให้ตัวอักษรตั้งตรงเสมอ. แชร์ afk-label + name-label (NAMEPLATES)
+ * — ป้ายทั้งสองเป็น child ของ sprite ที่ flip เหมือนกัน (DRY: logic flip ที่เดียว).
+ */
+export function counterFlipLabel(label: Text, host: Sprite): void {
+  label.scale.x = host.scale.x < 0 ? -1 : 1;
+}
+
+/**
  * toggle ป้าย + counter-flip กัน mirror. เรียกทุก frame หลัง animator.setState (view.scale.x อาจเพิ่ง flip).
  */
 export function updateAfkLabel(label: Text, host: Sprite, visible: boolean): void {
   label.visible = visible;
-  label.scale.x = host.scale.x < 0 ? -1 : 1;
+  counterFlipLabel(label, host);
 }

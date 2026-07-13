@@ -51,6 +51,7 @@ import { claimSession, releaseSession } from "../security/session-registry";
 import { acquireLease, releaseLease } from "../security/session-lease";
 import {
   fetchCharacterOwner,
+  loadCharacterName,
   loadCharacterState,
   loadCharacterProgress,
   saveCharacterState,
@@ -286,6 +287,12 @@ function accountIdOf(client: Client): string | null {
   const auth = client.auth as { accountId?: string | null } | undefined;
   return typeof auth?.accountId === "string" && auth.accountId.length > 0 ? auth.accountId : null;
 }
+
+/**
+ * NAMEPLATES: ชื่อ default สำหรับ session ที่ไม่มีตัวละคร (guest/dev/ไม่มี DB) — ป้ายเหนือหัวต้องไม่ว่างและ
+ * **ห้าม leak sessionId/characterId**. ค่าไทยกลาง ๆ (ไม่ผูก balance/spec content).
+ */
+const GUEST_PLAYER_NAME = "ผู้เล่น";
 
 /** P2-05: อ่าน characterId ที่ onAuth verify ownership แล้วผูกไว้ใน client.auth (null = anonymous/ไม่ผูกตัวละคร). */
 function characterIdOf(client: Client): string | null {
@@ -1788,6 +1795,10 @@ export class MapRoom extends Room<MapRoomState> {
     // E3: sync level ทันทีตอน join (จาก sessionProgress ที่โหลดแล้ว) → HUD badge + A3 unlock ถูกตั้งแต่เกิด
     player.level = this.sessionProgress.get(client.sessionId)?.level ?? 1;
     this.syncPlayerExpSchema(client.sessionId); // E3: exp → แถบ EXP + % แสดงตั้งแต่เกิด
+    // NAMEPLATES: ชื่อตัวละคร (display name §3.3) → PlayerState.name (ป้ายเหนือหัว local + remote). best-effort
+    //   DB load; guest/ไม่มีตัวละคร/ไม่มี DB (characterId null หรือ row หาย) → default "ผู้เล่น" (ไม่ leak id/sessionId).
+    const displayName = characterId ? await loadCharacterName(characterId) : null;
+    player.name = displayName && displayName.length > 0 ? displayName : GUEST_PLAYER_NAME;
 
     console.log(
       `[MapRoom ${this.roomId}] join ${client.sessionId} @(${player.tx.toFixed(1)},${player.ty.toFixed(1)}) — ${this.clients.length} online`,

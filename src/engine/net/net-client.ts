@@ -179,6 +179,12 @@ export interface NetClientHandlers {
    */
   onSelfAfkChange?(isAfk: boolean): void;
   /**
+   * NAMEPLATES: ชื่อตัวละครของ **self** (server ตั้งจาก character.name ตอน join) → caller (app.ts) ให้ local
+   * player แสดงป้ายชื่อเหนือหัวตัวเอง. listen เฉพาะ field name ของ self (display-only, ไม่กระทบ prediction).
+   * ยิง immediate ครั้งแรกตอน wire (อาจเป็น "" ถ้า schema ยังไม่ตั้ง → client ซ่อนป้ายจนค่ามาจริง). optional.
+   */
+  onSelfName?(name: string): void;
+  /**
    * A1/A2 (COMBAT_BIBLE §2/§10): hp/maxHp ของ **self** เปลี่ยน (server-authoritative, ride PlayerState schema) →
    * caller (app.ts) push เข้า Zustand bridge (แถบ HP = E3). ยิงเมื่อโดนตี/respawn/level-up/equip. listen เฉพาะ
    * field นี้ของ self (ไม่ผูก onChange ตำแหน่ง — client-predicted). ยิง immediate ครั้งแรกตอน wire. optional.
@@ -379,6 +385,7 @@ function snapshotOf(player: {
   anim: string;
   partyId?: string;
   isAfk?: boolean;
+  name?: string;
 }): PlayerSnapshot {
   return {
     tx: player.tx,
@@ -388,6 +395,8 @@ function snapshotOf(player: {
     partyId: typeof player.partyId === "string" ? player.partyId : "",
     // P2-13 (D-056): AFK flag (server-set) → remote manager แสดงป้าย. coerce เป็น boolean แท้ (default false).
     isAfk: player.isAfk === true,
+    // NAMEPLATES: ชื่อตัวละคร (server-set) → remote manager แสดงป้ายชื่อ. coerce เป็น string (default "" = ซ่อน).
+    name: typeof player.name === "string" ? player.name : "",
   };
 }
 
@@ -512,6 +521,9 @@ export function createNetClient(
           // P2-13 (D-056): listen เฉพาะ field isAfk ของ self (display-only) → local player แสดงป้ายตัวเอง.
           // ไม่ผูก onChange ตำแหน่ง (client-predicted). listen ยิง immediate ครั้งแรก (false) — harmless.
           $(player).listen("isAfk", (v: unknown) => handlers.onSelfAfkChange?.(v === true));
+          // NAMEPLATES: listen field name ของ self → local player แสดงป้ายชื่อตัวเอง. ยิง immediate ("" ก่อน init
+          // → ซ่อน) แล้วยิงจริงเมื่อ server ตั้งชื่อ. display-only, ไม่ผูก onChange ตำแหน่ง (client-predicted).
+          $(player).listen("name", (v: unknown) => handlers.onSelfName?.(typeof v === "string" ? v : ""));
           // A1/A2 (§2/§10): listen hp/maxHp ของ self (server-authoritative HP) → HUD แถบ HP. field เดียว 2 ตัว
           // → emit ทั้งคู่จาก player record ทุกครั้ง (ตัวใดเปลี่ยนก็ส่งค่าล่าสุดทั้งคู่). ไม่ใช่ตำแหน่ง (ไม่กระทบ prediction).
           const emitVitals = (): void =>

@@ -75,6 +75,26 @@ export interface PlayerAnimationConfig {
 }
 
 /**
+ * Nameplate เหนือหัวผู้เล่น (NAMEPLATES feature, client visual ล้วน) — โชว์ชื่อตัวละคร (display name §3.3)
+ * ที่ sync ผ่าน PlayerState.name. ใช้กับทั้ง local + remote (label เดียวกัน). วางเหนือป้าย AFK เสมอ
+ * (gapAboveAfk ติดลบ) ให้สองป้ายอ่านออกพร้อมกัน ไม่ทับ. ไม่มี spec สี/ขนาด → ค่านี้เป็น Design Knob.
+ */
+export interface PlayerNameplateConfig {
+  /** ระยะ (px) ที่ป้ายชื่อสูงกว่าป้าย AFK (ติดลบ = ขึ้นบน) — ต้อง < -fontSize เพื่อไม่ทับป้าย AFK */
+  gapAboveAfk: number;
+  /** ขนาดตัวอักษร (px) — เท่า afk-label ให้ตัวอักษรเหนือหัวสม่ำเสมอ */
+  fontSize: number;
+  /** font family (monospace เหมือน afk-label/damage-number) */
+  fontFamily: string;
+  /** สีตัวอักษรชื่อผู้เล่น (แยกจาก AFK เหลือง) */
+  color: number;
+  /** สีเส้นขอบ (อ่านออกทุกพื้นหลัง) */
+  strokeColor: number;
+  /** ความหนาเส้นขอบ (px) */
+  strokeWidth: number;
+}
+
+/**
  * พฤติกรรม local player movement (P0-05). ทุกค่าเป็น Design Knob — ห้าม hardcode ใน mover.
  */
 export interface PlayerConfig {
@@ -89,6 +109,8 @@ export interface PlayerConfig {
   style: PlayerStyle;
   /** sprite animation config (P0-06) — data-driven, 5-dir + mirror */
   animation: PlayerAnimationConfig;
+  /** nameplate ชื่อผู้เล่นเหนือหัว (NAMEPLATES, client visual) — local + remote ใช้ร่วมกัน */
+  nameplate: PlayerNameplateConfig;
 }
 
 /**
@@ -175,6 +197,15 @@ export const DEFAULT_PLAYER_CONFIG: PlayerConfig = {
     noseReach: 14,
   },
   animation: DEFAULT_PLAYER_ANIMATION_CONFIG,
+  nameplate: {
+    // ป้ายชื่อสูงกว่า afk-label 16px (fontSize 11 + stroke ≈ 14 + gap 2) → สองป้ายอ่านออกพร้อมกัน ไม่ทับ
+    gapAboveAfk: -16,
+    fontSize: 11, // เท่า afk-label (src/engine/render/afk-label.ts)
+    fontFamily: "monospace",
+    color: 0xe8f0ff, // ขาวอมฟ้า = ชื่อผู้เล่น (แยกจาก AFK เหลือง 0xffd23f)
+    strokeColor: 0x000000,
+    strokeWidth: 3,
+  },
 };
 
 /**

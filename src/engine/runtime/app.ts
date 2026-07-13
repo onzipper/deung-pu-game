@@ -361,6 +361,7 @@ export async function createEngine(
       direction: player.facing,
       anim: coerceAnim(player.animation),
       partyId: localPartyId,
+      name: "", // NAMEPLATES: server-authoritative (ตั้งจาก character.name ตอน join) — client ไม่ส่งชื่อขึ้น
     });
     let remotes: ReturnType<typeof createRemotePlayerManager> | null = null;
     let sendAccumMs = 0;
@@ -374,6 +375,7 @@ export async function createEngine(
         direction: player.facing,
         anim: coerceAnim(player.animation),
         partyId: localPartyId,
+        name: "", // NAMEPLATES: server-authoritative — join option ไม่ส่งชื่อ (server ตั้งจาก character.name)
       };
       net = createNetClient(
         {
@@ -411,6 +413,8 @@ export async function createEngine(
           },
           // P2-13 (D-056): self AFK flag (server-set) → toggle ป้าย "AFK" ของตัวเอง (display-only).
           onSelfAfkChange: (isAfk) => player.setAfk(isAfk),
+          // NAMEPLATES: self ชื่อตัวละคร (server-set จาก character.name) → ป้ายชื่อเหนือหัวตัวเอง (display-only).
+          onSelfName: (name) => player.setName(name),
           // A1/A2 (§2/§10): hp/maxHp ของ self (server-authoritative) → HUD แถบ HP (E3). event-driven ไม่ throttle.
           onSelfVitals: (hp, maxHp) => setPlayerVitals(hp, maxHp),
           // E3 (§8.2): level ของ self (schema) → badge + refresh A3 hotbar unlock (ปลดสกิลถูกตั้งแต่เกิด/level-up)
