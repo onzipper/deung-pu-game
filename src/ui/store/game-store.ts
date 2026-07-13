@@ -85,6 +85,11 @@ export interface HudState {
    */
   playerLevel: number | null;
   /**
+   * E3 (§8.2 EXP bar): exp progress ของ local player (จาก MSG_PLAYER_PROGRESS) — `exp` สะสม + `floor`/`ceil` ของ
+   * เลเวลปัจจุบัน. แถบ EXP = (exp-floor)/(ceil-floor); `ceil` 0 = ตัน cap (§9.1 → แถบเต็ม). null ก่อนรู้ค่าครั้งแรก.
+   */
+  playerExp: { exp: number; floor: number; ceil: number } | null;
+  /**
    * เวลา (ms, wall-clock จาก client) ล่าสุดที่ MSG_PLAYER_PROGRESS มาถึง (P2-12) — message นี้มาถึง
    * "หลังฆ่ามอนที่มีสิทธิ์" เท่านั้น (net-protocol.ts comment) จึงใช้เป็นสัญญาณ "ฆ่ามอนแล้วอย่างน้อย 1 ตัว"
    * สำหรับ tutorial checklist (DG lite) โดยไม่ต้องเพิ่ม message ใหม่. null = ยังไม่เคยเกิดใน session นี้.
@@ -130,6 +135,7 @@ export const INITIAL_HUD_STATE: HudState = {
   shopResult: null,
   gold: null,
   playerLevel: null,
+  playerExp: null,
   lastKillAtMs: null,
   storageState: null,
   storageResult: null,
@@ -210,7 +216,12 @@ export function setShopResult(result: ShopResultMessage): void {
  * (pattern เดียวกับ createHudPublisher) — default `Date.now()` ตอนเรียกจริงจาก engine glue.
  */
 export function setGoldFromProgress(progress: PlayerProgressMessage, nowMs: number = Date.now()): void {
-  const patch: Partial<HudState> = { playerLevel: progress.level, lastKillAtMs: nowMs };
+  const patch: Partial<HudState> = {
+    playerLevel: progress.level,
+    // E3 (§8.2): เก็บ exp progress สำหรับแถบ EXP (มากับ progress message เดียวกัน)
+    playerExp: { exp: progress.exp, floor: progress.expFloor, ceil: progress.expCeil },
+    lastKillAtMs: nowMs,
+  };
   if (progress.gold !== GOLD_UNKNOWN) patch.gold = progress.gold;
   gameStore.setState(patch);
 }
@@ -226,6 +237,9 @@ export const selectGold = (state: HudState): number | null => state.gold;
 
 /** typed selector — level ตัวละครล่าสุดที่รู้ (P2-12) */
 export const selectPlayerLevel = (state: HudState): number | null => state.playerLevel;
+
+/** typed selector — exp progress ของ local player (E3 §8.2 EXP bar) */
+export const selectPlayerExp = (state: HudState): HudState["playerExp"] => state.playerExp;
 
 /** typed selector — เวลาฆ่ามอนล่าสุด (P2-12, tutorial checklist signal) */
 export const selectLastKillAtMs = (state: HudState): number | null => state.lastKillAtMs;
