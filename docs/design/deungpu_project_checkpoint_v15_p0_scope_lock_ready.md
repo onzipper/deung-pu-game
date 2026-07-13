@@ -53,6 +53,16 @@ Delta:
 
 1. **§59.1.2 ข้อ 3, 5, 6, 7** — **SUPERSEDED โดย §59.1.3 (D-056)**: ยกเลิก forced disconnect ทั้งชุด (field 15/30 countdown, city 60s, party 120–180s window, โหมด "ปักหลัก"). คงข้อ 1, 2, 4 (backgrounding ≠ bot, hidden→pause input/server ถือ entity, combat ยังรับ damage ไม่ auto-cast). ตายคาสนาม = Option A (ไม่มี idle de-aggro). knob: `afkHardCapHours=null` (inert), `idleIndicatorSec=60`, reconnect grace 30s ไม่แตะ. Party share ตัดเมื่อยืนนิ่งเกินเกณฑ์ AFK (contribution-based, P2B)
 
+## 0.0.4 Amendment Log — v15.3 (2026-07-13) — Bot Economy Final + Field Boss Note (D-063/D-064)
+
+Owner เคาะปิด L1 บอท/เศรษฐกิจครบชุด + โครงบอส 3 ชั้น 2026-07-13. decision records = `docs/decisions/D-063-bot-economy-final.md`, `docs/decisions/D-064-content-liveops.md` (ทั้งคู่ Locked). checkpoint นี้บันทึกเฉพาะจุด supersede/หมายเหตุ — **additive, เนื้อเดิมคงไว้เพื่อ history**.
+
+Delta:
+
+1. **§4 ราคา Assistant Plus/Pro (baseline 1/7/30 วัน + Hour Pack)** — **SUPERSEDED โดย D-063**: ทุก tier (Free/Plus/Pro) เวลาใช้งานเท่ากันหมด — **Free ฟรีตลอดไป ไม่จำกัดชั่วโมง ปล่อย 24/7 ได้** เช่นเดียวกับ tier จ่ายเงิน ความต่างระหว่าง tier = **ความสามารถ** (profile/rule/report/notification/schedule/analytics) ไม่ใช่เวลา · Paid เปลี่ยนโมเดลจาก "ราย 1/7/30 วัน + Hour Pack" → **duration pass 1/10/30 วัน** นับอายุจริงจากวันซื้อ ไม่มี pause ไม่มี Hour Pack อีกต่อไป · **ราคา canon ตัวเดียว: Plus 9/39/79฿ · Pro 15/69/149฿** · Supporter (cosmetic รายเดือน) พักไว้ ตัดสินหลัง beta
+2. **§19 ข้อ 11 "Pro Bot ทำงาน 12 ชั่วโมงต่อรอบ"** — **SUPERSEDED โดย D-063**: ไม่มี hour cap ต่อรอบอีกต่อไป ทุก tier ปล่อยรันได้ 24/7 เท่ากัน (Mandatory Stop 9 ข้อยังบังคับทุก tier เหมือนเดิม)
+3. **§6 Map 1 — "Boss: หมูป่าหม้อเดือด"** — หมายเหตุ (ไม่ supersede): ตาม D-064 (โครงบอส 3 ชั้น) หมูป่าหม้อเดือด = **Field Boss** ประจำ Map 1 (open-world respawn ~3–5 นาที, แหล่งเศษเสริมแกร่ง 10.7%) · Story Boss ของ Map 1 = `boss_map1_resonant_guardian` "ผู้พิทักษ์เสียงสะท้อน" lv8 (D-047, ดู §0.0.2 ข้อ 6 ด้านบน) — สองตัวอยู่คู่กัน ไม่ใช่ตัวเดียวกัน
+
 ---
 
 ## 0.1 v10 Audio Update
@@ -278,10 +288,7 @@ NPC หลัก:
 
 ราคา baseline:
 
-- 1 วัน: 19 บาท
-- 7 วัน: 99 บาท
-- 30 วัน: 299 บาท
-- Hour Pack 24 ชม.: 79 บาท
+- ~~1 วัน: 19 บาท~~ · ~~7 วัน: 99 บาท~~ · ~~30 วัน: 299 บาท~~ · ~~Hour Pack 24 ชม.: 79 บาท~~ **SUPERSEDED โดย D-063 (2026-07-13) → §0.0.4** — ราคา canon ใหม่ (duration pass 1/10/30 วัน ไม่มี Hour Pack): **9 / 39 / 79 บาท**
 
 ได้:
 
@@ -297,16 +304,11 @@ NPC หลัก:
 
 ราคา baseline:
 
-- 1 วัน: 39 บาท
-- 7 วัน: 199 บาท
-- 30 วัน: 599 บาท
-- Hour Pack 12 ชม.: 49 บาท
-- Hour Pack 36 ชม.: 129 บาท
-- Hour Pack 120 ชม.: 399 บาท
+- ~~1 วัน: 39 บาท~~ · ~~7 วัน: 199 บาท~~ · ~~30 วัน: 599 บาท~~ · ~~Hour Pack 12/36/120 ชม.: 49/129/399 บาท~~ **SUPERSEDED โดย D-063 (2026-07-13) → §0.0.4** — ราคา canon ใหม่ (duration pass 1/10/30 วัน ไม่มี Hour Pack): **15 / 69 / 149 บาท**
 
 ได้:
 
-- Bot 12 ชม. ต่อรอบ
+- ~~Bot 12 ชม. ต่อรอบ~~ **SUPERSEDED โดย D-063 → §0.0.4** — ทุก tier รันได้ 24/7 เท่ากัน ไม่มี hour cap ต่อรอบ
 - หลาย profile
 - Goal Chain 3 ขั้น
 - Daily/Event flow
@@ -387,6 +389,8 @@ Pacing:
 - Boss: หมูป่าหม้อเดือด
 - Material: เมือกดึ๋ง, หนังหมูพอง, ขนนกปุ๊
 - Hook: ดึ๋งปุ๊เป็นเรื่องที่ชาวเมืองเห็นจนชิน
+
+> **หมายเหตุ (D-064, 2026-07-13, ดู §0.0.4 ข้อ 3):** หมูป่าหม้อเดือด = **Field Boss** ประจำ Map 1 (โครงบอส 3 ชั้น: Field/Story/World) — ไม่ใช่ Story Boss · Story Boss ของ Map 1 = `boss_map1_resonant_guardian` "ผู้พิทักษ์เสียงสะท้อน" lv8 (D-047)
 
 ## Map 2 — ถนนชายไร่
 
@@ -1438,7 +1442,7 @@ Prototype scene ควรมี:
 8. Bot + Auto Pilot + Report รวมเป็นระบบผู้ช่วยนักล่า
 9. Free มี Bot/Auto Pilot/Report พื้นฐานถาวร
 10. Paid Assistant ไม่ถาวร เป็น pass/hour pack
-11. Pro Bot ทำงาน 12 ชั่วโมงต่อรอบ
+11. ~~Pro Bot ทำงาน 12 ชั่วโมงต่อรอบ~~ **SUPERSEDED โดย D-063 (2026-07-13) → §0.0.4** — ทุก tier (รวม Free) ปล่อยรันได้ 24/7 เท่ากัน ไม่มี hour cap ต่อรอบ; ความต่างระหว่าง tier = ความสามารถ ไม่ใช่เวลา
 12. Pro มี Goal Chain 3 ขั้น
 13. Market Helper เป็น paid-only feature แยก ไม่ใช่ trade bot
 14. Currency หลักมี ทอง / ตราสั่นพ้อง / เพชร
