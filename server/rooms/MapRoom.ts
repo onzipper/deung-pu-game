@@ -41,6 +41,7 @@
 //   - AOI filter บังคับ (P1+/map ใหญ่, §18.2) · resource/mana pool (proposal §5 [8] PENDING OWNER)
 //   - progression/EXP/loot (P2) — P1 ผู้เล่นทุกคน lv1 นักดาบ (stat จาก combatBalance)
 
+import { randomUUID } from "node:crypto";
 import { Room, ServerError, type AuthContext, type Client } from "colyseus";
 import { MapRoomState, MobState, PlayerState } from "../schema/MapRoomState";
 import { authorizeHandshake } from "../security/handshake";
@@ -51,7 +52,9 @@ import { acquireLease, releaseLease } from "../security/session-lease";
 import {
   fetchCharacterOwner,
   loadCharacterState,
+  loadCharacterProgress,
   saveCharacterState,
+  saveCharacterProgress,
   updateLastPlayed,
 } from "../characters/character-state";
 import {
@@ -76,6 +79,8 @@ import {
   MSG_SKILL_RESULT,
   MSG_INVENTORY_STATE,
   MSG_INVENTORY_OP_REJECTED,
+  MSG_PLAYER_PROGRESS,
+  GOLD_UNKNOWN,
   MSG_EQUIP_ITEM,
   MSG_UNEQUIP_ITEM,
   MSG_MOVE_ITEM,
@@ -96,6 +101,7 @@ import {
   type EnhanceResultMessage,
   type InventoryOp,
   type InventoryOpRejectedMessage,
+  type PlayerProgressMessage,
 } from "../../src/shared/net-protocol";
 import {
   validateMove,
@@ -140,6 +146,12 @@ import {
   inventoryPersistenceAvailable,
   loadCharacterItemsBestEffort,
 } from "../inventory/inventory-state";
+import {
+  grantKillRewardsForMob,
+  PLAYER_BASELINE_TABLE,
+  EXP_CURVE,
+} from "../economy/kill-rewards";
+import { playerBaselineForLevel } from "../../src/server/economy/exp";
 import {
   createMobSimulation,
   type MobSimulation,
@@ -298,6 +310,20 @@ export class MapRoom extends Room<MapRoomState> {
    * default = this.balance.player (anonymous / ไม่มีของ). never-downgrade zone (combat calc) — ต่อผ่าน pure fn.
    */
   private readonly effectiveStats = new Map<string, PlayerCombatStats>();
+  /**
+   * P2-09: per-session progression (level + total cumulative EXP). Loaded best-effort on join (Character
+   * level/exp), mutated on each eligible kill, persisted best-effort. Drives the per-level combat baseline
+   * (D-055 §2). anonymous/no-DB = in-memory only (levels within a session, not persisted).
+   */
+  private readonly sessionProgress = new Map<string, { level: number; exp: number }>();
+  /**
+   * P2-09: last-known worn gear per session (itemId + enhancementLevel) — cached so a level-up can recompute
+   * combat stats without re-reading the DB (equipment didn't change, only the per-level base did).
+   */
+  private readonly sessionEquipment = new Map<
+    string,
+    readonly { itemId: string; enhancementLevel: number }[]
+  >();
   /** P1-08: partyId ของ channel นี้ ("" = solo channel, ≠"" = party channel) — จาก options คนแรก */
   private partyId = DEFAULT_PARTY_ID;
   /** P1-08: display channelId (CH.n) ที่ registry จ่ายให้ตอน onCreate — release ตอน onDispose */
@@ -722,6 +748,7 @@ export class MapRoom extends Room<MapRoomState> {
     // สกิลที่ทำ damage: targetType enemy + baseMultiplier>0 + hitCount>0 (utility เช่น taunt = valid cast แต่ไม่ damage)
     const dealsDamage = def.targetType === "enemy" && def.baseMultiplier > 0 && def.hitCount > 0;
     const hits: SkillHit[] = [];
+    const killedMobTypes: string[] = []; // P2-09: mobType ต่อ mob ที่ตายรอบนี้ → reward ให้ caster
     if (dealsDamage) {
       for (const mobId of hitIds) {
         const mobType = mobTypeById.get(mobId);
@@ -749,6 +776,7 @@ export class MapRoom extends Room<MapRoomState> {
         const applied = this.sim.damageMob(mobId, dmg.damage);
         if (!applied) continue;
         hits.push({ mobId, dmg: dmg.damage, crit: dmg.crit, killed: applied.killed });
+        if (applied.killed) killedMobTypes.push(mobType);
       }
       // sync ทันที → hp ที่ลด + มอนที่ตาย (despawn) สะท้อนใน state broadcast รอบนี้ (ไม่รอ sim tick ถัดไป)
       this.syncMobsToState();
@@ -756,19 +784,106 @@ export class MapRoom extends Room<MapRoomState> {
 
     const result: SkillResultMessage = { casterId: sessionId, skillId, hits };
     this.broadcast(MSG_SKILL_RESULT, result);
+
+    // P2-09: มอนตาย → reward (EXP/gold/drop/audit) ให้ caster ผู้ฆ่า. best-effort (async, ไม่ block broadcast).
+    //   damageMob คืน killed=true ครั้งเดียวต่อมอน (ถูกลบจาก sim) → grant ครั้งเดียว (idempotent ที่ระดับ sim).
+    for (const mobType of killedMobTypes) {
+      void this.grantKillReward(client, mobType);
+    }
   }
 
   /**
-   * P2-07: recompute effective combat stats ของ session จากของที่สวม (equipped) — base + gear bonus (pure).
-   * เรียกตอน join + หลัง equip/unequip สำเร็จ. `equipped` = snapshot.equipment (มี itemId พอ aggregate).
+   * P2-07/P2-09: cache worn gear + recompute effective combat stats. Called on join + after every equip/unequip
+   * success. `equipped` = snapshot.equipment (itemId + enhancementLevel is enough to aggregate).
    */
   private applyEquipmentStats(
     sessionId: string,
     equipped: readonly { itemId: string; enhancementLevel: number }[],
   ): void {
-    // P2-10: fold each worn item's enhancementLevel through the D-054 curve (§16.3.1) into the scaled stats.
+    this.sessionEquipment.set(
+      sessionId,
+      equipped.map((e) => ({ itemId: e.itemId, enhancementLevel: e.enhancementLevel })),
+    );
+    this.recomputeEffectiveStats(sessionId);
+  }
+
+  /**
+   * P2-09: effective combat stats = per-level player baseline (D-055 §2) + gear bonus (pure). The level base
+   * changes on level-up; secondaries (crit/critDmg/penetration) stay from the engine lv1 baseline (D-055 §2).
+   * P2-10: worn enhancementLevel folds through the D-054 curve (§16.3.1). never-downgrade zone (combat calc).
+   */
+  private recomputeEffectiveStats(sessionId: string): void {
+    const level = this.sessionProgress.get(sessionId)?.level ?? 1;
+    const base = playerBaselineForLevel(level, PLAYER_BASELINE_TABLE, {
+      critRate: this.balance.player.critRate,
+      critDmg: this.balance.player.critDmg,
+      penetration: this.balance.player.penetration,
+    });
+    const equipped = this.sessionEquipment.get(sessionId) ?? [];
     const bonus = aggregateEquipmentBonus(equipped, ITEM_CATALOG, ENHANCEMENT_CURVE);
-    this.effectiveStats.set(sessionId, applyEquipmentBonus(this.balance.player, bonus));
+    this.effectiveStats.set(sessionId, applyEquipmentBonus(base, bonus));
+  }
+
+  /**
+   * P2-09: grant one eligible kill's rewards to the caster (§12 personal reward). EXP is always computed
+   * (in-memory levelling works with no DB); Gold + Drops + DropAudit run only for a character-bound session
+   * with a DB. Best-effort at this boundary: a DB error is logged (money-loud) but never crashes the room —
+   * the ledger stays strict inside (no faked success). Sends MSG_PLAYER_PROGRESS + a fresh MSG_INVENTORY_STATE
+   * when the bag changed. mobType unmapped / boss (P2B) → no-op.
+   */
+  private async grantKillReward(client: Client, mobType: string): Promise<void> {
+    const sessionId = client.sessionId;
+    const progress = this.sessionProgress.get(sessionId);
+    if (!progress) return;
+    const rec = this.sessionCharacters.get(sessionId);
+
+    let outcome: Awaited<ReturnType<typeof grantKillRewardsForMob>>;
+    try {
+      outcome = await grantKillRewardsForMob({
+        mobType,
+        characterId: rec?.characterId ?? "",
+        accountId: rec?.accountId ?? "",
+        playerLevel: progress.level,
+        playerExp: progress.exp,
+        eligibleMembers: 1, // §9.4 party split not wired yet (single killer — see P2-09 report)
+        killEventId: randomUUID(),
+        persist: !!rec,
+      });
+    } catch (err) {
+      console.error(
+        `[MapRoom ${this.roomId}] kill-reward DB error ${sessionId} (${mobType}): ` +
+          (err instanceof Error ? err.message : String(err)),
+      );
+      return;
+    }
+    if (!outcome) return; // unmapped mobType / non-P2 monster (boss = P2B)
+
+    // apply EXP/level (source of truth = returned total); recompute per-level combat stats.
+    progress.level = outcome.exp.level;
+    progress.exp = outcome.exp.exp;
+    this.recomputeEffectiveStats(sessionId);
+    // level-up is meaningful → persist promptly; routine EXP gain rides the throttled save cycle (persistSession).
+    if (rec && outcome.exp.leveledUp) void saveCharacterProgress(rec.characterId, progress.level, progress.exp);
+
+    // fresh inventory snapshot when loot actually landed in the bag.
+    if (rec && outcome.granted.length > 0) {
+      const items = await loadCharacterItemsBestEffort(rec.characterId);
+      client.send(MSG_INVENTORY_STATE, buildSnapshot(items, INVENTORY_CAPACITY));
+    }
+
+    const capRow = EXP_CURVE.levels.find((l) => l.level === progress.level);
+    const prevRow = EXP_CURVE.levels.find((l) => l.level === progress.level - 1);
+    const msg: PlayerProgressMessage = {
+      level: progress.level,
+      exp: progress.exp,
+      expFloor: prevRow ? prevRow.cumulative : 0,
+      expCeil: capRow && capRow.expToNext > 0 ? capRow.cumulative : 0,
+      gold: outcome.goldBalance !== null ? Number(outcome.goldBalance) : GOLD_UNKNOWN,
+      leveledUp: outcome.exp.leveledUp,
+      loot: outcome.granted,
+      lootOverflow: outcome.overflow,
+    };
+    client.send(MSG_PLAYER_PROGRESS, msg);
   }
 
   /**
@@ -909,8 +1024,12 @@ export class MapRoom extends Room<MapRoomState> {
     }
     // P1-05: cooldown state ต่อ player (ว่างตอน join → ทุกสกิลพร้อมใช้)
     this.cooldowns.set(client.sessionId, new Map());
-    // P2-07: combat stats เริ่มต้น = base (นักดาบ lv1) — override ด้วย equipment bonus หลังโหลด inventory ด้านล่าง.
-    this.effectiveStats.set(client.sessionId, this.balance.player);
+    // P2-09: โหลด progression (level/exp) best-effort → ตั้ง base combat stat ตามเลเวล (D-055 §2). ไม่มี
+    //   DB/ตัวละคร → lv1 (in-memory). ต้องตั้งก่อน applyEquipmentStats เพื่อให้ base ถูกต้องตั้งแต่เฟรมแรก.
+    const progress = (characterId ? await loadCharacterProgress(characterId) : null) ?? { level: 1, exp: 0 };
+    this.sessionProgress.set(client.sessionId, { level: progress.level, exp: progress.exp });
+    // P2-07: combat stats เริ่มต้น = base ตามเลเวล — override ด้วย equipment bonus หลังโหลด inventory ด้านล่าง.
+    this.recomputeEffectiveStats(client.sessionId);
 
     // P2-04 (Storage §4.1/§4.2): มี accountId (verified token) → ยึด 1-active-session ต่อบัญชี.
     //   in-process registry เตะ session เดิมของ account เดียวกัน (SESSION_TAKEN_OVER, takeover-wins);
@@ -982,6 +1101,8 @@ export class MapRoom extends Room<MapRoomState> {
     this.trackers.delete(sessionId);
     this.cooldowns.delete(sessionId);
     this.effectiveStats.delete(sessionId);
+    this.sessionProgress.delete(sessionId);
+    this.sessionEquipment.delete(sessionId);
     this.sessionCharacters.delete(sessionId);
     this.transitioningSessions.delete(sessionId);
     console.log(`[MapRoom ${this.roomId}] remove ${sessionId} (${reason})`);
@@ -1006,6 +1127,9 @@ export class MapRoom extends Room<MapRoomState> {
     );
     rec.lastSaveMs = now;
     void saveCharacterState(rec.characterId, this.state.mapId, pos.tx, pos.ty);
+    // P2-09: persist progression on the same throttled cycle (level-up already saved promptly on gain).
+    const prog = this.sessionProgress.get(sessionId);
+    if (prog) void saveCharacterProgress(rec.characterId, prog.level, prog.exp);
   }
 
   /** P2-05: interval save ทุก session ที่ผูกตัวละคร (throttled) — เรียกจาก clock.setInterval (onCreate). */

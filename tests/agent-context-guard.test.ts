@@ -50,7 +50,9 @@ describe("agent context guard", () => {
     "AI.md": 6_656,
     "docs/agent-rules.md": 10_240,
     "docs/token-budget.md": 2_560,
-    "docs/decision-index.md": 6_144,
+    // 6144 → 8192 approved by owner 2026-07-13: the index grows ~110 B per
+    // decision by design (integrity test pins every D-NNN file to one row).
+    "docs/decision-index.md": 8_192,
     "docs/current-state.md": 3_072,
     "docs/feature-map.md": 6_144,
     "docs/CODEMAP.md": 8_192,

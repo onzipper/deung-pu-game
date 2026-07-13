@@ -6,6 +6,8 @@ import {
   VersionConflictError,
   type EnhancementCommit,
   type EnhancementLogInput,
+  type GrantItemsInput,
+  type GrantOutcome,
   type InstanceMutation,
   type InventoryRepository,
   type ItemInstanceRecord,
@@ -29,6 +31,7 @@ function clone(r: ItemInstanceRecord): ItemInstanceRecord {
 export function createInMemoryInventoryRepository(): InMemoryInventoryRepository {
   const byId = new Map<string, ItemInstanceRecord>();
   const logs: EnhancementLogInput[] = [];
+  let grantSeq = 0;
 
   return {
     enhancementLogs(): EnhancementLogInput[] {
@@ -72,6 +75,70 @@ export function createInMemoryInventoryRepository(): InMemoryInventoryRepository
         r.slot = m.toSlot;
         r.version += 1;
       }
+    },
+
+    async grantItems(input: GrantItemsInput): Promise<GrantOutcome> {
+      const bag = Array.from(byId.values()).filter(
+        (r) => r.characterId === input.characterId && r.location === "CHARACTER_INVENTORY",
+      );
+      const used = new Set<number>();
+      for (const r of bag) if (r.slot !== null) used.add(r.slot);
+      const nextFreeSlot = (): number => {
+        for (let s = 0; s < input.capacity; s++) if (!used.has(s)) return s;
+        return -1;
+      };
+      const granted: { itemId: string; quantity: number }[] = [];
+      const overflow: { itemId: string; quantity: number }[] = [];
+
+      const placeNewInstance = (itemId: string, quantity: number, group: string | null): boolean => {
+        const slot = nextFreeSlot();
+        if (slot < 0) return false;
+        used.add(slot);
+        const id = `grant-${++grantSeq}`;
+        const rec: ItemInstanceRecord = {
+          id,
+          accountId: input.accountId,
+          characterId: input.characterId,
+          itemId,
+          location: "CHARACTER_INVENTORY",
+          slot,
+          quantity,
+          enhancementLevel: 0,
+          uniqueEquipGroup: group,
+          version: 0,
+        };
+        byId.set(id, rec);
+        bag.push(rec);
+        return true;
+      };
+
+      for (const g of input.grants) {
+        if (g.quantity <= 0) continue;
+        if (g.stackable) {
+          const stack = bag.find(
+            (r) => r.itemId === g.itemId && r.location === "CHARACTER_INVENTORY",
+          );
+          if (stack) {
+            stack.quantity += g.quantity;
+            stack.version += 1;
+            granted.push({ itemId: g.itemId, quantity: g.quantity });
+          } else if (placeNewInstance(g.itemId, g.quantity, g.uniqueEquipGroup)) {
+            granted.push({ itemId: g.itemId, quantity: g.quantity });
+          } else {
+            overflow.push({ itemId: g.itemId, quantity: g.quantity });
+          }
+        } else {
+          // non-stackable: one instance per unit, each needs its own slot.
+          let placed = 0;
+          for (let n = 0; n < g.quantity; n++) {
+            if (placeNewInstance(g.itemId, 1, g.uniqueEquipGroup)) placed += 1;
+            else break;
+          }
+          if (placed > 0) granted.push({ itemId: g.itemId, quantity: placed });
+          if (placed < g.quantity) overflow.push({ itemId: g.itemId, quantity: g.quantity - placed });
+        }
+      }
+      return { granted, overflow };
     },
 
     async commitEnhancement(commit: EnhancementCommit): Promise<void> {

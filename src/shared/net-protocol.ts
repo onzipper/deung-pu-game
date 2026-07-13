@@ -342,6 +342,43 @@ export interface EnhanceItemMessage {
   idempotencyKey: string;
 }
 
+// ── P2-09 kill rewards (progression + loot notify · Economy §9/§11/§12) ───────────────────────────────
+//
+// server → **owning client เท่านั้น** หลังฆ่ามอนที่มีสิทธิ์ (§12 personal reward: gold/exp/loot ไม่ broadcast —
+// เป็นข้อมูลส่วนตัว). แจ้ง level/exp/gold ที่เปลี่ยน + สรุป loot (toast §13.2) + overflow (inventory_full §12.5).
+// การเปลี่ยนกระเป๋าจริงมาทาง MSG_INVENTORY_STATE (snapshot ใหม่) เหมือนเดิม — message นี้ = HUD/feedback เท่านั้น.
+
+/** ยอด gold ที่ยังไม่ทราบ (session ไม่มี DB/ตัวละคร → ledger อ่านไม่ได้) — client แสดง gold เดิม ไม่ทับด้วย -1. */
+export const GOLD_UNKNOWN = -1;
+
+/** message type: server → **client เดียว** (P2-09) — progression + loot สรุปหลังฆ่ามอน. */
+export const MSG_PLAYER_PROGRESS = "player_progress";
+
+/** 1 รายการ loot ที่ได้/ตกหล่น (itemId + จำนวน) — client map เป็นชื่อ/ไอคอนผ่าน view catalog (งาน UI). */
+export interface LootLine {
+  itemId: string;
+  quantity: number;
+}
+
+/** payload ของ MSG_PLAYER_PROGRESS (server → client เดียว, P2-09). */
+export interface PlayerProgressMessage {
+  level: number;
+  /** total cumulative EXP (§9.2). */
+  exp: number;
+  /** cumulative EXP ที่ level ปัจจุบันเริ่ม (floor ของแถบ) — 0 ที่ lv1. */
+  expFloor: number;
+  /** cumulative EXP ที่ต้องถึงเพื่อขึ้นเลเวลถัดไป (ceil ของแถบ) — 0 = ตันที่ cap (§9.1). */
+  expCeil: number;
+  /** ยอด gold ปัจจุบัน (จาก ledger) — GOLD_UNKNOWN เมื่ออ่านไม่ได้ (ไม่มี DB/ตัวละคร). */
+  gold: number;
+  /** true = เพิ่งข้ามเลเวล (client เล่น level-up feedback). */
+  leveledUp: boolean;
+  /** ของที่เข้ากระเป๋าจริงรอบนี้ (toast §13.2) — ว่างถ้าไม่มี. */
+  loot: LootLine[];
+  /** ของที่กระเป๋าเต็มใส่ไม่ได้ (§12.5 inventory_full — ห้าม silent loss; client เตือน) — ว่างถ้าไม่มี. */
+  lootOverflow: LootLine[];
+}
+
 /** message type: server → **client เดียว** — ผลการเสริมแกร่ง (สำเร็จ/ปฏิเสธ) (P2-10). */
 export const MSG_ENHANCE_RESULT = "enhance_result";
 

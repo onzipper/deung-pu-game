@@ -14,6 +14,8 @@ import { getPrisma } from "../db";
 import {
   VersionConflictError,
   type EnhancementCommit,
+  type GrantItemsInput,
+  type GrantOutcome,
   type InstanceMutation,
   type InventoryRepository,
   type ItemInstanceRecord,
@@ -95,6 +97,96 @@ export function createPrismaInventoryRepository(): InventoryRepository {
           });
         }
       });
+    },
+
+    async grantItems(input: GrantItemsInput): Promise<GrantOutcome> {
+      const granted: { itemId: string; quantity: number }[] = [];
+      const overflow: { itemId: string; quantity: number }[] = [];
+      if (input.grants.length === 0) return { granted, overflow };
+
+      await getPrisma().$transaction(async (tx) => {
+        // lock the character's bag rows (character-scoped) → serialize grants vs concurrent equip/move so two
+        // grants can't race for the same free slot. new inserts are protected by the same range.
+        await tx.$queryRaw`
+          SELECT id FROM item_instances
+          WHERE character_id = ${input.characterId} AND location = 'CHARACTER_INVENTORY'
+          FOR UPDATE
+        `;
+        const bagRows = await tx.itemInstance.findMany({
+          where: { characterId: input.characterId, location: "CHARACTER_INVENTORY" as ItemLocation },
+        });
+        const used = new Set<number>();
+        for (const r of bagRows) if (r.slot !== null && r.slot !== undefined) used.add(r.slot);
+        const stacks = new Map<string, ItemInstanceRow>();
+        for (const r of bagRows) {
+          const row = r as unknown as ItemInstanceRow;
+          if (!stacks.has(row.itemId)) stacks.set(row.itemId, row);
+        }
+        const nextFreeSlot = (): number => {
+          for (let s = 0; s < input.capacity; s++) if (!used.has(s)) return s;
+          return -1;
+        };
+
+        for (const g of input.grants) {
+          if (g.quantity <= 0) continue;
+          // FK: item_instances.item_id → items.id. auto-register the def id (idempotent registry, not a schema
+          // change) so a fresh drop never fails the FK on an empty items table.
+          await tx.item.upsert({ where: { id: g.itemId }, create: { id: g.itemId }, update: {} });
+
+          if (g.stackable) {
+            const stack = stacks.get(g.itemId);
+            if (stack) {
+              await tx.itemInstance.update({
+                where: { id: stack.id },
+                data: { quantity: { increment: g.quantity }, version: { increment: 1 } },
+              });
+              granted.push({ itemId: g.itemId, quantity: g.quantity });
+            } else {
+              const slot = nextFreeSlot();
+              if (slot < 0) {
+                overflow.push({ itemId: g.itemId, quantity: g.quantity });
+                continue;
+              }
+              used.add(slot);
+              const created = await tx.itemInstance.create({
+                data: {
+                  accountId: input.accountId,
+                  characterId: input.characterId,
+                  itemId: g.itemId,
+                  location: "CHARACTER_INVENTORY" as ItemLocation,
+                  slot,
+                  quantity: g.quantity,
+                  uniqueEquipGroup: g.uniqueEquipGroup,
+                },
+              });
+              stacks.set(g.itemId, created as unknown as ItemInstanceRow);
+              granted.push({ itemId: g.itemId, quantity: g.quantity });
+            }
+          } else {
+            let placed = 0;
+            for (let n = 0; n < g.quantity; n++) {
+              const slot = nextFreeSlot();
+              if (slot < 0) break;
+              used.add(slot);
+              await tx.itemInstance.create({
+                data: {
+                  accountId: input.accountId,
+                  characterId: input.characterId,
+                  itemId: g.itemId,
+                  location: "CHARACTER_INVENTORY" as ItemLocation,
+                  slot,
+                  quantity: 1,
+                  uniqueEquipGroup: g.uniqueEquipGroup,
+                },
+              });
+              placed += 1;
+            }
+            if (placed > 0) granted.push({ itemId: g.itemId, quantity: placed });
+            if (placed < g.quantity) overflow.push({ itemId: g.itemId, quantity: g.quantity - placed });
+          }
+        }
+      });
+      return { granted, overflow };
     },
 
     async commitEnhancement(commit: EnhancementCommit): Promise<void> {

@@ -10,6 +10,7 @@ import type {
   MilestoneReward,
   MonsterReward,
   DropTable,
+  PlayerBaselineRow,
 } from "./types";
 
 /** §2.2 — economy version tag; log ทุก transaction ด้วยค่านี้. */
@@ -184,6 +185,22 @@ const ENHANCEMENT_MULTIPLIERS = [
   2.8, // +15
 ];
 
+// ── player combat baseline lv1–10 (D-055 §2, Locked · production) ─────────────
+// verbatim จาก D-055 §2 "Player baseline นักดาบ lv1–10" (HP/ATK/DEF; Speed=100 คงที่ = ไม่ใช่ combat stat).
+// lv1 = 100/12/8 ตรงกับ engine lv1 baseline (src/engine/config/combat.ts player) — คู่กันตาม D-055.
+const PLAYER_BASELINE: PlayerBaselineRow[] = [
+  { level: 1, hp: 100, atk: 12, def: 8 },
+  { level: 2, hp: 120, atk: 15, def: 9 },
+  { level: 3, hp: 140, atk: 18, def: 11 },
+  { level: 4, hp: 160, atk: 21, def: 12 },
+  { level: 5, hp: 180, atk: 24, def: 14 },
+  { level: 6, hp: 200, atk: 27, def: 15 },
+  { level: 7, hp: 220, atk: 30, def: 17 },
+  { level: 8, hp: 240, atk: 33, def: 18 },
+  { level: 9, hp: 260, atk: 36, def: 20 },
+  { level: 10, hp: 280, atk: 40, def: 22 },
+];
+
 /** DEFAULT economy config (fallback ในโค้ด) — ดู loader.ts สำหรับการ override ผ่าน DB. */
 export const DEFAULT_ECONOMY_CONFIG: EconomyConfig = {
   economyVersion: ECONOMY_VERSION,
@@ -222,6 +239,7 @@ export const DEFAULT_ECONOMY_CONFIG: EconomyConfig = {
       splitAmongEligibleMembers: true,
     },
   },
+  playerBaseline: PLAYER_BASELINE,
   monsterRewards: MONSTER_REWARDS,
   dropTables: DROP_TABLES,
   equipmentPools: EQUIPMENT_POOLS,

@@ -76,6 +76,25 @@ describe("EXP curve (Economy §9)", () => {
   });
 });
 
+describe("player baseline lv1–10 (D-055 §2, production lock)", () => {
+  const byLevel = new Map(DEFAULT_ECONOMY_CONFIG.playerBaseline.map((b) => [b.level, b]));
+
+  test("10 แถวครบ lv1–10", () => {
+    expect(DEFAULT_ECONOMY_CONFIG.playerBaseline).toHaveLength(10);
+  });
+
+  test("ค่าจริงตรง D-055 §2 (lv1=100/12/8, lv5=180/24/14, lv10=280/40/22)", () => {
+    expect(byLevel.get(1)).toEqual({ level: 1, hp: 100, atk: 12, def: 8 });
+    expect(byLevel.get(5)).toEqual({ level: 5, hp: 180, atk: 24, def: 14 });
+    expect(byLevel.get(10)).toEqual({ level: 10, hp: 280, atk: 40, def: 22 });
+  });
+
+  test("lv1 primary ตรงกับ engine lv1 baseline (คู่กันตาม D-055)", () => {
+    // engine holds only lv1 (src/engine/config/combat.ts player) — must equal this table's lv1.
+    expect(byLevel.get(1)).toMatchObject({ hp: 100, atk: 12, def: 8 });
+  });
+});
+
 describe("milestone Gold (D-053 / Economy §18.3)", () => {
   const byId = new Map(DEFAULT_ECONOMY_CONFIG.milestones.map((m) => [m.milestoneId, m]));
 

@@ -61,6 +61,20 @@ export interface ExpCurveConfig {
   party: PartyExpConfig;
 }
 
+// ── player progression baseline (D-055 §2, Locked) ───────────────────────────
+/**
+ * 1 แถวของ player combat baseline ต่อเลเวล (นักดาบ lv1–10, D-055 §2 production lock).
+ * engine config ถือแค่ lv1 (src/engine/config/combat.ts) — lv2–10 progression = server-side (ตามหมายเหตุ
+ * combat.ts:182: "lv2–10 progression = server-side level-up · server/config economy §9"). secondary stats
+ * (crit/critDmg/penetration/speed) คงที่ทุกเลเวล → อ่านจาก engine lv1 baseline (D-055 §2 "Secondary" คงที่).
+ */
+export interface PlayerBaselineRow {
+  level: number;
+  hp: number;
+  atk: number;
+  def: number;
+}
+
 // ── drop tables (Economy §10–§11, schema §21.2/§21.3) ────────────────────────
 export interface DropQuantity {
   min: number;
@@ -147,6 +161,8 @@ export interface EconomyConfig {
   economyVersion: string;
   effectiveFrom: string;
   expCurve: ExpCurveConfig;
+  /** player combat baseline ต่อเลเวล (D-055 §2) — level-up ฝั่ง server อ่านค่านี้เป็น base stat. */
+  playerBaseline: PlayerBaselineRow[];
   monsterRewards: MonsterReward[];
   dropTables: DropTable[];
   equipmentPools: EquipmentPool[];

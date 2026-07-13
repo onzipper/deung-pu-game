@@ -81,9 +81,48 @@ export interface EnhancementCommit {
   log: EnhancementLogInput;
 }
 
+/**
+ * P2-09 drop grant — one item to insert into the bag. `stackable` items merge into an existing bag stack of the
+ * same itemId (quantity+n); non-stackable (equipment) create one instance per unit, each taking its own slot.
+ * `uniqueEquipGroup` is the §12.1 anti-dup stamp from the item def (equipment; null otherwise).
+ */
+export interface ItemGrantRequest {
+  itemId: string;
+  quantity: number;
+  stackable: boolean;
+  uniqueEquipGroup: string | null;
+}
+
+/**
+ * result of grantItems. `granted` = what actually landed in the bag; `overflow` = what didn't fit (bag full).
+ * §12.5 forbids silent loss — the caller audits overflow (inventory_full) and signals the client. No ground-loot
+ * entity exists in this runtime, so overflow items are NOT persisted (see the P2-09 report deviation).
+ */
+export interface GrantOutcome {
+  granted: { itemId: string; quantity: number }[];
+  overflow: { itemId: string; quantity: number }[];
+}
+
+export interface GrantItemsInput {
+  /** owning account (ItemInstance.accountId — the true owner, Storage §22). */
+  accountId: string;
+  characterId: string;
+  /** bag capacity — bag slots are [0, capacity); a grant that can't find a free slot overflows. */
+  capacity: number;
+  grants: readonly ItemGrantRequest[];
+}
+
 export interface InventoryRepository {
   /** all CHARACTER_INVENTORY + CHARACTER_EQUIPMENT instances of one character (the bag + worn gear). */
   listCharacterItems(characterId: string): Promise<ItemInstanceRecord[]>;
+  /**
+   * P2-09 loot grant (never-downgrade zone: items are money-like): insert dropped items into the bag in ONE
+   * transaction. Stackable items merge into an existing same-itemId bag stack (quantity+n, bump version);
+   * non-stackable items create one instance per unit at the next free slot. When the bag is full a grant
+   * overflows (returned, NOT persisted — §12.5 no-silent-loss handled by the caller's audit + client signal).
+   * **Strict** — a DB error propagates (a drop that did not persist must not look granted).
+   */
+  grantItems(input: GrantItemsInput): Promise<GrantOutcome>;
   /**
    * apply every mutation atomically (all-or-nothing): lock each row (FOR UPDATE), verify `version` ===
    * `expectedVersion`, then set location+slot and bump version. Any mismatch → throw VersionConflictError

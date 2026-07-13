@@ -115,6 +115,11 @@ function parseEconomyConfig(payload: unknown): EconomyConfig | null {
     if (!isObject(lv) || !isNum(lv.level) || !isNum(lv.expToNext) || !isNum(lv.cumulative)) return null;
   }
 
+  if (!Array.isArray(p.playerBaseline) || p.playerBaseline.length === 0) return null;
+  for (const b of p.playerBaseline) {
+    if (!isObject(b) || !isNum(b.level) || !isNum(b.hp) || !isNum(b.atk) || !isNum(b.def)) return null;
+  }
+
   if (!Array.isArray(p.dropTables)) return null;
   for (const t of p.dropTables) {
     if (!isObject(t) || typeof t.dropTableId !== "string") return null;
