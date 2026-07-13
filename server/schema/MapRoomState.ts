@@ -14,6 +14,12 @@ export class PlayerState extends Schema {
   @type("string") anim = "idle";
   /** partyId (P1-08) — "" = solo. สมาชิก party เดียวกันใน room นี้ share ค่าเดียวกัน (filterBy). */
   @type("string") partyId = "";
+  /**
+   * P2-13 (D-056): true เมื่อผู้เล่น idle ครบ idleIndicatorSec (ไม่มี movement/cast) — client แสดงป้าย
+   * "AFK" ให้ผู้เล่นอื่นเห็น. server-authoritative (input tracker); reset false ทันทีที่มี input. **ไม่ผูก
+   * disconnect** — D-056 ยกเลิก forced disconnect ทั้งชุด (character ค้างในโลกต่อ).
+   */
+  @type("boolean") isAfk = false;
 }
 
 /**

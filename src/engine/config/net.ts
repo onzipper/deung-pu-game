@@ -150,6 +150,26 @@ export interface MovementValidationConfig {
 }
 
 /**
+ * AFK / background-tab knob (P2-13, GS §59.1.3 · D-056) — **server knob** (อ่านฝั่ง realtime process
+ * MapRoom, เหมือน persistence/graceSeconds). D-056 = "AFK ค้างเต็มที่ ไม่มี forced disconnect": server
+ * ถือ character เป็น entity ต่อ, แค่ตั้งป้าย AFK ให้ผู้เล่นอื่นเห็นเมื่อ idle นาน. ทุกค่าเป็น Design Knob.
+ * อยู่ใน EngineConfig (single source of truth) แม้ client ไม่ได้อ่าน — number/null เฉย ๆ ไม่รั่ว balance.
+ */
+export interface AfkConfig {
+  /**
+   * ไม่มี input (movement/cast) ครบ N วินาที → server ตั้ง `PlayerState.isAfk = true` (ป้าย "AFK" ให้ผู้เล่น
+   * อื่นเห็น, D-056 = 60). reset เป็น false ทันทีที่มี input. ≤ 0 = ปิด (ไม่ตั้งป้าย). **ไม่มี disconnect**.
+   */
+  idleIndicatorSec: number;
+  /**
+   * เพดานชั่วโมงที่ยอมให้ connection ค้าง (idle) ก่อนถูกเอาออก — **null = ปิด (inert ใน P2, D-056)**: ไม่ cap
+   * connection ค้าง. เดินสาย knob + จุดเช็คใน MapRoom ไว้ **พร้อมแต่ไม่ทำงาน** → ทบทวนก่อน open alpha เมื่อ
+   * รู้ concurrency จริง (Render free tier). > 0 เท่านั้นถึงจะ active; null/0 = ไม่มีวันตัด.
+   */
+  afkHardCapHours: number | null;
+}
+
+/**
  * Persistence knob (P2-05, Storage §24 · TA §8) — **server knob** (อ่านฝั่ง realtime process MapRoom).
  * character position/map ถูก save เป็นระยะระหว่างเล่น (นอกเหนือ save ตอน transition/leave) — ตาราง
  * `character_state` แยกมาเพื่อ hot write (TA §8 "DB เฉพาะผลลัพธ์ batched"). ทุกค่าเป็น Design Knob.
@@ -182,6 +202,14 @@ export const DEFAULT_MOVEMENT_VALIDATION_CONFIG: MovementValidationConfig = {
 /** Persistence defaults (P2-05, Storage §24) — save CharacterState ทุก ~30s (ตรง session-lease heartbeat). */
 export const DEFAULT_PERSISTENCE_CONFIG: PersistenceConfig = {
   saveIntervalMs: 30_000,
+};
+
+/**
+ * AFK defaults (P2-13, D-056) — ป้าย AFK หลัง idle 60s; ไม่มี hard cap connection ค้าง (null = inert P2).
+ */
+export const DEFAULT_AFK_CONFIG: AfkConfig = {
+  idleIndicatorSec: 60, // D-056: no input 60s → ป้าย AFK ให้ผู้เล่นอื่นเห็น
+  afkHardCapHours: null, // D-056: inert ใน P2 — ไม่ cap connection ค้าง (ทบทวนก่อน open alpha)
 };
 
 export const DEFAULT_NET_CONFIG: NetConfig = {

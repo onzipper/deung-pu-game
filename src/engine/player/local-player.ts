@@ -33,6 +33,7 @@ import {
   createSpriteAnimator,
   type SpriteAnimator,
 } from "@/engine/animation/animator";
+import { createAfkLabel, updateAfkLabel } from "@/engine/render/afk-label";
 
 /** id คงที่ของ local player ใน scene entity layer. */
 export const LOCAL_PLAYER_ID = "__local_player__";
@@ -92,6 +93,11 @@ export interface LocalPlayerHandle {
    * reconcile แบบง่าย (snap เฉย ๆ, ไม่ rewind-replay input) — พอสำหรับ P1-02.
    */
   applyCorrection(tx: number, ty: number): void;
+  /**
+   * P2-13 (D-056): เปิด/ปิดป้าย "AFK" ของตัวเอง (server ตั้ง isAfk เมื่อ idle ครบ idleIndicatorSec) —
+   * caller (app.ts) เรียกจาก net onSelfAfkChange. display-only, ไม่กระทบ input/movement.
+   */
+  setAfk(isAfk: boolean): void;
   /** เรียกทุก frame ด้วย dt เป็น "วินาที" (ticker.deltaMS/1000) */
   update(dtSeconds: number): void;
   /** ถอด keyboard listener + ลบ entity ออกจาก scene + ปล่อย texture */
@@ -137,6 +143,11 @@ export function createLocalPlayer(
 
   scene.addEntity(LOCAL_PLAYER_ID, animator.view, pos);
   scene.setCameraTarget(pos, true); // กล้องเริ่มที่ player (ไม่กวาดจาก origin)
+
+  // P2-13 (D-056): ป้าย "AFK" ของตัวเอง (child ของ sprite view) — server ตั้ง isAfk, caller toggle ผ่าน setAfk.
+  const afkLabel = createAfkLabel(player.animation.style.bodyHeight, player.animation.style.walkBob);
+  animator.view.addChild(afkLabel);
+  let afk = false;
 
   const keyboard = attachKeyboard(target);
   const isWalkable = (tx: number, ty: number): boolean =>
@@ -269,6 +280,10 @@ export function createLocalPlayer(
       attackElapsedMs = 0; // update() รอบถัดไปจะ lock animation="attack" ทันที
     },
 
+    setAfk(isAfk: boolean): void {
+      afk = isAfk; // ป้ายถูก toggle จริงใน update() (พร้อม counter-flip)
+    },
+
     applyCorrection(tx: number, ty: number): void {
       // P1-02: server สั่ง snap กลับ — เขียนทับ position ทันที (ไม่ interpolate: correction = truth)
       pos.tx = tx;
@@ -325,6 +340,8 @@ export function createLocalPlayer(
 
       animator.setState(animation, facing);
       animator.update(dtSeconds);
+      // P2-13 (D-056): toggle ป้าย AFK + counter-flip กัน mirror (หลัง setState — view.scale.x อาจเพิ่ง flip)
+      updateAfkLabel(afkLabel, animator.view, afk);
 
       // marker fade (cosmetic) — fade อิสระจาก path (โชว์จุดที่คลิกล่าสุดชั่วครู่)
       if (marker) {

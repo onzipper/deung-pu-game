@@ -1,5 +1,12 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
+exports[`engine config — value identity (DEFAULT_* consts) > DEFAULT_AFK_CONFIG 1`] = `
+{
+  "afkHardCapHours": null,
+  "idleIndicatorSec": 60,
+}
+`;
+
 exports[`engine config — value identity (DEFAULT_* consts) > DEFAULT_CAMERA_CONFIG 1`] = `
 {
   "edgeMargin": 96,
@@ -184,6 +191,10 @@ exports[`engine config — value identity (DEFAULT_* consts) > DEFAULT_DEBUG_OVE
 
 exports[`engine config — value identity (DEFAULT_* consts) > DEFAULT_ENGINE_CONFIG 1`] = `
 {
+  "afk": {
+    "afkHardCapHours": null,
+    "idleIndicatorSec": 60,
+  },
   "antialias": true,
   "autoDensity": true,
   "backgroundAlpha": 1,
@@ -868,6 +879,10 @@ exports[`engine config — value identity (DEFAULT_* consts) > DEFAULT_TRANSITIO
 
 exports[`engine config — value identity (factory / pure functions) > createEngineConfig() no-arg 1`] = `
 {
+  "afk": {
+    "afkHardCapHours": null,
+    "idleIndicatorSec": 60,
+  },
   "antialias": true,
   "autoDensity": true,
   "backgroundAlpha": 1,
@@ -1275,6 +1290,10 @@ exports[`engine config — value identity (factory / pure functions) > createEng
 
 exports[`engine config — value identity (factory / pure functions) > createEngineConfig({}) 1`] = `
 {
+  "afk": {
+    "afkHardCapHours": null,
+    "idleIndicatorSec": 60,
+  },
   "antialias": true,
   "autoDensity": true,
   "backgroundAlpha": 1,

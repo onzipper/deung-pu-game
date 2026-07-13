@@ -245,6 +245,12 @@ export interface PlayerSnapshot {
   anim: WirePlayerAnim;
   /** partyId ของผู้เล่นนี้ (P1-08) — "" = solo. client ใช้รู้ว่าใครอยู่ party เดียวกัน (สีต่างใน P2). */
   partyId: string;
+  /**
+   * P2-13 (D-056): server ตั้ง true เมื่อผู้เล่นนี้ idle ครบ `idleIndicatorSec` (ไม่มี movement/cast) →
+   * client แสดงป้าย "AFK" เหนือหัวให้ผู้เล่นอื่นเห็น (โปร่งใส, ไม่มี disconnect). optional (default false) —
+   * display-only, client ไม่เคยส่งค่านี้ขึ้น server (server-authoritative จาก input tracker).
+   */
+  isAfk?: boolean;
 }
 
 // ── P2-07 inventory / equipment (server-authoritative mutation, TA §7/§8, Storage §22) ────────────────

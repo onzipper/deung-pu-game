@@ -33,6 +33,11 @@ import {
 import { createStressHarness, type StressHarnessHandle } from "@/game/combat/stress-harness";
 import { WARRIOR_SKILLS_CLIENT } from "@/game/skill/data/warrior-skills-client";
 import { createNetClient, type NetClientHandle } from "../net/net-client";
+import {
+  clampDtMs,
+  createVisibilityController,
+  type VisibilityController,
+} from "../net/visibility";
 import { createSessionReconnectStore } from "../net/reconnect-store";
 import { createRemotePlayerManager } from "../net/remote-player-manager";
 import {
@@ -56,12 +61,16 @@ import { buildDebugInfo, IDLE_NET_DEBUG_INFO, type EngineDebugInfo } from "./deb
 import {
   createHudPublisher,
   resetHudState,
+  setDeliveryResult,
+  setDeliveryState,
   setEnhanceResult,
   setGoldFromProgress,
   setInventoryRejection,
   setInventoryState,
   setShopList,
   setShopResult,
+  setStorageResult,
+  setStorageState,
 } from "@/ui/store/game-store";
 
 /** handle สาธารณะที่ React (หรือ caller อื่น) ใช้คุมกับ engine — ห้ามให้ caller แตะ pixi ตรง ๆ นอกจากผ่าน app */
@@ -89,6 +98,13 @@ export interface EngineHandle {
 }
 
 const FPS_SAMPLE_INTERVAL_MS = 250;
+
+/**
+ * P2-13 (D-056): เพดาน delta-time (ms) ต่อ tick — กัน movement/interpolation ก้าวเดียวพุ่งไกลเมื่อ browser
+ * throttle rAF ตอนแท็บ hidden แล้ว refocus (dt กระโดดจากหลักวินาที). pixi ticker clamp ~100ms (minFPS 10)
+ * อยู่แล้ว; ทำซ้ำที่นี่ให้ชัด/รับประกันไม่ว่า ticker จะถูกตั้งค่าใด (operational const ไม่ใช่ balance).
+ */
+const MAX_TICK_DELTA_MS = 100;
 
 /**
  * "world" ต่อ 1 map (P1-10) — ทุกอย่างที่ผูกกับ map (scene/player/mobs/combat/net/input). สร้างใหม่
@@ -282,7 +298,12 @@ export async function createEngine(
             // P2-11: ขอ catalog ร้านทันทีที่ self เข้า room สำเร็จ (fresh join/reconnect/ข้าม map ใหม่)
             // — server ตอบตาม map ปัจจุบัน (available:false = map นี้ไม่มีร้าน, HUD ปุ่มอ่านค่านี้).
             net?.sendShopListRequest({});
+            // P2-17: ขอเปิดคลัง+กล่องส่งของทันทีเหมือนกัน — server ตอบ 2 snapshot (available:false = map
+            // นี้ไม่มี storage NPC, HUD ปุ่ม "คลัง" อ่านค่านี้ pattern เดียวกับ shop).
+            net?.sendStorageOpen();
           },
+          // P2-13 (D-056): self AFK flag (server-set) → toggle ป้าย "AFK" ของตัวเอง (display-only).
+          onSelfAfkChange: (isAfk) => player.setAfk(isAfk),
           onMobAdd: (snap) => mobView.onMobAdd(snap),
           onMobChange: (snap) => mobView.onMobChange(snap),
           onMobRemove: (mobId) => mobView.onMobRemove(mobId),
@@ -313,6 +334,11 @@ export async function createEngine(
           onShopResult: (result) => setShopResult(result),
           // P2-09/P2-11: progression หลังฆ่ามอน — ใช้เฉพาะ gold รอบนี้ (ยังไม่มี HUD gold bar แยก)
           onPlayerProgress: (msg) => setGoldFromProgress(msg),
+          // P2-17: คลัง+กล่องส่งของ → Zustand bridge ตรง ๆ (event-driven, เหมือน onShopList/onShopResult)
+          onStorageState: (state) => setStorageState(state),
+          onStorageResult: (result) => setStorageResult(result),
+          onDeliveryState: (state) => setDeliveryState(state),
+          onDeliveryResult: (result) => setDeliveryResult(result),
         },
 
       );
@@ -493,25 +519,45 @@ export async function createEngine(
       localLastExitId = exitId;
     };
 
+    // P2-13 (D-056): Page Visibility — แท็บ hidden = **freeze input/net-send** (connection คงอยู่ ไม่มี
+    //   disconnect/countdown); กลับมาเห็น = **fast-resync** snap remote จาก state ปัจจุบัน (กัน rubber band
+    //   หลัง rAF ถูก browser throttle ตอน hidden). browser เท่านั้น (typeof document guard) → detach ตอน destroy.
+    let tabHidden = false;
+    const visibility: VisibilityController | null =
+      typeof document !== "undefined"
+        ? createVisibilityController({
+            onHidden: () => {
+              tabHidden = true;
+            },
+            onVisible: () => {
+              tabHidden = false;
+              remotes?.resyncNow();
+            },
+          })
+        : null;
+
     return {
       scene,
       player,
       net,
       tick(dtSeconds, deltaMs, deltaTime, locked): void {
-        // calc: player intent → movement (freeze ตอน transition lock)
-        if (!locked) player.update(dtSeconds);
-        // calc: mobs (server interpolation / offline sim) — render ต่อเนื่องแม้ locked
+        // P2-13 (D-056): freeze input/net-send ตอน transition lock **หรือ** แท็บ hidden (บาง browser ยัง
+        //   tick 1Hz ตอน background) — render (mob/combat/scene) เดินต่อ. connection ไม่ถูกแตะ (ไม่ disconnect).
+        const frozen = locked || tabHidden;
+        // calc: player intent → movement (freeze ตอน lock/hidden)
+        if (!frozen) player.update(dtSeconds);
+        // calc: mobs (server interpolation / offline sim) — render ต่อเนื่องแม้ frozen
         updateMobs(dtSeconds, deltaMs);
-        if (!locked) {
+        if (!frozen) {
           updateEngage();
         }
         // combat juice (damage number/fade) — no-op เมื่อไม่มี attack
         combat.update(dtSeconds);
         stressHarness.update(dtSeconds, deltaMs);
 
-        // net: throttle ส่ง local position (freeze ตอน locked) + lerp remote players (ต่อเนื่อง)
+        // net: throttle ส่ง local position (freeze ตอน lock/hidden) + lerp remote players (ต่อเนื่อง)
         if (net && remotes) {
-          if (!locked) {
+          if (!frozen) {
             const timer = advanceSendTimer(
               sendAccumMs,
               deltaMs,
@@ -529,8 +575,8 @@ export async function createEngine(
           remotes.update(dtSeconds);
         }
 
-        // P1-10: offline exit detection (online → server สั่งผ่าน message แทน)
-        if (!locked && net?.status.state !== "online") {
+        // P1-10: offline exit detection (online → server สั่งผ่าน message แทน) — freeze ตอน lock/hidden
+        if (!frozen && net?.status.state !== "online") {
           checkLocalExit();
         }
 
@@ -557,6 +603,7 @@ export async function createEngine(
         app.canvas.removeEventListener("pointerleave", onPointerLeave);
         app.canvas.removeEventListener("pointerdown", onPointerDown);
         window.removeEventListener("keydown", onStressToggleKeyDown);
+        visibility?.detach(); // P2-13: ถอด visibilitychange listener
         net?.disconnect();
         remotes?.destroy();
         stressHarness.destroy();
@@ -592,11 +639,14 @@ export async function createEngine(
   const hudPublisher = createHudPublisher(config.debugOverlay.pollIntervalMs);
   let fpsSampleMs = 0;
   const onTick = (ticker: Ticker): void => {
-    const dtSeconds = ticker.deltaMS / 1000;
+    // P2-13 (D-056): clamp dt กันพุ่งตอน refocus (rAF throttle ตอน hidden). deltaTime (frame unit) pixi
+    //   clamp เองตาม minFPS แล้ว → ส่งต่อได้; ที่ต้อง clamp คือ ms ที่ขับ movement/interpolation.
+    const deltaMs = clampDtMs(ticker.deltaMS, MAX_TICK_DELTA_MS);
+    const dtSeconds = deltaMs / 1000;
     const locked = transition.isLocked();
-    currentWorld.tick(dtSeconds, ticker.deltaMS, ticker.deltaTime, locked);
+    currentWorld.tick(dtSeconds, deltaMs, ticker.deltaTime, locked);
     // transition step (อาจ swap world ตอนจอมืดสุด — เกิดหลัง tick ของ world เดิมเสร็จแล้ว)
-    transition.update(ticker.deltaMS);
+    transition.update(deltaMs);
 
     fpsSampleMs += ticker.deltaMS;
     if (fpsSampleMs >= FPS_SAMPLE_INTERVAL_MS) {

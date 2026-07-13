@@ -8,12 +8,14 @@ import { DEFAULT_COMBAT_FEEL_CONFIG, DEFAULT_STRESS_HARNESS_CONFIG } from "./com
 import type { MobConfig } from "./mob";
 import { DEFAULT_MOB_CONFIG } from "./mob";
 import type {
+  AfkConfig,
   MovementValidationConfig,
   NetConfig,
   PersistenceConfig,
   ReconnectConfig,
 } from "./net";
 import {
+  DEFAULT_AFK_CONFIG,
   DEFAULT_MOVEMENT_VALIDATION_CONFIG,
   DEFAULT_NET_CONFIG,
   DEFAULT_PERSISTENCE_CONFIG,
@@ -99,6 +101,8 @@ export interface EngineConfig {
   debugOverlay: DebugOverlayConfig;
   /** character save/load persistence knob (P2-05, Storage §24) — server knob (save interval) */
   persistence: PersistenceConfig;
+  /** AFK / background-tab knob (P2-13, D-056) — server knob (idle indicator + inert hard cap) */
+  afk: AfkConfig;
 }
 
 export const DEFAULT_ENGINE_CONFIG: EngineConfig = {
@@ -127,6 +131,7 @@ export const DEFAULT_ENGINE_CONFIG: EngineConfig = {
   stressHarness: DEFAULT_STRESS_HARNESS_CONFIG,
   debugOverlay: DEFAULT_DEBUG_OVERLAY_CONFIG,
   persistence: DEFAULT_PERSISTENCE_CONFIG,
+  afk: DEFAULT_AFK_CONFIG,
 };
 
 /**
@@ -174,6 +179,8 @@ export function createEngineConfig(
     debugOverlay: { ...DEFAULT_ENGINE_CONFIG.debugOverlay, ...overrides.debugOverlay },
     // persistence = shallow-merge (override saveIntervalMs โดยคงค่าอื่นเดิม)
     persistence: { ...DEFAULT_ENGINE_CONFIG.persistence, ...overrides.persistence },
+    // afk = shallow-merge (override idleIndicatorSec/afkHardCapHours โดยคงค่าอื่นเดิม)
+    afk: { ...DEFAULT_ENGINE_CONFIG.afk, ...overrides.afk },
   };
 }
 
