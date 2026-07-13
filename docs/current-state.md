@@ -8,6 +8,7 @@ _Last updated: 2026-07-13 · Status board only — history & detail: `docs/histo
 - **Live:** server `https://deung-pu-game.onrender.com` (Render free tier + UptimeRobot, `/healthz`) · client `https://deung-pu.softrock.space/game` (Hostinger).
 - **Spec:** game v15.3 / tech v1.5.2 + Production Bible Set v1 (`docs/design/bibles/`). Reinforcement system fully decided (R1–R10 closed) → `docs/design/deungpu_REINFORCEMENT_SYSTEM_DECISION_v1.md`, D-048..D-052.
 - **DB:** test DB = Hostinger **MariaDB** (not MySQL 8), migration `0001_init` applied (13 tables). Production data stays EMPTY until P2-16 single apply. Rename `upg_kraeng` → `upg_reinforcement` must land before P2-16.
+- **Infra:** agent-context-optimization PR pending owner review (docs restructure + config split; onboarding ~42K → ~9K tokens; MapRoom split deferred to a future PR).
 
 ## Task board — P2 wave 3 (awaiting owner start order)
 

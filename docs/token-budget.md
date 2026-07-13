@@ -25,10 +25,12 @@ Caps on what you read **before proposing a plan**. Search rules live in `AI.md`.
 
 ## Measured onboarding cost (2026-07-13, post agent-context-optimization)
 
-| Read set | Bytes | ~Tokens |
+| Read set | Bytes | ~Tokens (EN ≈ B/4) |
 |---|---:|---:|
-| Auto-import chain (CLAUDE+AGENTS+AI+current-state) | TBD-C13 | TBD |
-| Orchestrator start-here (chain + agent-rules + index + feature-map + 1 pack) | TBD-C13 | TBD |
-| Subagent (agent-rules + 1 pack + brief) | TBD-C13 | TBD |
+| Auto-import chain (CLAUDE+AGENTS+AI+current-state) | 9,446 | ~2,400 |
+| Orchestrator start-here (chain + agent-rules + decision-index + feature-map + largest pack) | 36,014 | ~9,000 |
+| Subagent (agent-rules + largest pack; brief on top) | 18,112 | ~4,500 |
+
+Pre-restructure baseline (2026-07-13, mostly Thai): mandated start-here ≈ 42,400 tokens → now ~9,000 (**-79%**).
 
 Caps are enforced by `tests/agent-context-guard.test.ts` — a red cap means trim or archive, never raise the cap without owner approval.
