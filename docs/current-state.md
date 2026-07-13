@@ -7,7 +7,7 @@ _Last updated: 2026-07-13 · Status board only — history & detail: `docs/histo
 - **Phase:** P2 wave 3 PR #1 (value loop) **done** on `feat/p2-wave3-value-loop` — P2-07/08/09/10/11 all committed (server+UI), shared `src/ui/panels/` framework (inventory/enhancement/shop). Gates green: vitest 1128, tsc, `npm run build`, e2e 8/8. Migration `0002` (shop ledger reasons) applied to prod DB. **Next:** open PR into develop for owner review → Part C (P2-12/13/17→15) as PR #2. Waves 1+2 merged (PR #9, #10); develop→main merged (PR #14).
 - **SVG-01** pipeline done → **PR #15** open for review (`feat/svg-01-pipeline`); open point: rasterizer dep (sharp vs @resvg/resvg-js).
 - **Live:** server `https://deung-pu-game.onrender.com` (Render free tier + UptimeRobot, `/healthz`, D-058) · client `https://deung-pu.softrock.space/game` (Hostinger). Guest login + realtime connect verified 2026-07-13.
-- **Spec:** game v15.3 / tech v1.5.2 + Production Bible Set v1. Reinforcement decided (R1–R10) → D-048..D-055.
+- **Spec:** game v15.3 / tech v1.5.2 + Production Bible Set v1. Reinforcement → D-048..D-055. **P2B value-loop rulings all decided 2026-07-13 → D-063/064/065** (bot Free-forever+pass pricing, merchant dual-sink, event calendar, boss 3 tiers, Arc1 Ch1, audio=JS chiptune, art=filter+import; **Open Beta = full systems + Map 1 only**, maps 2–10 post-beta). Spec supersede marks pending (playbook run in progress).
 - **DB:** Hostinger MariaDB is production (D-057), migrations `0001_init`+`0002` applied.
 
 ## Task board — P2 wave 3
@@ -31,7 +31,7 @@ Ground-loot entity (full inventory → lootOverflow reported, not persisted) · 
 ## Open with owner (not blocking structure)
 
 - Production smoke test full round (deploy-checklist §3) — 2-tab sync / combat / map-cross not yet.
-- D-040 open items L1–L7 — decide at their phases, none blocks wave 3.
+- D-040 open items: only **L2** (final-art order) remains — owner will decide later; L1/L3–L7 closed via D-063..D-065.
 
 ## Do not touch
 

@@ -1,6 +1,6 @@
 # Decision index โ€” locked decisions. Do not re-propose. Rationale: docs/decisions/ (Thai).
 
-Superseded -> archived in `docs/history/`: D-002->D-012 · D-007/D-010->D-011 · D-016/D-031->D-058 · D-017->D-030->D-056 · D-049->D-055
+Superseded -> archived in `docs/history/`: D-002->D-012 · D-007/D-010->D-011 · D-016/D-031->D-058 · D-017->D-030->D-056 · D-049->D-055 · D-060->D-063
 
 | ID | Date | Decision | Status | TH |
 |---|---|---|---|---|
@@ -55,6 +55,8 @@ Superseded -> archived in `docs/history/`: D-002->D-012 · D-007/D-010->D-011 ·
 | D-057 | 2026-07-13 | Single DB: Hostinger = prod | Locked | `docs/decisions/D-057-single-db-hostinger-prod.md` |
 | D-058 | 2026-07-13 | Render free until breaks | Locked | `docs/decisions/D-058-render-free-until-break.md` |
 | D-059 | 2026-07-13 | DB backup: after Open Beta | Locked | `docs/decisions/D-059-db-backup-defer.md` |
-| D-060 | 2026-07-13 | Bot = duration pass 1/10/30d | Locked | `docs/decisions/D-060-bot-duration-pass.md` |
 | D-061 | 2026-07-13 | Payment mock thru Open Beta | Locked | `docs/decisions/D-061-payment-mock-beta.md` |
 | D-062 | 2026-07-13 | Email via Hostinger SMTP | Locked | `docs/decisions/D-062-smtp-hostinger.md` |
+| D-063 | 2026-07-13 | Bot final + merchant dual-sink | Locked | `docs/decisions/D-063-bot-economy-final.md` |
+| D-064 | 2026-07-13 | Event calendar + boss tiers + Arc1 | Locked | `docs/decisions/D-064-content-liveops.md` |
+| D-065 | 2026-07-13 | Audio JS + art path + OB=Map1 | Locked | `docs/decisions/D-065-production-path.md` |
