@@ -138,6 +138,58 @@ export interface CastRejectedMessage {
   reason: string;
 }
 
+// ── A1/A2 mob→player combat intake + death/respawn (COMBAT_BIBLE §2/§10) ────────────────────────────────
+// hp/maxHp เอง ride PlayerState schema (auto-sync). message พวกนี้ = **สัญญาณ juice/event** ล้วน (client เล่น
+// hit flash / death anim / snap respawn) — ความจริงทั้งหมด server-authoritative (client ไม่ predict การโดนตี).
+
+/**
+ * message type: server → **ทุก client ในห้อง** (broadcast) — มอน contact ใส่ผู้เล่น 1 ครั้ง (A1). client เล่น
+ * hit flash / damage number เหนือหัวผู้เล่นที่โดน (juice); hp จริงมาทาง PlayerState schema. payload = PlayerDamagedMessage.
+ */
+export const MSG_PLAYER_DAMAGED = "player_damaged";
+
+/** payload ของ MSG_PLAYER_DAMAGED (server → broadcast, A1). */
+export interface PlayerDamagedMessage {
+  /** sessionId ผู้เล่นที่โดน */
+  sessionId: string;
+  /** มอนที่ตี (client เล่นทิศ hit จากตำแหน่งมอน) */
+  mobId: string;
+  /** damage authoritative รอบนี้ (integer) — เลขบนจอ = hp ที่ลดจริง */
+  dmg: number;
+  /** hp หลังหัก (authoritative) — client sync แถบ HP ได้ทันทีโดยไม่รอ schema patch */
+  hp: number;
+}
+
+/**
+ * message type: server → **ทุก client ในห้อง** (broadcast) — ผู้เล่นตาย (hp ถึง 0, §10). client เล่น death anim;
+ * self → death feedback (overlay เต็ม = E4). respawn ตามมาทันที (server-authoritative). payload = PlayerDeathMessage.
+ */
+export const MSG_PLAYER_DEATH = "player_death";
+
+/** payload ของ MSG_PLAYER_DEATH (server → broadcast, A2). */
+export interface PlayerDeathMessage {
+  sessionId: string;
+  /** มอนที่ตีจนตาย (killer) — debug/feedback; "" ถ้าไม่ทราบ */
+  mobId: string;
+}
+
+/**
+ * message type: server → **ทุก client ในห้อง** (broadcast) — ผู้เล่น respawn ที่ safe camp เต็ม hp (§10).
+ * self: client snap local player + camera ไปจุดนี้ (เหมือน onSelfSpawn/position_correction — local player
+ * client-predicted, ตำแหน่งไม่มาทาง schema onChange). remote: ตำแหน่งมาทาง schema อยู่แล้ว. payload = PlayerRespawnMessage.
+ */
+export const MSG_PLAYER_RESPAWN = "player_respawn";
+
+/** payload ของ MSG_PLAYER_RESPAWN (server → broadcast, A2). */
+export interface PlayerRespawnMessage {
+  sessionId: string;
+  /** จุด respawn (tile coord) = safe camp ที่อนุมัติ (§10) */
+  tx: number;
+  ty: number;
+  /** hp หลัง respawn (= maxHp เต็ม) */
+  hp: number;
+}
+
 /** anim state ของมอนที่ sync (P1-03) — idle/walk เท่านั้น (attack/death = client เล่นเองจาก event, tech §6). */
 export type WireMobState = "idle" | "walk";
 
@@ -251,6 +303,12 @@ export interface PlayerSnapshot {
    * display-only, client ไม่เคยส่งค่านี้ขึ้น server (server-authoritative จาก input tracker).
    */
   isAfk?: boolean;
+  /**
+   * A1/A2 (COMBAT_BIBLE §2/§10): hp/maxHp ปัจจุบัน (server-authoritative). ride PlayerState schema — client
+   * แสดงแถบ HP (E3) / death (E4). optional (default 0 = ก่อน server init) — client ไม่เคยส่งค่านี้ขึ้น server.
+   */
+  hp?: number;
+  maxHp?: number;
 }
 
 // ── P2-07 inventory / equipment (server-authoritative mutation, TA §7/§8, Storage §22) ────────────────

@@ -20,6 +20,13 @@ export class PlayerState extends Schema {
    * disconnect** — D-056 ยกเลิก forced disconnect ทั้งชุด (character ค้างในโลกต่อ).
    */
   @type("boolean") isAfk = false;
+  /**
+   * A1/A2 (COMBAT_BIBLE §2/§10) — server-authoritative hp/maxHp. Colyseus auto-sync ให้ทุก client (แถบ HP =
+   * E3, death overlay = E4). onJoin ตั้ง hp = maxHp (เกิดเต็ม); มอนตี → server หัก hp (clamp 0) → ตาย → respawn
+   * safe camp เต็ม hp. maxHp = effective max HP ต่อเลเวล+gear (recompute ตอน equip/level-up). ค่า 0 = ก่อน init.
+   */
+  @type("number") hp = 0;
+  @type("number") maxHp = 0;
 }
 
 /**

@@ -43,6 +43,9 @@ import {
   MSG_MOVE,
   MSG_MOVE_ITEM,
   MSG_PLAYER_PROGRESS,
+  MSG_PLAYER_DAMAGED,
+  MSG_PLAYER_DEATH,
+  MSG_PLAYER_RESPAWN,
   MSG_POSITION_CORRECTION,
   MSG_DELIVERY_CLAIM,
   MSG_DELIVERY_RESULT,
@@ -76,6 +79,9 @@ import {
   type MoveItemMessage,
   type MoveMessage,
   type PlayerProgressMessage,
+  type PlayerDamagedMessage,
+  type PlayerDeathMessage,
+  type PlayerRespawnMessage,
   type PlayerSnapshot,
   type PositionCorrectionMessage,
   type ShopBuyMessage,
@@ -172,6 +178,27 @@ export interface NetClientHandlers {
    * เฉพาะ field นี้ (display-only, ไม่กระทบ prediction). ยิง immediate ครั้งแรก (false) ตอน wire. optional.
    */
   onSelfAfkChange?(isAfk: boolean): void;
+  /**
+   * A1/A2 (COMBAT_BIBLE §2/§10): hp/maxHp ของ **self** เปลี่ยน (server-authoritative, ride PlayerState schema) →
+   * caller (app.ts) push เข้า Zustand bridge (แถบ HP = E3). ยิงเมื่อโดนตี/respawn/level-up/equip. listen เฉพาะ
+   * field นี้ของ self (ไม่ผูก onChange ตำแหน่ง — client-predicted). ยิง immediate ครั้งแรกตอน wire. optional.
+   */
+  onSelfVitals?(hp: number, maxHp: number): void;
+  /**
+   * A1: มอน contact ใส่ผู้เล่น (broadcast) — client juice (hit flash/damage number). hp จริงมาทาง schema/onSelfVitals.
+   * caller ใช้ทำ juice (E3/E4). optional — ไม่ผูก HP truth (server-authoritative).
+   */
+  onPlayerDamaged?(msg: PlayerDamagedMessage): void;
+  /**
+   * A2 (§10): ผู้เล่นตาย (broadcast) — caller เล่น death anim; self → death overlay (E4) + setPlayerDead(true).
+   * respawn ตามมาทันที (MSG_PLAYER_RESPAWN). optional.
+   */
+  onPlayerDeath?(msg: PlayerDeathMessage): void;
+  /**
+   * A2 (§10): ผู้เล่น respawn ที่ safe camp เต็ม hp (broadcast) — self: caller snap local player + camera ไป
+   * (tx,ty) (client-predicted, ตำแหน่งไม่มาทาง schema onChange) + setPlayerDead(false). remote: schema จัดการ. optional.
+   */
+  onPlayerRespawn?(msg: PlayerRespawnMessage): void;
   /**
    * P2-07: snapshot inventory/equipment ล่าสุด (server → client เดียว) — ยิงตอน join + หลังทุก mutation
    * สำเร็จ (equip/unequip/move). caller (app.ts) push เข้า Zustand bridge ตรง ๆ (event-driven, ไม่ throttle
@@ -475,6 +502,12 @@ export function createNetClient(
           // P2-13 (D-056): listen เฉพาะ field isAfk ของ self (display-only) → local player แสดงป้ายตัวเอง.
           // ไม่ผูก onChange ตำแหน่ง (client-predicted). listen ยิง immediate ครั้งแรก (false) — harmless.
           $(player).listen("isAfk", (v: unknown) => handlers.onSelfAfkChange?.(v === true));
+          // A1/A2 (§2/§10): listen hp/maxHp ของ self (server-authoritative HP) → HUD แถบ HP. field เดียว 2 ตัว
+          // → emit ทั้งคู่จาก player record ทุกครั้ง (ตัวใดเปลี่ยนก็ส่งค่าล่าสุดทั้งคู่). ไม่ใช่ตำแหน่ง (ไม่กระทบ prediction).
+          const emitVitals = (): void =>
+            handlers.onSelfVitals?.(Number(player.hp) || 0, Number(player.maxHp) || 0);
+          $(player).listen("hp", emitVitals);
+          $(player).listen("maxHp", emitVitals);
           return;
         }
         status.remoteCount += 1;
@@ -528,6 +561,18 @@ export function createNetClient(
     joinedRoom.onMessage(MSG_CAST_REJECTED, (rejected: CastRejectedMessage) => {
       status.castRejectCount += 1;
       handlers.onCastRejected?.(rejected);
+    });
+
+    // A1/A2 (§2/§10): มอนตี player / player ตาย / respawn (broadcast) → caller juice + snap respawn (self).
+    // hp truth มาทาง schema (onSelfVitals); message พวกนี้ = event/juice + ตำแหน่ง respawn (self client-predicted).
+    joinedRoom.onMessage(MSG_PLAYER_DAMAGED, (msg: PlayerDamagedMessage) => {
+      handlers.onPlayerDamaged?.(msg);
+    });
+    joinedRoom.onMessage(MSG_PLAYER_DEATH, (msg: PlayerDeathMessage) => {
+      handlers.onPlayerDeath?.(msg);
+    });
+    joinedRoom.onMessage(MSG_PLAYER_RESPAWN, (msg: PlayerRespawnMessage) => {
+      handlers.onPlayerRespawn?.(msg);
     });
 
     // P1-10: server สั่งข้าม map (player เข้า exit area) → caller ทำ transition (leave + join room ใหม่)

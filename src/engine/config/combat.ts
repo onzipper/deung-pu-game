@@ -88,12 +88,33 @@ export interface PlayerCombatStats {
 export interface MobCombatStats {
   /** HP เริ่มต้น (simulation อ่านค่านี้เป็น hp เกิด) */
   hp: number;
-  /** ATK — มอนตี player (§15.2) */
+  /** ATK — มอนตี player (§15.2 / P1_BALANCE §2.2) */
   atk: number;
   /** DEF — ลด damage ที่ player ตีมอน (§15.2) */
   def: number;
   /** ตัวคูณลด damage ขาเข้าตาม tier (§15.5) — normal = 1.0 เสมอ; elite/boss < 1 */
   tierReduction: number;
+  /**
+   * A1 (D-055 §9.3 / REINFORCEMENT §9.3) — mob→player combat timing/ระยะ. ทุกค่า verbatim จากตาราง D-055
+   * (ms ยกเว้นที่ระบุหน่วย). ขับ attack state machine (COMBAT_BIBLE §4/§7) + ความเร็ว chase.
+   */
+  /** ความเร็วเดิน (tile/วินาที) — ใช้ตอน chase/approach */
+  moveSpeed: number;
+  /** ระยะโจมตี (tile) — เป้าในระยะนี้ตอน active frame = โดน */
+  attackRange: number;
+  /** cooldown ระหว่างการโจมตี (**วินาที**) — หลัง recovery ก่อนตีได้อีก (แปลง →ms ที่ boundary) */
+  attackCooldown: number;
+  /** anticipation/telegraph ก่อนตี (ms) — dodge window (§7) */
+  anticipationMs: number;
+  /** active frame ที่ contact เกิด ถ้าเป้ายังในระยะ (ms) */
+  activeMs: number;
+  /** recovery หลังตี ก่อนกลับ idle (ms) */
+  recoveryMs: number;
+  /**
+   * guard-gauge break power (§15.4) — สำหรับ boss guard gauge (workstream B). **เก็บไว้ก่อน ยังไม่ใช้ task นี้**
+   * (normal mob = 0; boss = 100). ทุกค่าเป็น Design Knob.
+   */
+  breakPower: number;
 }
 
 /**
@@ -189,16 +210,47 @@ export const DEFAULT_COMBAT_BALANCE_CONFIG: CombatBalanceConfig = {
     penetration: 0, // P1 = 0 (โตจาก gear ภายหลัง)
   },
   mobs: {
-    // Map 1 production (D-055 §9.3 — HP/ATK/DEF/tierReduction; key = MobPocket.mobType ใน map1.ts).
-    slime: { hp: 45, atk: 6, def: 3, tierReduction: 1.0 }, // mon_map1_slime (สไลม์เมือกดึ๋ง)
-    bird: { hp: 70, atk: 7, def: 4, tierReduction: 1.0 }, // mon_map1_bird (นกจิกปุ๊)
-    boar: { hp: 150, atk: 12, def: 10, tierReduction: 1.0 }, // mon_map1_boar (หมูป่าพอง)
-    boar_elite: { hp: 420, atk: 17, def: 14, tierReduction: 0.8 }, // elite_map1_boar_rampage (หมูป่าพองคลั่ง)
-    // Field Boss หมูป่าหม้อเดือด (boss_map1_boiling_boar) — ค่า spec จาก P1 Balance Proposal §4/§56.5:
-    // HP 2500 / ATK 28 / DEF 25 · tierReduction field-boss 0.65 (§15.5). atk = ไว้ให้ mob→player combat เฟสหลัง
-    // (P2 มอนยังไม่ตีผู้เล่น → เป็น damage sponge). guard gauge §15.4 = เลื่อน post-OB.
-    boss_boiling_boar: { hp: 2500, atk: 28, def: 25, tierReduction: 0.65 },
-    mushroom: { hp: 130, atk: 11, def: 10, tierReduction: 1.0 }, // หมูพอง — test-field placeholder (ไม่ใช่ Map 1/D-055)
+    // Map 1 production (D-055 §9.3 — HP/ATK/DEF/tierReduction + moveSpeed/attackRange/attackCooldown/
+    // anticipation/active/recovery/breakPower; key = MobPocket.mobType ใน map1.ts). ค่า attack timing verbatim
+    // จากตาราง D-055 §9.3 (col elite_boar→boar_elite, col boss→boss_boiling_boar).
+    slime: {
+      hp: 45, atk: 6, def: 3, tierReduction: 1.0, // mon_map1_slime (สไลม์เมือกดึ๋ง)
+      moveSpeed: 2.2, attackRange: 1.2, attackCooldown: 2.0,
+      anticipationMs: 350, activeMs: 150, recoveryMs: 500, breakPower: 0,
+    },
+    bird: {
+      hp: 70, atk: 7, def: 4, tierReduction: 1.0, // mon_map1_bird (นกจิกปุ๊)
+      moveSpeed: 3.4, attackRange: 1.5, attackCooldown: 2.2,
+      anticipationMs: 300, activeMs: 120, recoveryMs: 450, breakPower: 0,
+    },
+    boar: {
+      hp: 150, atk: 12, def: 10, tierReduction: 1.0, // mon_map1_boar (หมูป่าพอง)
+      moveSpeed: 2.6, attackRange: 1.6, attackCooldown: 2.8,
+      anticipationMs: 550, activeMs: 250, recoveryMs: 700, breakPower: 0,
+    },
+    boar_elite: {
+      hp: 420, atk: 17, def: 14, tierReduction: 0.8, // elite_map1_boar_rampage (หมูป่าพองคลั่ง)
+      moveSpeed: 2.8, attackRange: 2.0, attackCooldown: 3.0,
+      anticipationMs: 650, activeMs: 300, recoveryMs: 800, breakPower: 0,
+    },
+    // Field Boss หมูป่าหม้อเดือด (boss_map1_boiling_boar) — HP/ATK/DEF/tier จาก P1 Balance Proposal §4/§56.5;
+    // attack timing + breakPower 100 จาก D-055 §9.3 (col boss). breakPower = guard gauge (workstream B, ยังไม่ใช้).
+    boss_boiling_boar: {
+      hp: 2500, atk: 28, def: 25, tierReduction: 0.65,
+      moveSpeed: 2.4, attackRange: 2.4, attackCooldown: 3.2,
+      anticipationMs: 800, activeMs: 400, recoveryMs: 700, breakPower: 100,
+    },
+    // หมูพอง — test-field placeholder (ไม่ใช่ Map 1/D-055) → attack timing mirror slime baseline (ไม่ใช่ค่า spec ใหม่).
+    mushroom: {
+      hp: 130, atk: 11, def: 10, tierReduction: 1.0,
+      moveSpeed: 2.2, attackRange: 1.2, attackCooldown: 2.0,
+      anticipationMs: 350, activeMs: 150, recoveryMs: 500, breakPower: 0,
+    },
   },
-  defaultMob: { hp: 45, atk: 6, def: 4, tierReduction: 1.0 },
+  // fallback เมื่อ mobType ไม่ตรง — mirror slime baseline (placeholder, ไม่ใช่ค่า spec ใหม่).
+  defaultMob: {
+    hp: 45, atk: 6, def: 4, tierReduction: 1.0,
+    moveSpeed: 2.2, attackRange: 1.2, attackCooldown: 2.0,
+    anticipationMs: 350, activeMs: 150, recoveryMs: 500, breakPower: 0,
+  },
 };

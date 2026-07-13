@@ -189,6 +189,63 @@ describe("respawn timer — death → respawn (clock inject)", () => {
   });
 });
 
+describe("attack — มอน chase เข้าระยะ → contact ผู้เล่น (A1, COMBAT_BIBLE §4/§7)", () => {
+  const ATTACK_STATS = () => ({
+    moveSpeed: 4,
+    attackRange: 2,
+    attackCooldownMs: 2000,
+    anticipationMs: 100,
+    activeMs: 100,
+    recoveryMs: 100,
+  });
+
+  test("player ยืนใน pocket → มอนไล่เข้าระยะแล้ว contact (targetPlayerId ถูกต้อง)", () => {
+    const sim = createMobSimulation({
+      map: makeMap(1, 1),
+      config: makeConfig({ ai: { aggroRadius: { slime: 8 }, chaseSpeed: 4 }, lod: { aoiRadius: 30 } }),
+      hpFor: HP_FOR,
+      attackStatsFor: ATTACK_STATS,
+      rng: createLcgRng(11),
+    });
+    const contacts: string[] = [];
+    for (let i = 0; i < 30; i++) {
+      for (const c of sim.tick(0.1, CENTER_PLAYER, 100 + i * 100)) contacts.push(c.targetPlayerId);
+    }
+    expect(contacts.length).toBeGreaterThan(0);
+    expect(contacts.every((id) => id === "p1")).toBe(true);
+  });
+
+  test("attackStatsFor omit → มอนไม่ตี (offline playground; truth on server)", () => {
+    const sim = createMobSimulation({
+      map: makeMap(1, 1),
+      config: makeConfig({ ai: { aggroRadius: { slime: 8 }, chaseSpeed: 4 }, lod: { aoiRadius: 30 } }),
+      hpFor: HP_FOR,
+      rng: createLcgRng(11),
+    });
+    let total = 0;
+    for (let i = 0; i < 30; i++) total += sim.tick(0.1, CENTER_PLAYER, 100 + i * 100).length;
+    expect(total).toBe(0);
+  });
+
+  test("player หนีออกนอกระยะ (leash) → เลิก aggro, ไม่มี contact", () => {
+    const sim = createMobSimulation({
+      map: makeMap(1, 1),
+      config: makeConfig({
+        ai: { aggroRadius: { slime: 3 }, chaseSpeed: 1, deaggroRadius: 4, leashRadius: 6 },
+        lod: { aoiRadius: 30 },
+      }),
+      hpFor: HP_FOR,
+      attackStatsFor: ATTACK_STATS,
+      rng: createLcgRng(12),
+    });
+    // ผู้เล่นอยู่ไกลตลอด (มุมตรงข้าม pocket) → ไม่เข้าระยะโจมตี
+    const farPlayer: AiPlayerRef[] = [{ id: "p1", tx: 18, ty: 18 }];
+    let total = 0;
+    for (let i = 0; i < 30; i++) total += sim.tick(0.1, farPlayer, 100 + i * 100).length;
+    expect(total).toBe(0);
+  });
+});
+
 describe("AI LOD — pocket ไม่มีผู้เล่นใน AOI + idleTickHz=0 → หลับ (spawn state คงอยู่)", () => {
   test("ไม่มีผู้เล่น + asleep → มอนไม่ขยับเลย (frozen)", () => {
     const sim = createMobSimulation({

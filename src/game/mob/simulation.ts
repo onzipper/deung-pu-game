@@ -24,6 +24,7 @@ import {
 } from "@/game/mob/wander";
 import { defaultRng, type RngFn } from "@/game/mob/rng";
 import {
+  createMobAttackState,
   distSq,
   hasReachedSpawn,
   idleTickInterval,
@@ -32,8 +33,11 @@ import {
   selectAggroTarget,
   shouldReturnToSpawn,
   shouldStepPocket,
+  stepMobAttack,
   stepToward,
   type AiPlayerRef,
+  type MobAttackState,
+  type MobAttackTimings,
   type MobMode,
 } from "@/game/mob/ai";
 
@@ -59,6 +63,24 @@ export interface SimMob {
   wander: MobWanderState;
   /** true = ขยับในรอบ tick ล่าสุด → client เล่น anim "walk" ไม่งั้น "idle" */
   moved: boolean;
+  /** A1: attack state machine (§4/§7) — เดินเฉพาะตอน chase; reset ตอนออกจาก chase. */
+  attack: MobAttackState;
+}
+
+/**
+ * event ที่มอน 1 ตัว "contact" ใส่ผู้เล่นในรอบ tick (A1, COMBAT_BIBLE §2) — sim คืนออกมาให้ caller
+ * (server-authoritative) หัก hp เอง. sim ไม่รู้ stat combat (atk/tier/DEF) → caller lookup จาก combatBalance.
+ */
+export interface MobContactEvent {
+  mobId: string;
+  mobType: string;
+  targetPlayerId: string;
+}
+
+/** combat stat ต่อ mobType ที่ sim ใช้เดิน attack machine + ความเร็ว chase (A1, Design Knob D-055 §9.3). */
+export interface MobAttackStats extends MobAttackTimings {
+  /** ความเร็ว chase/approach (tile/วินาที) */
+  moveSpeed: number;
 }
 
 /** snapshot ที่ MapRoom/offline driver อ่านไปเขียน schema/view (โครงตรงกับ MobSnapshot wire). */
@@ -81,9 +103,10 @@ interface RespawnEntry {
 export interface MobSimulation {
   /**
    * step 1 base cycle. `players` = ตำแหน่งผู้เล่นทุกคนในห้อง (server: จาก schema; offline: local player).
-   * `nowMs` = clock (ms) — ใช้ตัดสิน respawn due + schedule (server Date.now; เทสต์ inject).
+   * `nowMs` = clock (ms) — ใช้ตัดสิน respawn due + schedule + attack timing (server Date.now; เทสต์ inject).
+   * คืน contact ที่มอนตีโดนผู้เล่นในรอบนี้ (A1) — caller (server) หัก hp เอง; offline ไม่สน (truth on server).
    */
-  tick(dtSeconds: number, players: readonly AiPlayerRef[], nowMs: number): void;
+  tick(dtSeconds: number, players: readonly AiPlayerRef[], nowMs: number): MobContactEvent[];
   /** ฆ่ามอนทันที (leash/admin) → ลบ + จอง respawn. คืน true ถ้าลบจริง. */
   killMob(id: string): boolean;
   /**
@@ -107,6 +130,12 @@ export interface MobSimulationParams {
   config: MobConfig;
   /** hp เริ่มต้นต่อ mobType (จาก combat config) — P1-03 เต็มไว้ */
   hpFor: (mobType: string) => number;
+  /**
+   * A1: combat stat (moveSpeed + attack timing/range) ต่อ mobType จาก combatBalance (D-055 §9.3).
+   * มี → มอนเดินด้วย moveSpeed ของมัน + ตี player ได้ (attack machine). **omit → มอนไม่ตี** (offline
+   * playground / เทสต์ AI เดิม) และ chase ใช้ ai.chaseSpeed เดิม — backward compatible.
+   */
+  attackStatsFor?: (mobType: string) => MobAttackStats;
   /** RNG inject (default Math.random runtime; เทสต์ = seeded LCG) */
   rng?: RngFn;
 }
@@ -121,12 +150,46 @@ export function createMobSimulation(params: MobSimulationParams): MobSimulation 
   const lod = config.lod;
 
   const isWalkable = walkableFromMap(map);
-  /** move params ของ chase/return (speed ไล่ + clamp เดียวกับ wander กัน tunneling) */
+  /** move params ของ chase/return (speed ไล่ + clamp เดียวกับ wander กัน tunneling) — fallback เมื่อไม่มี combat stat */
   const chaseParams: MoveParams = {
     speed: ai.chaseSpeed,
     maxStepSeconds: config.wander.maxStepSeconds,
   };
   const idleInterval = idleTickInterval(ai.tickHz, lod.idleTickHz);
+
+  // A1: cache combat stat ต่อ mobType (moveSpeed → MoveParams + attack timing). attackStatsFor omit → มอนไม่ตี
+  // (timings ทั้งชุด = 0, attackRange 0 → inRange เท็จเสมอ → idle) และ chase ใช้ chaseParams เดิม (backward compat).
+  const attackStatsFor = params.attackStatsFor;
+  const NO_ATTACK: MobAttackTimings = {
+    attackRange: 0,
+    attackCooldownMs: 0,
+    anticipationMs: 0,
+    activeMs: 0,
+    recoveryMs: 0,
+  };
+  const combatCache = new Map<string, { move: MoveParams; timings: MobAttackTimings }>();
+  const combatFor = (mobType: string): { move: MoveParams; timings: MobAttackTimings } => {
+    let c = combatCache.get(mobType);
+    if (!c) {
+      if (attackStatsFor) {
+        const s = attackStatsFor(mobType);
+        c = {
+          move: { speed: s.moveSpeed, maxStepSeconds: config.wander.maxStepSeconds },
+          timings: {
+            attackRange: s.attackRange,
+            attackCooldownMs: s.attackCooldownMs,
+            anticipationMs: s.anticipationMs,
+            activeMs: s.activeMs,
+            recoveryMs: s.recoveryMs,
+          },
+        };
+      } else {
+        c = { move: chaseParams, timings: NO_ATTACK };
+      }
+      combatCache.set(mobType, c);
+    }
+    return c;
+  };
 
   const pocketById = new Map<string, MobPocket>(
     map.mobPockets.map((p) => [p.pocketId, p] as const),
@@ -159,6 +222,7 @@ export function createMobSimulation(params: MobSimulationParams): MobSimulation 
       targetPlayerId: null,
       wander: createWanderState(config.wander, rng),
       moved: false,
+      attack: createMobAttackState(),
     };
   };
 
@@ -205,13 +269,15 @@ export function createMobSimulation(params: MobSimulationParams): MobSimulation 
     }
   };
 
-  /** step มอน 1 ตัว ตาม state machine (aggro/leash/wander) — mutate mob in-place. */
+  /** step มอน 1 ตัว ตาม state machine (aggro/leash/wander + attack) — mutate mob in-place; push contact ที่เกิด. */
   const stepMob = (
     mob: SimMob,
     dtSeconds: number,
+    nowMs: number,
     players: readonly AiPlayerRef[],
     playerById: ReadonlyMap<string, AiPlayerRef>,
     pullCounts: Map<string, number>,
+    contacts: MobContactEvent[],
   ): void => {
     const prevX = mob.pos.tx;
     const prevY = mob.pos.ty;
@@ -242,6 +308,7 @@ export function createMobSimulation(params: MobSimulationParams): MobSimulation 
         }
         mob.mode = "return";
         mob.targetPlayerId = null;
+        mob.attack = createMobAttackState(); // ทิ้ง swing ค้าง — เริ่มใหม่ตอน aggro รอบหน้า
       }
     }
 
@@ -251,14 +318,25 @@ export function createMobSimulation(params: MobSimulationParams): MobSimulation 
       mob.wander = createWanderState(config.wander, rng);
     }
 
-    // 4) movement ตาม mode สุดท้าย
+    // 4) movement ตาม mode สุดท้าย (chase = approach + attack machine)
     if (mob.mode === "wander") {
       const res = stepWander(mob.pos, mob.wander, dtSeconds, mob.area, config.wander, isWalkable, rng);
       mob.wander = res.state;
       mob.pos = res.pos;
     } else if (mob.mode === "chase") {
       const target = playerById.get(mob.targetPlayerId!)!; // ยังมีอยู่ (ไม่งั้นจะ return ไปแล้ว)
-      mob.pos = stepToward(mob.pos, { tx: target.tx, ty: target.ty }, dtSeconds, chaseParams, isWalkable);
+      const combat = combatFor(mob.mobType);
+      // A1: เป้าอยู่ในระยะโจมตี "ตอนนี้"? → เดิน attack machine (§4/§7). contact ลงเฉพาะ active + ยังในระยะ.
+      const inRange =
+        distSq(mob.pos.tx, mob.pos.ty, target.tx, target.ty) <=
+        combat.timings.attackRange * combat.timings.attackRange;
+      const atk = stepMobAttack(mob.attack, inRange, nowMs, combat.timings);
+      mob.attack = atk.state;
+      if (atk.contact) contacts.push({ mobId: mob.id, mobType: mob.mobType, targetPlayerId: target.id });
+      // rooted (กลาง swing) → ยืนตี ไม่ขยับ (ให้ dodge window มีความหมาย); ไม่งั้น approach ด้วย moveSpeed ของมัน
+      if (!atk.rooted) {
+        mob.pos = stepToward(mob.pos, { tx: target.tx, ty: target.ty }, dtSeconds, combat.move, isWalkable);
+      }
     } else {
       mob.pos = stepToward(mob.pos, mob.spawnOrigin, dtSeconds, chaseParams, isWalkable);
     }
@@ -267,10 +345,11 @@ export function createMobSimulation(params: MobSimulationParams): MobSimulation 
   };
 
   return {
-    tick(dtSeconds: number, players: readonly AiPlayerRef[], nowMs: number): void {
+    tick(dtSeconds: number, players: readonly AiPlayerRef[], nowMs: number): MobContactEvent[] {
       lastNowMs = nowMs;
       processRespawns(nowMs);
       tickCounter++;
+      const contacts: MobContactEvent[] = [];
 
       // AI LOD: active ต่อ pocket (มีผู้เล่นใน AOI) — คุมว่า pocket ไหน step รอบนี้
       const activeByPocket = new Map<string, boolean>();
@@ -298,8 +377,9 @@ export function createMobSimulation(params: MobSimulationParams): MobSimulation 
         }
         // idle pocket ที่ได้ step: ชดเชย dt ให้ได้ speed จริง (step ห่างขึ้น → dt ยาวขึ้น)
         const effectiveDt = !active && !busy && idleInterval > 1 ? dtSeconds * idleInterval : dtSeconds;
-        stepMob(m, effectiveDt, players, playerById, pullCounts);
+        stepMob(m, effectiveDt, nowMs, players, playerById, pullCounts, contacts);
       }
+      return contacts;
     },
 
     killMob(id: string): boolean {

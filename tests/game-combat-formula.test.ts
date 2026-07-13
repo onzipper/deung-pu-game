@@ -1,9 +1,12 @@
 import { describe, expect, test } from "vitest";
 import {
+  applyDamageToPlayer,
   computeDamage,
+  computeMobDamageToPlayer,
   computeSkillDamage,
   effectiveDef,
   mitigationFactor,
+  respawnPlayer,
   type DamageParams,
 } from "@/game/combat/formula";
 import type { RngFn } from "@/game/mob/rng";
@@ -230,5 +233,63 @@ describe("computeSkillDamage (multi-hit rounding §50.1.1 ข้อ 2 / TA §15.
         }
       });
     }
+  });
+});
+
+describe("computeMobDamageToPlayer (A1, COMBAT_BIBLE §2 / P1_BALANCE §2.2)", () => {
+  test("doc example: slime ATK6 vs DEF14, k50 → 5 (§2.2 `mobATK × 1.0 × k/(k+DEF)`)", () => {
+    // 6 × 1.0 × (50/64) = 4.6875 → round 5
+    expect(computeMobDamageToPlayer({ mobAtk: 6, playerDef: 14, k: 50 })).toBe(5);
+  });
+
+  test("playerDEF 0 → factor 1 → damage = mobATK", () => {
+    expect(computeMobDamageToPlayer({ mobAtk: 6, playerDef: 0, k: 50 })).toBe(6);
+  });
+
+  test("NO tierReduction บนขาออก (§15.5 ใช้เฉพาะ player→mob): boss atk28 vs DEF22, k50 → 19", () => {
+    // 28 × 1.0 × (50/72) = 19.44… → round 19 (บอสตีแรงเพราะ ATK สูง ไม่ใช่เพราะ tier)
+    expect(computeMobDamageToPlayer({ mobAtk: 28, playerDef: 22, k: 50 })).toBe(19);
+  });
+
+  test("ไม่ติดลบ + clamp DEF ลบ (defensive)", () => {
+    expect(computeMobDamageToPlayer({ mobAtk: 0, playerDef: 10, k: 50 })).toBe(0);
+    expect(computeMobDamageToPlayer({ mobAtk: 6, playerDef: -5, k: 50 })).toBeGreaterThanOrEqual(0);
+  });
+});
+
+describe("applyDamageToPlayer + respawnPlayer — Death & Recovery (A2, COMBAT_BIBLE §10)", () => {
+  test("หัก hp ปกติ → dead=false", () => {
+    expect(applyDamageToPlayer(10, 3)).toEqual({ hp: 7, dead: false });
+  });
+
+  test("hp ถึง 0 → dead=true (mark dead)", () => {
+    expect(applyDamageToPlayer(5, 5)).toEqual({ hp: 0, dead: true });
+  });
+
+  test("damage เกิน hp → clamp 0, dead=true (ไม่ติดลบ)", () => {
+    expect(applyDamageToPlayer(5, 99)).toEqual({ hp: 0, dead: true });
+  });
+
+  test("damage 0 → hp คงเดิม, dead=false", () => {
+    expect(applyDamageToPlayer(10, 0)).toEqual({ hp: 10, dead: false });
+  });
+
+  test("respawn: safe camp + เต็ม hp + เคลียร์ death", () => {
+    expect(respawnPlayer({ tx: 3, ty: 4 }, 100)).toEqual({
+      pos: { tx: 3, ty: 4 },
+      hp: 100,
+      dead: false,
+    });
+  });
+
+  test("respawn idempotent (เรียกซ้ำได้ผลเดิม)", () => {
+    const a = respawnPlayer({ tx: 12, ty: 8 }, 260);
+    const b = respawnPlayer(a.pos, 260);
+    expect(b).toEqual(a);
+  });
+
+  test("respawn คืนเฉพาะ pos/hp/dead — **ไม่มี** field inventory/gold (no item loss baseline §10)", () => {
+    const r = respawnPlayer({ tx: 1, ty: 1 }, 100);
+    expect(Object.keys(r).sort()).toEqual(["dead", "hp", "pos"]);
   });
 });

@@ -74,6 +74,8 @@ import {
   setGoldFromProgress,
   setInventoryRejection,
   setInventoryState,
+  setPlayerDead,
+  setPlayerVitals,
   setShopList,
   setShopResult,
   setStorageResult,
@@ -342,6 +344,7 @@ export async function createEngine(
             player.applyCorrection(snap.tx, snap.ty);
             lastSent = null;
             sendAccumMs = 0;
+            setPlayerDead(false); // A2: fresh join/reconnect → เคลียร์ death state ค้าง (กัน overlay ค้างข้าม world)
             // P2-11: ขอ catalog ร้านทันทีที่ self เข้า room สำเร็จ (fresh join/reconnect/ข้าม map ใหม่)
             // — server ตอบตาม map ปัจจุบัน (available:false = map นี้ไม่มีร้าน, HUD ปุ่มอ่านค่านี้).
             net?.sendShopListRequest({});
@@ -351,6 +354,23 @@ export async function createEngine(
           },
           // P2-13 (D-056): self AFK flag (server-set) → toggle ป้าย "AFK" ของตัวเอง (display-only).
           onSelfAfkChange: (isAfk) => player.setAfk(isAfk),
+          // A1/A2 (§2/§10): hp/maxHp ของ self (server-authoritative) → HUD แถบ HP (E3). event-driven ไม่ throttle.
+          onSelfVitals: (hp, maxHp) => setPlayerVitals(hp, maxHp),
+          // A2 (§10): self ตาย → death state (E4 overlay อ่านต่อ). remote death anim = E-work ภายหลัง.
+          onPlayerDeath: (msg) => {
+            if (net !== null && net.status.selfSessionId === msg.sessionId) setPlayerDead(true);
+          },
+          // A2 (§10): self respawn ที่ safe camp → snap local player + camera (client-predicted) + เคลียร์ death.
+          //   remote: ตำแหน่งมาทาง schema อยู่แล้ว. hp เต็มมาทาง onSelfVitals (schema).
+          onPlayerRespawn: (msg) => {
+            if (net === null || net.status.selfSessionId !== msg.sessionId) return;
+            player.applyCorrection(msg.tx, msg.ty);
+            lastSent = null;
+            sendAccumMs = 0;
+            setPlayerDead(false);
+          },
+          // A1 (§2): "player damaged" signal — hit flash/damage number juice = E3/E4 (hp truth มาทาง onSelfVitals).
+          //   ยังไม่ทำ visual รอบนี้ (out of scope); handler ผูกไว้ให้ E-work ต่อยอด (message ถูก consume ที่ net-client).
           onMobAdd: (snap) => mobView.onMobAdd(snap),
           onMobChange: (snap) => mobView.onMobChange(snap),
           onMobRemove: (mobId) => mobView.onMobRemove(mobId),
