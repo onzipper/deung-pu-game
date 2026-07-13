@@ -30,6 +30,7 @@ import {
   zIndexOf,
   type PanelId,
 } from "./panel-stack";
+import { getSoundManager } from "@/engine/audio/sound-manager";
 
 export interface PanelManager {
   openPanel(id: PanelId): void;
@@ -48,7 +49,10 @@ export function PanelProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (state.order.length === 0) return;
     const onKeyDownCapture = (e: KeyboardEvent): void => {
-      if (e.key === "Escape") dispatch({ type: "CLOSE_TOP" });
+      if (e.key === "Escape") {
+        getSoundManager().playSfx("ui_click"); // Wave 2 SFX (D-065): Esc ปิด panel บนสุด = ui_click เหมือนกัน
+        dispatch({ type: "CLOSE_TOP" });
+      }
       e.stopPropagation();
     };
     window.addEventListener("keydown", onKeyDownCapture, true);
@@ -57,8 +61,16 @@ export function PanelProvider({ children }: { children: ReactNode }) {
 
   const manager = useMemo<PanelManager>(
     () => ({
-      openPanel: (id) => dispatch({ type: "OPEN", id }),
-      closePanel: (id) => dispatch({ type: "CLOSE", id }),
+      // Wave 2 SFX (D-065): เล่น ui_click เฉพาะตอน "เปิดจริง" (closed → open) — ไม่เล่นซ้ำตอนแค่คลิกยกขึ้น
+      // บนสุด (bringToFront ใน Panel.tsx เรียก openPanel ซ้ำได้ทุกครั้งที่คลิกในนั้น, ไม่ใช่ event เปิดใหม่).
+      openPanel: (id) => {
+        if (!isPanelOpen(state, id)) getSoundManager().playSfx("ui_click");
+        dispatch({ type: "OPEN", id });
+      },
+      closePanel: (id) => {
+        if (isPanelOpen(state, id)) getSoundManager().playSfx("ui_click");
+        dispatch({ type: "CLOSE", id });
+      },
       closeAllPanels: () => dispatch({ type: "CLOSE_ALL" }),
       isPanelOpen: (id) => isPanelOpen(state, id),
       zIndexOf: (id) => zIndexOf(state, id),

@@ -172,6 +172,7 @@ export const DEFAULT_MOB_CONFIG: MobConfig = {
       bird: 6, // mon_map1_bird
       boar: 6, // mon_map1_boar
       boar_elite: 8, // elite_map1_boar_rampage
+      boss_boiling_boar: 10, // Field Boss หมูป่าหม้อเดือด — aggro กว้าง (ประจำลาน boss)
       mushroom: 5, // test-field placeholder (ไม่ใช่ Map 1/D-055)
     },
     defaultAggroRadius: 4,
@@ -252,6 +253,17 @@ export const DEFAULT_MOB_CONFIG: MobConfig = {
       bounceAmount: 2,
       shape: "slime",
       assetId: "mon_map1_boar_elite",
+    },
+    // Field Boss หมูป่าหม้อเดือด — sprite atlas จริง mon_map1_boss_boiling_boar (palette ร้อน). ใหญ่กว่า elite
+    // ชัดเจน (fallback สีถ้า atlas โหลดไม่ทัน); pixelate render (D-065) ทำให้อ่านเป็น boss.
+    boss_boiling_boar: {
+      bodyColor: 0x9e3c32, // Fire Deep (MASTER_PALETTE)
+      accentColor: 0xdd6840, // Fire (MASTER_PALETTE)
+      width: 44,
+      height: 32,
+      bounceAmount: 2,
+      shape: "slime",
+      assetId: "mon_map1_boss_boiling_boar",
     },
   },
 };

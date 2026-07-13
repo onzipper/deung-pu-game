@@ -134,22 +134,43 @@ describe("milestone Gold (D-053 / Economy §18.3)", () => {
 describe("monster rewards (Economy §10.1 / D-055 §9.1)", () => {
   const byId = new Map(DEFAULT_ECONOMY_CONFIG.monsterRewards.map((m) => [m.monsterId, m]));
 
-  test("5 monster identity ครบ + EXP/Gold ตรง", () => {
+  test("monster identity ครบ + EXP/Gold ตรง (5 P2 mobs + Story boss P2B + Field Boss OB)", () => {
     expect(byId.get("mon_map1_slime")).toMatchObject({ level: 1, exp: 14, goldMin: 3, goldMax: 5, respawnSeconds: 8 });
     expect(byId.get("mon_map1_bird")).toMatchObject({ level: 2, exp: 20, goldMin: 5, goldMax: 8 });
     expect(byId.get("mon_map1_boar")).toMatchObject({ level: 4, exp: 30, goldMin: 8, goldMax: 12 });
     expect(byId.get("elite_map1_boar_rampage")).toMatchObject({ level: 5, exp: 140, respawnSeconds: 720 });
     expect(byId.get("boss_map1_resonant_guardian")).toMatchObject({ level: 8, exp: 550, phase: "P2B" });
+    // Field Boss หมูป่าหม้อเดือด — ship OB (phase P2 → grant live)
+    expect(byId.get("boss_map1_boiling_boar")).toMatchObject({ level: 6, exp: 300, phase: "P2", dropTableId: "drop_map1_field_boss_v1" });
   });
 });
 
 describe("drop tables (Economy §11 — Kraeng rows SUPERSEDED → 0%)", () => {
   const tables = DEFAULT_ECONOMY_CONFIG.dropTables;
 
-  test("ไม่มี upg_kraeng / upg_reinforcement เป็น drop item ในตารางไหนเลย (§4 = boss pity แทน)", () => {
+  test("ไม่มี upg_kraeng ในตารางไหนเลย (R10); upg_reinforcement ดรอปได้เฉพาะ Field Boss (D-064)", () => {
     const json = JSON.stringify(tables);
     expect(json).not.toMatch(/upg_kraeng/);
-    expect(json).not.toMatch(/upg_reinforcement/);
+    // OB: Field Boss หมูป่าหม้อเดือด = แหล่งวัสดุเสริมแกร่งเดียว → upg_reinforcement อยู่ในตารางนั้นตารางเดียว
+    for (const t of tables) {
+      const hasReinforcement = JSON.stringify(t).includes("upg_reinforcement");
+      if (t.dropTableId === "drop_map1_field_boss_v1") {
+        expect(hasReinforcement, "field boss table ต้องดรอป upg_reinforcement").toBe(true);
+      } else {
+        expect(hasReinforcement, `${t.dropTableId} ต้องไม่ดรอป reinforcement (R8)`).toBe(false);
+      }
+    }
+    // fragment ยังไม่ดรอปดิบจากตารางไหน (fragment/exchange = post-OB)
+    expect(json).not.toMatch(/upg_reinforcement_fragment/);
+  });
+
+  test("Field Boss table = phase P2 (ship OB) + guaranteed upg_reinforcement + boss core (D-064)", () => {
+    const fb = tables.find((t) => t.dropTableId === "drop_map1_field_boss_v1")!;
+    expect(fb.phase).toBe("P2");
+    expect(fb.monsterId).toBe("boss_map1_boiling_boar");
+    const guaranteedIds = fb.guaranteed.map((g) => g.itemId);
+    expect(guaranteedIds).toContain("upg_reinforcement");
+    expect(guaranteedIds).toContain("mat_boss_resonance_core");
   });
 
   test("drop chance ทุก roll อยู่ในช่วง 0–100", () => {
@@ -254,9 +275,10 @@ describe("reinforcement / pity / fragment (Reinforcement doc §3.5/§4)", () => 
     expect(r.fragment.source).toBe("map_boss_only");
   });
 
-  test("first kill ไม่การันตี (§4.3) + P2 flag NO_REINFORCEMENT = true (R8)", () => {
+  test("first kill ไม่การันตี (§4.3) + OB: noReinforcement = false (Field Boss ship live → ระบบเปิด)", () => {
     expect(r.firstKillGuaranteed).toBe(false);
-    expect(r.noReinforcement).toBe(true);
+    // OB (2026-07-13): Field Boss หมูป่าหม้อเดือด ship live เป็นแหล่งวัสดุ → ปลุกระบบเสริมแกร่ง (ไม่ inert)
+    expect(r.noReinforcement).toBe(false);
     // D-064: pity/fragment ผูกกับ Field Boss หมูป่าหม้อเดือด (id owner-approved 2026-07-13)
     expect(r.bossId).toBe("boss_map1_boiling_boar");
   });
