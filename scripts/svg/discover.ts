@@ -42,7 +42,11 @@ function walk(dir: string, onFile: (path: string) => void): void {
   }
   for (const name of entries) {
     const full = join(dir, name);
-    if (statSync(full).isDirectory()) walk(full, onFile);
-    else onFile(full);
+    if (statSync(full).isDirectory()) {
+      // โฟลเดอร์ขึ้นต้น "_" = work-in-progress (เช่น _extra ท่าที่ format ยังไม่รองรับ) —
+      // ข้ามทั้ง lint/build เพื่อไม่ให้หลุดไปเป็น icon/entity โดยไม่ตั้งใจ
+      if (name.startsWith("_")) continue;
+      walk(full, onFile);
+    } else onFile(full);
   }
 }
