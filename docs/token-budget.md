@@ -1,25 +1,34 @@
 # Token budget
 
-เพดานการอ่าน **ก่อนเสนอแผน**
+Caps on what you read **before proposing a plan**. Search rules live in `AI.md`.
 
-## Small (label/knob ค่าเดียว/1 component/แก้ doc)
+## Small (one label/knob value, one component, doc fix)
 
-- อ่าน: entry doc, current-state, 1 context pack, ไฟล์ที่แตะ
-- ไม่เกิน 5 ไฟล์ก่อนเสนอแผน ห้าม grep ทั้ง repo — ใช้ CODEMAP
+- Read: entry docs, current-state, 1 context pack, the files you touch.
+- ≤5 files before proposing. Targeted grep OK; no blanket repo-wide reads.
 
-## Medium (panel ใหม่/ระบบย่อย/พฤติกรรมใหม่)
+## Medium (new panel / subsystem / behavior)
 
-- อ่าน: current-state, feature-map entry, context pack (Traps section), ไฟล์+เทสต์ของมัน, spec § ที่ feature-map ชี้
-- เขียนแผนสั้นก่อนแก้ (ระบบที่แตะ, เทสต์, deploy impact)
+- Read: current-state, your feature-map row, layer pack (incl. Traps), the files + their tests, the spec § the row cites.
+- Write a short plan before editing (systems touched, tests, deploy impact).
 
-## Large (ระบบใหม่/core/schema/refactor ข้าม layer)
+## Large (new system / core / schema / cross-layer refactor)
 
-- เขียน discovery note ก่อน (มีอะไรอยู่, จะเปลี่ยนอะไร, ความเสี่ยง)
-- อ่าน spec § ที่เกี่ยว + context pack แกน
-- **owner confirm ก่อนลงมือ** — และถ้าเกิน spec ต้องอัปเดต spec ก่อน
+- Write a discovery note first (what exists, what changes, risks).
+- Read the cited spec § + core packs. **Owner confirms before work starts** — and beyond-spec means spec updates first.
 
 ## Always
 
-- `docs/history/` off-budget — อ่านเฉพาะตอน current-state ชี้ไป
-- **spec ยาวมาก (v15 มี 62 §) — อ่านเฉพาะ § ที่เกี่ยว ห้ามอ่านทั้งไฟล์**
-- cite path อย่า paste เนื้อไฟล์ยาวลงแผน/brief
+- `docs/history/**` is off-budget — read only when a live doc points there.
+- Specs are huge (v15 has 62 §) — read ONLY the relevant §, never whole files.
+- Cite paths; don't paste long file bodies into plans/briefs.
+
+## Measured onboarding cost (2026-07-13, post agent-context-optimization)
+
+| Read set | Bytes | ~Tokens |
+|---|---:|---:|
+| Auto-import chain (CLAUDE+AGENTS+AI+current-state) | TBD-C13 | TBD |
+| Orchestrator start-here (chain + agent-rules + index + feature-map + 1 pack) | TBD-C13 | TBD |
+| Subagent (agent-rules + 1 pack + brief) | TBD-C13 | TBD |
+
+Caps are enforced by `tests/agent-context-guard.test.ts` — a red cap means trim or archive, never raise the cap without owner approval.

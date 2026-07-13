@@ -41,6 +41,8 @@ describe("agent context guard", () => {
   // content to docs/history/ — do NOT raise the cap without owner approval.
   const BYTE_CAPS: Record<string, number> = {
     "AGENTS.md": 1_024,
+    "AI.md": 6_656,
+    "docs/token-budget.md": 2_560,
     "docs/decision-index.md": 6_144,
     "docs/current-state.md": 3_072,
     "docs/feature-map.md": 6_144,

@@ -1,65 +1,73 @@
 # AI.md — universal agent entry point
 
-สำหรับ AI agent ทุกตัว กติกา orchestration เฉพาะตัวหลักอยู่ใน CLAUDE.md; ทุกอย่างในนี้ใช้กับทุกตัว
+Applies to EVERY AI agent. Orchestrator-specific rules live in CLAUDE.md.
 
-## กฎเหล็กข้อ 1: Spec-first (ห้ามเดา ห้ามมั่ว ห้ามคิดเอง)
+## Iron rule #1: Spec-first (never guess, never improvise)
 
-- **เชื่อ spec เป็นหลัก** — game semantics/balance ยึด game spec v15, implementation ยึด tech architecture v1.5
-- ถ้างานที่ทำ **นอกเหนือ/ขัดกับ spec** → **หยุด** เสนอ owner ให้อัปเดต spec ก่อน แล้วค่อย implement — ไม่มีข้อยกเว้น
-- ถ้า spec ไม่ครอบคลุมเรื่องที่ทำ → ถาม owner ไม่ใช่เดา
-- Field names ใน code/JSON ต้องตรง v15 §50.1 เป๊ะ — ห้าม rename/duplicate semantic field
-- ค่า balance ทุกตัวเป็น Design Knob (v15 §48) — อ่านจาก config ห้าม hardcode
+- **The spec is the truth** — game semantics/balance follow game spec v15.3; implementation follows tech architecture v1.5.2.
+- Work outside of / conflicting with spec → **STOP**, propose a spec update to the owner first, implement after. No exceptions.
+- Spec doesn't cover it → ask the owner, don't guess.
+- Field names in code/JSON must match v15 §50.1 exactly — never rename/duplicate a semantic field.
+- Every balance value is a Design Knob (v15 §48) — read from config, never hardcode.
 
 ## Roles
 
-- **Owner/Director** (onzipper): ตัดสินทิศทาง, เคาะ spec, อนุมัติ merge/deploy, สั่งเริ่มงาน
-- **Orchestrator AI**: วางแผน, แตกงานให้ subagent, แก้โค้ด/เทสต์/docs, หยุดที่ด่านอนุมัติ
-- ข้อเท็จจริงข้ามรอบที่สำคัญ → ต้องลง repo docs; อย่าให้เจ้าของอธิบายซ้ำ
+- **Owner/Director** (onzipper): sets direction, locks spec, approves merge/deploy, orders work to start.
+- **Orchestrator AI**: plans, splits work to subagents, ships code/tests/docs, stops at approval gates.
+- Important cross-session facts go into repo docs — never make the owner repeat himself.
 
-## Start here (ตามลำดับ)
+## Start here (in order)
 
-1. `README.md` — โปรเจกต์คืออะไร, stack, คำสั่ง
-2. `docs/current-state.md` — ตอนนี้อยู่ไหน/ติด/ค้าง/ห้ามแตะ
-3. `docs/decision-index.md` — decision ที่ล็อกแล้ว อย่า re-propose
-4. `docs/feature-map.md` — เฉพาะ feature ของงานตัวเอง
+1. `README.md` — what the project is, stack, commands
+2. `docs/current-state.md` — status board: where we are, what's blocked, what not to touch
+3. `docs/decision-index.md` — locked decisions, do NOT re-propose (rationale: `docs/decisions/`, Thai)
+4. `docs/feature-map.md` — only the row(s) for your feature
 
-จากนั้นอ่าน **เฉพาะ context pack ที่ตรงงาน** แล้วค่อยอ่านไฟล์ที่แตะ
+Then read ONLY the context pack matching your layer, then the files you touch.
 
 ## Context routing
 
-| ชนิดงาน | อ่าน |
+| Work type | Read |
 |---|---|
-| Game engine / PixiJS / iso / combat | `docs/context/engine.md` |
-| UI / React overlay / HUD | `docs/context/ui.md` |
-| Game semantics / balance / skill | game spec v15 **เฉพาะ § ที่เกี่ยว** (ดู docs/README.md) |
-| Backend / realtime / DB (P1+) | tech architecture § ที่เกี่ยว |
-| **จะแก้/อัปเดต spec** (owner เคาะแล้วเท่านั้น) | `docs/spec-update-playbook.md` |
-| อะไรก็ตามที่แตะโค้ด | context pack ของ layer (`docs/context/`) — Traps section + `docs/agent-rules.md` (Shell & tooling traps) |
+| Engine / PixiJS / iso / game loop | `docs/context/engine.md` |
+| Combat / entities / skills (gameplay) | `docs/context/game.md` |
+| UI / React overlay / Next.js pages | `docs/context/ui.md` |
+| Server / Colyseus / DB / auth | `docs/context/server.md` |
+| Game semantics / balance | game spec v15 — ONLY the cited § (see docs/README.md) |
+| Spec edits (owner-approved only) | `docs/spec-update-playbook.md` |
+| Anything touching code | your layer's pack **Traps** section + `docs/agent-rules.md` (Shell & tooling traps) |
 
-File → หน้าที่: `docs/CODEMAP.md` (แทนการ grep src/)
+## Search rules
 
-## Token rules
+- Targeted `Grep`/`Glob` over `src/**`, `server/**`, `tests/**` is **allowed and preferred** for symbol-level questions — cheaper and always fresh.
+- `docs/CODEMAP.md` = orientation only (which module owns what). Read it when you don't know which layer owns the code — not as an exhaustive lookup.
+- FORBIDDEN always: reading/grepping `node_modules/**`, `.next/**`; reading `docs/history/**` unless a live doc points you there; blanket patterns over the whole repo (e.g. grep `.` or `export` repo-wide); bulk-reading directories.
+- Specs are huge — read ONLY the cited §, never the whole file.
 
-- อย่าอ่าน src/ ทั้งหมดก่อนวางแผน — ใช้ CODEMAP + feature-map
-- อย่าอ่าน `docs/history/` นอกจาก current-state ชี้ไป
-- งานเล็ก: ไม่เกิน 5 ไฟล์ก่อนเสนอแผน (รายละเอียด: `docs/token-budget.md`)
-- **spec ยาวมาก — อ่านเฉพาะ § ที่เกี่ยวกับงาน ห้ามอ่านทั้งไฟล์**
+## Cite before code
+
+Before changing behavior, your plan/report must cite the sources it stands on:
+- files read (paths), the spec § / decision D-NNN relied on, and the existing pattern followed (`path` example).
+- Can't cite it → don't guess. STOP and ask the owner. "Not enough context" must become a precise question, never a silent guess.
 
 ## Required behavior
 
-- วางแผนก่อนแก้ (ระบุระบบที่แตะ)
-- ระบุคำสั่งเทสต์ที่จะรัน
-- ทุก code change อัปเดต docs ที่กระทบใน change เดียวกัน (อย่างน้อย CODEMAP เมื่อ add/move/delete — test-enforced)
-- match pattern เดิม; reuse utility เดิม (เช็ค CODEMAP ก่อนเขียนใหม่)
-- ทำทีละ issue ตาม scope — ห้าม refactor กว้างโดยไม่ได้รับอนุมัติ
+- Plan before editing (name the systems touched) · name the test commands you'll run.
+- Every code change updates the docs it affects in the SAME change (at minimum CODEMAP on add/move/delete — test-enforced).
+- Match existing patterns; reuse existing utilities (grep first).
+- One issue at a time, in scope — no broad refactors without approval.
+
+## Subagent note
+
+Subagents work from briefs (see `.claude/README.md` Brief contract). `docs/CODEMAP.md`, `docs/decision-index.md`, `docs/feature-map.md`, `docs/history/**` are orchestrator maps — subagents don't read them; the brief carries what's needed.
 
 ## Never change without owner confirmation
 
-- **อะไรก็ตามที่ spec ไม่ครอบคลุม หรือขัดกับ spec** → spec ต้องถูกอัปเดต/เคาะก่อนเสมอ
-- Merge `develop` → `main` (ยืนยันทุกครั้ง) — งานประจำ: แตก branch จาก `develop` → PR กลับเข้า `develop` ให้ owner review
-- Schema ฐานข้อมูล / migration บน production
-- Skill schema field names (v15 §50.1) — เพิ่ม field ใหม่ต้องผ่าน process v15 §59.4
-- Design Knobs semantics (v15 §48) — tech ทำระบบให้ปรับค่าได้ แต่ไม่ตัดสิน balance เอง
-- อะไรที่มาร์ก Locked ใน `docs/decision-index.md` และ tech architecture §0.1
-- Production deploy (owner-triggered เสมอ)
-- เรื่องที่กระทบ economy / combat / punishment / monetization / premium currency → หยุดถามก่อน (v15 §53)
+- Anything the spec doesn't cover or conflicts with → spec must be updated/locked first.
+- Merge `develop` → `main` (confirm every time). Routine work: branch from `develop` → PR back to `develop` for owner review.
+- DB schema / production migration.
+- Skill schema field names (v15 §50.1) — new fields go through v15 §59.4.
+- Design Knob semantics (v15 §48) — tech builds the dials, never decides balance.
+- Anything marked Locked in `docs/decision-index.md` or tech architecture §0.1.
+- Production deploy (always owner-triggered).
+- Anything touching economy / combat / punishment / monetization / premium currency → stop and ask first (v15 §53).
