@@ -39,6 +39,8 @@ enum LedgerReason {
   admin_adjustment
   purchase_topup
   compensation
+  shop_buy // P2-09/P2-11: ซื้อจาก NPC starter shop (gold sink)
+  shop_sell // P2-09/P2-11: ขายเข้า NPC starter shop (gold faucet)
 }
 
 /// ผลการตีบวก (enhancement) — success/fail/-1/ร้าว (TA §7)

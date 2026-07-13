@@ -1,5 +1,7 @@
 # D-049 — E3 open: monster combat stat table
-- Date: 2026-07-12 · Status: **Open** · Source row: docs/decision-index.md (2026-07-13 extraction)
+- Date: 2026-07-12 · Status: **Closed 2026-07-13 → ปิดโดย D-055** (ตารางค่า production + player baseline lock) · Source row: docs/decision-index.md (2026-07-13 extraction)
+
+> ⚠ ปิดแล้ว: ค่า production ทั้งหมดอยู่ที่ `docs/decisions/D-055-e3-monster-stats-player-baseline.md` + Reinforcement doc §9. เนื้อด้านล่างคงไว้เป็นประวัติ (สถานะ OPEN เดิม)
 
 ## มติ + เหตุผล (verbatim)
 

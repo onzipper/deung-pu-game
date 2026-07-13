@@ -36,6 +36,10 @@
 - `src/app/api/` — auth endpoints (guest/register/login/upgrade/session/rt-token) + characters (list/create)
 - `src/ui/` — GameCanvas (mount bridge), DebugOverlay (F3), debug-overlay-logic (pure reducer)
 - `src/ui/store/` — Zustand vanilla store bridge (HUD state, engine→UI one-way, no React import in the vanilla file)
+- `src/ui/panels/` — shared panel/window framework (P2-preface, DG spec §13): panel-stack (pure z-order reducer) + PanelContext (Provider/`usePanelManager`, blocks keydown from reaching the engine while a panel is open) + Panel (presentational window, desktop float / mobile bottom sheet) + use-media-query. `PanelProvider` mounted in `src/ui/GameCanvas.tsx` (first host).
+- `src/ui/panels/inventory/` — inventory/equipment panel (P2-07): inventory-view (pure logic) + InventoryPanel (bag grid + equip/unequip, no drag-drop) + InventoryHudButton ("I" hotkey). Reads HudState.inventory via the bridge; sends intents through EngineHandle.net. Item name still raw itemId (client catalog = SVG-01). Also hosts the "เสริมแกร่ง" button.
+- `src/ui/panels/enhancement/` — guaranteed-reinforcement panel (P2-10, Reinforcement §2.4): enhancement-view (pure 8-state machine + Thai copy incl. mandatory R8 hint "ของหายากมากับบอส") + EnhancementPanel (8s result timeout) + EnhancementHudButton + enhancement-target-context (UI-only React Context for the selected instanceId). **P2: fully wired but server always rejects `NO_REINFORCEMENT` (flag on, R8/D-052) — inert by design until P2B, not a bug.**
+- `src/ui/panels/shop/` — NPC shop panel (P2-11): shop-view (pure logic) + ShopPanel (buy/sell tabs) + ShopHudButton (shows only when the shop list says available). Adds HudState shop/gold slices (event-driven) + net-client shop send methods, requested on every self-spawn (join/map change).
 
 ## server (Colyseus realtime process, separate from Next — L4)
 
@@ -46,7 +50,11 @@
 - `server/matchmaking/` — pure channel-number allocator (§59.3 auto-assign)
 - `server/security/` — WS handshake (JWT+origin+rate limit), session takeover/lease (Bible 5.2)
 - `server/characters/` — persistence decision (pure) + character-state load/upsert (best-effort — no DB = in-memory)
+- `server/inventory/` — inventory best-effort DB glue for MapRoom (load snapshot on join; capacity + item catalog wiring; mutations strict) + P2-10 reinforcement knobs (enhancement curve + `noReinforcement` rules from DEFAULT config)
+- `server/economy/` — kill-reward wiring for MapRoom: mobType→monsterId map + Prisma seams (ledger/inventory/drop-audit); EXP always, gold/drops/audit only with DB + shop-state (P2-11 config + map availability)
 - `server/db/` — Prisma client singleton (server-only) + ledger contract (getBalance/appendEntry)
+- `server/config/` — P2-09 server-authoritative Design Knobs: economy (drop tables/EXP curve/milestone Gold/enhancement +0..+15) + reinforcement (boss pity/fragment/NO_REINFORCEMENT flag) + versioned loader (`config_versions` → DEFAULT fallback). Server-only, never bundled to client
+- `prisma/migrations/` — 0001_init (13 tables) · 0002_shop_ledger_reasons (LedgerReason += shop_buy/shop_sell)
 
 ## src/shared + src/server (client↔server contracts + Next server-only)
 
@@ -54,6 +62,8 @@
 - `src/server/db.ts` — Prisma client singleton on the Next API side (**server-only**, must never enter the client bundle)
 - `src/server/auth/` — token/session-cookie, password hash/policy, email normalize, auth service/upgrade state machine
 - `src/server/characters/` — repository (memory/prisma) + service (slot cap, cross-account guard)
+- `src/server/inventory/` — item catalog (server-authoritative Design Knob: slot + stat bonus) + equipment-stats (pure combat aggregation, folds enhancement +N curve §16.3.1) + repository (memory/prisma: FOR UPDATE + optimistic `version`, incl. `commitEnhancement` + `grantItems` loot→bag stacking/overflow) + service (equip/unequip/move, swap, snapshot) + enhancement-service (P2-10 guaranteed reinforcement +1 cap +15, no RNG)
+- `src/server/economy/` — pure P2-09 resolvers: exp (level-diff/party/level-up/baseline D-055) · drop-roll (weighted pools + guaranteed + audit + reinforcement guard) · kill-reward (orchestrator via injected seams, no DB) · shop (P2-11 buy/sell, compensating refund)
 
 ## scripts + tests
 

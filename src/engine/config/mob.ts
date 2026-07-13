@@ -162,8 +162,12 @@ export const DEFAULT_MOB_CONFIG: MobConfig = {
     tickHz: 10, // TA §11 fixed 10Hz
     chaseSpeed: 2.4, // < player speed 4 → วิ่งหนีแล้วหลุด leash ได้ (เร็วกว่า wander 1.2 ชัดเจน)
     aggroRadius: {
-      slime: 4, // passive-ish swarm — ระยะสั้น
-      mushroom: 5, // ตัวอึด อาราม์ไกลกว่า
+      // Map 1 production (D-055 §9.3 aggroRadius tiles; key = MobPocket.mobType ใน map1.ts)
+      slime: 5, // mon_map1_slime
+      bird: 6, // mon_map1_bird
+      boar: 6, // mon_map1_boar
+      boar_elite: 8, // elite_map1_boar_rampage
+      mushroom: 5, // test-field placeholder (ไม่ใช่ Map 1/D-055)
     },
     defaultAggroRadius: 4,
     leashRadius: 8, // ลากออกจากจุดเกิดเกิน 8 tile → กลับ (Map 1 pocket ~5–6 tile)

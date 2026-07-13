@@ -22,6 +22,24 @@ exports[`engine config — value identity (DEFAULT_* consts) > DEFAULT_COMBAT_BA
   },
   "k": 50,
   "mobs": {
+    "bird": {
+      "atk": 7,
+      "def": 4,
+      "hp": 70,
+      "tierReduction": 1,
+    },
+    "boar": {
+      "atk": 12,
+      "def": 10,
+      "hp": 150,
+      "tierReduction": 1,
+    },
+    "boar_elite": {
+      "atk": 17,
+      "def": 14,
+      "hp": 420,
+      "tierReduction": 0.8,
+    },
     "mushroom": {
       "atk": 11,
       "def": 10,
@@ -30,7 +48,7 @@ exports[`engine config — value identity (DEFAULT_* consts) > DEFAULT_COMBAT_BA
     },
     "slime": {
       "atk": 6,
-      "def": 4,
+      "def": 3,
       "hp": 45,
       "tierReduction": 1,
     },
@@ -209,6 +227,24 @@ exports[`engine config — value identity (DEFAULT_* consts) > DEFAULT_ENGINE_CO
     },
     "k": 50,
     "mobs": {
+      "bird": {
+        "atk": 7,
+        "def": 4,
+        "hp": 70,
+        "tierReduction": 1,
+      },
+      "boar": {
+        "atk": 12,
+        "def": 10,
+        "hp": 150,
+        "tierReduction": 1,
+      },
+      "boar_elite": {
+        "atk": 17,
+        "def": 14,
+        "hp": 420,
+        "tierReduction": 0.8,
+      },
       "mushroom": {
         "atk": 11,
         "def": 10,
@@ -217,7 +253,7 @@ exports[`engine config — value identity (DEFAULT_* consts) > DEFAULT_ENGINE_CO
       },
       "slime": {
         "atk": 6,
-        "def": 4,
+        "def": 3,
         "hp": 45,
         "tierReduction": 1,
       },
@@ -330,8 +366,11 @@ exports[`engine config — value identity (DEFAULT_* consts) > DEFAULT_ENGINE_CO
   "mob": {
     "ai": {
       "aggroRadius": {
+        "bird": 6,
+        "boar": 6,
+        "boar_elite": 8,
         "mushroom": 5,
-        "slime": 4,
+        "slime": 5,
       },
       "chaseSpeed": 2.4,
       "deaggroRadius": 9,
@@ -565,8 +604,11 @@ exports[`engine config — value identity (DEFAULT_* consts) > DEFAULT_MOB_CONFI
 {
   "ai": {
     "aggroRadius": {
+      "bird": 6,
+      "boar": 6,
+      "boar_elite": 8,
       "mushroom": 5,
-      "slime": 4,
+      "slime": 5,
     },
     "chaseSpeed": 2.4,
     "deaggroRadius": 9,
@@ -869,6 +911,24 @@ exports[`engine config — value identity (factory / pure functions) > createEng
     },
     "k": 50,
     "mobs": {
+      "bird": {
+        "atk": 7,
+        "def": 4,
+        "hp": 70,
+        "tierReduction": 1,
+      },
+      "boar": {
+        "atk": 12,
+        "def": 10,
+        "hp": 150,
+        "tierReduction": 1,
+      },
+      "boar_elite": {
+        "atk": 17,
+        "def": 14,
+        "hp": 420,
+        "tierReduction": 0.8,
+      },
       "mushroom": {
         "atk": 11,
         "def": 10,
@@ -877,7 +937,7 @@ exports[`engine config — value identity (factory / pure functions) > createEng
       },
       "slime": {
         "atk": 6,
-        "def": 4,
+        "def": 3,
         "hp": 45,
         "tierReduction": 1,
       },
@@ -990,8 +1050,11 @@ exports[`engine config — value identity (factory / pure functions) > createEng
   "mob": {
     "ai": {
       "aggroRadius": {
+        "bird": 6,
+        "boar": 6,
+        "boar_elite": 8,
         "mushroom": 5,
-        "slime": 4,
+        "slime": 5,
       },
       "chaseSpeed": 2.4,
       "deaggroRadius": 9,
@@ -1255,6 +1318,24 @@ exports[`engine config — value identity (factory / pure functions) > createEng
     },
     "k": 50,
     "mobs": {
+      "bird": {
+        "atk": 7,
+        "def": 4,
+        "hp": 70,
+        "tierReduction": 1,
+      },
+      "boar": {
+        "atk": 12,
+        "def": 10,
+        "hp": 150,
+        "tierReduction": 1,
+      },
+      "boar_elite": {
+        "atk": 17,
+        "def": 14,
+        "hp": 420,
+        "tierReduction": 0.8,
+      },
       "mushroom": {
         "atk": 11,
         "def": 10,
@@ -1263,7 +1344,7 @@ exports[`engine config — value identity (factory / pure functions) > createEng
       },
       "slime": {
         "atk": 6,
-        "def": 4,
+        "def": 3,
         "hp": 45,
         "tierReduction": 1,
       },
@@ -1376,8 +1457,11 @@ exports[`engine config — value identity (factory / pure functions) > createEng
   "mob": {
     "ai": {
       "aggroRadius": {
+        "bird": 6,
+        "boar": 6,
+        "boar_elite": 8,
         "mushroom": 5,
-        "slime": 4,
+        "slime": 5,
       },
       "chaseSpeed": 2.4,
       "deaggroRadius": 9,

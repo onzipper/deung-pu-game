@@ -1,7 +1,7 @@
 # ดึ๋งปุ๊ — P2 Map 1 Economy & Loot Specification
 
 > **ไฟล์:** `deungpu_P2_MAP_1_ECONOMY_AND_LOOT_SPEC_v1.md`  
-> **Revision:** `v1.0 — Default Config Baseline / No-Figma Implementation`  
+> **Revision:** `v1.2 — Default Config Baseline / No-Figma Implementation` (v1.1 amend 2026-07-12; v1.2 amend 2026-07-13 = D-053 Gold grant + D-054 multiplier +6..+15)  
 > **สถานะ:** `OWNER BASELINE — READY FOR WAVE 2 IMPLEMENTATION`  
 > **วันที่:** 2026-07-12  
 > **ขอบเขต:** P2 Map 1 Item, Loot, Gold, EXP, Starter Shop, แกร่ง, Enhancement Economy, Loot Presentation, Config Contract, Telemetry และ QA  
@@ -20,6 +20,17 @@
 > - เศษเสริมแกร่ง (สูตร 5→1) กลับมา — supersede §15.3 "No fragment decision"
 >
 > **ยังใช้ได้ตามเดิม:** item master/equipment slots, EXP/gold/drop ของ material+equipment (ที่ไม่ใช่ Kraeng), starter shop, loot ownership, telemetry โครง
+
+---
+
+> ## ⚠ AMENDED 2026-07-13 — ค่า balance ที่ค้าง PENDING ถูกเคาะครบ (D-053/D-054)
+>
+> owner เคาะ 2026-07-13 ปิดค่าที่ค้าง `PENDING OWNER BALANCE` ก่อนเริ่ม P2 wave 3:
+> - **§16.3** — เติมตาราง multiplier `+6..+15` เป็น production (ดู subsection §16.3.1 · D-054): +6 1.45 … +15 2.80
+> - **§18.1** — grant `Kraeng ×1` 5 จุด → **Gold** (เพิ่มบนคอลัมน์ Gold เดิม, ดู subsection §18.3 · D-053): +100/+100/+150/+250/+200 · `questMilestoneTotals.kraeng`=0, `bossFirstKillBonus.kraeng`=0
+> - **มอน Map 1 combat stats** production (E3) = ปิดใน `docs/decisions/D-055-*` + Reinforcement doc §9 (ไม่ซ้ำในเล่มนี้ — Economy §10 เป็นเจ้าของเฉพาะ reward/level/respawn ตาม §10 note)
+>
+> เนื้อ subsection ใหม่ = additive; ตารางเดิมคงไว้เพื่อ history
 
 ---
 
@@ -1311,6 +1322,23 @@ Enhanced Stat = floor(Base Stat × Multiplier)
 
 Critical Chance และ Move Speed ไม่ Scale
 
+### 16.3.1 Multiplier +6..+15 (AMENDED 2026-07-13 · D-054)
+
+> เพดานใหม่ +15 (D-048) ต้องการ multiplier ต่อจาก +5 · owner เคาะ Option A = ต่อ curve เดิม, delta เร่ง +0.01/ระดับ · rule "minimum increase +1 เมื่อข้ามระดับ" ใช้ต่อ
+
+| Enhancement | Multiplier |
+|---:|---:|
+| +6 | 1.45 |
+| +7 | 1.56 |
+| +8 | 1.68 |
+| +9 | 1.81 |
+| +10 | 1.95 |
+| +11 | 2.10 |
+| +12 | 2.26 |
+| +13 | 2.43 |
+| +14 | 2.61 |
+| +15 | 2.80 |
+
 ## 16.4 Cracked state
 
 Cracked Item:
@@ -1453,6 +1481,32 @@ bossFirstKillBonus:
 - Reward เข้า Inventory หากมีที่
 - หาก Inventory เต็มและ Reward เป็น System Reward ให้เข้า Delivery Box ตาม Account Storage Spec
 - Gold/EXP Grant Transaction ต้อง Idempotent
+
+## 18.3 Milestone grant → Gold (AMENDED 2026-07-13 · D-053) — supersedes Item column ของ 5 แถวใน §18.1
+
+> R5 ปิด: grant `Kraeng ×1` (=เสริมแกร่ง) 5 จุด **ไม่แจกเสริมแกร่งอีกต่อไป** → แทนด้วย **Gold เพิ่มบนคอลัมน์ Gold เดิม** (Option A สเกลตาม milestone) · จงใจไม่ตั้ง Gold = มูลค่าเสริมแกร่ง (กัน inflation + รักษา rarity §8 pillar) · ทุกแถว one-time per account
+
+| milestoneId | เฟส | Gold เดิม (§18.1) | +Gold แทน Kraeng×1 | **Gold รวม (ใช้จริง)** | Item ใหม่ |
+|---|---|---:|---:|---:|---|
+| `ms_enhancement_ready` | P2 | 100 | +100 | **200** | — |
+| `ach_first_upgrade` | P2 | 0 | +100 | **100** | — |
+| `ms_first_elite` | P2 | 200 | +150 | **350** | — |
+| `ms_map1_complete` | P2 | 300 | +250 | **550** | — |
+| `ms_boss_first_kill` | P2B | 200 | +200 | **400** | — |
+
+Totals ใหม่ (แทนบล็อก `questMilestoneTotals`/`bossFirstKillBonus` เดิมในส่วน Kraeng):
+
+```yaml
+questMilestoneTotals:      # pre-boss P2 (one-time per account)
+  exp: 1380                # ไม่เปลี่ยน
+  gold: 1500               # 900 เดิม + 600 (Gold แทน grant)
+  kraeng: 0                # ← เดิม 4; ไม่แจกเสริมแกร่งจาก milestone อีก
+  potion: 3                # ไม่เปลี่ยน
+bossFirstKillBonus:        # P2B
+  exp: 300
+  gold: 400                # 200 เดิม + 200
+  kraeng: 0                # ← เดิม 1
+```
 
 ---
 

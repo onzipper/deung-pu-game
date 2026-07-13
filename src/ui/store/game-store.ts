@@ -10,15 +10,55 @@
 
 import { createStore, type StoreApi } from "zustand/vanilla";
 import type { EngineDebugInfo } from "@/engine/runtime/debug-info";
+import {
+  GOLD_UNKNOWN,
+  type EnhanceResultMessage,
+  type InventoryOpRejectedMessage,
+  type InventorySnapshot,
+  type PlayerProgressMessage,
+  type ShopListMessage,
+  type ShopResultMessage,
+} from "@/shared/net-protocol";
 
 /** HUD state ที่ UI ทุกจอ subscribe ได้ — เพิ่ม slice ใหม่ที่นี่เมื่อ UI ตัวถัดไป (inventory/shop/...) ต้องใช้ */
 export interface HudState {
   /** snapshot ล่าสุดของ debug overlay (P0-11) — null ก่อน engine publish ครั้งแรก */
   debugInfo: EngineDebugInfo | null;
+  /** snapshot inventory/equipment ล่าสุดจาก server (P2-07, MSG_INVENTORY_STATE) — null ก่อน join สำเร็จ */
+  inventory: InventorySnapshot | null;
+  /**
+   * mutation ล่าสุดที่ server ปฏิเสธ (P2-07, MSG_INVENTORY_OP_REJECTED) — UI ใช้โชว์ toast สั้น ๆ
+   * แล้ว resync จาก `inventory` ล่าสุดที่มีอยู่แล้ว (ไม่มี request ใหม่). null = ยังไม่เคยถูกปฏิเสธใน session นี้.
+   */
+  inventoryRejection: InventoryOpRejectedMessage | null;
+  /**
+   * ผลการเสริมแกร่งล่าสุด (P2-10, MSG_ENHANCE_RESULT) — ok=true มากับ `inventory` snapshot ใหม่แยกข้อความ
+   * (server ส่งสองข้อความ), ok=false มี reason. null = ยังไม่เคยเสริมแกร่งใน session นี้.
+   */
+  enhanceResult: EnhanceResultMessage | null;
+  /**
+   * catalog ร้านบน map ปัจจุบัน (P2-11, MSG_SHOP_LIST) — null ก่อนขอ/ก่อนได้ผลครั้งแรก. `available: false`
+   * = map นี้ไม่มีร้าน (HUD ปุ่ม "ร้านค้า" อ่านค่านี้). ขอใหม่ทุกครั้งที่ join/ข้าม map (engine glue).
+   */
+  shopList: ShopListMessage | null;
+  /** ผลซื้อ/ขายล่าสุด (P2-11, MSG_SHOP_RESULT) — null = ยังไม่เคยทำรายการใน session นี้. */
+  shopResult: ShopResultMessage | null;
+  /**
+   * ยอด gold ล่าสุดที่รู้ (P2-09/P2-11) — มาจาก MSG_PLAYER_PROGRESS (หลังฆ่ามอน) หรือ MSG_SHOP_RESULT
+   * (หลังซื้อ/ขาย) แล้วแต่อันไหนมาถึงหลังสุด, ข้าม GOLD_UNKNOWN (-1) เสมอ (ไม่ทับด้วยค่าที่อ่านไม่ได้).
+   * null = ยังไม่เคยรู้ยอดเลยใน session นี้ (แสดง "—").
+   */
+  gold: number | null;
 }
 
 export const INITIAL_HUD_STATE: HudState = {
   debugInfo: null,
+  inventory: null,
+  inventoryRejection: null,
+  enhanceResult: null,
+  shopList: null,
+  shopResult: null,
+  gold: null,
 };
 
 /** store singleton ตัวเดียวทั้งแอป — engine publish เข้านี่, React component subscribe ผ่าน useGameStore */
@@ -38,6 +78,65 @@ export function resetHudState(): void {
 
 /** typed selector — เลี่ยง `state.debugInfo` กระจายทั่วไฟล์ component */
 export const selectDebugInfo = (state: HudState): EngineDebugInfo | null => state.debugInfo;
+
+/**
+ * P2-07: event-driven (ไม่ throttle) — engine เรียกตรงทันทีที่ MSG_INVENTORY_STATE มาถึง (ต่างจาก
+ * debugInfo ที่ผ่าน createHudPublisher เพราะ mutation เกิดไม่บ่อย ผู้เล่นต้องเห็นผลทันทีหลังกดสวม/ถอด).
+ */
+export function setInventoryState(snapshot: InventorySnapshot): void {
+  gameStore.setState({ inventory: snapshot });
+}
+
+/** P2-07: engine เรียกทันทีที่ MSG_INVENTORY_OP_REJECTED มาถึง (event-driven เหมือน setInventoryState) */
+export function setInventoryRejection(rejected: InventoryOpRejectedMessage): void {
+  gameStore.setState({ inventoryRejection: rejected });
+}
+
+/** typed selector — inventory snapshot ล่าสุด (P2-07) */
+export const selectInventory = (state: HudState): InventorySnapshot | null => state.inventory;
+
+/** typed selector — mutation ล่าสุดที่ถูกปฏิเสธ (P2-07, สำหรับ toast) */
+export const selectInventoryRejection = (state: HudState): InventoryOpRejectedMessage | null =>
+  state.inventoryRejection;
+
+/** P2-10: engine เรียกทันทีที่ MSG_ENHANCE_RESULT มาถึง (event-driven เหมือน setInventoryRejection) */
+export function setEnhanceResult(result: EnhanceResultMessage): void {
+  gameStore.setState({ enhanceResult: result });
+}
+
+/** typed selector — ผลเสริมแกร่งล่าสุด (P2-10) */
+export const selectEnhanceResult = (state: HudState): EnhanceResultMessage | null =>
+  state.enhanceResult;
+
+/** P2-11: engine เรียกทันทีที่ MSG_SHOP_LIST มาถึง (event-driven เหมือน setInventoryState) */
+export function setShopList(list: ShopListMessage): void {
+  gameStore.setState({ shopList: list });
+}
+
+/**
+ * P2-11: engine เรียกทันทีที่ MSG_SHOP_RESULT มาถึง — อัปเดต `gold` ไปด้วยในตัว (ข้าม GOLD_UNKNOWN)
+ * เพราะ shop result เป็นแหล่งยอด gold authoritative ที่สุดหลังทำรายการ.
+ */
+export function setShopResult(result: ShopResultMessage): void {
+  const patch: Partial<HudState> = { shopResult: result };
+  if (result.gold !== GOLD_UNKNOWN) patch.gold = result.gold;
+  gameStore.setState(patch);
+}
+
+/** P2-09/P2-11: engine เรียกทันทีที่ MSG_PLAYER_PROGRESS มาถึง — อัปเดตเฉพาะ `gold` (ข้าม GOLD_UNKNOWN) */
+export function setGoldFromProgress(progress: PlayerProgressMessage): void {
+  if (progress.gold === GOLD_UNKNOWN) return;
+  gameStore.setState({ gold: progress.gold });
+}
+
+/** typed selector — catalog ร้านล่าสุด (P2-11) */
+export const selectShopList = (state: HudState): ShopListMessage | null => state.shopList;
+
+/** typed selector — ผลซื้อ/ขายล่าสุด (P2-11) */
+export const selectShopResult = (state: HudState): ShopResultMessage | null => state.shopResult;
+
+/** typed selector — ยอด gold ล่าสุดที่รู้ (P2-09/P2-11) */
+export const selectGold = (state: HudState): number | null => state.gold;
 
 export interface HudPublisher {
   /**

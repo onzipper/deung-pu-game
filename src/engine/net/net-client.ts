@@ -34,19 +34,44 @@ import {
   MAP_ROOM_NAME,
   MSG_CAST_SKILL,
   MSG_CAST_REJECTED,
+  MSG_ENHANCE_ITEM,
+  MSG_ENHANCE_RESULT,
+  MSG_EQUIP_ITEM,
+  MSG_INVENTORY_OP_REJECTED,
+  MSG_INVENTORY_STATE,
   MSG_MAP_TRANSITION,
   MSG_MOVE,
+  MSG_MOVE_ITEM,
+  MSG_PLAYER_PROGRESS,
   MSG_POSITION_CORRECTION,
+  MSG_SHOP_BUY,
+  MSG_SHOP_LIST,
+  MSG_SHOP_LIST_REQUEST,
+  MSG_SHOP_RESULT,
+  MSG_SHOP_SELL,
   MSG_SKILL_RESULT,
+  MSG_UNEQUIP_ITEM,
   WS_CLOSE_SESSION_TAKEN_OVER,
   type CastRejectedMessage,
   type CastSkillMessage,
+  type EnhanceItemMessage,
+  type EnhanceResultMessage,
+  type EquipItemMessage,
+  type InventoryOpRejectedMessage,
+  type InventorySnapshot,
   type JoinOptions,
   type MapTransitionMessage,
   type MobSnapshot,
+  type MoveItemMessage,
   type MoveMessage,
+  type PlayerProgressMessage,
   type PlayerSnapshot,
   type PositionCorrectionMessage,
+  type ShopBuyMessage,
+  type ShopListMessage,
+  type ShopListRequestMessage,
+  type ShopResultMessage,
+  type ShopSellMessage,
   type SkillResultMessage,
 } from "@/shared/net-protocol";
 import { canSendLocalMove, coerceAnim, coerceDirection, computePlayerCount, type ConnectionState } from "@/engine/net/sync";
@@ -127,6 +152,41 @@ export interface NetClientHandlers {
    * เดิมก่อน refresh (กัน "วาร์ปกลับ" + กัน exit detection พลาดเพราะ desync). ยิงครั้งเดียวต่อ 1 connection. optional.
    */
   onSelfSpawn?(snap: PlayerSnapshot): void;
+  /**
+   * P2-07: snapshot inventory/equipment ล่าสุด (server → client เดียว) — ยิงตอน join + หลังทุก mutation
+   * สำเร็จ (equip/unequip/move). caller (app.ts) push เข้า Zustand bridge ตรง ๆ (event-driven, ไม่ throttle
+   * ผ่าน hudPublisher — ต่างจาก debugInfo ที่เป็น per-frame poll). optional.
+   */
+  onInventoryState?(snapshot: InventorySnapshot): void;
+  /**
+   * P2-07: mutation ถูก server ปฏิเสธ (unknown_item/not_equippable/.../version_conflict) — เงียบ ๆ ไม่ throw,
+   * caller โชว์ toast สั้น ๆ แล้ว resync จาก MSG_INVENTORY_STATE ล่าสุดที่มีอยู่แล้ว (ไม่ต้อง request ใหม่). optional.
+   */
+  onInventoryOpRejected?(rejected: InventoryOpRejectedMessage): void;
+  /**
+   * P2-10: ผลการเสริมแกร่ง (server → client เดียว, MSG_ENHANCE_RESULT) — ok=true มากับ MSG_INVENTORY_STATE
+   * snapshot ใหม่แยกต่างหาก (server ส่งสองข้อความ), ok=false มี reason (NO_ITEM/NO_REINFORCEMENT/MAX_LEVEL/
+   * ITEM_LOCKED, §2.4). caller push เข้า Zustand bridge ตรง ๆ (event-driven เหมือน onInventoryOpRejected). optional.
+   */
+  onEnhanceResult?(result: EnhanceResultMessage): void;
+  /**
+   * P2-11: catalog ของร้านบน map ปัจจุบัน (ตอบ MSG_SHOP_LIST_REQUEST) — `available: false` = map นี้ไม่มี
+   * ร้าน (HUD ปุ่ม "ร้านค้า" อ่านค่านี้ตัดสินว่าโชว์ปุ่มไหม). caller push เข้า Zustand bridge ตรง ๆ
+   * (event-driven เหมือน onInventoryState). optional.
+   */
+  onShopList?(list: ShopListMessage): void;
+  /**
+   * P2-11: ผลซื้อ/ขาย (ok/reject, Economy §23) — สำเร็จมากับ MSG_INVENTORY_STATE snapshot ใหม่แยกต่างหาก
+   * (server ส่งสองข้อความ เหมือน enhance) + ยอด gold authoritative หลังทำ. caller push เข้า Zustand bridge
+   * ตรง ๆ (event-driven). optional.
+   */
+  onShopResult?(result: ShopResultMessage): void;
+  /**
+   * P2-09: progression + loot สรุปหลังฆ่ามอน (level/exp/gold/loot) — P2-11 shop ใช้เฉพาะ `gold` เพื่อโชว์
+   * ยอดปัจจุบันในร้าน (ยังไม่มี HUD gold bar แยกต่างหากรอบนี้). caller push เข้า Zustand bridge ตรง ๆ
+   * (event-driven). optional.
+   */
+  onPlayerProgress?(msg: PlayerProgressMessage): void;
 }
 
 /** อ่าน MobState schema (reflection → any) → MobSnapshot (coerce state). */
@@ -205,6 +265,20 @@ export interface NetClientHandle {
   sendMove(msg: MoveMessage): void;
   /** P1-05: ส่ง cast intent (skillId + aim + ทิศ) ขึ้น server (no-op ถ้ายังไม่ online). */
   sendCast(msg: CastSkillMessage): void;
+  /** P2-07: ขอสวม item จากกระเป๋า (no-op ถ้ายังไม่ online) — server หา equip slot จาก item def เอง. */
+  sendEquipItem(msg: EquipItemMessage): void;
+  /** P2-07: ขอถอด item ที่สวมอยู่กลับกระเป๋า (no-op ถ้ายังไม่ online). */
+  sendUnequipItem(msg: EquipItemMessage): void;
+  /** P2-07: ขอย้าย item ในกระเป๋าไปช่องอื่น (bag↔bag เท่านั้น, no-op ถ้ายังไม่ online). */
+  sendMoveItem(msg: MoveItemMessage): void;
+  /** P2-10: ขอเสริมแกร่ง equipment ที่ถืออยู่ +1 (no-op ถ้ายังไม่ online) — server ตัดสินทั้งหมด (§2.3). */
+  sendEnhanceItem(msg: EnhanceItemMessage): void;
+  /** P2-11: ขอ catalog ร้านของ map ปัจจุบัน (no-op ถ้ายังไม่ online) — เรียกตอน join/เปลี่ยน map. */
+  sendShopListRequest(msg: ShopListRequestMessage): void;
+  /** P2-11: ขอซื้อ item จากร้าน (no-op ถ้ายังไม่ online) — ราคา/เงื่อนไขทั้งหมด server ตัดสิน. */
+  sendShopBuy(msg: ShopBuyMessage): void;
+  /** P2-11: ขอขาย item ที่ถืออยู่ให้ร้าน (no-op ถ้ายังไม่ online). */
+  sendShopSell(msg: ShopSellMessage): void;
   /** ออกจาก room + ปิด connection (idempotent) */
   disconnect(): void;
 }
@@ -404,6 +478,29 @@ export function createNetClient(
       handlers.onMapTransition?.(msg);
     });
 
+    // P2-07: inventory/equipment snapshot (ตอน join + หลัง mutation สำเร็จ) + mutation ถูกปฏิเสธ (เงียบ ๆ)
+    joinedRoom.onMessage(MSG_INVENTORY_STATE, (snap: InventorySnapshot) => {
+      handlers.onInventoryState?.(snap);
+    });
+    joinedRoom.onMessage(MSG_INVENTORY_OP_REJECTED, (rejected: InventoryOpRejectedMessage) => {
+      handlers.onInventoryOpRejected?.(rejected);
+    });
+    // P2-10: ผลเสริมแกร่ง (ok/reject) — สำเร็จมากับ MSG_INVENTORY_STATE snapshot ใหม่แยกอีกข้อความ (ด้านบน)
+    joinedRoom.onMessage(MSG_ENHANCE_RESULT, (result: EnhanceResultMessage) => {
+      handlers.onEnhanceResult?.(result);
+    });
+    // P2-11: catalog ร้าน (ตอบ MSG_SHOP_LIST_REQUEST) + ผลซื้อ/ขาย
+    joinedRoom.onMessage(MSG_SHOP_LIST, (list: ShopListMessage) => {
+      handlers.onShopList?.(list);
+    });
+    joinedRoom.onMessage(MSG_SHOP_RESULT, (result: ShopResultMessage) => {
+      handlers.onShopResult?.(result);
+    });
+    // P2-09: progression หลังฆ่ามอน — P2-11 shop ใช้เฉพาะ gold (ดู comment ที่ onPlayerProgress ด้านบน)
+    joinedRoom.onMessage(MSG_PLAYER_PROGRESS, (msg: PlayerProgressMessage) => {
+      handlers.onPlayerProgress?.(msg);
+    });
+
     // channel/map อาจถูก set หลัง state แรก → sync ค่าล่าสุด
     $(joinedRoom.state).listen("channelId", (v: string) => {
       status.channelId = v;
@@ -566,6 +663,34 @@ export function createNetClient(
     sendCast(msg: CastSkillMessage): void {
       if (!room || status.state !== "online") return;
       room.send(MSG_CAST_SKILL, msg);
+    },
+    sendEquipItem(msg: EquipItemMessage): void {
+      if (!room || status.state !== "online") return;
+      room.send(MSG_EQUIP_ITEM, msg);
+    },
+    sendUnequipItem(msg: EquipItemMessage): void {
+      if (!room || status.state !== "online") return;
+      room.send(MSG_UNEQUIP_ITEM, msg);
+    },
+    sendMoveItem(msg: MoveItemMessage): void {
+      if (!room || status.state !== "online") return;
+      room.send(MSG_MOVE_ITEM, msg);
+    },
+    sendEnhanceItem(msg: EnhanceItemMessage): void {
+      if (!room || status.state !== "online") return;
+      room.send(MSG_ENHANCE_ITEM, msg);
+    },
+    sendShopListRequest(msg: ShopListRequestMessage): void {
+      if (!room || status.state !== "online") return;
+      room.send(MSG_SHOP_LIST_REQUEST, msg);
+    },
+    sendShopBuy(msg: ShopBuyMessage): void {
+      if (!room || status.state !== "online") return;
+      room.send(MSG_SHOP_BUY, msg);
+    },
+    sendShopSell(msg: ShopSellMessage): void {
+      if (!room || status.state !== "online") return;
+      room.send(MSG_SHOP_SELL, msg);
     },
     disconnect(): void {
       if (disposed) return;
