@@ -8,6 +8,7 @@ import { useState } from "react";
 import { Panel } from "@/ui/panels";
 import type { EngineHandle } from "@/engine/runtime/app";
 import type { EffectQuality } from "@/engine/config";
+import { getSoundManager } from "@/engine/audio/sound-manager";
 import {
   SELECTABLE_QUALITIES,
   createEffectQualityPreferencesStore,
@@ -16,6 +17,10 @@ import {
 import { SETTINGS_PANEL_ID, QUALITY_LABEL, applyEffectQualityPreferences } from "./settings-view";
 
 const store = createEffectQualityPreferencesStore();
+// Wave 2 SFX (D-065): SoundManager เป็นเจ้าของ volume/mute state + persist เองอยู่แล้ว (audio-preference.ts,
+// localStorage) — panel นี้แค่อ่าน/เขียนผ่าน handle เดียวกับที่ combat-stub/app.ts/PanelContext ใช้เล่นเสียง
+// (shared singleton, ดู getSoundManager) ไม่ต้องมี store ซ้ำแบบ effect quality.
+const soundManager = getSoundManager();
 
 export interface SettingsPanelProps {
   getHandle: () => EngineHandle | null;
@@ -23,6 +28,9 @@ export interface SettingsPanelProps {
 
 export function SettingsPanel({ getHandle }: SettingsPanelProps) {
   const [prefs, setPrefs] = useState<EffectQualityPreferences>(() => store.load());
+  // Wave 2 SFX (D-065): seed จาก soundManager (โหลด localStorage ไปแล้วตอน getSoundManager() ครั้งแรก)
+  const [audioVolume, setAudioVolume] = useState<number>(() => soundManager.getVolume());
+  const [audioMuted, setAudioMuted] = useState<boolean>(() => soundManager.isMuted());
 
   const commit = (next: EffectQualityPreferences): void => {
     setPrefs(next);
@@ -32,6 +40,15 @@ export function SettingsPanel({ getHandle }: SettingsPanelProps) {
 
   const setQuality = (quality: EffectQuality): void => commit({ ...prefs, quality });
   const toggleShake = (): void => commit({ ...prefs, screenShake: !prefs.screenShake });
+
+  const commitVolume = (volume: number): void => {
+    soundManager.setVolume(volume);
+    setAudioVolume(soundManager.getVolume());
+  };
+  const toggleMuted = (): void => {
+    soundManager.setMuted(!audioMuted);
+    setAudioMuted(!audioMuted);
+  };
 
   return (
     <Panel id={SETTINGS_PANEL_ID} title="ตั้งค่า">
@@ -71,6 +88,36 @@ export function SettingsPanel({ getHandle }: SettingsPanelProps) {
             aria-label="เปิด/ปิด จอสั่น"
           />
         </label>
+
+        <div>
+          <div className="mb-2 flex items-center justify-between gap-3">
+            <span className="font-semibold text-amber-200">เสียงเอฟเฟกต์</span>
+            <label className="flex min-h-[44px] items-center gap-2 text-xs text-neutral-300">
+              ปิดเสียง
+              <input
+                type="checkbox"
+                checked={audioMuted}
+                onChange={toggleMuted}
+                className="h-5 w-5 accent-amber-500"
+                aria-label="ปิด/เปิด เสียงเอฟเฟกต์"
+              />
+            </label>
+          </div>
+          <input
+            type="range"
+            min={0}
+            max={1}
+            step={0.05}
+            value={audioVolume}
+            disabled={audioMuted}
+            onChange={(e) => commitVolume(Number(e.target.value))}
+            className="h-11 w-full accent-amber-500 disabled:opacity-40"
+            aria-label="ระดับเสียงเอฟเฟกต์"
+          />
+          <p className="mt-1 text-xs text-neutral-400">
+            เสียงตี/โดน/คริติคอล/ฆ่ามอน/ได้ของ/คลิก UI — สังเคราะห์จากโค้ดล้วน (ไม่มีไฟล์เสียง)
+          </p>
+        </div>
       </div>
     </Panel>
   );

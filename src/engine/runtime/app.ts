@@ -79,6 +79,7 @@ import {
   setStorageResult,
   setStorageState,
 } from "@/ui/store/game-store";
+import { getSoundManager } from "@/engine/audio/sound-manager";
 
 /** handle สาธารณะที่ React (หรือ caller อื่น) ใช้คุมกับ engine — ห้ามให้ caller แตะ pixi ตรง ๆ นอกจากผ่าน app */
 export interface EngineHandle {
@@ -379,7 +380,11 @@ export async function createEngine(
           onShopList: (list) => setShopList(list),
           onShopResult: (result) => setShopResult(result),
           // P2-09/P2-11: progression หลังฆ่ามอน — ใช้เฉพาะ gold รอบนี้ (ยังไม่มี HUD gold bar แยก)
-          onPlayerProgress: (msg) => setGoldFromProgress(msg),
+          // Wave 2 SFX (D-065): message นี้มาถึงเฉพาะหลังฆ่ามอนที่มีสิทธิ์เท่านั้น → ใช้เป็น "loot/reward" cue
+          onPlayerProgress: (msg) => {
+            setGoldFromProgress(msg);
+            getSoundManager().playSfx("loot");
+          },
           // P2-17: คลัง+กล่องส่งของ → Zustand bridge ตรง ๆ (event-driven, เหมือน onShopList/onShopResult)
           onStorageState: (state) => setStorageState(state),
           onStorageResult: (result) => setStorageResult(result),

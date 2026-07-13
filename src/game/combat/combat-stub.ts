@@ -68,12 +68,16 @@ import {
   type HitStopState,
 } from "@/game/combat/hit-stop";
 import { resolveJuiceLevel } from "@/game/combat/juice-level";
+import { getSoundManager } from "@/engine/audio/sound-manager";
 
 /** zLayer ของ hitbox debug wedge — เหนือ entity ปกติ (0); damage number ไม่ใช้ scene zLayer อีกต่อไป
  *  (P1-06: อยู่ layer แยกที่เป็น child หลังสุดของ scene.world เสมอ — ดู damage-number.ts). */
 const HITBOX_DEBUG_ZLAYER = 40;
 /** ความละเอียดของ wedge visual (จำนวนช่วงมุม) — ค่า rendering detail ล้วน ไม่ใช่ balance knob. */
 const HITBOX_ARC_SEGMENTS = 16;
+/** Wave 2 SFX (D-065): hit/crit/kill ของ caster อื่น (ไม่ใช่ own cast) เบาลงเหลือสัดส่วนนี้ — ยังให้ signal
+ *  ว่ามีการต่อสู้เกิดขึ้นรอบตัว แต่ไม่ดังเท่าของตัวเอง. ค่า cosmetic audio mix ล้วน ไม่ใช่ balance knob (§48). */
+const REMOTE_HIT_SFX_VOLUME_SCALE = 0.35;
 
 /** dependencies ที่ caller (app.ts) เชื่อมกับ net/skill layer (P1-05). */
 export interface CombatStubDeps {
@@ -222,6 +226,7 @@ export function createCombatStub(
       if (combatEnabled && attackPressed && canAttack(cooldownRemainingMs)) {
         cooldownRemainingMs = cooldownMs; // client-side predictive gate (server = authority จริง)
         player.triggerAttack(); // anticipation ทันที — ไม่รอ server (TA §6)
+        getSoundManager().playSfx("swing"); // Wave 2 SFX (D-065): ทุก local swing ได้ยินเสมอ (own action)
 
         // aim = จุดหน้า player ตามทิศ facing ที่ระยะสกิล (server ใช้ตรวจ range + ศูนย์กลาง AoE)
         const facingAngle = screenAngleForDirection(player.facing);
@@ -290,6 +295,13 @@ export function createCombatStub(
         const pos = lastMobPos.get(hit.mobId);
         if (!pos) continue; // มอนไม่รู้จัก/หายไปเกิน 1 เฟรม — ข้าม
         damageNumbers.spawn(pos, hit.dmg, { crit: hit.crit, targetId: hit.mobId });
+
+        // Wave 2 SFX (D-065): hit/crit/kill ได้ยินทุก caster เหมือน damage number (ไม่ gate ทิ้งแบบ hit
+        // stop/screen shake ด้านล่าง) — เบาลงถ้าไม่ใช่ own cast ให้ signal ว่ามีการต่อสู้รอบตัวโดยไม่หนวกหู.
+        getSoundManager().playSfx(
+          hit.killed ? "kill" : hit.crit ? "crit" : "hit",
+          isOwnCast ? 1 : REMOTE_HIT_SFX_VOLUME_SCALE,
+        );
 
         // owner report: hit stop/screen shake ต้อง trigger เฉพาะผลจาก cast ของตัวเอง — เพื่อนตีมอบตายอีกฝั่ง
         // ไม่ควรทำให้จอเราสั่น/หยุด (เลข damage number ข้างบนยังโชว์ทุก caster เหมือนเดิม, ไม่ gate).
