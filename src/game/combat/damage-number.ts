@@ -9,7 +9,7 @@
 // วางเป็น Container เดียวที่เป็นลูกของ `scene.world` ตรง ๆ (public field ของ MapSceneHandle) — ไม่ผ่าน
 // scene.addEntity/removeEntity ต่อเลข (นั่นจะ churn DepthRegistry ทุก hit) เพราะเลข damage ไม่ต้อง
 // depth-sort กับ entity อื่น (อยู่บนสุดเสมอโดยธรรมชาติ: เพิ่มเป็น child หลังสุดของ world เดียวครั้งเดียว
-// ตอนสร้าง layer). ตำแหน่งใช้ entityFootToScreen เหมือน entity อื่น (convention เดียวกัน, ดู known-traps).
+// ตอนสร้าง layer). ตำแหน่งใช้ entityFootToScreen เหมือน entity อื่น (convention เดียวกัน, ดู docs/context/engine.md).
 //
 // เกิน budget (pool เต็ม/เกิน quality tier cap) → aggregate รวมยอดต่อ target เป็นเลขก้อนเดียวทุก
 // `aggregateWindowMs` (GS §17.10, ดู game/combat/damage-aggregate.ts — pure logic แยกต่างหาก).

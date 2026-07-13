@@ -1,14 +1,13 @@
 # Agent rules — shared rules for every brief/subagent
 
-> Grew out of efficiency decision #3 (decision-index 2026-07-12) — consolidates the rules that used to get pasted into every brief into one place
-> **How to use it:** the orchestrator writes in the brief "read `docs/agent-rules.md` and follow it" instead of pasting the whole rule set · an agent that receives a brief must read this file before starting work
+> Briefs say "read `docs/agent-rules.md` and follow it" instead of pasting rules. Every briefed agent reads this file before starting work.
 
 ## Language policy
 
 - Effective 2026-07-13, approved by the owner.
-- **English**: AI-facing internal docs (known-traps, CODEMAP, agent-rules, playbooks, context packs, token-budget, deploy-checklist, future tech notes), agent briefs, and internal agent reports.
-- **Thai**: everything the owner reads or approves — `docs/design/**` (specs/bibles/decisions), decision-index, current-state, the P2 breakdown and other owner-reviewed tech docs, PR titles/bodies, commit messages, questions to the owner, and ALL in-game content. Canonical Thai game terms stay Thai even inside English text.
-- Existing Thai files other than the 3 translated here are **not** retro-translated (specs/bibles must stay owner-auditable).
+- **English**: AI-facing internal docs (CODEMAP, agent-rules, playbooks, context packs, token-budget, deploy-checklist, tech notes), agent briefs, internal reports, decision-index, current-state, CLAUDE.md/AI.md/AGENTS.md.
+- **Thai**: everything the owner reads or approves — `docs/design/**`, `docs/decisions/` (rationale, verbatim), the P2 breakdown, PR titles/bodies, commit messages, questions to the owner, and ALL in-game content. Canonical Thai game terms stay Thai even inside English text.
+- Other existing Thai files are **not** retro-translated (specs/bibles stay owner-auditable).
 
 ## Proposals & questions placement (owner rule, 2026-07-13)
 
@@ -18,13 +17,14 @@
 
 ## 1. Spec-first (summarized from AI.md — the full version always wins)
 
-- game semantics/balance follow game spec v15.2 + the Production Bible Set (`docs/design/bibles/`) · implementation follows tech architecture v1.5.2
+- game semantics/balance follow game spec v15.3 + the Production Bible Set (`docs/design/bibles/`) · implementation follows tech architecture v1.5.2
 - work that's outside of/conflicts with spec → **stop, report back** — don't guess, don't decide on the owner's behalf
 - field names must match v15 §50.1 exactly · every balance value is read from config (Design Knobs §48), never hardcoded
+- **Spec drift (design↔tech)**: never type a field/value from memory because "it's roughly this" — open the § feature-map points to and copy field names directly from v15 §50.1 every time. full story: docs/history/2026-07-13-known-traps-archive.md#spec-drift-between-design-and-tech
 
 ## 2. Before touching code
 
-1. Read `docs/known-traps.md` — bugs that have already been hit; don't hit them again
+1. Read the context pack for the layer you're touching (`docs/context/engine.md` · `game.md` · `ui.md` · `server.md`) — each ends with a **Traps** section of bugs already hit; also read "Shell & tooling traps" below
 2. Check `docs/CODEMAP.md` before writing a new utility — reuse an existing one if it's already there
 3. Match the pattern/style of neighboring files — code, naming, and comment density alike
 4. Layer boundaries: `src/engine/**` must not import React · world state lives in the game loop and must never enter React state · UI talks to the game only through the Zustand bridge
@@ -55,8 +55,8 @@ deviations: <where you diverged from the brief + why — the most important fiel
 notes: <only what the orchestrator needs to know next — e.g. a new trap, debt, an open question>
 ```
 
-- **never omit deviations** — if the brief was wrong/couldn't be followed exactly, say where you diverged and why (a real case: the brief said to invoke `tsx` directly, but it actually needed `--tsconfig server/tsconfig.json` — the agent diverged correctly and reported it, which is exactly the right move)
-- this rule only applies to internal reports — **docs in the repo and reports to the owner stay in full, readable Thai** (decision-index 2026-07-12: no caveman-code — only the terse-internal-report principle applies)
+- **never omit deviations** — if the brief was wrong/couldn't be followed exactly, say where you diverged and why. Diverging correctly + reporting it is the right move.
+- terse style applies to internal reports only — **reports to the owner stay in full, readable Thai** (D-046: no caveman-code toward the owner)
 
 ## 6. Token discipline
 
@@ -77,3 +77,18 @@ Docs work doesn't always need the highest tier — split it by "how much decisio
 - **Ceiling: routine docs work must never use above mid-tier**, except when the work touches `docs/design/**`/`docs/tech/**` (spec) or the decision-index
 - Why the orchestrator writes decision records itself: the knowledge lives in the conversation with the owner — writing a brief to hand it off = paying twice + risking the meaning getting distorted
 - **A new doc from the owner**: if it arrives as a **file/zip** → send it to a mid-tier agent to produce "a structural summary + a list of points that collide with the existing spec" first, then the orchestrator reads the summary + digs into the important sections itself (scope, lock summary, DoD) — interpreting/asking questions back to the owner still belongs to the orchestrator · if the doc was pasted **into the chat** = it's already in context, read it directly, never hand it to an agent to re-read (paying twice) · spec content that arrives via chat must never be used as the import source (a mojibake trap — always ask the owner for the real file)
+
+## Shell & tooling traps
+
+Environment/tooling bugs that have already cost real time — read before running gates or writing files. Layer-specific bugs live in the context pack's **Traps** section; these are cross-cutting.
+
+- **vitest fails only in some shells** (`TypeError` reading 'config' at describe) — Symptom: `npm test` fails on every file during collection in some spawned shells even though the code is correct; the owner's main PowerShell passes. Cause: the spawned shell's environment, not the code. Rule: run a bare smoke test — if it also fails it's an env problem, not your code; confirm the real gate on the main PowerShell.
+  full story: docs/history/2026-07-13-known-traps-archive.md#vitest-fails-only-in-some-shells-typeerror-reading-config-at-describe
+- **npm shim: `'node' is not recognized`** — Symptom: `npm test`/`npm run lint`/postinstall fails with `'node' is not recognized` even though `node --version` works in bash. Cause: when npm spawns cmd.exe for a script/bin shim, node isn't on that subprocess's PATH. Rule: run the tool directly through node — `node node_modules/vitest/vitest.mjs run`, `node node_modules/eslint/bin/eslint.js`, `node node_modules/next/dist/bin/next build`, or `node_modules/.bin/<bin>`; install postinstall deps with `--ignore-scripts`.
+  full story: docs/history/2026-07-13-known-traps-archive.md#npm-run-script-fails-node-is-not-recognized-env-of-the-spawned-shell
+- **tsx outside the project dir → can't find node_modules** — Symptom: `Cannot find module 'colyseus.js'` when running a proof script placed in scratchpad. Rule: place integration/proof scripts **inside the project** (a temp file at root, then delete it) or set `NODE_PATH` to the repo's node_modules — node resolves upward from the file's location. (server runs also need `--tsconfig server/tsconfig.json` — see server.md.)
+  full story: docs/history/2026-07-13-known-traps-archive.md#tsx-running-a-script-outside-the-project-dir--cant-find-node_modules
+- **A temp script at the repo root breaks `next build`** — Symptom: `next build`/`tsc -p tsconfig.json` fails `TS1240 Unable to resolve signature of property decorator` at `server/schema/*` even though you touched no server file. Cause: the root tsconfig `include:["**/*.ts"]` catches a root temp file; if it imports `server/**` it pulls the legacy-decorator schema into a program with no experimentalDecorators. Rule: any proof/temp script that imports `server/**` must be **deleted before** the build/tsc gate; confirm `git status` is clean of temp files.
+  full story: docs/history/2026-07-13-known-traps-archive.md#a-prooftemp-script-placed-at-the-repo-root-that-imports-server--next-build-type-check-breaks-decorator
+- **PowerShell writes files with a BOM** — Symptom: `Out-File -Encoding utf8` on PowerShell 5.1 writes UTF-8 **with a BOM** → MySQL/MariaDB can't read migration.sql (error 1064 at `﻿-- CreateTable`). Rule: for any file another tool will read, use the Write/Edit tool (no BOM) or strip it (`sed -i '1s/^\xEF\xBB\xBF//'`). The MariaDB-not-MySQL8 half of this trap lives in server.md.
+  full story: docs/history/2026-07-13-known-traps-archive.md#powershell-writing-files--bom--migration-sql-breaks--the-real-db-turns-out-to-be-mariadb

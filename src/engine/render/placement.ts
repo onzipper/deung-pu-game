@@ -1,6 +1,6 @@
 // Entity/prop placement convention — pure math, no PixiJS, no React/Next.
 // Plain TS only (invariant engine layer). แยกออกมาเป็น pure fn เพื่อ **ล็อก convention
-// ด้วยเทสต์** (กัน regression class "+0.5 ซ้ำซ้อน" — ดู docs/known-traps.md).
+// ด้วยเทสต์** (กัน regression class "+0.5 ซ้ำซ้อน" — ดู docs/context/engine.md).
 //
 // ── Convention (locked P0-04) ───────────────────────────────────────────────
 // พิกัด tile ที่ส่งเข้า entity/prop API (addEntity/moveEntity, PropSpawn.tile)

@@ -5,7 +5,7 @@
 //   ใน bundle (กัน reverse-engineer balance / มโนค่า). ไฟล์นี้ import ได้เฉพาะ server path
 //   (server/rooms/**) — **ห้าม** ให้ client glue (src/game/combat/combat-stub.ts, src/engine/**,
 //   src/ui/**) import ไฟล์นี้. ไม่มี barrel/index ที่ client ใช้ re-export ออกมา; discipline นี้
-//   บันทึกใน docs/known-traps.md ("combat formula ห้ามหลุด client bundle") — P1 monorepo ยังพิสูจน์
+//   บันทึกใน docs/context/game.md ("combat formula ห้ามหลุด client bundle") — P1 monorepo ยังพิสูจน์
 //   ด้วย import-graph test ไม่ได้ตรง ๆ จึงคุมด้วย convention + review + comment นี้.
 //
 // ── สูตร (TA §15.2, locked — ห้ามแก้ semantics โดยไม่ผ่าน owner/§59.4) ──────────────

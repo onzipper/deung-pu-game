@@ -1,0 +1,1612 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`engine config — value identity (DEFAULT_* consts) > DEFAULT_CAMERA_CONFIG 1`] = `
+{
+  "edgeMargin": 96,
+  "followLerp": 0.12,
+}
+`;
+
+exports[`engine config — value identity (DEFAULT_* consts) > DEFAULT_COMBAT_BALANCE_CONFIG 1`] = `
+{
+  "defaultMob": {
+    "atk": 6,
+    "def": 4,
+    "hp": 45,
+    "tierReduction": 1,
+  },
+  "hitTolerance": {
+    "arcPaddingDegrees": 20,
+    "pointBlankRadiusTiles": 1.4,
+    "rangePaddingTiles": 0.35,
+  },
+  "k": 50,
+  "mobs": {
+    "mushroom": {
+      "atk": 11,
+      "def": 10,
+      "hp": 130,
+      "tierReduction": 1,
+    },
+    "slime": {
+      "atk": 6,
+      "def": 4,
+      "hp": 45,
+      "tierReduction": 1,
+    },
+  },
+  "player": {
+    "atk": 12,
+    "critDmg": 0.5,
+    "critRate": 0.05,
+    "def": 8,
+    "hp": 100,
+    "penetration": 0,
+  },
+  "pvpModifier": 1,
+  "rangeToleranceFactor": 1.5,
+}
+`;
+
+exports[`engine config — value identity (DEFAULT_* consts) > DEFAULT_COMBAT_FEEL_CONFIG 1`] = `
+{
+  "damageNumber": {
+    "aggregate": {
+      "color": 16777215,
+      "fontFamily": "dmg-aggregate",
+      "fontSize": 18,
+    },
+    "aggregateWindowMs": 500,
+    "crit": {
+      "color": 16731469,
+      "fontFamily": "dmg-crit",
+      "fontSize": 24,
+    },
+    "lifetimeMs": 650,
+    "normal": {
+      "color": 16769126,
+      "fontFamily": "dmg-normal",
+      "fontSize": 16,
+    },
+    "poolSize": 400,
+    "riseDistance": 28,
+    "spawnOffsetY": -34,
+  },
+  "effectQuality": {
+    "current": "medium",
+    "tiers": {
+      "cinematic": {
+        "aggregateWindowScale": 0.5,
+        "maxConcurrentDamageNumbers": 400,
+        "shakeAmplitudeScale": 1.2,
+      },
+      "high": {
+        "aggregateWindowScale": 0.75,
+        "maxConcurrentDamageNumbers": 350,
+        "shakeAmplitudeScale": 1,
+      },
+      "low": {
+        "aggregateWindowScale": 1.5,
+        "maxConcurrentDamageNumbers": 80,
+        "shakeAmplitudeScale": 0.4,
+      },
+      "medium": {
+        "aggregateWindowScale": 1,
+        "maxConcurrentDamageNumbers": 200,
+        "shakeAmplitudeScale": 0.75,
+      },
+    },
+  },
+  "hitStop": {
+    "durationMsByLevel": [
+      0,
+      60,
+      140,
+    ],
+    "minLevelOnCrit": 1,
+    "minLevelOnKill": 1,
+    "timeScale": 0.05,
+  },
+  "screenShake": {
+    "alwaysTriggerAtLevel": 2,
+    "enabled": true,
+    "levelsByLevel": [
+      {
+        "amplitudePx": 0,
+        "durationMs": 0,
+      },
+      {
+        "amplitudePx": 4,
+        "durationMs": 160,
+      },
+      {
+        "amplitudePx": 9,
+        "durationMs": 260,
+      },
+    ],
+    "minLevelOnCrit": 1,
+    "minLevelOnKill": 1,
+  },
+}
+`;
+
+exports[`engine config — value identity (DEFAULT_* consts) > DEFAULT_COMBAT_STUB_CONFIG 1`] = `
+{
+  "attack": {
+    "arcDegrees": 120,
+    "cooldownMs": 400,
+    "radius": 1.6,
+  },
+  "deathFeedback": {
+    "durationMs": 260,
+    "minScale": 0.15,
+  },
+  "dummyDamage": {
+    "max": 14,
+    "min": 8,
+  },
+  "hitboxDebug": {
+    "alpha": 0.35,
+    "color": 16726843,
+    "durationMs": 180,
+    "enabled": true,
+  },
+}
+`;
+
+exports[`engine config — value identity (DEFAULT_* consts) > DEFAULT_DEBUG_OVERLAY_CONFIG 1`] = `
+{
+  "defaultVisible": true,
+  "depthLabelColor": 16769126,
+  "depthLabelFontSize": 10,
+  "depthLabelOffsetY": -30,
+  "pollIntervalMs": 250,
+}
+`;
+
+exports[`engine config — value identity (DEFAULT_* consts) > DEFAULT_ENGINE_CONFIG 1`] = `
+{
+  "antialias": true,
+  "autoDensity": true,
+  "backgroundAlpha": 1,
+  "backgroundColor": 1776419,
+  "camera": {
+    "edgeMargin": 96,
+    "followLerp": 0.12,
+  },
+  "combat": {
+    "attack": {
+      "arcDegrees": 120,
+      "cooldownMs": 400,
+      "radius": 1.6,
+    },
+    "deathFeedback": {
+      "durationMs": 260,
+      "minScale": 0.15,
+    },
+    "dummyDamage": {
+      "max": 14,
+      "min": 8,
+    },
+    "hitboxDebug": {
+      "alpha": 0.35,
+      "color": 16726843,
+      "durationMs": 180,
+      "enabled": true,
+    },
+  },
+  "combatBalance": {
+    "defaultMob": {
+      "atk": 6,
+      "def": 4,
+      "hp": 45,
+      "tierReduction": 1,
+    },
+    "hitTolerance": {
+      "arcPaddingDegrees": 20,
+      "pointBlankRadiusTiles": 1.4,
+      "rangePaddingTiles": 0.35,
+    },
+    "k": 50,
+    "mobs": {
+      "mushroom": {
+        "atk": 11,
+        "def": 10,
+        "hp": 130,
+        "tierReduction": 1,
+      },
+      "slime": {
+        "atk": 6,
+        "def": 4,
+        "hp": 45,
+        "tierReduction": 1,
+      },
+    },
+    "player": {
+      "atk": 12,
+      "critDmg": 0.5,
+      "critRate": 0.05,
+      "def": 8,
+      "hp": 100,
+      "penetration": 0,
+    },
+    "pvpModifier": 1,
+    "rangeToleranceFactor": 1.5,
+  },
+  "combatFeel": {
+    "damageNumber": {
+      "aggregate": {
+        "color": 16777215,
+        "fontFamily": "dmg-aggregate",
+        "fontSize": 18,
+      },
+      "aggregateWindowMs": 500,
+      "crit": {
+        "color": 16731469,
+        "fontFamily": "dmg-crit",
+        "fontSize": 24,
+      },
+      "lifetimeMs": 650,
+      "normal": {
+        "color": 16769126,
+        "fontFamily": "dmg-normal",
+        "fontSize": 16,
+      },
+      "poolSize": 400,
+      "riseDistance": 28,
+      "spawnOffsetY": -34,
+    },
+    "effectQuality": {
+      "current": "medium",
+      "tiers": {
+        "cinematic": {
+          "aggregateWindowScale": 0.5,
+          "maxConcurrentDamageNumbers": 400,
+          "shakeAmplitudeScale": 1.2,
+        },
+        "high": {
+          "aggregateWindowScale": 0.75,
+          "maxConcurrentDamageNumbers": 350,
+          "shakeAmplitudeScale": 1,
+        },
+        "low": {
+          "aggregateWindowScale": 1.5,
+          "maxConcurrentDamageNumbers": 80,
+          "shakeAmplitudeScale": 0.4,
+        },
+        "medium": {
+          "aggregateWindowScale": 1,
+          "maxConcurrentDamageNumbers": 200,
+          "shakeAmplitudeScale": 0.75,
+        },
+      },
+    },
+    "hitStop": {
+      "durationMsByLevel": [
+        0,
+        60,
+        140,
+      ],
+      "minLevelOnCrit": 1,
+      "minLevelOnKill": 1,
+      "timeScale": 0.05,
+    },
+    "screenShake": {
+      "alwaysTriggerAtLevel": 2,
+      "enabled": true,
+      "levelsByLevel": [
+        {
+          "amplitudePx": 0,
+          "durationMs": 0,
+        },
+        {
+          "amplitudePx": 4,
+          "durationMs": 160,
+        },
+        {
+          "amplitudePx": 9,
+          "durationMs": 260,
+        },
+      ],
+      "minLevelOnCrit": 1,
+      "minLevelOnKill": 1,
+    },
+  },
+  "debugOverlay": {
+    "defaultVisible": true,
+    "depthLabelColor": 16769126,
+    "depthLabelFontSize": 10,
+    "depthLabelOffsetY": -30,
+    "pollIntervalMs": 250,
+  },
+  "exitMarker": {
+    "enabled": true,
+    "fillAlpha": 0.3,
+    "fillColor": 3073728,
+    "lineAlpha": 0.9,
+    "lineColor": 9109482,
+    "lineWidth": 2,
+  },
+  "mob": {
+    "ai": {
+      "aggroRadius": {
+        "mushroom": 5,
+        "slime": 4,
+      },
+      "chaseSpeed": 2.4,
+      "deaggroRadius": 9,
+      "defaultAggroRadius": 4,
+      "leashRadius": 8,
+      "pullCap": 10,
+      "returnResetRadius": 0.75,
+      "tickHz": 10,
+    },
+    "animation": {
+      "idleFrameDuration": 450,
+      "idleFrames": 2,
+      "walkFrameDuration": 220,
+      "walkFrames": 2,
+    },
+    "defaultStyle": {
+      "accentColor": 5921370,
+      "bodyColor": 9079434,
+      "bounceAmount": 2,
+      "height": 16,
+      "shape": "slime",
+      "width": 22,
+    },
+    "hpBar": {
+      "bgColor": 3807770,
+      "borderColor": 657930,
+      "fgColor": 5226347,
+      "height": 4,
+      "offsetY": -40,
+      "width": 28,
+    },
+    "lod": {
+      "aoiRadius": 14,
+      "idleTickHz": 2,
+    },
+    "respawnDelayMs": 5000,
+    "spawn": {
+      "maxPlacementAttempts": 20,
+    },
+    "styles": {
+      "mushroom": {
+        "accentColor": 12597547,
+        "bodyColor": 15260064,
+        "bounceAmount": 2,
+        "height": 26,
+        "shape": "mushroom",
+        "width": 22,
+      },
+      "slime": {
+        "accentColor": 1776419,
+        "bodyColor": 5226347,
+        "bounceAmount": 3,
+        "height": 18,
+        "shape": "slime",
+        "width": 24,
+      },
+    },
+    "wander": {
+      "idleDurationMs": {
+        "max": 2800,
+        "min": 1200,
+      },
+      "maxStepSeconds": 0.1,
+      "speed": 1.2,
+      "walkDurationMs": {
+        "max": 1600,
+        "min": 600,
+      },
+    },
+  },
+  "movementValidation": {
+    "correctionCooldownMs": 250,
+    "maxElapsedMs": 1000,
+    "minElapsedMs": 90,
+    "speedToleranceFactor": 1.5,
+    "teleportThresholdTiles": 3,
+  },
+  "net": {
+    "channelCapacity": 8,
+    "cityHubCapacity": 80,
+    "enabled": true,
+    "interpolation": {
+      "bufferCapacity": 16,
+      "bufferMs": 120,
+      "expectedSnapshotRateHz": 12,
+      "maxExtrapolationMs": 100,
+    },
+    "partyChannelCapacity": 6,
+    "partyId": "",
+    "positionSyncHz": 12,
+    "remotePlayerAccentColor": 1793960,
+    "remotePlayerColor": 4891647,
+    "roomName": "map_room",
+    "sendEpsilon": 0.02,
+    "serverUrl": "ws://localhost:2567",
+  },
+  "pathfinding": {
+    "arrivalRadius": 0.4,
+    "clickMobPickRadius": 0.9,
+    "marker": {
+      "alpha": 0.7,
+      "color": 6742271,
+      "fadeDurationMs": 600,
+      "radius": 7,
+    },
+    "maxSearchNodes": 4096,
+    "replanOnBlock": true,
+  },
+  "persistence": {
+    "saveIntervalMs": 30000,
+  },
+  "player": {
+    "animation": {
+      "attackFrameDuration": 90,
+      "attackFrames": 3,
+      "idleFrameDuration": 500,
+      "idleFrames": 2,
+      "style": {
+        "accentColor": 14042437,
+        "bodyColor": 16765514,
+        "bodyHeight": 34,
+        "bodyWidth": 20,
+        "faceColor": 1776419,
+        "headColor": 15843965,
+        "legColor": 5917226,
+        "walkBob": 3,
+      },
+      "walkFrameDuration": 140,
+      "walkFrames": 4,
+    },
+    "maxStepSeconds": 0.1,
+    "speed": 4,
+    "style": {
+      "bodyColor": 16765514,
+      "bodyHeight": 34,
+      "bodyWidth": 20,
+      "noseColor": 1776419,
+      "noseRadius": 3,
+      "noseReach": 14,
+    },
+  },
+  "powerPreference": "high-performance",
+  "preference": "webgl",
+  "reconnect": {
+    "clientRetry": {
+      "backoffFactor": 2,
+      "baseDelayMs": 500,
+      "maxAttempts": 6,
+      "maxDelayMs": 8000,
+    },
+    "graceSeconds": 30,
+    "sessionStorageKey": "deungpu:rt-reconnect",
+  },
+  "resolution": null,
+  "stressHarness": {
+    "damageNumberRatePerSec": 300,
+    "maxSpawnPerTick": 40,
+    "syntheticMobCount": 40,
+    "toggleKeyCode": "F4",
+  },
+  "targetFps": 60,
+  "theme": {
+    "blockedColor": 8014394,
+    "defaultProp": {
+      "color": 9079434,
+      "height": 28,
+      "shape": "box",
+      "width": 20,
+    },
+    "gridLineAlpha": 0.35,
+    "gridLineColor": 6060648,
+    "props": {
+      "bush": {
+        "color": 4169055,
+        "height": 20,
+        "shape": "ellipse",
+        "width": 26,
+      },
+      "rock": {
+        "color": 9476512,
+        "height": 18,
+        "shape": "ellipse",
+        "width": 24,
+      },
+      "signpost": {
+        "color": 13214283,
+        "height": 34,
+        "shape": "box",
+        "width": 12,
+      },
+      "stump": {
+        "color": 8018490,
+        "height": 16,
+        "shape": "ellipse",
+        "width": 20,
+      },
+      "tree": {
+        "color": 3112271,
+        "height": 44,
+        "shape": "box",
+        "width": 22,
+      },
+    },
+    "tileColorA": 3820095,
+    "tileColorB": 3359290,
+  },
+  "tileSize": {
+    "height": 32,
+    "width": 64,
+  },
+  "transition": {
+    "fadeColor": 0,
+    "fadeInMs": 260,
+    "fadeOutMs": 260,
+  },
+}
+`;
+
+exports[`engine config — value identity (DEFAULT_* consts) > DEFAULT_EXIT_MARKER_CONFIG 1`] = `
+{
+  "enabled": true,
+  "fillAlpha": 0.3,
+  "fillColor": 3073728,
+  "lineAlpha": 0.9,
+  "lineColor": 9109482,
+  "lineWidth": 2,
+}
+`;
+
+exports[`engine config — value identity (DEFAULT_* consts) > DEFAULT_MOB_CONFIG 1`] = `
+{
+  "ai": {
+    "aggroRadius": {
+      "mushroom": 5,
+      "slime": 4,
+    },
+    "chaseSpeed": 2.4,
+    "deaggroRadius": 9,
+    "defaultAggroRadius": 4,
+    "leashRadius": 8,
+    "pullCap": 10,
+    "returnResetRadius": 0.75,
+    "tickHz": 10,
+  },
+  "animation": {
+    "idleFrameDuration": 450,
+    "idleFrames": 2,
+    "walkFrameDuration": 220,
+    "walkFrames": 2,
+  },
+  "defaultStyle": {
+    "accentColor": 5921370,
+    "bodyColor": 9079434,
+    "bounceAmount": 2,
+    "height": 16,
+    "shape": "slime",
+    "width": 22,
+  },
+  "hpBar": {
+    "bgColor": 3807770,
+    "borderColor": 657930,
+    "fgColor": 5226347,
+    "height": 4,
+    "offsetY": -40,
+    "width": 28,
+  },
+  "lod": {
+    "aoiRadius": 14,
+    "idleTickHz": 2,
+  },
+  "respawnDelayMs": 5000,
+  "spawn": {
+    "maxPlacementAttempts": 20,
+  },
+  "styles": {
+    "mushroom": {
+      "accentColor": 12597547,
+      "bodyColor": 15260064,
+      "bounceAmount": 2,
+      "height": 26,
+      "shape": "mushroom",
+      "width": 22,
+    },
+    "slime": {
+      "accentColor": 1776419,
+      "bodyColor": 5226347,
+      "bounceAmount": 3,
+      "height": 18,
+      "shape": "slime",
+      "width": 24,
+    },
+  },
+  "wander": {
+    "idleDurationMs": {
+      "max": 2800,
+      "min": 1200,
+    },
+    "maxStepSeconds": 0.1,
+    "speed": 1.2,
+    "walkDurationMs": {
+      "max": 1600,
+      "min": 600,
+    },
+  },
+}
+`;
+
+exports[`engine config — value identity (DEFAULT_* consts) > DEFAULT_MOVEMENT_VALIDATION_CONFIG 1`] = `
+{
+  "correctionCooldownMs": 250,
+  "maxElapsedMs": 1000,
+  "minElapsedMs": 90,
+  "speedToleranceFactor": 1.5,
+  "teleportThresholdTiles": 3,
+}
+`;
+
+exports[`engine config — value identity (DEFAULT_* consts) > DEFAULT_NET_CONFIG 1`] = `
+{
+  "channelCapacity": 8,
+  "cityHubCapacity": 80,
+  "enabled": true,
+  "interpolation": {
+    "bufferCapacity": 16,
+    "bufferMs": 120,
+    "expectedSnapshotRateHz": 12,
+    "maxExtrapolationMs": 100,
+  },
+  "partyChannelCapacity": 6,
+  "partyId": "",
+  "positionSyncHz": 12,
+  "remotePlayerAccentColor": 1793960,
+  "remotePlayerColor": 4891647,
+  "roomName": "map_room",
+  "sendEpsilon": 0.02,
+  "serverUrl": "ws://localhost:2567",
+}
+`;
+
+exports[`engine config — value identity (DEFAULT_* consts) > DEFAULT_PATHFINDING_CONFIG 1`] = `
+{
+  "arrivalRadius": 0.4,
+  "clickMobPickRadius": 0.9,
+  "marker": {
+    "alpha": 0.7,
+    "color": 6742271,
+    "fadeDurationMs": 600,
+    "radius": 7,
+  },
+  "maxSearchNodes": 4096,
+  "replanOnBlock": true,
+}
+`;
+
+exports[`engine config — value identity (DEFAULT_* consts) > DEFAULT_PERSISTENCE_CONFIG 1`] = `
+{
+  "saveIntervalMs": 30000,
+}
+`;
+
+exports[`engine config — value identity (DEFAULT_* consts) > DEFAULT_PLAYER_ANIMATION_CONFIG 1`] = `
+{
+  "attackFrameDuration": 90,
+  "attackFrames": 3,
+  "idleFrameDuration": 500,
+  "idleFrames": 2,
+  "style": {
+    "accentColor": 14042437,
+    "bodyColor": 16765514,
+    "bodyHeight": 34,
+    "bodyWidth": 20,
+    "faceColor": 1776419,
+    "headColor": 15843965,
+    "legColor": 5917226,
+    "walkBob": 3,
+  },
+  "walkFrameDuration": 140,
+  "walkFrames": 4,
+}
+`;
+
+exports[`engine config — value identity (DEFAULT_* consts) > DEFAULT_PLAYER_CONFIG 1`] = `
+{
+  "animation": {
+    "attackFrameDuration": 90,
+    "attackFrames": 3,
+    "idleFrameDuration": 500,
+    "idleFrames": 2,
+    "style": {
+      "accentColor": 14042437,
+      "bodyColor": 16765514,
+      "bodyHeight": 34,
+      "bodyWidth": 20,
+      "faceColor": 1776419,
+      "headColor": 15843965,
+      "legColor": 5917226,
+      "walkBob": 3,
+    },
+    "walkFrameDuration": 140,
+    "walkFrames": 4,
+  },
+  "maxStepSeconds": 0.1,
+  "speed": 4,
+  "style": {
+    "bodyColor": 16765514,
+    "bodyHeight": 34,
+    "bodyWidth": 20,
+    "noseColor": 1776419,
+    "noseRadius": 3,
+    "noseReach": 14,
+  },
+}
+`;
+
+exports[`engine config — value identity (DEFAULT_* consts) > DEFAULT_RECONNECT_CONFIG 1`] = `
+{
+  "clientRetry": {
+    "backoffFactor": 2,
+    "baseDelayMs": 500,
+    "maxAttempts": 6,
+    "maxDelayMs": 8000,
+  },
+  "graceSeconds": 30,
+  "sessionStorageKey": "deungpu:rt-reconnect",
+}
+`;
+
+exports[`engine config — value identity (DEFAULT_* consts) > DEFAULT_SCENE_THEME 1`] = `
+{
+  "blockedColor": 8014394,
+  "defaultProp": {
+    "color": 9079434,
+    "height": 28,
+    "shape": "box",
+    "width": 20,
+  },
+  "gridLineAlpha": 0.35,
+  "gridLineColor": 6060648,
+  "props": {
+    "bush": {
+      "color": 4169055,
+      "height": 20,
+      "shape": "ellipse",
+      "width": 26,
+    },
+    "rock": {
+      "color": 9476512,
+      "height": 18,
+      "shape": "ellipse",
+      "width": 24,
+    },
+    "signpost": {
+      "color": 13214283,
+      "height": 34,
+      "shape": "box",
+      "width": 12,
+    },
+    "stump": {
+      "color": 8018490,
+      "height": 16,
+      "shape": "ellipse",
+      "width": 20,
+    },
+    "tree": {
+      "color": 3112271,
+      "height": 44,
+      "shape": "box",
+      "width": 22,
+    },
+  },
+  "tileColorA": 3820095,
+  "tileColorB": 3359290,
+}
+`;
+
+exports[`engine config — value identity (DEFAULT_* consts) > DEFAULT_STRESS_HARNESS_CONFIG 1`] = `
+{
+  "damageNumberRatePerSec": 300,
+  "maxSpawnPerTick": 40,
+  "syntheticMobCount": 40,
+  "toggleKeyCode": "F4",
+}
+`;
+
+exports[`engine config — value identity (DEFAULT_* consts) > DEFAULT_TRANSITION_CONFIG 1`] = `
+{
+  "fadeColor": 0,
+  "fadeInMs": 260,
+  "fadeOutMs": 260,
+}
+`;
+
+exports[`engine config — value identity (factory / pure functions) > createEngineConfig() no-arg 1`] = `
+{
+  "antialias": true,
+  "autoDensity": true,
+  "backgroundAlpha": 1,
+  "backgroundColor": 1776419,
+  "camera": {
+    "edgeMargin": 96,
+    "followLerp": 0.12,
+  },
+  "combat": {
+    "attack": {
+      "arcDegrees": 120,
+      "cooldownMs": 400,
+      "radius": 1.6,
+    },
+    "deathFeedback": {
+      "durationMs": 260,
+      "minScale": 0.15,
+    },
+    "dummyDamage": {
+      "max": 14,
+      "min": 8,
+    },
+    "hitboxDebug": {
+      "alpha": 0.35,
+      "color": 16726843,
+      "durationMs": 180,
+      "enabled": true,
+    },
+  },
+  "combatBalance": {
+    "defaultMob": {
+      "atk": 6,
+      "def": 4,
+      "hp": 45,
+      "tierReduction": 1,
+    },
+    "hitTolerance": {
+      "arcPaddingDegrees": 20,
+      "pointBlankRadiusTiles": 1.4,
+      "rangePaddingTiles": 0.35,
+    },
+    "k": 50,
+    "mobs": {
+      "mushroom": {
+        "atk": 11,
+        "def": 10,
+        "hp": 130,
+        "tierReduction": 1,
+      },
+      "slime": {
+        "atk": 6,
+        "def": 4,
+        "hp": 45,
+        "tierReduction": 1,
+      },
+    },
+    "player": {
+      "atk": 12,
+      "critDmg": 0.5,
+      "critRate": 0.05,
+      "def": 8,
+      "hp": 100,
+      "penetration": 0,
+    },
+    "pvpModifier": 1,
+    "rangeToleranceFactor": 1.5,
+  },
+  "combatFeel": {
+    "damageNumber": {
+      "aggregate": {
+        "color": 16777215,
+        "fontFamily": "dmg-aggregate",
+        "fontSize": 18,
+      },
+      "aggregateWindowMs": 500,
+      "crit": {
+        "color": 16731469,
+        "fontFamily": "dmg-crit",
+        "fontSize": 24,
+      },
+      "lifetimeMs": 650,
+      "normal": {
+        "color": 16769126,
+        "fontFamily": "dmg-normal",
+        "fontSize": 16,
+      },
+      "poolSize": 400,
+      "riseDistance": 28,
+      "spawnOffsetY": -34,
+    },
+    "effectQuality": {
+      "current": "medium",
+      "tiers": {
+        "cinematic": {
+          "aggregateWindowScale": 0.5,
+          "maxConcurrentDamageNumbers": 400,
+          "shakeAmplitudeScale": 1.2,
+        },
+        "high": {
+          "aggregateWindowScale": 0.75,
+          "maxConcurrentDamageNumbers": 350,
+          "shakeAmplitudeScale": 1,
+        },
+        "low": {
+          "aggregateWindowScale": 1.5,
+          "maxConcurrentDamageNumbers": 80,
+          "shakeAmplitudeScale": 0.4,
+        },
+        "medium": {
+          "aggregateWindowScale": 1,
+          "maxConcurrentDamageNumbers": 200,
+          "shakeAmplitudeScale": 0.75,
+        },
+      },
+    },
+    "hitStop": {
+      "durationMsByLevel": [
+        0,
+        60,
+        140,
+      ],
+      "minLevelOnCrit": 1,
+      "minLevelOnKill": 1,
+      "timeScale": 0.05,
+    },
+    "screenShake": {
+      "alwaysTriggerAtLevel": 2,
+      "enabled": true,
+      "levelsByLevel": [
+        {
+          "amplitudePx": 0,
+          "durationMs": 0,
+        },
+        {
+          "amplitudePx": 4,
+          "durationMs": 160,
+        },
+        {
+          "amplitudePx": 9,
+          "durationMs": 260,
+        },
+      ],
+      "minLevelOnCrit": 1,
+      "minLevelOnKill": 1,
+    },
+  },
+  "debugOverlay": {
+    "defaultVisible": true,
+    "depthLabelColor": 16769126,
+    "depthLabelFontSize": 10,
+    "depthLabelOffsetY": -30,
+    "pollIntervalMs": 250,
+  },
+  "exitMarker": {
+    "enabled": true,
+    "fillAlpha": 0.3,
+    "fillColor": 3073728,
+    "lineAlpha": 0.9,
+    "lineColor": 9109482,
+    "lineWidth": 2,
+  },
+  "mob": {
+    "ai": {
+      "aggroRadius": {
+        "mushroom": 5,
+        "slime": 4,
+      },
+      "chaseSpeed": 2.4,
+      "deaggroRadius": 9,
+      "defaultAggroRadius": 4,
+      "leashRadius": 8,
+      "pullCap": 10,
+      "returnResetRadius": 0.75,
+      "tickHz": 10,
+    },
+    "animation": {
+      "idleFrameDuration": 450,
+      "idleFrames": 2,
+      "walkFrameDuration": 220,
+      "walkFrames": 2,
+    },
+    "defaultStyle": {
+      "accentColor": 5921370,
+      "bodyColor": 9079434,
+      "bounceAmount": 2,
+      "height": 16,
+      "shape": "slime",
+      "width": 22,
+    },
+    "hpBar": {
+      "bgColor": 3807770,
+      "borderColor": 657930,
+      "fgColor": 5226347,
+      "height": 4,
+      "offsetY": -40,
+      "width": 28,
+    },
+    "lod": {
+      "aoiRadius": 14,
+      "idleTickHz": 2,
+    },
+    "respawnDelayMs": 5000,
+    "spawn": {
+      "maxPlacementAttempts": 20,
+    },
+    "styles": {
+      "mushroom": {
+        "accentColor": 12597547,
+        "bodyColor": 15260064,
+        "bounceAmount": 2,
+        "height": 26,
+        "shape": "mushroom",
+        "width": 22,
+      },
+      "slime": {
+        "accentColor": 1776419,
+        "bodyColor": 5226347,
+        "bounceAmount": 3,
+        "height": 18,
+        "shape": "slime",
+        "width": 24,
+      },
+    },
+    "wander": {
+      "idleDurationMs": {
+        "max": 2800,
+        "min": 1200,
+      },
+      "maxStepSeconds": 0.1,
+      "speed": 1.2,
+      "walkDurationMs": {
+        "max": 1600,
+        "min": 600,
+      },
+    },
+  },
+  "movementValidation": {
+    "correctionCooldownMs": 250,
+    "maxElapsedMs": 1000,
+    "minElapsedMs": 90,
+    "speedToleranceFactor": 1.5,
+    "teleportThresholdTiles": 3,
+  },
+  "net": {
+    "channelCapacity": 8,
+    "cityHubCapacity": 80,
+    "enabled": true,
+    "interpolation": {
+      "bufferCapacity": 16,
+      "bufferMs": 120,
+      "expectedSnapshotRateHz": 12,
+      "maxExtrapolationMs": 100,
+    },
+    "partyChannelCapacity": 6,
+    "partyId": "",
+    "positionSyncHz": 12,
+    "remotePlayerAccentColor": 1793960,
+    "remotePlayerColor": 4891647,
+    "roomName": "map_room",
+    "sendEpsilon": 0.02,
+    "serverUrl": "ws://localhost:2567",
+  },
+  "pathfinding": {
+    "arrivalRadius": 0.4,
+    "clickMobPickRadius": 0.9,
+    "marker": {
+      "alpha": 0.7,
+      "color": 6742271,
+      "fadeDurationMs": 600,
+      "radius": 7,
+    },
+    "maxSearchNodes": 4096,
+    "replanOnBlock": true,
+  },
+  "persistence": {
+    "saveIntervalMs": 30000,
+  },
+  "player": {
+    "animation": {
+      "attackFrameDuration": 90,
+      "attackFrames": 3,
+      "idleFrameDuration": 500,
+      "idleFrames": 2,
+      "style": {
+        "accentColor": 14042437,
+        "bodyColor": 16765514,
+        "bodyHeight": 34,
+        "bodyWidth": 20,
+        "faceColor": 1776419,
+        "headColor": 15843965,
+        "legColor": 5917226,
+        "walkBob": 3,
+      },
+      "walkFrameDuration": 140,
+      "walkFrames": 4,
+    },
+    "maxStepSeconds": 0.1,
+    "speed": 4,
+    "style": {
+      "bodyColor": 16765514,
+      "bodyHeight": 34,
+      "bodyWidth": 20,
+      "noseColor": 1776419,
+      "noseRadius": 3,
+      "noseReach": 14,
+    },
+  },
+  "powerPreference": "high-performance",
+  "preference": "webgl",
+  "reconnect": {
+    "clientRetry": {
+      "backoffFactor": 2,
+      "baseDelayMs": 500,
+      "maxAttempts": 6,
+      "maxDelayMs": 8000,
+    },
+    "graceSeconds": 30,
+    "sessionStorageKey": "deungpu:rt-reconnect",
+  },
+  "resolution": null,
+  "stressHarness": {
+    "damageNumberRatePerSec": 300,
+    "maxSpawnPerTick": 40,
+    "syntheticMobCount": 40,
+    "toggleKeyCode": "F4",
+  },
+  "targetFps": 60,
+  "theme": {
+    "blockedColor": 8014394,
+    "defaultProp": {
+      "color": 9079434,
+      "height": 28,
+      "shape": "box",
+      "width": 20,
+    },
+    "gridLineAlpha": 0.35,
+    "gridLineColor": 6060648,
+    "props": {
+      "bush": {
+        "color": 4169055,
+        "height": 20,
+        "shape": "ellipse",
+        "width": 26,
+      },
+      "rock": {
+        "color": 9476512,
+        "height": 18,
+        "shape": "ellipse",
+        "width": 24,
+      },
+      "signpost": {
+        "color": 13214283,
+        "height": 34,
+        "shape": "box",
+        "width": 12,
+      },
+      "stump": {
+        "color": 8018490,
+        "height": 16,
+        "shape": "ellipse",
+        "width": 20,
+      },
+      "tree": {
+        "color": 3112271,
+        "height": 44,
+        "shape": "box",
+        "width": 22,
+      },
+    },
+    "tileColorA": 3820095,
+    "tileColorB": 3359290,
+  },
+  "tileSize": {
+    "height": 32,
+    "width": 64,
+  },
+  "transition": {
+    "fadeColor": 0,
+    "fadeInMs": 260,
+    "fadeOutMs": 260,
+  },
+}
+`;
+
+exports[`engine config — value identity (factory / pure functions) > createEngineConfig({}) 1`] = `
+{
+  "antialias": true,
+  "autoDensity": true,
+  "backgroundAlpha": 1,
+  "backgroundColor": 1776419,
+  "camera": {
+    "edgeMargin": 96,
+    "followLerp": 0.12,
+  },
+  "combat": {
+    "attack": {
+      "arcDegrees": 120,
+      "cooldownMs": 400,
+      "radius": 1.6,
+    },
+    "deathFeedback": {
+      "durationMs": 260,
+      "minScale": 0.15,
+    },
+    "dummyDamage": {
+      "max": 14,
+      "min": 8,
+    },
+    "hitboxDebug": {
+      "alpha": 0.35,
+      "color": 16726843,
+      "durationMs": 180,
+      "enabled": true,
+    },
+  },
+  "combatBalance": {
+    "defaultMob": {
+      "atk": 6,
+      "def": 4,
+      "hp": 45,
+      "tierReduction": 1,
+    },
+    "hitTolerance": {
+      "arcPaddingDegrees": 20,
+      "pointBlankRadiusTiles": 1.4,
+      "rangePaddingTiles": 0.35,
+    },
+    "k": 50,
+    "mobs": {
+      "mushroom": {
+        "atk": 11,
+        "def": 10,
+        "hp": 130,
+        "tierReduction": 1,
+      },
+      "slime": {
+        "atk": 6,
+        "def": 4,
+        "hp": 45,
+        "tierReduction": 1,
+      },
+    },
+    "player": {
+      "atk": 12,
+      "critDmg": 0.5,
+      "critRate": 0.05,
+      "def": 8,
+      "hp": 100,
+      "penetration": 0,
+    },
+    "pvpModifier": 1,
+    "rangeToleranceFactor": 1.5,
+  },
+  "combatFeel": {
+    "damageNumber": {
+      "aggregate": {
+        "color": 16777215,
+        "fontFamily": "dmg-aggregate",
+        "fontSize": 18,
+      },
+      "aggregateWindowMs": 500,
+      "crit": {
+        "color": 16731469,
+        "fontFamily": "dmg-crit",
+        "fontSize": 24,
+      },
+      "lifetimeMs": 650,
+      "normal": {
+        "color": 16769126,
+        "fontFamily": "dmg-normal",
+        "fontSize": 16,
+      },
+      "poolSize": 400,
+      "riseDistance": 28,
+      "spawnOffsetY": -34,
+    },
+    "effectQuality": {
+      "current": "medium",
+      "tiers": {
+        "cinematic": {
+          "aggregateWindowScale": 0.5,
+          "maxConcurrentDamageNumbers": 400,
+          "shakeAmplitudeScale": 1.2,
+        },
+        "high": {
+          "aggregateWindowScale": 0.75,
+          "maxConcurrentDamageNumbers": 350,
+          "shakeAmplitudeScale": 1,
+        },
+        "low": {
+          "aggregateWindowScale": 1.5,
+          "maxConcurrentDamageNumbers": 80,
+          "shakeAmplitudeScale": 0.4,
+        },
+        "medium": {
+          "aggregateWindowScale": 1,
+          "maxConcurrentDamageNumbers": 200,
+          "shakeAmplitudeScale": 0.75,
+        },
+      },
+    },
+    "hitStop": {
+      "durationMsByLevel": [
+        0,
+        60,
+        140,
+      ],
+      "minLevelOnCrit": 1,
+      "minLevelOnKill": 1,
+      "timeScale": 0.05,
+    },
+    "screenShake": {
+      "alwaysTriggerAtLevel": 2,
+      "enabled": true,
+      "levelsByLevel": [
+        {
+          "amplitudePx": 0,
+          "durationMs": 0,
+        },
+        {
+          "amplitudePx": 4,
+          "durationMs": 160,
+        },
+        {
+          "amplitudePx": 9,
+          "durationMs": 260,
+        },
+      ],
+      "minLevelOnCrit": 1,
+      "minLevelOnKill": 1,
+    },
+  },
+  "debugOverlay": {
+    "defaultVisible": true,
+    "depthLabelColor": 16769126,
+    "depthLabelFontSize": 10,
+    "depthLabelOffsetY": -30,
+    "pollIntervalMs": 250,
+  },
+  "exitMarker": {
+    "enabled": true,
+    "fillAlpha": 0.3,
+    "fillColor": 3073728,
+    "lineAlpha": 0.9,
+    "lineColor": 9109482,
+    "lineWidth": 2,
+  },
+  "mob": {
+    "ai": {
+      "aggroRadius": {
+        "mushroom": 5,
+        "slime": 4,
+      },
+      "chaseSpeed": 2.4,
+      "deaggroRadius": 9,
+      "defaultAggroRadius": 4,
+      "leashRadius": 8,
+      "pullCap": 10,
+      "returnResetRadius": 0.75,
+      "tickHz": 10,
+    },
+    "animation": {
+      "idleFrameDuration": 450,
+      "idleFrames": 2,
+      "walkFrameDuration": 220,
+      "walkFrames": 2,
+    },
+    "defaultStyle": {
+      "accentColor": 5921370,
+      "bodyColor": 9079434,
+      "bounceAmount": 2,
+      "height": 16,
+      "shape": "slime",
+      "width": 22,
+    },
+    "hpBar": {
+      "bgColor": 3807770,
+      "borderColor": 657930,
+      "fgColor": 5226347,
+      "height": 4,
+      "offsetY": -40,
+      "width": 28,
+    },
+    "lod": {
+      "aoiRadius": 14,
+      "idleTickHz": 2,
+    },
+    "respawnDelayMs": 5000,
+    "spawn": {
+      "maxPlacementAttempts": 20,
+    },
+    "styles": {
+      "mushroom": {
+        "accentColor": 12597547,
+        "bodyColor": 15260064,
+        "bounceAmount": 2,
+        "height": 26,
+        "shape": "mushroom",
+        "width": 22,
+      },
+      "slime": {
+        "accentColor": 1776419,
+        "bodyColor": 5226347,
+        "bounceAmount": 3,
+        "height": 18,
+        "shape": "slime",
+        "width": 24,
+      },
+    },
+    "wander": {
+      "idleDurationMs": {
+        "max": 2800,
+        "min": 1200,
+      },
+      "maxStepSeconds": 0.1,
+      "speed": 1.2,
+      "walkDurationMs": {
+        "max": 1600,
+        "min": 600,
+      },
+    },
+  },
+  "movementValidation": {
+    "correctionCooldownMs": 250,
+    "maxElapsedMs": 1000,
+    "minElapsedMs": 90,
+    "speedToleranceFactor": 1.5,
+    "teleportThresholdTiles": 3,
+  },
+  "net": {
+    "channelCapacity": 8,
+    "cityHubCapacity": 80,
+    "enabled": true,
+    "interpolation": {
+      "bufferCapacity": 16,
+      "bufferMs": 120,
+      "expectedSnapshotRateHz": 12,
+      "maxExtrapolationMs": 100,
+    },
+    "partyChannelCapacity": 6,
+    "partyId": "",
+    "positionSyncHz": 12,
+    "remotePlayerAccentColor": 1793960,
+    "remotePlayerColor": 4891647,
+    "roomName": "map_room",
+    "sendEpsilon": 0.02,
+    "serverUrl": "ws://localhost:2567",
+  },
+  "pathfinding": {
+    "arrivalRadius": 0.4,
+    "clickMobPickRadius": 0.9,
+    "marker": {
+      "alpha": 0.7,
+      "color": 6742271,
+      "fadeDurationMs": 600,
+      "radius": 7,
+    },
+    "maxSearchNodes": 4096,
+    "replanOnBlock": true,
+  },
+  "persistence": {
+    "saveIntervalMs": 30000,
+  },
+  "player": {
+    "animation": {
+      "attackFrameDuration": 90,
+      "attackFrames": 3,
+      "idleFrameDuration": 500,
+      "idleFrames": 2,
+      "style": {
+        "accentColor": 14042437,
+        "bodyColor": 16765514,
+        "bodyHeight": 34,
+        "bodyWidth": 20,
+        "faceColor": 1776419,
+        "headColor": 15843965,
+        "legColor": 5917226,
+        "walkBob": 3,
+      },
+      "walkFrameDuration": 140,
+      "walkFrames": 4,
+    },
+    "maxStepSeconds": 0.1,
+    "speed": 4,
+    "style": {
+      "bodyColor": 16765514,
+      "bodyHeight": 34,
+      "bodyWidth": 20,
+      "noseColor": 1776419,
+      "noseRadius": 3,
+      "noseReach": 14,
+    },
+  },
+  "powerPreference": "high-performance",
+  "preference": "webgl",
+  "reconnect": {
+    "clientRetry": {
+      "backoffFactor": 2,
+      "baseDelayMs": 500,
+      "maxAttempts": 6,
+      "maxDelayMs": 8000,
+    },
+    "graceSeconds": 30,
+    "sessionStorageKey": "deungpu:rt-reconnect",
+  },
+  "resolution": null,
+  "stressHarness": {
+    "damageNumberRatePerSec": 300,
+    "maxSpawnPerTick": 40,
+    "syntheticMobCount": 40,
+    "toggleKeyCode": "F4",
+  },
+  "targetFps": 60,
+  "theme": {
+    "blockedColor": 8014394,
+    "defaultProp": {
+      "color": 9079434,
+      "height": 28,
+      "shape": "box",
+      "width": 20,
+    },
+    "gridLineAlpha": 0.35,
+    "gridLineColor": 6060648,
+    "props": {
+      "bush": {
+        "color": 4169055,
+        "height": 20,
+        "shape": "ellipse",
+        "width": 26,
+      },
+      "rock": {
+        "color": 9476512,
+        "height": 18,
+        "shape": "ellipse",
+        "width": 24,
+      },
+      "signpost": {
+        "color": 13214283,
+        "height": 34,
+        "shape": "box",
+        "width": 12,
+      },
+      "stump": {
+        "color": 8018490,
+        "height": 16,
+        "shape": "ellipse",
+        "width": 20,
+      },
+      "tree": {
+        "color": 3112271,
+        "height": 44,
+        "shape": "box",
+        "width": 22,
+      },
+    },
+    "tileColorA": 3820095,
+    "tileColorB": 3359290,
+  },
+  "tileSize": {
+    "height": 32,
+    "width": 64,
+  },
+  "transition": {
+    "fadeColor": 0,
+    "fadeInMs": 260,
+    "fadeOutMs": 260,
+  },
+}
+`;
+
+exports[`engine config — value identity (factory / pure functions) > resolveResolution representative inputs 1`] = `
+{
+  "autoNoDpr": 1,
+  "autoWithDpr": 2,
+  "explicitResolution": 1.5,
+}
+`;
+
+exports[`engine config — value identity (factory / pure functions) > soloChannelCapacityForZone for every MapZoneType 1`] = `
+{
+  "field": 8,
+  "safe": 80,
+}
+`;

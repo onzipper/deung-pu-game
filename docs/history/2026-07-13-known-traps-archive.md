@@ -1,3 +1,7 @@
+<!-- ARCHIVE (2026-07-13): verbatim snapshot of docs/known-traps.md as of 2026-07-13. -->
+<!-- Full war stories preserved verbatim below; each `## ` heading is a stable anchor. -->
+<!-- The condensed, per-layer rules now live in docs/context/*.md + docs/agent-rules.md. -->
+
 # Known traps
 
 Bug classes that have actually cost real debugging time — read before touching code · add immediately when you hit a new bug (in the same commit as the fix)
