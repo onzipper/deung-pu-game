@@ -45,6 +45,14 @@ Delta:
 6. **E1 บอส Map 1** = `boss_map1_resonant_guardian` / "ผู้พิทักษ์เสียงสะท้อน" / lv8 / P2B (Canonical ID ล็อกหลัง save data; `boss_m1_boar_pot` = legacy placeholder)
 7. **E3 monster combat stat** = OPEN — Pending Design Item "Map 1 Monster Combat Stat Table" (blocks: production tuning + final combat QA; doesNotBlock: schema/loader/placeholder/test)
 
+## 0.0.3 Amendment Log — v15.3 (2026-07-13) — Tab Policy: AFK ค้างเต็มที่ (D-056)
+
+Owner เคาะปรับทิศ tab policy 2026-07-13. decision record = `docs/decisions/D-056-tab-policy-afk.md` (Locked). checkpoint นี้บันทึกเฉพาะจุด supersede — **additive, เนื้อเดิมคงไว้เพื่อ history**.
+
+Delta:
+
+1. **§59.1.2 ข้อ 3, 5, 6, 7** — **SUPERSEDED โดย §59.1.3 (D-056)**: ยกเลิก forced disconnect ทั้งชุด (field 15/30 countdown, city 60s, party 120–180s window, โหมด "ปักหลัก"). คงข้อ 1, 2, 4 (backgrounding ≠ bot, hidden→pause input/server ถือ entity, combat ยังรับ damage ไม่ auto-cast). ตายคาสนาม = Option A (ไม่มี idle de-aggro). knob: `afkHardCapHours=null` (inert), `idleIndicatorSec=60`, reconnect grace 30s ไม่แตะ. Party share ตัดเมื่อยืนนิ่งเกินเกณฑ์ AFK (contribution-based, P2B)
+
 ---
 
 ## 0.1 v10 Audio Update
@@ -4051,11 +4059,21 @@ Tech impact:
 
 1. **หลักการ: backgrounding ≠ เปิด bot** — พับจอ/สลับแท็บไม่ใช่ช่องทาง farm; automation ต้องกด Online Bot ชัดเจนเท่านั้น (§59.2)
 2. Tab hidden → client หยุดส่ง active input; server ยังถือ character เป็น entity ในโลก
-3. **ในสนาม (field)**: ไม่อยู่ combat ครบ 15s → เริ่ม safe-disconnect countdown → ครบ 30s ยังไม่ combat → disconnect + save ตำแหน่ง safe-valid (login กลับ safe camp ถ้าตำแหน่งไม่ valid) — ไม่ทิ้ง ghost 30s แบบปิดแท็บ เพราะเป็นการออกแบบ deliberate ไม่ใช่หลุด
-4. **ระหว่าง combat**: ตัวละครยังรับ damage ตามปกติ ไม่ auto-cast; disconnect หลัง combat จบ/ตาย
-5. **ในเมือง/safe camp**: disconnect gracefully หลัง hidden 60s
-6. ตัวเลข 15/30/60 = **draft knobs PENDING tune** (Q5.3) · สมาชิก party ที่ยัง active อยู่ได้ **extended window ~120–180s** เป็น knob (Q5.2)
-7. **โหมด "ปักหลัก"** (Q5.4): toggle ชัดเจนสำหรับยืนโชว์ตัวในเมือง/จุดปลอดภัยแบบออนไลน์ค้างไว้ โดยไม่มี automation ใดๆ — ตอบโจทย์ social/show-off โดยไม่ละเมิดเส้น bot
+3. ~~**ในสนาม (field)**: ไม่อยู่ combat ครบ 15s → เริ่ม safe-disconnect countdown → ครบ 30s ยังไม่ combat → disconnect + save~~ **SUPERSEDED โดย D-056 (2026-07-13) → §59.1.3** — ไม่มี forced disconnect ในสนามอีกต่อไป
+4. **ระหว่าง combat**: ตัวละครยังรับ damage ตามปกติ ไม่ auto-cast (**คงไว้ตาม D-056** เพื่อกัน exploit หนีตายด้วยการ AFK)
+5. ~~**ในเมือง/safe camp**: disconnect gracefully หลัง hidden 60s~~ **SUPERSEDED โดย D-056** — ไม่มี disconnect ในเมือง
+6. ~~ตัวเลข 15/30/60 draft knobs · party extended window ~120–180s~~ **SUPERSEDED โดย D-056** — knob ชุด disconnect ถูกยกเลิก
+7. ~~**โหมด "ปักหลัก"** toggle~~ **SUPERSEDED โดย D-056** — ตัดทิ้ง; ใช้ป้าย AFK อัตโนมัติแทน
+
+### 59.1.3 Amendment (v15.3, 2026-07-13) — AFK ค้างเต็มที่ (D-056)
+
+**Supersede §59.1.2 ข้อ 3, 5, 6, 7.** owner เคาะ 2026-07-13 (verbatim): "อยากให้มันมีการ AFK ได้... ขอแค่เขาไม่ปิด tab หรือ ไม่ปิด บราวเซอร์ ไม่อยากให้มีการหยุดทำงานอะไรเลย"
+
+1. **ตราบใดไม่ปิดแท็บ/เบราว์เซอร์ → ตัวละครค้างในโลกได้เต็มที่ ไม่มี forced disconnect ที่ไหนเลย** (ทั้งสนาม/เมือง/party). คงข้อ 1–2 และ **ข้อ 4** (combat ยังรับ damage, ไม่ auto-cast) ของ §59.1.2 ไว้
+2. **ตายคาสนาม = Option A**: ไม่มี idle de-aggro — AFK กลาง combat มอนตีต่อ ตายได้ทุกโซน = ความเสี่ยงของผู้เล่นเอง
+3. `afkHardCapHours = null` (P2 ไม่ cap; เดินสาย knob inert, ทบทวนก่อน open alpha) · `idleIndicatorSec = 60` (ป้าย AFK อัตโนมัติ) · reconnect grace 30s (§59.1) ไม่แตะ
+4. **มือถือ = best-effort** — OS freeze/kill แท็บพื้นหลังเอง คุมไม่ได้; หลุด → grace 30s → มี **ข้อความอธิบายข้อจำกัด OS**
+5. **Party share (P2B)**: ยืนนิ่งเกิน `idleIndicatorSec` = ไม่รับ EXP/loot share (contribution-based); ระบบช่วยเล่นที่สร้าง contribution จริง = ไม่ตัด (owner verbatim: "หากเปิด BOT ช่วยไม่ตัด แต่ยืนเฉยๆ ตัดส่วนแบ่งครับ")
 
 ---
 
