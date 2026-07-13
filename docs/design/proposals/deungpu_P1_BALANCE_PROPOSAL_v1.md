@@ -79,6 +79,8 @@ DMG = ATK × 2.2 × factor(DEF) · ยังไม่รวม crit
 
 ## 2.1 ผู้เล่น นักดาบ level 1–10 (10 stats — TA §15.1)
 
+> ✅ **LOCKED เป็น production 2026-07-13 (D-055)** — ตาราง Core §2.1 (HP/ATK/DEF/Speed lv1–10) + Secondary ถูกล็อกเป็น player baseline production คู่กับ E3 monster stats (ปิดสถานะ balance PENDING ของ D-019 เฉพาะส่วนนี้) · monster HP ใน D-055 tune บน baseline นี้ — ถ้าจะแก้ต้อง rescale monster คู่กัน · ไฟล์นี้ยังเป็น proposal สำหรับส่วนอื่นที่ยังไม่ล็อก (เช่น skill tables) — อย่าลบ
+
 **Core (โชว์ตั้งแต่ต้น — progressive reveal §15.1):**
 
 | lv | HP | ATK | DEF | Speed* |
