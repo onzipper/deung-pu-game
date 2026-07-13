@@ -12,8 +12,13 @@ import { join } from "node:path";
 
 const ROOT = join(__dirname, "..");
 
+// Normalize CRLF→LF before measuring: git autocrlf on Windows re-materializes
+// checked-out files with CRLF, inflating on-disk size past the cap while the
+// committed content (and its token cost — what the budget actually models) is
+// unchanged. Caps are content budgets, not disk budgets.
 function bytesOf(relPath: string): number {
-  return Buffer.byteLength(readFileSync(join(ROOT, relPath)));
+  const raw = readFileSync(join(ROOT, relPath), "utf8");
+  return Buffer.byteLength(raw.replace(/\r\n/g, "\n"));
 }
 
 function textOf(relPath: string): string {
