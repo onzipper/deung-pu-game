@@ -47,6 +47,7 @@ import type {
 const INFO_A: EngineDebugInfo = {
   fps: 60,
   playerTile: { tx: 1, ty: 2 },
+  facing: "S",
   pointerTile: null,
   entityCount: 3,
   net: IDLE_NET_DEBUG_INFO,
@@ -55,6 +56,7 @@ const INFO_A: EngineDebugInfo = {
 const INFO_B: EngineDebugInfo = {
   fps: 30,
   playerTile: { tx: 5, ty: 5 },
+  facing: "N",
   pointerTile: { tx: 5, ty: 5 },
   entityCount: 7,
   net: IDLE_NET_DEBUG_INFO,

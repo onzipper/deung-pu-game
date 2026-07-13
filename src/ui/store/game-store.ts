@@ -50,6 +50,17 @@ export interface SkillSlotView {
   isPrimary: boolean;
 }
 
+/**
+ * Minimap (§8.4) mob blip — ตำแหน่ง (tile) + kind สำหรับเลือกสี (boss=แดง/elite=ส้ม/normal=จุดเล็ก). ตรงกับ
+ * shape ที่ `src/game/mob/manager.ts` (`MobBlip`) คืนมา — ไม่ import type ข้าม layer (ui ห้าม import game
+ * โดยตรง, ui.md contract) จึงประกาศ interface คู่แฝดไว้ที่นี่ (structural type เข้ากันได้).
+ */
+export interface MinimapBlip {
+  tx: number;
+  ty: number;
+  kind: "normal" | "elite" | "boss";
+}
+
 /** HUD state ที่ UI ทุกจอ subscribe ได้ — เพิ่ม slice ใหม่ที่นี่เมื่อ UI ตัวถัดไป (inventory/shop/...) ต้องใช้ */
 export interface HudState {
   /** snapshot ล่าสุดของ debug overlay (P0-11) — null ก่อน engine publish ครั้งแรก */
@@ -130,6 +141,11 @@ export interface HudState {
    * [] ก่อน engine publish ครั้งแรก. SkillBar อ่าน + animate radial เอง (RAF จาก cooldownReadyAtMs).
    */
   skillSlots: SkillSlotView[];
+  /**
+   * Minimap (§8.4): มอนที่ยัง alive ตอนนี้ (danger/elite/normal blips) — publish throttled cadence เดียวกับ
+   * debugInfo (~4Hz, app.ts hudPublisher) ไม่ใช่ทุก frame. [] ก่อน engine publish ครั้งแรก/ไม่มีมอน.
+   */
+  blips: MinimapBlip[];
 }
 
 export const INITIAL_HUD_STATE: HudState = {
@@ -152,6 +168,7 @@ export const INITIAL_HUD_STATE: HudState = {
   playerDead: false,
   deathAtMs: null,
   skillSlots: [],
+  blips: [],
 };
 
 /** store singleton ตัวเดียวทั้งแอป — engine publish เข้านี่, React component subscribe ผ่าน useGameStore */
@@ -342,6 +359,9 @@ export function setSkillSlots(slots: SkillSlotView[]): void {
 
 /** typed selector — skill hotbar slots (A3) */
 export const selectSkillSlots = (state: HudState): SkillSlotView[] => state.skillSlots;
+
+/** typed selector — minimap blips ล่าสุด (§8.4) */
+export const selectBlips = (state: HudState): MinimapBlip[] => state.blips;
 
 export interface HudPublisher {
   /**

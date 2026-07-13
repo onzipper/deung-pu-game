@@ -33,6 +33,7 @@ import { SettingsPanel } from "@/ui/panels/settings/SettingsPanel";
 import { applyEffectQualityPreferences } from "@/ui/panels/settings/settings-view";
 import { createEffectQualityPreferencesStore } from "@/ui/panels/settings/effect-quality-preference";
 import { StatusCluster } from "@/ui/panels/status/StatusCluster";
+import { Minimap } from "@/ui/panels/minimap/Minimap";
 import { DeathToast } from "@/ui/panels/status/DeathToast";
 import { SkillBar } from "@/ui/panels/skillbar/SkillBar";
 import { MobileControls } from "@/ui/panels/mobile/MobileControls";
@@ -153,6 +154,9 @@ export function GameCanvas() {
           <HelpPanel />
           {/* E3 (P2 UI §8.2): player status cluster (level + HP bar + EXP bar + low-HP pulse) top-left */}
           <StatusCluster />
+          {/* §8.4: minimap top-right — top-12 (แทน top-4 ที่ brief แนะนำ) กันชนกับปุ่ม DebugOverlay
+              ที่ยุบอยู่ (right-2 top-2 z-50); z-30 = ต่ำกว่า DebugOverlay ตอนขยาย (F3) ตั้งใจ */}
+          <Minimap />
           {/* E4 (§13): death toast สั้น ๆ ตอนตาย (respawn instant ตามมาทันที, owner ruling) */}
           <DeathToast />
           {/* A3 (P2 UI §8.3): แถบสกิล hotbar (S1-S4) — desktop (Digit1-4/คลิก) + มือถือ (แตะช่อง) */}
