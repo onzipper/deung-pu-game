@@ -36,6 +36,7 @@
 - `src/app/api/` — auth endpoints (guest/register/login/upgrade/session/rt-token) + characters (list/create)
 - `src/ui/` — GameCanvas (mount bridge), DebugOverlay (F3), debug-overlay-logic (pure reducer)
 - `src/ui/store/` — Zustand vanilla store bridge (HUD state, engine→UI one-way, no React import in the vanilla file)
+- `src/ui/panels/` — shared panel/window framework (P2-preface, DG spec §13): panel-stack (pure z-order reducer) + PanelContext (Provider/`usePanelManager`, blocks keydown from reaching the engine while a panel is open) + Panel (presentational window, desktop float / mobile bottom sheet) + use-media-query. Consumed by inventory (P2-07) / shop (P2-11) / help-hint (P2-12) — no real panel content lives here yet.
 
 ## server (Colyseus realtime process, separate from Next — L4)
 

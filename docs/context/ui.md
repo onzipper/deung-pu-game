@@ -14,6 +14,7 @@ Scope: `src/ui/**`, `src/app/**` (+ tests) · Read this pack + the files in your
 - `src/ui/store/use-game-store.ts` — "use client" hook wrapping the vanilla store
 - `src/ui/DebugOverlay.tsx` — F3 overlay via `useGameStore(selectDebugInfo)`
 - `src/ui/debug-overlay-logic.ts` — pure UI/toggle reducer (not part of the bridge)
+- `src/ui/panels/` — shared panel/window framework: wrap the tree in `<PanelProvider>`, call `usePanelManager().openPanel(id)`/`closePanel(id)` anywhere, render `<Panel id title>children</Panel>`. Panel open/closed state is **plain React Context + useReducer, not the Zustand bridge** — it's UI-only (never engine→UI snapshot data), see the rationale comment in the PanelContext source. Handles desktop-float/mobile-bottom-sheet (DG spec §13), Esc-to-close, z-order, and blocks keydown from reaching the engine's keyboard tracker while any panel is open (capture-phase stopPropagation on window). Inventory (P2-07) / shop (P2-11) / help-hint (P2-12) build on this — no real panel content lives here yet.
 - `src/app/hub/page.tsx` — Game Hub route (auth/upgrade panels, character grid) — see the router.refresh trap
 - `src/app/game/boot-gate.ts` — pure DI entry gate (Storage §5), reads fresh character/map before mount
 
