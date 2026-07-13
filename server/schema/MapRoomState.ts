@@ -12,6 +12,13 @@ export class PlayerState extends Schema {
   @type("number") ty = 0;
   @type("string") direction = "S";
   @type("string") anim = "idle";
+  /**
+   * NAMEPLATES: ชื่อตัวละครที่แสดงเหนือหัว (local + remote). onJoin ตั้งจาก character.name (display name §3.3);
+   * guest/ไม่มีตัวละคร (characterId null) → default "ผู้เล่น" (ไม่ leak id/sessionId). Colyseus auto-sync ให้ทุก
+   * client. **ไม่ใช่ skill schema (v15 §50.1) / DB schema** — เป็น room-state/serialization field ล้วน (net foundation);
+   * client ไม่เคยส่งค่านี้ขึ้น server (server-authoritative). field ต้องตรง PlayerSnapshot.name (net-protocol.ts).
+   */
+  @type("string") name = "";
   /** partyId (P1-08) — "" = solo. สมาชิก party เดียวกันใน room นี้ share ค่าเดียวกัน (filterBy). */
   @type("string") partyId = "";
   /**

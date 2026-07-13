@@ -23,6 +23,7 @@ const snap = (over: Partial<PlayerSnapshot> = {}): PlayerSnapshot => ({
   direction: "S",
   anim: "idle",
   partyId: "",
+  name: "",
   ...over,
 });
 

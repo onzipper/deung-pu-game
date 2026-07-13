@@ -358,6 +358,12 @@ export interface PlayerSnapshot {
   /** partyId ของผู้เล่นนี้ (P1-08) — "" = solo. client ใช้รู้ว่าใครอยู่ party เดียวกัน (สีต่างใน P2). */
   partyId: string;
   /**
+   * NAMEPLATES: ชื่อตัวละคร (display name §3.3) ที่ server ตั้งจาก character.name ตอน onJoin — client แสดง
+   * ป้ายชื่อเหนือหัว (local + remote). guest/ไม่มีตัวละคร → default "ผู้เล่น" (server ไม่ leak id/sessionId).
+   * client ไม่เคยส่งค่านี้ขึ้น server (server-authoritative). ค่าว่าง "" = ก่อน server init → client ซ่อนป้าย.
+   */
+  name: string;
+  /**
    * P2-13 (D-056): server ตั้ง true เมื่อผู้เล่นนี้ idle ครบ `idleIndicatorSec` (ไม่มี movement/cast) →
    * client แสดงป้าย "AFK" เหนือหัวให้ผู้เล่นอื่นเห็น (โปร่งใส, ไม่มี disconnect). optional (default false) —
    * display-only, client ไม่เคยส่งค่านี้ขึ้น server (server-authoritative จาก input tracker).

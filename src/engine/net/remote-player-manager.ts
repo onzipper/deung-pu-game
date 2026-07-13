@@ -22,7 +22,12 @@ import type { EngineConfig } from "@/engine/config";
 import type { TilePoint } from "@/engine/iso/coords";
 import type { MapSceneHandle } from "@/engine/render/scene";
 import type { PlayerSnapshot } from "@/shared/net-protocol";
-import { createAfkLabel, updateAfkLabel } from "@/engine/render/afk-label";
+import { afkLabelOffsetY, createAfkLabel, updateAfkLabel } from "@/engine/render/afk-label";
+import {
+  createNameLabel,
+  setNameLabelText,
+  updateNameLabel,
+} from "@/engine/render/name-label";
 import {
   createInterpolationBuffer,
   type InterpolationBuffer,
@@ -72,6 +77,10 @@ interface RemoteEntry {
   label: Text;
   /** P2-13: AFK flag ล่าสุดจาก snapshot (discrete, ไม่ interpolate ผ่าน buffer) */
   afk: boolean;
+  /** NAMEPLATES: ป้ายชื่อผู้เล่น (child ของ animator.view) — destroy พร้อม view ตอน removeEntity. */
+  nameLabel: Text;
+  /** NAMEPLATES: ชื่อล่าสุดจาก snapshot (set บนป้ายเมื่อเปลี่ยน — ไม่ redraw ถ้าเท่าเดิม) */
+  name: string;
 }
 
 export interface RemotePlayerManager {
@@ -129,6 +138,9 @@ export function createRemotePlayerManager(
     bodyColor: config.net.remotePlayerColor,
     accentColor: config.net.remotePlayerAccentColor,
   };
+  // NAMEPLATES: offsetY ของ afk-label (ฐานคำนวณป้ายชื่อ) — คงที่ต่อ remote (body geometry เดียวกันทุกคน).
+  const remoteAfkOffsetY = afkLabelOffsetY(remoteStyle.bodyHeight, remoteStyle.walkBob);
+  const nameplateCfg = config.player.nameplate;
   const remotes = new Map<string, RemoteEntry>();
 
   const entityId = (sessionId: string): string => REMOTE_ID_PREFIX + sessionId;
@@ -156,6 +168,10 @@ export function createRemotePlayerManager(
     // P2-13 (D-056): ป้าย AFK เป็น child ของ sprite view (Sprite = Container) → ลอยตามหัว + destroy พร้อม view.
     const label = createAfkLabel(remoteStyle.bodyHeight, remoteStyle.walkBob);
     animator.view.addChild(label);
+    // NAMEPLATES: ป้ายชื่อ (child ของ view เช่นกัน) — ชื่อจาก snapshot ที่ sync (PlayerState.name). ว่าง = ซ่อน.
+    const nameLabel = createNameLabel(remoteAfkOffsetY, nameplateCfg);
+    setNameLabelText(nameLabel, snap.name);
+    animator.view.addChild(nameLabel);
     const buffer = newBuffer();
     // seed snapshot แรก ณ ตำแหน่ง spawn → entity เพิ่งเกิดจะ clamp ที่นี่ (ไม่ลากจากที่ไกล)
     buffer.push(now(), snap.tx, snap.ty, snap.direction, snap.anim);
@@ -168,6 +184,8 @@ export function createRemotePlayerManager(
       attack: createRemoteAttackState(),
       label,
       afk: snap.isAfk === true,
+      nameLabel,
+      name: snap.name,
     });
   };
 
@@ -181,6 +199,11 @@ export function createRemotePlayerManager(
     entry.buffer.push(now(), snap.tx, snap.ty, snap.direction, snap.anim);
     // P2-13: AFK = discrete flag (ไม่ interpolate) → เก็บค่าล่าสุดตรง ๆ; render loop toggle ป้ายจากค่านี้.
     entry.afk = snap.isAfk === true;
+    // NAMEPLATES: ชื่อ = discrete; อัปเดตป้ายเฉพาะเมื่อเปลี่ยน (ปกติคงที่ทั้ง session — ไม่ redraw ฟรี ๆ).
+    if (snap.name !== entry.name) {
+      entry.name = snap.name;
+      setNameLabelText(entry.nameLabel, snap.name);
+    }
   };
 
   const remove = (sessionId: string): void => {
@@ -240,6 +263,8 @@ export function createRemotePlayerManager(
         entry.animator.setState(isAttacking ? "attack" : entry.anim, entry.facing);
         // P2-13 (D-056): toggle ป้าย AFK + counter-flip กัน mirror (หลัง setState — view.scale.x อาจเพิ่ง flip)
         updateAfkLabel(entry.label, entry.animator.view, entry.afk);
+        // NAMEPLATES: counter-flip ป้ายชื่อกัน mirror (visible คุมด้วย setNameLabelText แล้ว)
+        updateNameLabel(entry.nameLabel, entry.animator.view);
         entry.animator.update(dtSeconds);
       }
     },

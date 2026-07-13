@@ -116,6 +116,26 @@ export async function loadCharacterProgress(
 }
 
 /**
+ * NAMEPLATES: โหลด display name ของตัวละคร (character.name §3.3) ตอน join → PlayerState.name (ป้ายเหนือหัว).
+ * best-effort — DB ล่ม/ไม่มี row → null (caller fallback default "ผู้เล่น", ไม่ leak id).
+ */
+export async function loadCharacterName(
+  characterId: string,
+): Promise<string | null> {
+  if (!dbConfigured()) return null;
+  try {
+    const row = await getPrisma().character.findUnique({
+      where: { id: characterId },
+      select: { name: true },
+    });
+    return row ? row.name : null;
+  } catch (err) {
+    warnDbError("name-load", err);
+    return null;
+  }
+}
+
+/**
  * P2-09: persist level/exp หลังได้ EXP/level-up (best-effort — save ล้ม = เกมเดินต่อ, persist รอบหน้า).
  * ต่างจาก ledger (strict): EXP เป็น progression state แบบ character-state — DB ล่มไม่ break combat.
  */

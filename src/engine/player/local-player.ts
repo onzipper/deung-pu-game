@@ -39,7 +39,12 @@ import {
   createSpriteAnimator,
   type SpriteAnimator,
 } from "@/engine/animation/animator";
-import { createAfkLabel, updateAfkLabel } from "@/engine/render/afk-label";
+import { afkLabelOffsetY, createAfkLabel, updateAfkLabel } from "@/engine/render/afk-label";
+import {
+  createNameLabel,
+  setNameLabelText,
+  updateNameLabel,
+} from "@/engine/render/name-label";
 
 /** anim ที่ player ต้องมีครบใน atlas ก่อนใช้แทน placeholder (attack ล็อกทับ walk/idle ตอนโจมตี). */
 const PLAYER_REQUIRED_ANIMS = ["idle", "walk", "attack"] as const;
@@ -122,6 +127,11 @@ export interface LocalPlayerHandle {
    * caller (app.ts) เรียกจาก net onSelfAfkChange. display-only, ไม่กระทบ input/movement.
    */
   setAfk(isAfk: boolean): void;
+  /**
+   * NAMEPLATES: ตั้งชื่อตัวละครบนป้ายเหนือหัวตัวเอง — caller (app.ts) เรียกจาก net onSelfName (self
+   * PlayerState.name sync). ชื่อว่าง = ซ่อนป้าย. อาจมาหลัง construction (รอ schema) → set ตอนมา, ไม่ก่อน.
+   */
+  setName(name: string): void;
   /** เรียกทุก frame ด้วย dt เป็น "วินาที" (ticker.deltaMS/1000) */
   update(dtSeconds: number): void;
   /** ถอด keyboard listener + ลบ entity ออกจาก scene + ปล่อย texture */
@@ -182,9 +192,16 @@ export function createLocalPlayer(
   scene.setCameraTarget(pos, true); // กล้องเริ่มที่ player (ไม่กวาดจาก origin)
 
   // P2-13 (D-056): ป้าย "AFK" ของตัวเอง (child ของ sprite view) — server ตั้ง isAfk, caller toggle ผ่าน setAfk.
+  const afkOffsetY = afkLabelOffsetY(player.animation.style.bodyHeight, player.animation.style.walkBob);
   const afkLabel = createAfkLabel(player.animation.style.bodyHeight, player.animation.style.walkBob);
   animator.view.addChild(afkLabel);
   let afk = false;
+
+  // NAMEPLATES: ป้ายชื่อตัวละครของตัวเอง (child ของ sprite view เหมือน afkLabel — flip ตามหัว, ต้อง counter-flip;
+  // destroy พร้อม view ตอน scene.removeEntity). ชื่อมาทีหลังผ่าน setName (self PlayerState.name sync) — ซ่อนจน
+  // ชื่อมา. วางเหนือ afkLabel (gapAboveAfk) กัน 2 ป้ายทับกัน.
+  const nameLabel = createNameLabel(afkOffsetY, player.nameplate);
+  animator.view.addChild(nameLabel);
 
   const keyboard = attachKeyboard(target);
   const isWalkable = (tx: number, ty: number): boolean =>
@@ -330,6 +347,10 @@ export function createLocalPlayer(
       afk = isAfk; // ป้ายถูก toggle จริงใน update() (พร้อม counter-flip)
     },
 
+    setName(name: string): void {
+      setNameLabelText(nameLabel, name); // โชว์/ซ่อนตามชื่อ; counter-flip ทำใน update()
+    },
+
     applyCorrection(tx: number, ty: number): void {
       // P1-02: server สั่ง snap กลับ — เขียนทับ position ทันที (ไม่ interpolate: correction = truth)
       pos.tx = tx;
@@ -393,6 +414,8 @@ export function createLocalPlayer(
       animator.update(dtSeconds);
       // P2-13 (D-056): toggle ป้าย AFK + counter-flip กัน mirror (หลัง setState — view.scale.x อาจเพิ่ง flip)
       updateAfkLabel(afkLabel, animator.view, afk);
+      // NAMEPLATES: counter-flip ป้ายชื่อกัน mirror (visible คุมด้วย setName แล้ว)
+      updateNameLabel(nameLabel, animator.view);
 
       // marker fade (cosmetic) — fade อิสระจาก path (โชว์จุดที่คลิกล่าสุดชั่วครู่)
       if (marker) {
