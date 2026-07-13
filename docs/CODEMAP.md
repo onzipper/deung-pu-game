@@ -5,7 +5,7 @@
 
 ## src/engine (foundation layer — TA §17, plain TS + PixiJS, no React/Next.js)
 
-- `src/engine/config.ts` — shared config/types barrel (EngineConfig, DEFAULT_ENGINE_CONFIG) — every tunable value lives here; module split: `src/engine/config/` (planned)
+- `src/engine/config.ts` — barrel — Design Knobs/types (EngineConfig, DEFAULT_ENGINE_CONFIG); every tunable value lives in domain modules under `src/engine/config/` (scene, player, mob, combat, combat-feel, net, engine), re-exported here
 - `src/engine/runtime/` — engine lifecycle: transition (map-crossing fade), resize, assets, debug-info
 - `src/engine/runtime/app.ts` — createEngine(): mounts/tears down the per-map world (player+mobs+combat+net+input), master tick, F3/F4 wiring
 - `src/engine/iso/` — iso projection + depth-sort math (**never-downgrade zone**)

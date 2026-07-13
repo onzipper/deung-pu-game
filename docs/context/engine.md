@@ -21,7 +21,7 @@ Scope: `src/engine/**` (+ `src/game/**` combat mechanics that sit on it) · Read
 - `src/engine/runtime/app.ts` — createEngine(): per-map world mount + master tick
 - `src/engine/movement/` — mover (stepMovement), direction resolver, path-follower
 - `src/engine/pathfinding/` — A* on the iso grid (click-to-move)
-- `src/engine/config.ts` — every tunable engine value (Design Knobs)
+- `src/engine/config.ts` — barrel re-exporting every tunable engine value (Design Knobs) from domain modules under `src/engine/config/`
 
 ## Invariants
 - Every balance value is a Design Knob (GS §48) → read from config, never hardcode.
