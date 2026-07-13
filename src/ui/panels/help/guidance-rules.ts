@@ -82,6 +82,22 @@ export const RECOMMENDATION_RULES: readonly RecommendationRuleDef[] = [
     isEligible: (input) => countReinforcementMaterial(input.inventory) > 0,
   },
   {
+    // OB — surface the Map 1 capstone (Field Boss หมูป่าหม้อเดือด). ไม่มี panel action (world destination):
+    // การ์ดบอกที่อยู่ + รางวัลพอ. gate ที่ level ≥ 3 กันส่งผู้เล่นสด (lv1) ไปเจอบอสเลือด 2500.
+    id: "challenge_field_boss",
+    category: "power",
+    intentMatch: "power",
+    title: "ท้าหมูป่าหม้อเดือด (บอสประจำแมพ)",
+    summary: "บอสตัวเป้งรออยู่ที่ลาน boss ทางใต้สุดของแผนที่",
+    reason: "ล้มได้ = ดรอปวัสดุเสริมแกร่ง + ของหายาก เอาไปตีบวกอาวุธต่อได้",
+    estimatedMinutes: 10,
+    actionType: "none",
+    actionTarget: null,
+    tags: ["boss"],
+    baseScore: 7,
+    isEligible: (input) => input.level !== null && input.level >= 3,
+  },
+  {
     id: "check_bag_unequipped",
     category: "power",
     intentMatch: "power",
