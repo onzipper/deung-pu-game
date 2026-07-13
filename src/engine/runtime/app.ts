@@ -562,7 +562,7 @@ export async function createEngine(
         if (stepped) mobView.syncAll(localSim.snapshots());
       }
 
-      mobView.update(dtSeconds);
+      mobView.update(dtSeconds, player.position);
     };
 
     // --- pointer → tile helper (P0-11 debug + P1-09 click-to-move) ---

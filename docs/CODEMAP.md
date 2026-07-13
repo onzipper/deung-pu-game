@@ -23,7 +23,7 @@
 
 ## src/game (combat/entity logic on top of the engine)
 
-- `src/game/mob/` — spawn/wander, AI (aggro/leash/LOD), authoritative sim, view manager
+- `src/game/mob/` — mob sim, AI, views, and density-aware nameplates
 - `src/game/mob/name-catalog.ts` — mobType → Thai nameplate name + rank (undefined = no nameplate)
 - `src/game/npc/` — LW0 static NPC bark: catalog + nearest-click test + view manager (placeholder+label)
 - `src/game/item/icon-catalog.ts` — itemId → icon URL map (null = show raw id)

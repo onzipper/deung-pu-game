@@ -33,6 +33,10 @@ import {
 import { createMobAnimationManifest } from "@/game/mob/manifest";
 import { generateMobTextures } from "@/game/mob/placeholder";
 import { getMobNameEntry, type MobRank } from "@/game/mob/name-catalog";
+import {
+  selectVisibleMobNameplateIds,
+  type MobNameplateCandidate,
+} from "@/game/mob/nameplate-visibility";
 
 /** texture + manifest ต่อ mobType — atlas มี manifest ของตัวเอง (คนละตัวกับ placeholder ที่แชร์). */
 interface MobRenderSet {
@@ -52,6 +56,9 @@ interface MobViewEntry {
   readonly buffer: InterpolationBuffer;
   /** HP bar (P1-05) — child ของ container เดียวกับ animator; โชว์เมื่อ hp < maxHp */
   readonly hpBar: Graphics;
+  /** ป้ายชื่อที่เปิด/ปิดตาม rank, ระยะ และ density limit */
+  readonly nameplate: Container | null;
+  readonly rank: MobRank;
   /** hp สูงสุดของ mobType (จาก combatBalance) — คิด ratio ของ hp bar */
   readonly maxHp: number;
   /** hp ปัจจุบันจาก snapshot ล่าสุด (server-authoritative, P1-05) */
@@ -91,8 +98,8 @@ export interface MobViewHandle {
   syncAll(snapshots: readonly MobSnapshot[]): void;
   /** ลบมอนทั้งหมด (สลับ source online↔offline) — คง texture cache ไว้. */
   removeAll(): void;
-  /** เรียกทุก frame (dt วินาที): sample buffer ที่ now−bufferMs → ขยับ + เดา facing + เดินเฟรม animator. */
-  update(dtSeconds: number): void;
+  /** เรียกทุก frame: interpolate/animate และปรับชุดป้ายชื่อตามตำแหน่งผู้เล่นเป็นช่วง ๆ */
+  update(dtSeconds: number, playerPosition: Readonly<TilePoint>): void;
   /** ตำแหน่งมอนที่ render อยู่ (combat stub hit-test). */
   getAliveTargets(): MobHitTarget[];
   /** Minimap (§8.4) blips — ตำแหน่ง + rank ของมอนที่ render อยู่ (throttled publish ที่ app.ts, ไม่ใช่ทุก frame). */
@@ -217,6 +224,7 @@ export function createMobViewManager(
   };
 
   const mobs = new Map<string, MobViewEntry>();
+  let nameplateRefreshElapsedMs = Number.POSITIVE_INFINITY;
   const entityId = (mobId: string): string => MOB_ID_PREFIX + mobId;
 
   const newBuffer = (): InterpolationBuffer =>
@@ -247,6 +255,8 @@ export function createMobViewManager(
     const hpBar = new Graphics();
     container.addChild(hpBar);
     const nameplate = createNameplate(snap.mobType, nameplateCfg);
+    const rank: MobRank = getMobNameEntry(snap.mobType)?.rank ?? "normal";
+    if (nameplate) nameplate.visible = rank !== "normal";
     if (nameplate) container.addChild(nameplate);
 
     const pos: TilePoint = { tx: snap.tx, ty: snap.ty };
@@ -261,6 +271,8 @@ export function createMobViewManager(
       animator,
       buffer,
       hpBar,
+      nameplate,
+      rank,
       maxHp,
       hp: snap.hp,
       current: { tx: snap.tx, ty: snap.ty },
@@ -313,7 +325,7 @@ export function createMobViewManager(
       for (const id of [...mobs.keys()]) remove(id);
     },
 
-    update(dtSeconds: number): void {
+    update(dtSeconds: number, playerPosition: Readonly<TilePoint>): void {
       const renderTime = now() - interp.bufferMs;
       for (const [mobId, entry] of mobs) {
         const sample = entry.buffer.sampleAt(renderTime);
@@ -331,6 +343,29 @@ export function createMobViewManager(
         }
         entry.animator.setState(entry.anim, entry.facing);
         entry.animator.update(dtSeconds);
+      }
+
+      nameplateRefreshElapsedMs += dtSeconds * 1000;
+      const refreshIntervalMs = Math.max(0, nameplateCfg.visibilityRefreshMs);
+      if (nameplateRefreshElapsedMs >= refreshIntervalMs) {
+        nameplateRefreshElapsedMs = 0;
+        const candidates: MobNameplateCandidate[] = [];
+        for (const [mobId, entry] of mobs) {
+          candidates.push({
+            id: mobId,
+            rank: entry.rank,
+            position: entry.current,
+            damaged: entry.hp < entry.maxHp,
+          });
+        }
+        const visibleIds = selectVisibleMobNameplateIds(
+          candidates,
+          playerPosition,
+          nameplateCfg,
+        );
+        for (const [mobId, entry] of mobs) {
+          if (entry.nameplate) entry.nameplate.visible = visibleIds.has(mobId);
+        }
       }
     },
 

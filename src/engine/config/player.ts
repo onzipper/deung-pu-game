@@ -226,21 +226,21 @@ export const DEFAULT_PLAYER_CONFIG: PlayerConfig = {
   },
   animation: DEFAULT_PLAYER_ANIMATION_CONFIG,
   nameplate: {
-    // ป้ายชื่อสูงกว่า afk-label 19px (fontSize 14 + stroke/chip ≈ 17 + gap 2) → สองป้ายอ่านออกพร้อมกัน ไม่ทับ
-    gapAboveAfk: -19,
-    fontSize: 14, // legibility pass: 11→14
-    fontFamily: "monospace",
+    // ป้ายชื่อสูงกว่า afk-label พอให้ glyph ไทยและ chip ไม่ทับกัน
+    gapAboveAfk: -21,
+    fontSize: 16,
+    fontFamily: '"Noto Sans Thai", "Leelawadee UI", Tahoma, sans-serif',
     color: 0xe8f0ff, // ขาวอมฟ้า = ชื่อผู้เล่น (แยกจาก AFK เหลือง 0xffd23f)
     strokeColor: 0x000000,
-    strokeWidth: 4, // legibility pass: 3→4
+    strokeWidth: 2,
     shadowColor: 0x000000,
     shadowAlpha: 0.5,
-    shadowBlur: 2,
+    shadowBlur: 1,
     shadowDistance: 1,
     bgColor: 0x1a1a1a, // เทาเข้มเกือบดำ = contrast บนพื้นเขียว/ป่า
-    bgAlpha: 0.55,
-    paddingX: 6,
-    paddingY: 3,
+    bgAlpha: 0.75,
+    paddingX: 5,
+    paddingY: 2,
     cornerRadius: 4,
     textResolution: 3, // glyph texture คมกว่า renderer resolution 0.5 ทั้งเกม (src/engine/config/render.ts)
   },
