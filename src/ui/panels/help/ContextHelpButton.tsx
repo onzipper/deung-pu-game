@@ -24,7 +24,7 @@ export function ContextHelpButton({ articleId }: ContextHelpButtonProps) {
         manager.openPanel(HELP_PANEL_ID);
       }}
       aria-label="ช่วยเหลือ"
-      className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-amber-700/50 text-[11px] font-bold text-amber-300 hover:bg-amber-900/40"
+      className="dp-focus-ring flex h-5 w-5 shrink-0 items-center justify-center rounded-(--dp-radius-pill) border border-(--dp-warm-wood) text-[11px] font-bold text-(--dp-sand) hover:bg-(--dp-parchment-wash)"
     >
       ?
     </button>

@@ -12,6 +12,7 @@
 
 import { useEffect, useState } from "react";
 import { Panel, usePanelManager, type PanelId } from "@/ui/panels";
+import { Button } from "@/ui/components";
 import {
   selectDebugInfo,
   selectGold,
@@ -202,82 +203,57 @@ export function HelpPanel() {
 
   return (
     <Panel id={HELP_PANEL_ID} title="ดึ๋งๆ ช่วยเหลือ" widthPx={400}>
-      <div className="space-y-3 text-sm">
-        <div className="flex flex-wrap gap-1 text-xs">
+      <div className="dp-text-body-sm flex flex-col gap-3">
+        <div className="flex flex-wrap gap-1">
           {(Object.keys(TAB_LABELS) as HelpTab[]).map((tab) => (
-            <button
-              key={tab}
-              type="button"
-              onClick={() => setActiveTab(tab)}
-              className={`rounded px-2 py-1 font-semibold ${
-                activeTab === tab
-                  ? "bg-amber-700/80 text-black"
-                  : "border border-neutral-700 text-neutral-300"
-              }`}
-            >
+            <Button key={tab} variant={activeTab === tab ? "primary" : "ghost"} size="sm" onClick={() => setActiveTab(tab)}>
               {TAB_LABELS[tab]}
               {tab === "checklist" && checklistVisible && !checklistDone ? " •" : ""}
-            </button>
+            </Button>
           ))}
         </div>
 
         {activeTab === "recommend" && (
-          <div className="space-y-2">
-            <div className="flex flex-wrap gap-1 text-xs">
+          <div className="flex flex-col gap-2">
+            <div className="flex flex-wrap gap-1">
               {INTENT_OPTIONS.map((opt) => (
-                <button
+                <Button
                   key={opt.intent}
-                  type="button"
+                  variant={sessionIntent === opt.intent ? "primary" : "ghost"}
+                  size="sm"
                   onClick={() => setSessionIntent(sessionIntent === opt.intent ? null : opt.intent)}
-                  className={`rounded px-2 py-1 ${
-                    sessionIntent === opt.intent
-                      ? "bg-amber-700/80 text-black"
-                      : "border border-neutral-700 text-neutral-300"
-                  }`}
                 >
                   {opt.label}
-                </button>
+                </Button>
               ))}
             </div>
 
             {shownRecommendations.length === 0 ? (
-              <div className="rounded border border-neutral-800 bg-black/30 px-2 py-3 text-xs text-neutral-400">
+              <div className="rounded-(--dp-radius-sm) border border-(--dp-soil-brown) bg-(--dp-warm-ink) px-3 py-3 text-(--dp-sand)">
                 ตอนนี้ดึ๋งๆ ยังไม่มีอะไรเร่งด่วน ลองสำรวจต่อ หรือเลือกสิ่งที่อยากทำจากด้านบน
               </div>
             ) : (
-              <ul className="space-y-2">
+              <ul className="flex flex-col gap-2">
                 {shownRecommendations.map((rec) => (
-                  <li key={rec.id} className="rounded border border-amber-700/40 bg-black/30 px-2 py-2">
-                    <div className="font-semibold text-amber-200">{rec.title}</div>
-                    <div className="text-xs text-neutral-300">{rec.summary}</div>
-                    <div className="text-xs text-neutral-400">เหตุผล: {rec.reason}</div>
+                  <li key={rec.id} className="rounded-(--dp-radius-sm) border border-(--dp-soil-brown) bg-(--dp-warm-ink) px-3 py-2">
+                    <div className="font-semibold text-(--dp-highlight)">{rec.title}</div>
+                    <div className="text-(--dp-parchment)">{rec.summary}</div>
+                    <div className="dp-text-caption text-(--dp-sand)">เหตุผล: {rec.reason}</div>
                     {rec.estimatedMinutes !== undefined && (
-                      <div className="text-xs text-neutral-500">ประมาณ {rec.estimatedMinutes} นาที</div>
+                      <div className="dp-text-caption text-(--dp-sand)">ประมาณ {rec.estimatedMinutes} นาที</div>
                     )}
-                    <div className="mt-1 flex flex-wrap gap-1 text-xs">
+                    <div className="mt-1 flex flex-wrap gap-1">
                       {rec.actionType === "open_panel" && rec.actionTarget && (
-                        <button
-                          type="button"
-                          onClick={() => manager.openPanel(rec.actionTarget as PanelId)}
-                          className="rounded bg-amber-700/80 px-2 py-1 font-semibold text-black hover:bg-amber-600"
-                        >
+                        <Button variant="primary" size="sm" onClick={() => manager.openPanel(rec.actionTarget as PanelId)}>
                           ไปเลย
-                        </button>
+                        </Button>
                       )}
-                      <button
-                        type="button"
-                        onClick={() => onDismissOnce(rec)}
-                        className="rounded border border-neutral-700 px-2 py-1 text-neutral-300 hover:bg-white/10"
-                      >
+                      <Button variant="ghost" size="sm" onClick={() => onDismissOnce(rec)}>
                         ไม่เอาตอนนี้
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => onDismissForever(rec)}
-                        className="rounded border border-neutral-700 px-2 py-1 text-neutral-300 hover:bg-white/10"
-                      >
+                      </Button>
+                      <Button variant="ghost" size="sm" onClick={() => onDismissForever(rec)}>
                         ไม่ต้องเตือนเรื่องนี้อีก
-                      </button>
+                      </Button>
                     </div>
                   </li>
                 ))}
@@ -287,53 +263,45 @@ export function HelpPanel() {
         )}
 
         {activeTab === "articles" && (
-          <div className="space-y-2">
+          <div className="flex flex-col gap-2">
             {selectedArticle ? (
-              <div className="space-y-2">
+              <div className="flex flex-col gap-2">
                 <button
                   type="button"
                   onClick={() => setSelectedArticleId(null)}
-                  className="text-xs text-neutral-400 hover:text-neutral-200"
+                  className="dp-focus-ring self-start text-(--dp-sand) hover:text-(--dp-highlight)"
                 >
                   ← กลับไปลิสต์
                 </button>
-                <div className="font-semibold text-amber-200">{selectedArticle.title}</div>
-                <div className="text-xs text-neutral-200">{selectedArticle.oneLine}</div>
-                <ol className="list-inside list-decimal space-y-1 text-xs text-neutral-300">
+                <div className="font-semibold text-(--dp-highlight)">{selectedArticle.title}</div>
+                <div className="text-(--dp-parchment)">{selectedArticle.oneLine}</div>
+                <ol className="list-inside list-decimal space-y-1 text-(--dp-parchment)">
                   {selectedArticle.steps.map((step, i) => (
                     <li key={i}>{step}</li>
                   ))}
                 </ol>
                 {showMoreDetail && (
-                  <div className="rounded border border-neutral-800 bg-black/30 px-2 py-2 text-xs text-neutral-400">
+                  <div className="rounded-(--dp-radius-sm) border border-(--dp-soil-brown) bg-(--dp-warm-ink) px-3 py-2 text-(--dp-sand)">
                     {selectedArticle.moreDetail}
                   </div>
                 )}
-                <div className="flex flex-wrap gap-1 text-xs">
+                <div className="flex flex-wrap gap-1">
                   {(() => {
                     const action = selectedArticle.action;
                     if (action.type !== "open_panel") return null;
                     return (
-                      <button
-                        type="button"
-                        onClick={() => manager.openPanel(action.panelId)}
-                        className="rounded bg-amber-700/80 px-2 py-1 font-semibold text-black hover:bg-amber-600"
-                      >
+                      <Button variant="primary" size="sm" onClick={() => manager.openPanel(action.panelId)}>
                         {action.label}
-                      </button>
+                      </Button>
                     );
                   })()}
-                  <button
-                    type="button"
-                    onClick={() => setShowMoreDetail((v) => !v)}
-                    className="rounded border border-neutral-700 px-2 py-1 text-neutral-300 hover:bg-white/10"
-                  >
+                  <Button variant="ghost" size="sm" onClick={() => setShowMoreDetail((v) => !v)}>
                     {showMoreDetail ? "ซ่อนรายละเอียด" : "ดูรายละเอียด"}
-                  </button>
+                  </Button>
                 </div>
               </div>
             ) : (
-              <ul className="max-h-64 space-y-1 overflow-y-auto">
+              <ul className="flex max-h-64 flex-col gap-1 overflow-y-auto">
                 {HELP_ARTICLES.map((article) => (
                   <li key={article.id}>
                     <button
@@ -342,7 +310,7 @@ export function HelpPanel() {
                         setSelectedArticleId(article.id);
                         setShowMoreDetail(false);
                       }}
-                      className="w-full rounded border border-neutral-700 bg-neutral-900/40 px-2 py-1 text-left text-xs hover:bg-neutral-800/60"
+                      className="dp-focus-ring w-full rounded-(--dp-radius-sm) border border-(--dp-soil-brown) bg-(--dp-warm-ink) px-3 py-2 text-left text-(--dp-parchment) transition-colors hover:bg-(--dp-deep-brown)"
                     >
                       {article.title}
                     </button>
@@ -354,43 +322,43 @@ export function HelpPanel() {
         )}
 
         {activeTab === "checklist" && (
-          <div className="space-y-2">
-            <ul className="space-y-1">
+          <div className="flex flex-col gap-2">
+            <ul className="flex flex-col gap-1">
               {TUTORIAL_CHECKLIST_STEPS.map((step) => {
                 const done = isChecklistStepDone(checklist, step.id);
                 return (
                   <li
                     key={step.id}
-                    className="flex items-center justify-between gap-2 rounded border border-neutral-800 bg-black/30 px-2 py-1 text-xs"
+                    className="flex items-center justify-between gap-2 rounded-(--dp-radius-sm) border border-(--dp-soil-brown) bg-(--dp-warm-ink) px-3 py-1.5"
                   >
-                    <span className={done ? "text-emerald-300 line-through" : "text-neutral-200"}>
+                    <span className={done ? "text-(--dp-pale-moss) line-through" : "text-(--dp-parchment)"}>
                       {done ? "✓ " : "☐ "}
                       {step.title}
                     </span>
                     <span className="flex gap-1">
-                      <button
-                        type="button"
+                      <Button
+                        variant="ghost"
+                        size="sm"
                         onClick={() => {
                           setActiveTab("articles");
                           setSelectedArticleId(step.helpArticleId);
                           setShowMoreDetail(false);
                         }}
-                        className="rounded border border-neutral-700 px-1.5 py-0.5 text-neutral-300 hover:bg-white/10"
                       >
                         ดูวิธีทำ
-                      </button>
+                      </Button>
                       {!step.auto && !done && (
-                        <button
-                          type="button"
+                        <Button
+                          variant="primary"
+                          size="sm"
                           onClick={() => {
                             const next = markChecklistStepDoneManually(checklist, step.id);
                             setChecklist(next);
                             checklistStore.save(next);
                           }}
-                          className="rounded bg-amber-700/80 px-1.5 py-0.5 font-semibold text-black hover:bg-amber-600"
                         >
                           ทำแล้ว
-                        </button>
+                        </Button>
                       )}
                     </span>
                   </li>
@@ -398,7 +366,7 @@ export function HelpPanel() {
               })}
             </ul>
             {checklistDone && (
-              <div className="rounded bg-emerald-900/50 px-2 py-1 text-xs text-emerald-200">
+              <div className="rounded-(--dp-radius-sm) border border-(--dp-leaf) bg-(--dp-deep-ink) px-3 py-2 text-(--dp-pale-moss)">
                 ครบทุกข้อแล้ว พร้อมออกไปผจญภัยต่อได้เลย
               </div>
             )}
@@ -406,17 +374,18 @@ export function HelpPanel() {
         )}
 
         {activeTab === "settings" && (
-          <div className="space-y-3">
+          <div className="flex flex-col gap-4">
             <div>
-              <div className="mb-1 text-xs font-semibold text-neutral-300">โหมดช่วยเหลือ</div>
-              <div className="flex flex-col gap-1 text-xs">
+              <div className="dp-text-label mb-1 text-(--dp-sand)">โหมดช่วยเหลือ</div>
+              <div className="flex flex-col gap-1">
                 {MODE_OPTIONS.map((opt) => (
-                  <label key={opt.mode} className="flex items-center gap-2">
+                  <label key={opt.mode} className="flex items-center gap-2 text-(--dp-parchment)">
                     <input
                       type="radio"
                       name="guidance-mode"
                       checked={prefs.mode === opt.mode}
                       onChange={() => onSavePrefs({ mode: opt.mode })}
+                      className="accent-(--dp-resonance-teal)"
                     />
                     {opt.label}
                   </label>
@@ -424,15 +393,16 @@ export function HelpPanel() {
               </div>
             </div>
             <div>
-              <div className="mb-1 text-xs font-semibold text-neutral-300">ระดับความละเอียดของคำใบ้</div>
-              <div className="flex flex-col gap-1 text-xs">
+              <div className="dp-text-label mb-1 text-(--dp-sand)">ระดับความละเอียดของคำใบ้</div>
+              <div className="flex flex-col gap-1">
                 {HINT_DETAIL_OPTIONS.map((opt) => (
-                  <label key={opt.detail} className="flex items-center gap-2">
+                  <label key={opt.detail} className="flex items-center gap-2 text-(--dp-parchment)">
                     <input
                       type="radio"
                       name="hint-detail"
                       checked={prefs.hintDetail === opt.detail}
                       onChange={() => onSavePrefs({ hintDetail: opt.detail })}
+                      className="accent-(--dp-resonance-teal)"
                     />
                     {opt.label}
                   </label>

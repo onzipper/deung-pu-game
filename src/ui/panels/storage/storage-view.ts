@@ -44,18 +44,19 @@ export function findDeliveryEntryById(
   return state.entries.find((entry) => entry.entryId === entryId) ?? null;
 }
 
-/** สีของแถบ capacity ตาม fillState (§15.1: normal <80% เขียว/เทา · warn ≥80% เหลือง · alert ≥90% ส้ม · full แดง) */
+/** สีของแถบ capacity ตาม fillState (§15.1: normal <80% เขียว/เทา · warn ≥80% เหลือง · alert ≥90% ส้ม · full แดง).
+ * Token-driven (P2 UI spec §2.1 Danger/Error + Success families) — caller renders this string as a className. */
 export function fillStateColorClass(fillState: StorageFillState): string {
   switch (fillState) {
     case "warn":
-      return "bg-amber-500";
+      return "bg-(--dp-fire-light)";
     case "alert":
-      return "bg-orange-600";
+      return "bg-(--dp-fire)";
     case "full":
-      return "bg-red-600";
+      return "bg-(--dp-danger-red)";
     case "normal":
     default:
-      return "bg-emerald-600";
+      return "bg-(--dp-fresh-leaf)";
   }
 }
 
@@ -125,18 +126,18 @@ export function deliveryStatusLabel(status: DeliveryEntryStatus): string {
   }
 }
 
-/** สีของป้ายเวลาหมดอายุตาม status (§16.4) */
+/** สีของป้ายเวลาหมดอายุตาม status (§16.4). Token-driven (P2 UI spec §2.1). */
 export function deliveryStatusColorClass(status: DeliveryEntryStatus): string {
   switch (status) {
     case "expiring_soon":
-      return "text-amber-300";
+      return "text-(--dp-fire-light)";
     case "expiring_urgent":
-      return "text-red-400";
+      return "text-(--dp-danger-red)";
     case "expired":
-      return "text-neutral-500";
+      return "text-(--dp-clay)";
     case "none":
     default:
-      return "text-neutral-400";
+      return "text-(--dp-sand)";
   }
 }
 

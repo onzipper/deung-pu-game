@@ -10,6 +10,7 @@ import type { ReactNode } from "react";
 import { usePanelManager } from "./PanelContext";
 import { useIsMobilePanel } from "./use-media-query";
 import type { PanelId } from "./panel-stack";
+import { PanelFrame } from "@/ui/components/PanelFrame";
 
 export interface PanelProps {
   id: PanelId;
@@ -44,29 +45,22 @@ export function Panel({ id, title, children, widthPx = 380, className }: PanelPr
       aria-modal="false"
       aria-label={title}
       onMouseDownCapture={bringToFront}
-      className={[
-        "pointer-events-auto fixed rounded-lg border border-amber-700/50 bg-neutral-950/95 text-neutral-100 shadow-2xl",
-        isMobile ? "inset-x-0 bottom-0 max-h-[70vh] rounded-b-none" : "",
-        className ?? "",
-      ].join(" ")}
+      className={["pointer-events-auto fixed", isMobile ? "inset-x-0 bottom-0" : "", className ?? ""]
+        .filter(Boolean)
+        .join(" ")}
       style={
         isMobile
           ? { zIndex: z }
           : { zIndex: z, left: "50%", top: "50%", transform: "translate(-50%, -50%)", width: clampedWidth }
       }
     >
-      <div className="flex items-center justify-between gap-2 rounded-t-lg border-b border-amber-700/40 bg-black/40 px-3 py-2">
-        <span className="font-semibold text-amber-200">{title}</span>
-        <button
-          type="button"
-          onClick={() => manager.closePanel(id)}
-          aria-label="ปิด"
-          className="rounded px-2 py-0.5 text-neutral-300 hover:bg-white/10 hover:text-white"
-        >
-          ✕
-        </button>
-      </div>
-      <div className={isMobile ? "overflow-y-auto p-3" : "p-3"}>{children}</div>
+      <PanelFrame
+        title={title}
+        onClose={() => manager.closePanel(id)}
+        className={isMobile ? "max-h-[70vh] rounded-b-none" : ""}
+      >
+        {children}
+      </PanelFrame>
     </div>
   );
 }

@@ -20,7 +20,9 @@ export function AttackButton({ getHandle }: AttackButtonProps) {
         e.preventDefault();
         getHandle()?.pressAttack();
       }}
-      className="pointer-events-auto fixed z-40 flex items-center justify-center rounded-full border-2 border-red-500/70 bg-red-600/70 font-bold text-white shadow-lg active:bg-red-500 touch-none select-none"
+      // Fire family (warm/aggressive action tone) แทน raw red — Danger Red สงวนไว้กับ "immediate danger/
+      // invalid action" (VLB §3), ปุ่มโจมตีคือ core combat action ไม่ใช่คำเตือน
+      className="dp-shadow-raised pointer-events-auto fixed z-40 flex touch-none items-center justify-center select-none rounded-(--dp-radius-pill) border-2 border-(--dp-danger-red) bg-(--dp-fire-deep) font-bold text-(--dp-highlight) active:bg-(--dp-danger-red)"
       style={{
         right: "calc(env(safe-area-inset-right, 0px) + 24px)",
         bottom: "calc(env(safe-area-inset-bottom, 0px) + 32px)",

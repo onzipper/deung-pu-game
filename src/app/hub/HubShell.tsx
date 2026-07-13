@@ -15,6 +15,9 @@ const MAX_SLOTS = 5;
 
 // UI spec v1 §6/§7/§9 + Storage §5 (entry flow state machine) — orchestrator ของ Game Hub route เดียว
 // (S4 decision-index: Game Hub = route ใน Next.js app เดิม ไม่ใช่หลาย URL ต่อ screen).
+// Token-driven (src/app/globals.css --dp-*) — was inline hex, migrated in the E6 visual-foundation pass.
+// (destructive hover was #E97070, an off-palette one-off red — now the on-palette --dp-danger-red,
+// following the same "dark idle -> lighter/base tone on hover" family shift as Button §4.2 Destructive.)
 export function HubShell({
   authenticated,
   isGuest,
@@ -45,7 +48,7 @@ export function HubShell({
 
   if (!authenticated) {
     return (
-      <main className="flex min-h-full flex-1 flex-col items-center justify-center bg-[#171820] p-4">
+      <main className="flex min-h-full flex-1 flex-col items-center justify-center bg-(--dp-deep-ink) p-4">
         <AuthPanel />
       </main>
     );
@@ -57,7 +60,7 @@ export function HubShell({
 
   if (view === "create") {
     return (
-      <main className="min-h-full flex-1 bg-[#171820] p-4 sm:p-8">
+      <main className="min-h-full flex-1 bg-(--dp-deep-ink) p-4 sm:p-8">
         <CharacterCreate
           slotsFull={slotsFull}
           onBack={() => setView("hub")}
@@ -72,26 +75,26 @@ export function HubShell({
 
   if (view === "upgrade") {
     return (
-      <main className="flex min-h-full flex-1 flex-col items-center justify-center bg-[#171820] p-4">
+      <main className="flex min-h-full flex-1 flex-col items-center justify-center bg-(--dp-deep-ink) p-4">
         <UpgradePanel onBack={() => setView("hub")} />
       </main>
     );
   }
 
   return (
-    <main className="min-h-full flex-1 bg-[#171820] p-4 sm:p-8">
+    <main className="min-h-full flex-1 bg-(--dp-deep-ink) p-4 sm:p-8">
       <div className="mx-auto flex w-full max-w-[1280px] flex-col gap-6">
         <header className="flex items-center justify-between gap-3">
-          <h1 className="text-[28px] font-bold text-[#F2D6A0]">ดึ๋งปุ๊</h1>
+          <h1 className="text-[28px] font-bold text-(--dp-parchment)">ดึ๋งปุ๊</h1>
           <div className="flex items-center gap-3">
             {isGuest && (
               <>
-                <span className="rounded-full border border-[#68483A] px-4 py-1 text-[12px] text-[#D8AE70]">
+                <span className="rounded-(--dp-radius-pill) border border-(--dp-soil-brown) px-4 py-1 text-[12px] text-(--dp-sand)">
                   Guest Account — ข้อมูลผูกกับอุปกรณ์นี้
                 </span>
                 <button
                   type="button"
-                  className="flex min-h-[48px] items-center justify-center rounded-[10px] bg-[#35C6B0] px-4 text-[14px] font-semibold text-[#171820] transition-colors hover:bg-[#7CE9D0]"
+                  className="flex min-h-[48px] items-center justify-center rounded-(--dp-radius-md) bg-(--dp-resonance-teal) px-4 text-[14px] font-semibold text-(--dp-deep-ink) transition-colors hover:bg-(--dp-resonance-light)"
                   onClick={() => setView("upgrade")}
                 >
                   เชื่อม Email
@@ -101,7 +104,7 @@ export function HubShell({
             {!confirmingLogout && (
               <button
                 type="button"
-                className="flex min-h-[48px] items-center justify-center rounded-[10px] border border-[#68483A] px-4 text-[14px] text-[#D8AE70] transition-colors hover:bg-[#2B2230]"
+                className="flex min-h-[48px] items-center justify-center rounded-(--dp-radius-md) border border-(--dp-soil-brown) px-4 text-[14px] text-(--dp-sand) transition-colors hover:bg-(--dp-warm-ink)"
                 onClick={() => (isGuest ? setConfirmingLogout(true) : handleLogout())}
                 disabled={loggingOut}
               >
@@ -114,7 +117,7 @@ export function HubShell({
         {confirmingLogout && (
           <div
             role="alertdialog"
-            className="flex flex-col gap-3 rounded-[10px] border border-[#F4B852] bg-[#2B2230] px-4 py-3 text-[14px] text-[#F2D6A0] sm:flex-row sm:items-center sm:justify-between"
+            className="flex flex-col gap-3 rounded-(--dp-radius-md) border border-(--dp-fire-light) bg-(--dp-warm-ink) px-4 py-3 text-[14px] text-(--dp-parchment) sm:flex-row sm:items-center sm:justify-between"
           >
             <span>
               บัญชี Guest ยังไม่เชื่อม Email — ออกจากระบบแล้วจะกลับเข้าบัญชีนี้ไม่ได้
@@ -122,7 +125,7 @@ export function HubShell({
             <div className="flex shrink-0 gap-2">
               <button
                 type="button"
-                className="min-h-[48px] rounded-[10px] border border-[#68483A] px-4 text-[14px] text-[#D8AE70] hover:bg-[#171820]"
+                className="min-h-[48px] rounded-(--dp-radius-md) border border-(--dp-soil-brown) px-4 text-[14px] text-(--dp-sand) hover:bg-(--dp-deep-ink)"
                 onClick={() => setConfirmingLogout(false)}
                 disabled={loggingOut}
               >
@@ -130,7 +133,7 @@ export function HubShell({
               </button>
               <button
                 type="button"
-                className="min-h-[48px] rounded-[10px] bg-[#D84848] px-4 text-[14px] font-semibold text-[#171820] hover:bg-[#E97070]"
+                className="min-h-[48px] rounded-(--dp-radius-md) bg-(--dp-danger-red) px-4 text-[14px] font-semibold text-(--dp-deep-ink) hover:bg-(--dp-fire-light)"
                 onClick={handleLogout}
                 disabled={loggingOut}
               >

@@ -58,7 +58,7 @@ export function VirtualJoystick({ getHandle, config }: VirtualJoystickProps) {
       }}
       onPointerUp={release}
       onPointerCancel={release}
-      className="pointer-events-auto fixed z-40 touch-none select-none rounded-full border border-amber-700/40 bg-black/30"
+      className="pointer-events-auto fixed z-40 touch-none select-none rounded-(--dp-radius-pill) border border-(--dp-soil-brown) bg-(--dp-overlay-soft)"
       style={{
         left: "calc(env(safe-area-inset-left, 0px) + 20px)",
         bottom: "calc(env(safe-area-inset-bottom, 0px) + 20px)",
@@ -68,7 +68,9 @@ export function VirtualJoystick({ getHandle, config }: VirtualJoystickProps) {
     >
       <div
         aria-hidden
-        className="absolute rounded-full border border-amber-300/60 bg-amber-200/70 shadow-lg"
+        // knob = active-input indicator ตาม Resonance/Focus semantics (§2.1 "focus, primary action") —
+        // ไม่ใช้ตระกูล gold (สงวนไว้ legendary/achievement, §0.5)
+        className="dp-shadow-raised absolute rounded-(--dp-radius-pill) border border-(--dp-resonance-teal) bg-(--dp-resonance-light)"
         style={{
           width: config.knobRadiusPx * 2,
           height: config.knobRadiusPx * 2,

@@ -1,26 +1,274 @@
 @import "tailwindcss";
 
+/* ============================================================================
+ * ดึ๋งปุ๊ — Design Tokens
+ * Source of truth: docs/design/deungpu_P2_UI_VISUAL_IMPLEMENTATION_SPEC_v1.md §2 (tokens) + §22
+ *   (implementation example) · docs/design/bibles/deungpu_VISUAL_LANGUAGE_BIBLE_v1.md §3 (palette
+ *   semantics) + §9 (UI language: warm dark neutral, parchment text, hand-carved, NOT sci-fi glass) ·
+ *   docs/design/bibles/deungpu_ASSET_PRODUCTION_BIBLE_v1.md §3 (32-color master palette, hex values) ·
+ *   D-043 (V1 tokens: radius 6/10/16 + pill 999, touch hit-area >=48px — SUPERSEDES the 4/8/12+44px
+ *   literal numbers printed in P2 UI spec §2.4/§22, which predate D-043) · D-066 (Rift Violet 3-shade
+ *   family — protagonist signature / seal theme, called out by docs/design/art-reference/README.md
+ *   as a required UI/engine match point, never used for rarity).
+ *
+ * Rule (P2 UI spec §0.1): "UI ต้องใช้ Design Token ห้าม hardcode สีและ spacing กระจายตาม component."
+ * Every --dp-* below is the ONLY legal place a raw hex/rgba may appear in src/ui/** or src/app/**.
+ *
+ * Rarity colors are intentionally NOT duplicated here — src/ui/theme/rarity.ts (D-043 V3) stays the
+ * single source of truth; components import RARITY_COLORS/EPIC_RIM_COLOR from there directly.
+ * ============================================================================ */
+
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  /* ---- Foundation (§2.1) — wood/parchment panel language ---- */
+  --dp-deep-ink: #171820; /* ฉากหลังเข้มที่สุด, overlay, shadow */
+  --dp-warm-ink: #2b2230; /* panel หลัก */
+  --dp-deep-brown: #4a332e; /* border เข้ม, wood frame */
+  --dp-soil-brown: #68483a; /* border ปกติ */
+  --dp-clay: #8e6046; /* secondary surface */
+  --dp-warm-wood: #b47e52; /* frame highlight */
+  --dp-sand: #d8ae70; /* muted text, divider */
+  --dp-parchment: #f2d6a0; /* surface สว่าง, primary text บนพื้นเข้ม */
+  --dp-highlight: #fff0c5; /* text emphasis / hover highlight */
+
+  /* ---- Resonance / Focus ---- */
+  --dp-resonance-dark: #167c78; /* pressed/active dark */
+  --dp-resonance-teal: #35c6b0; /* focus, primary action, selected */
+  --dp-resonance-light: #7ce9d0; /* hover, glow ขนาดเล็ก */
+
+  /* ---- Danger / Error ---- */
+  --dp-fire-deep: #9e3c32; /* destructive pressed */
+  --dp-fire: #dd6840; /* warning */
+  --dp-fire-light: #f4b852; /* caution / attention */
+  --dp-danger-red: #d84848; /* immediate danger, invalid, delete */
+
+  /* ---- Mystery / Corruption ---- */
+  --dp-corruption-deep: #6e315f;
+  --dp-corruption: #a84683;
+  --dp-corruption-light: #da73b0;
+
+  /* ---- Memory / Night ---- */
+  --dp-moon-deep: #4b568e;
+  --dp-moon-blue: #7786c8;
+  --dp-moon-light: #b0b9ec;
+
+  /* ---- Rift Violet (D-066) — protagonist signature / ผนึก theme. Never use for rarity. ---- */
+  --dp-rift-deep: #3e2a78;
+  --dp-rift-violet: #7b4fcb;
+  --dp-rift-light: #b79bef;
+
+  /* ---- Success / Nature ---- */
+  --dp-deep-leaf: #284536;
+  --dp-leaf: #3f6845;
+  --dp-fresh-leaf: #6f9658;
+  --dp-pale-moss: #c8d691;
+
+  /* ---- Legendary (rule §0.4: never a generic CTA — Legendary/Achievement/sacred climax only) ---- */
+  --dp-legendary-gold: #e8bf4f;
+
+  /* ---- Alpha composition (§2.1) ---- */
+  --dp-overlay-soft: rgba(23, 24, 32, 0.56);
+  --dp-overlay-modal: rgba(23, 24, 32, 0.76);
+  --dp-panel-bg: rgba(43, 34, 48, 0.96);
+  --dp-panel-bg-soft: rgba(74, 51, 46, 0.92);
+  --dp-focus-ring: rgba(53, 198, 176, 0.46);
+  --dp-disabled-overlay: rgba(23, 24, 32, 0.52);
+  --dp-shadow-color: rgba(10, 10, 14, 0.42);
+  --dp-parchment-wash: rgba(242, 214, 160, 0.08); /* Ghost button hover BG (§4.2: "alpha parchment 8%") */
+  --dp-selected-wash: rgba(53, 198, 176, 0.16); /* selected list-row / tab background (Item Slot §4.4 "teal border + inner highlight") */
+  --dp-danger-wash: rgba(216, 72, 72, 0.32); /* Item Slot §4.4 "Invalid target: red overlay" */
+
+  /* ---- Radius / border (§2.4 shape language — values = D-043 V1, supersedes the base doc's 4/8/12) ---- */
+  --dp-radius-sm: 6px;
+  --dp-radius-md: 10px;
+  --dp-radius-lg: 16px;
+  --dp-radius-pill: 999px;
+  --dp-border-thin: 1px;
+  --dp-border-strong: 2px;
+  --dp-focus-ring-width: 3px;
+
+  /* ---- Shadow (§2.4 — outer dark border + inner warm highlight + drop shadow, no glass/heavy blur) ---- */
+  --dp-shadow-panel:
+    inset 0 0 0 1px var(--dp-soil-brown), inset 0 2px 0 rgba(255, 240, 197, 0.06),
+    0 10px 24px var(--dp-shadow-color);
+  --dp-shadow-modal:
+    inset 0 0 0 1px var(--dp-soil-brown), inset 0 2px 0 rgba(255, 240, 197, 0.06),
+    0 16px 40px var(--dp-shadow-color);
+  --dp-shadow-raised: 0 2px 8px var(--dp-shadow-color);
+
+  /* ---- Z-index (§2.5) — documented baseline. NOTE: src/ui/panels/panel-stack.ts + DebugOverlay.tsx
+     already own a working, tested, mutually-calibrated z-index scheme (PANEL_BASE_Z_INDEX=60 stacked
+     above DebugOverlay z-50, mobile controls z-40/[60]) — that is app *logic*, out of this token/
+     presentational-restyle pass. These vars exist so future code can adopt the spec's absolute scale;
+     they are not yet wired into the existing stacking order (see report). ---- */
+  --dp-z-canvas: 0;
+  --dp-z-world-label: 100;
+  --dp-z-hud: 200;
+  --dp-z-toast: 300;
+  --dp-z-drawer: 400;
+  --dp-z-modal-backdrop: 500;
+  --dp-z-modal: 510;
+  --dp-z-tooltip: 600;
+  --dp-z-critical: 700;
+  --dp-z-debug: 900;
+
+  /* ---- Motion (§2.6) ---- */
+  --dp-motion-instant: 0ms;
+  --dp-motion-fast: 100ms;
+  --dp-motion-normal: 160ms;
+  --dp-motion-slow: 240ms;
+  --dp-motion-emphasis: 360ms;
+  --dp-ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --dp-ease-enter: cubic-bezier(0, 0, 0, 1);
+  --dp-ease-exit: cubic-bezier(0.3, 0, 1, 1);
+  --dp-ease-bounce-soft: cubic-bezier(0.2, 1.2, 0.4, 1);
+
+  /* ---- Typography (§2.2) — mobile-first values; desktop override via media query below.
+     Thai-readable stack layered after the existing next/font Geist vars (layout.tsx) so Thai glyphs
+     fall through to a real Thai-covering font instead of the browser default. No bespoke pixel-fantasy
+     display font is sourced yet (art asset gap, flagged in report) — display/title use a bold weight of
+     the same Thai-readable sans, which still satisfies §2.2's "body ไม่ควรใช้ pixel font ที่อ่านยาก" rule. ---- */
+  --dp-font-sans: var(--font-geist-sans), "Noto Sans Thai", "Leelawadee UI", "Segoe UI", system-ui, sans-serif;
+  --dp-font-mono: var(--font-geist-mono), "Noto Sans Mono", ui-monospace, monospace;
+  --dp-font-display: var(--dp-font-sans);
+
+  --dp-text-display-xl: 32px;
+  --dp-text-title-lg: 24px;
+  --dp-text-title-md: 20px;
+  --dp-text-heading: 18px;
+  --dp-text-body: 16px;
+  --dp-text-body-sm: 14px;
+  --dp-text-caption: 12px;
+  --dp-text-combat-number: 24px; /* within spec's 18-28px mobile range */
+
+  /* legacy Next.js template vars — kept as thin aliases (not deleted) so the untouched root "/" page
+     (src/app/page.tsx, out of E1/E2/E6 scope) still resolves bg-background/text-foreground instead of
+     breaking; now dark-theme-consistent instead of stark white. */
+  --background: var(--dp-deep-ink);
+  --foreground: var(--dp-parchment);
 }
 
+/* Tailwind v4 CSS-first theme wiring — "inline" so bg-background/text-foreground resolve the runtime
+ * --background/--foreground custom properties above (proven stock pattern, kept for src/app/page.tsx —
+ * see the "legacy Next.js template vars" comment on :root). font-sans/font-mono re-point Tailwind's own
+ * font utilities at the Thai-readable stack so existing `font-mono` usage (e.g. src/ui/DebugOverlay.tsx,
+ * out of this pass's scope) keeps working unchanged.
+ *
+ * Deliberately NOT extending this block with --color-dp-* / --radius-dp-* entries: empirically verified
+ * (standalone @tailwindcss/postcss compiles, see report) that in this exact installed Tailwind/Next
+ * version, adding the full --dp-* palette here made utility generation for EVERY custom color/radius
+ * entry silently fail (no warning, no error — classes just never emitted) once the file also carried
+ * the two @media blocks below + @layer utilities: a reproducible but unexplained interaction, not a
+ * config mistake (isolated minimal repros of the same @theme pattern worked fine). Given the framework-
+ * API caution in AGENTS.md, the safe/verified path is used instead: every dp-* color/radius token is
+ * consumed via Tailwind's arbitrary-value `[var(--dp-x)]` syntax (confirmed reliable — see report),
+ * never via a `bg-dp-x`-style generated utility class.
+ */
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --font-sans: var(--dp-font-sans);
+  --font-mono: var(--dp-font-mono);
 }
 
-@media (prefers-color-scheme: dark) {
+@media (min-width: 768px) {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    --dp-text-display-xl: 40px;
+    --dp-text-title-lg: 28px;
+    --dp-text-title-md: 22px;
+    --dp-text-combat-number: 28px; /* within spec's 20-32px desktop range */
+    /* heading/body/body-sm/caption identical desktop vs mobile per §2.2 type scale table */
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* §2.6 Reduced Motion baseline: cap duration, kill repeats. Per-animation "scale/shake -> opacity only"
+     curation still lives in each component (Button press / error shake etc.) — this is the safety net. */
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: var(--dp-motion-fast) !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+@layer utilities {
+  /* ---- Typography scale (§2.2) — font-size + line-height + weight bundled per named step so callers
+     never hand-compose 3 utilities (and never hardcode a px size). tabular-nums baked into the numeric
+     steps per §2.2 "ตัวเลข combat และ stat ใช้ tabular numerals". ---- */
+  .dp-text-display-xl {
+    font-family: var(--dp-font-display);
+    font-size: var(--dp-text-display-xl);
+    line-height: 1.15;
+    font-weight: 700;
+  }
+  .dp-text-title-lg {
+    font-family: var(--dp-font-display);
+    font-size: var(--dp-text-title-lg);
+    line-height: 1.25;
+    font-weight: 700;
+  }
+  .dp-text-title-md {
+    font-size: var(--dp-text-title-md);
+    line-height: 1.3;
+    font-weight: 600;
+  }
+  .dp-text-heading {
+    font-size: var(--dp-text-heading);
+    line-height: 1.35;
+    font-weight: 600;
+  }
+  .dp-text-body {
+    font-size: var(--dp-text-body);
+    line-height: 1.5;
+    font-weight: 400;
+  }
+  .dp-text-body-sm {
+    font-size: var(--dp-text-body-sm);
+    line-height: 1.45;
+    font-weight: 400;
+  }
+  .dp-text-label {
+    font-size: var(--dp-text-body-sm);
+    line-height: 1.45;
+    font-weight: 500;
+  }
+  .dp-text-caption {
+    font-size: var(--dp-text-caption);
+    line-height: 1.4;
+    font-weight: 400;
+  }
+  .dp-text-combat-number {
+    font-size: var(--dp-text-combat-number);
+    line-height: 1;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* ---- Shadow / frame recipes (§2.4) — composite multi-property values, applied as plain classes
+     rather than gambling on an uncertain `--shadow-*` theme-namespace utility (AGENTS.md caution). ---- */
+  .dp-shadow-panel {
+    box-shadow: var(--dp-shadow-panel);
+  }
+  .dp-shadow-modal {
+    box-shadow: var(--dp-shadow-modal);
+  }
+  .dp-shadow-raised {
+    box-shadow: var(--dp-shadow-raised);
+  }
+
+  /* ---- Focus ring (§4.2/§4.3 "Focus: 3px focus ring") ---- */
+  .dp-focus-ring:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 var(--dp-focus-ring-width) var(--dp-focus-ring);
   }
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--dp-deep-ink);
+  color: var(--dp-parchment);
+  font-family: var(--dp-font-sans);
+  font-size: var(--dp-text-body);
+  line-height: 1.5;
 }

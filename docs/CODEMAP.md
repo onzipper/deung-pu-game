@@ -40,14 +40,9 @@
 - `src/ui/` — GameCanvas (mount bridge), DebugOverlay (F3), debug-overlay-logic (pure reducer)
 - `src/ui/store/` — Zustand vanilla store bridge (HUD state, engine→UI one-way, no React import in the vanilla file)
 - `src/ui/theme/rarity.ts` — rarity color tokens (D-043)
+- `src/ui/components/` — token-driven presentational kit (P2 UI spec §4): PanelFrame, Button, TextInput, ItemSlot, Tooltip, ConfirmDialog(+hold-to-confirm), Toast
 - `src/ui/panels/` — shared panel framework (desktop float / mobile sheet, z-order, keydown block; DG §13) + hud-layout (P2-15). Provider in `src/ui/GameCanvas.tsx`
-- `src/ui/panels/inventory/` — bag/equipment panel (P2-07); hosts "เสริมแกร่ง" button
-- `src/ui/panels/enhancement/` — guaranteed reinforcement panel (P2-10) — inert `NO_REINFORCEMENT` ตลอด P2 (R8/D-052)
-- `src/ui/panels/shop/` — NPC shop buy/sell (P2-11)
-- `src/ui/panels/storage/` — storage + delivery box (P2-17)
-- `src/ui/panels/help/` — DG lite guidance/help/tutorial checklist (P2-12, client-only)
-- `src/ui/panels/mobile/` — virtual joystick + attack button (P2-15)
-- `src/ui/panels/settings/` — effect quality / screen-shake toggle (P2-15)
+- `src/ui/panels/` subdirs (inventory/enhancement/shop/storage/help/mobile/settings) — per-feature panels: bag/equip (P2-07) · guaranteed reinforcement, inert `NO_REINFORCEMENT` (P2-10/R8/D-052) · NPC shop (P2-11) · storage+delivery (P2-17) · DG-lite help (P2-12) · joystick/attack + effect-quality/shake (P2-15)
 
 ## server (Colyseus realtime process, separate from Next — L4)
 
