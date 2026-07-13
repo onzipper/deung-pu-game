@@ -76,13 +76,18 @@ export interface PlayerAnimationConfig {
 
 /**
  * Nameplate เหนือหัวผู้เล่น (NAMEPLATES feature, client visual ล้วน) — โชว์ชื่อตัวละคร (display name §3.3)
- * ที่ sync ผ่าน PlayerState.name. ใช้กับทั้ง local + remote (label เดียวกัน). วางเหนือป้าย AFK เสมอ
- * (gapAboveAfk ติดลบ) ให้สองป้ายอ่านออกพร้อมกัน ไม่ทับ. ไม่มี spec สี/ขนาด → ค่านี้เป็น Design Knob.
+ * ที่ sync ผ่าน PlayerState.name. ใช้กับทั้ง local + remote (label เดียวกัน) + NPC (src/game/npc/manager.ts
+ * ผูก config ซ้ำ). วางเหนือป้าย AFK เสมอ (gapAboveAfk ติดลบ) ให้สองป้ายอ่านออกพร้อมกัน ไม่ทับ. ไม่มี spec
+ * สี/ขนาด → ค่านี้เป็น Design Knob.
+ *
+ * Legibility pass (fix/nameplate-legibility): เพิ่ม bg chip (dark rounded rect หลังตัวอักษร) + drop shadow +
+ * textResolution ให้อ่านออกชัดบน pixelate pipeline (renderResolution 0.5 + textureScaleMode "nearest",
+ * src/engine/config/render.ts — ไม่แตะไฟล์นั้น). ทุกค่าใหม่เป็น Design Knob (§48), ไม่ hardcode inline.
  */
 export interface PlayerNameplateConfig {
   /** ระยะ (px) ที่ป้ายชื่อสูงกว่าป้าย AFK (ติดลบ = ขึ้นบน) — ต้อง < -fontSize เพื่อไม่ทับป้าย AFK */
   gapAboveAfk: number;
-  /** ขนาดตัวอักษร (px) — เท่า afk-label ให้ตัวอักษรเหนือหัวสม่ำเสมอ */
+  /** ขนาดตัวอักษร (px) */
   fontSize: number;
   /** font family (monospace เหมือน afk-label/damage-number) */
   fontFamily: string;
@@ -92,6 +97,29 @@ export interface PlayerNameplateConfig {
   strokeColor: number;
   /** ความหนาเส้นขอบ (px) */
   strokeWidth: number;
+  /** สี drop shadow (เพิ่มมิติให้ตัวอักษรเด่นจากพื้นหลัง) */
+  shadowColor: number;
+  /** ความทึบ drop shadow (0..1) */
+  shadowAlpha: number;
+  /** ระยะเบลอ drop shadow (px) */
+  shadowBlur: number;
+  /** ระยะออฟเซ็ต drop shadow (px) */
+  shadowDistance: number;
+  /** สีพื้นหลัง chip (dark rounded rect หลังตัวอักษร — คอนทราสต์บนพื้นเขียว/ป่า) */
+  bgColor: number;
+  /** ความทึบพื้นหลัง chip (0..1) */
+  bgAlpha: number;
+  /** padding แนวนอนของ chip รอบตัวอักษร (px) */
+  paddingX: number;
+  /** padding แนวตั้งของ chip รอบตัวอักษร (px) */
+  paddingY: number;
+  /** รัศมีมุมโค้งของ chip (px) */
+  cornerRadius: number;
+  /**
+   * resolution ของ glyph texture ของ Text นี้โดยเฉพาะ (แยกจาก renderer resolution 0.5 ทั้งเกม) —
+   * ให้ตัวอักษรคมกว่าที่ pixelate pipeline ปกติจะให้ (Pixi v8 Text accepts `resolution` option).
+   */
+  textResolution: number;
 }
 
 /**
@@ -198,13 +226,23 @@ export const DEFAULT_PLAYER_CONFIG: PlayerConfig = {
   },
   animation: DEFAULT_PLAYER_ANIMATION_CONFIG,
   nameplate: {
-    // ป้ายชื่อสูงกว่า afk-label 16px (fontSize 11 + stroke ≈ 14 + gap 2) → สองป้ายอ่านออกพร้อมกัน ไม่ทับ
-    gapAboveAfk: -16,
-    fontSize: 11, // เท่า afk-label (src/engine/render/afk-label.ts)
+    // ป้ายชื่อสูงกว่า afk-label 19px (fontSize 14 + stroke/chip ≈ 17 + gap 2) → สองป้ายอ่านออกพร้อมกัน ไม่ทับ
+    gapAboveAfk: -19,
+    fontSize: 14, // legibility pass: 11→14
     fontFamily: "monospace",
     color: 0xe8f0ff, // ขาวอมฟ้า = ชื่อผู้เล่น (แยกจาก AFK เหลือง 0xffd23f)
     strokeColor: 0x000000,
-    strokeWidth: 3,
+    strokeWidth: 4, // legibility pass: 3→4
+    shadowColor: 0x000000,
+    shadowAlpha: 0.5,
+    shadowBlur: 2,
+    shadowDistance: 1,
+    bgColor: 0x1a1a1a, // เทาเข้มเกือบดำ = contrast บนพื้นเขียว/ป่า
+    bgAlpha: 0.55,
+    paddingX: 6,
+    paddingY: 3,
+    cornerRadius: 4,
+    textResolution: 3, // glyph texture คมกว่า renderer resolution 0.5 ทั้งเกม (src/engine/config/render.ts)
   },
 };
 

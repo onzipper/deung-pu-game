@@ -17,7 +17,7 @@
 // caster ที่ไม่ใช่ตัวเอง → ล็อกคลิป attack ชั่วคราว (timing pure ใน remote-attack.ts, pattern เดียวกับ
 // local-player.ts triggerAttack) แล้วคืน control ให้ anim จาก interpolation sample ต่อ (idle/walk).
 
-import type { Renderer, Text } from "pixi.js";
+import type { Container, Renderer, Text } from "pixi.js";
 import type { EngineConfig } from "@/engine/config";
 import type { TilePoint } from "@/engine/iso/coords";
 import type { MapSceneHandle } from "@/engine/render/scene";
@@ -77,8 +77,11 @@ interface RemoteEntry {
   label: Text;
   /** P2-13: AFK flag ล่าสุดจาก snapshot (discrete, ไม่ interpolate ผ่าน buffer) */
   afk: boolean;
-  /** NAMEPLATES: ป้ายชื่อผู้เล่น (child ของ animator.view) — destroy พร้อม view ตอน removeEntity. */
-  nameLabel: Text;
+  /**
+   * NAMEPLATES: ป้ายชื่อผู้เล่น (child ของ animator.view) — destroy พร้อม view ตอน removeEntity.
+   * legibility pass: Container (bg chip + Text) แทน bare Text เดิม — ดู src/engine/render/name-label.ts.
+   */
+  nameLabel: Container;
   /** NAMEPLATES: ชื่อล่าสุดจาก snapshot (set บนป้ายเมื่อเปลี่ยน — ไม่ redraw ถ้าเท่าเดิม) */
   name: string;
 }

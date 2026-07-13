@@ -143,24 +143,55 @@ export function createMobViewManager(
    * สร้าง nameplate (ชื่อไทยเหนือหัว) จาก name catalog (src/game/mob/name-catalog.ts) — resolve ครั้งเดียว
    * ตอน add() เพราะชื่อ/rank ผูกกับ mobType คงที่ (ไม่ต้อง redraw ทุก frame). ไม่พบ mobType ใน catalog →
    * null (ไม่ render, ไม่ crash, ไม่โชว์ raw id — ดู brief nameplates).
+   *
+   * Legibility pass (fix/nameplate-legibility): Container ห่อ bg chip (dark rounded rect, sized ตาม text
+   * bounds ที่วัดได้ครั้งเดียวตรงนี้ — ชื่อมอนไม่เปลี่ยนหลังสร้าง จึงไม่ต้อง resize ทุก frame เหมือน player
+   * nameplate) + Text ที่ resolution สูงกว่า renderer resolution ทั้งเกม (0.5) ให้ glyph คมขึ้น. ไม่ต้อง
+   * counter-flip (เป็น sibling ของ animator.view ที่ไม่ flip — ดู comment ตรง add() ด้านล่าง).
+   *
+   * Pixi v8 caveat: `Text` ใน pixi.js@8.19 ไม่มี public `.texture` accessor (ตรวจด้วย prototype
+   * introspection จริง — ดู header comment ของ src/engine/render/name-label.ts) จึง "ตั้ง scaleMode เฉพาะ
+   * label นี้เป็น linear" ทำไม่ได้ด้วย public API — ใช้ resolution เป็น lever หลักแทน.
    */
-  const createNameplate = (mobType: string, cfg: MobNameplateConfig): Text | null => {
+  const createNameplate = (mobType: string, cfg: MobNameplateConfig): Container | null => {
     const entry = getMobNameEntry(mobType);
     if (!entry) return null;
     const isBoss = entry.rank === "boss";
-    const color =
-      entry.rank === "boss" ? cfg.bossColor : entry.rank === "elite" ? cfg.eliteColor : cfg.normalColor;
-    const label = new Text({
+    const isElite = entry.rank === "elite";
+    const color = isBoss ? cfg.bossColor : isElite ? cfg.eliteColor : cfg.normalColor;
+    const fontSize = isBoss ? cfg.bossFontSize : isElite ? cfg.eliteFontSize : cfg.fontSize;
+    const text = new Text({
       text: entry.nameTh,
+      resolution: cfg.textResolution,
       style: {
         fill: color,
-        fontSize: isBoss ? cfg.bossFontSize : cfg.fontSize,
+        fontSize,
         fontFamily: cfg.fontFamily,
         fontWeight: "bold",
         stroke: { color: cfg.strokeColor, width: cfg.strokeWidth },
+        dropShadow: {
+          color: cfg.shadowColor,
+          alpha: cfg.shadowAlpha,
+          blur: cfg.shadowBlur,
+          distance: cfg.shadowDistance,
+        },
       },
     });
-    label.anchor.set(0.5, 1); // กึ่งกลางล่างของข้อความ = ลอยเหนือหัว (เหมือน afk-label)
+    text.anchor.set(0.5, 1); // กึ่งกลางล่างของข้อความ = ลอยเหนือหัว (เหมือน afk-label)
+
+    // bg chip sized ตาม text bounds ที่วัดได้ + padding — คำนวณครั้งเดียวตรงนี้ (ชื่อมอน/rank คงที่ตลอด
+    // อายุ instance, ต่างจาก player nameplate ที่ต้อง resize ตอน setNameLabelText เพราะชื่อ sync มาทีหลัง).
+    const w = text.width + cfg.paddingX * 2;
+    const h = text.height + cfg.paddingY * 2;
+    const bg = new Graphics();
+    bg.roundRect(-w / 2, -(text.height + cfg.paddingY), w, h, cfg.cornerRadius).fill({
+      color: cfg.bgColor,
+      alpha: isBoss ? cfg.bossBgAlpha : cfg.bgAlpha,
+    });
+
+    const label = new Container();
+    label.addChild(bg); // bg หลัง text เสมอ
+    label.addChild(text);
     label.position.set(0, cfg.offsetY);
     return label;
   };

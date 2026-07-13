@@ -6,7 +6,7 @@
 //   ไม่ออก) ตามไปด้วย. updateAfkLabel counter-flip (label.scale.x = ±1 หักล้าง) ให้ตัวอักษรตั้งตรงเสมอ.
 //   วาง label ที่ x=0 (ตรงแกนเท้า) → flip ไม่ทำให้เลื่อนซ้าย/ขวา.
 
-import { Text, type Sprite } from "pixi.js";
+import { Text, type Container, type Sprite } from "pixi.js";
 
 /** ระยะเผื่อ (px) เหนือยอดหัว sprite ก่อนวางป้าย — cosmetic. */
 const AFK_LABEL_MARGIN = 6;
@@ -43,11 +43,12 @@ export function createAfkLabel(bodyHeight: number, walkBob: number): Text {
 }
 
 /**
- * counter-flip ป้าย over-head กัน mirror เมื่อ host sprite flip (view.scale.x = -1 หันซ้าย/ขวา) → child Text
- * จะพลิกกลับด้าน. ตั้ง label.scale.x = ±1 หักล้างให้ตัวอักษรตั้งตรงเสมอ. แชร์ afk-label + name-label (NAMEPLATES)
- * — ป้ายทั้งสองเป็น child ของ sprite ที่ flip เหมือนกัน (DRY: logic flip ที่เดียว).
+ * counter-flip ป้าย over-head กัน mirror เมื่อ host sprite flip (view.scale.x = -1 หันซ้าย/ขวา) → child
+ * จะพลิกกลับด้าน. ตั้ง label.scale.x = ±1 หักล้างให้ตัวอักษรตั้งตรงเสมอ. แชร์ afk-label (bare Text) +
+ * name-label (NAMEPLATES — Container ที่ห่อ bg chip + Text ตั้งแต่ legibility pass) — รับ `Container` (ฐานของ
+ * Text ด้วย) ให้ทั้งสองรูปแบบใช้ฟังก์ชันเดียวกันได้ (DRY: logic flip ที่เดียว). ใช้แค่ .scale.x → ใช้ได้ทั้งคู่.
  */
-export function counterFlipLabel(label: Text, host: Sprite): void {
+export function counterFlipLabel(label: Container, host: Sprite): void {
   label.scale.x = host.scale.x < 0 ? -1 : 1;
 }
 
