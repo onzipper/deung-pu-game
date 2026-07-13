@@ -131,13 +131,19 @@ export interface MobHpBarConfig {
  * Nameplate เหนือหัวมอน/บอส (nameplates feature, client visual ล้วน) — โชว์ชื่อไทยจาก name catalog
  * (src/game/mob/name-catalog.ts) เสมอ ไม่ผูกกับการโดนตี (ต่างจาก hpBar). สีต่อ rank (ไม่มี spec, ใช้ default
  * นี้เป็น knob): normal = ขาว, elite = ส้ม, boss = แดง+ใหญ่กว่า. วางเหนือ hpBar เสมอ (offsetY ติดลบกว่า hpBar.offsetY).
+ *
+ * Legibility pass (fix/nameplate-legibility): เพิ่ม bg chip (dark rounded rect หลังตัวอักษร) + drop shadow +
+ * textResolution ให้อ่านออกชัดบน pixelate pipeline (renderResolution 0.5 + textureScaleMode "nearest",
+ * src/engine/config/render.ts — ไม่แตะไฟล์นั้น). ทุกค่าใหม่เป็น Design Knob (§48), ไม่ hardcode inline.
  */
 export interface MobNameplateConfig {
   /** ระยะ (px) เหนือ foot ของมอน (ลบ = ขึ้นบน) — ต้องอยู่เหนือ hpBar.offsetY เสมอ (ติดลบกว่า) */
   offsetY: number;
-  /** ขนาดตัวอักษร (px) มอนปกติ/elite */
+  /** ขนาดตัวอักษร (px) มอนปกติ */
   fontSize: number;
-  /** ขนาดตัวอักษร (px) boss — ใหญ่กว่าปกติเล็กน้อยให้เด่น */
+  /** ขนาดตัวอักษร (px) elite — ใหญ่กว่าปกติเล็กน้อย */
+  eliteFontSize: number;
+  /** ขนาดตัวอักษร (px) boss — ใหญ่กว่าปกติชัดเจนให้เด่น */
   bossFontSize: number;
   /** font family ตัวอักษร (มอนวรรค monospace เหมือน afk-label/damage-number) */
   fontFamily: string;
@@ -151,6 +157,31 @@ export interface MobNameplateConfig {
   strokeColor: number;
   /** ความหนาเส้นขอบ (px) */
   strokeWidth: number;
+  /** สี drop shadow (เพิ่มมิติให้ตัวอักษรเด่นจากพื้นหลัง) */
+  shadowColor: number;
+  /** ความทึบ drop shadow (0..1) */
+  shadowAlpha: number;
+  /** ระยะเบลอ drop shadow (px) */
+  shadowBlur: number;
+  /** ระยะออฟเซ็ต drop shadow (px) */
+  shadowDistance: number;
+  /** สีพื้นหลัง chip (dark rounded rect หลังตัวอักษร — คอนทราสต์บนพื้นเขียว/ป่า) */
+  bgColor: number;
+  /** ความทึบพื้นหลัง chip มอนปกติ/elite (0..1) */
+  bgAlpha: number;
+  /** ความทึบพื้นหลัง chip boss (เข้มกว่าเล็กน้อยให้เด่น) */
+  bossBgAlpha: number;
+  /** padding แนวนอนของ chip รอบตัวอักษร (px) */
+  paddingX: number;
+  /** padding แนวตั้งของ chip รอบตัวอักษร (px) */
+  paddingY: number;
+  /** รัศมีมุมโค้งของ chip (px) */
+  cornerRadius: number;
+  /**
+   * resolution ของ glyph texture ของ Text นี้โดยเฉพาะ (แยกจาก renderer resolution 0.5 ทั้งเกม) —
+   * ให้ตัวอักษรคมกว่าที่ pixelate pipeline ปกติจะให้ (Pixi v8 Text accepts `resolution` option).
+   */
+  textResolution: number;
 }
 
 /** รวม config ของ mob ทั้งหมด (P0-09 spawn/wander/render + P1-03 ai/lod/respawn + P1-05 hpBar) — Design Knob. */
@@ -245,14 +276,26 @@ export const DEFAULT_MOB_CONFIG: MobConfig = {
     // hpBar.offsetY = -46 (เหนือหัว) → nameplate ต้องอยู่เหนือกว่านั้นอีก (ติดลบมากกว่า) กันซ้อนทับ
     // (hpBar.height 4 + gap ~6px ≈ -56)
     offsetY: -56,
-    fontSize: 11, // เท่า afk-label (src/engine/render/afk-label.ts) ให้ตัวอักษรสม่ำเสมอ
-    bossFontSize: 13, // ใหญ่กว่าปกติเล็กน้อยให้เด่นว่าเป็นบอส (ไม่มี spec — nameplate rank knob)
+    fontSize: 14, // legibility pass: 11→14 (busy ground bg ต้องใหญ่ขึ้นให้อ่านออก)
+    eliteFontSize: 15, // ใหญ่กว่าปกติเล็กน้อยให้เด่นว่าเป็น elite
+    bossFontSize: 18, // ใหญ่กว่าปกติชัดเจนให้เด่นว่าเป็นบอส (ไม่มี spec — nameplate rank knob)
     fontFamily: "monospace",
     normalColor: 0xffffff, // ขาว = มอนปกติ
     eliteColor: 0xff9d2e, // ส้ม = elite (Fire tone ใกล้เคียง MASTER_PALETTE)
     bossColor: 0xff4040, // แดง = บอส
     strokeColor: 0x000000,
-    strokeWidth: 3,
+    strokeWidth: 4, // legibility pass: 3→4 เส้นขอบหนาขึ้น
+    shadowColor: 0x000000,
+    shadowAlpha: 0.5,
+    shadowBlur: 2,
+    shadowDistance: 1,
+    bgColor: 0x1a1a1a, // เทาเข้มเกือบดำ = contrast บนพื้นเขียว/ป่า
+    bgAlpha: 0.55,
+    bossBgAlpha: 0.65, // เข้มกว่าเล็กน้อยให้ boss เด่น
+    paddingX: 6,
+    paddingY: 3,
+    cornerRadius: 4,
+    textResolution: 3, // glyph texture คมกว่า renderer resolution 0.5 ทั้งเกม (src/engine/config/render.ts)
   },
   defaultStyle: {
     bodyColor: 0x8a8a8a,
