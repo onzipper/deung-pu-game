@@ -24,6 +24,8 @@ import { collectMapAssetIds } from "../assets/collect";
 import { createLocalPlayer, type LocalPlayerHandle } from "../player/local-player";
 import { createMobViewManager, type MobViewHandle, type MobBlip } from "@/game/mob/manager";
 import { createMobSimulation, type MobSimulation } from "@/game/mob/simulation";
+import { createNpcManager, type NpcManagerHandle } from "@/game/npc/manager";
+import { NPC_CLICK_RADIUS_TILES } from "@/game/npc/npc-click";
 import { createCombatStub, type CombatStubHandle } from "@/game/combat/combat-stub";
 import {
   cancelEngage,
@@ -70,6 +72,7 @@ import { buildDebugInfo, IDLE_NET_DEBUG_INFO, type EngineDebugInfo } from "./deb
 import {
   createHudPublisher,
   resetHudState,
+  setActiveDialogue,
   setDeathNotice,
   setDeliveryResult,
   setDeliveryState,
@@ -127,6 +130,12 @@ export interface EngineHandle {
   setEffectQuality(quality: EffectQuality): void;
   /** P2-15 (GS §17.5): เปิด/ปิด screen shake ตอน runtime — mutate config.combatFeel.screenShake.enabled (live). */
   setScreenShakeEnabled(enabled: boolean): void;
+  /**
+   * LW0: ปิด NPC bark dialogue ที่เปิดอยู่ (DialoguePanel เรียกตอนผู้เล่นปิด/ดูจบ) — เคลียร์ store ตรง ๆ
+   * (ไม่ผูกกับ world เฉพาะ, เหมือน setEffectQuality) กัน DialoguePanel เขียน gameStore เอง (ui.md contract:
+   * store read-only ฝั่ง UI, imperative command ต้องผ่าน EngineHandle).
+   */
+  closeDialogue(): void;
   /** เก็บกวาดครบ: ticker, resize observer, canvas, GPU resources */
   destroy(): void;
 }
@@ -300,6 +309,9 @@ export async function createEngine(
 
     // --- mobs (P1-03): server-authoritative → view manager render จาก snapshot ---
     const mobView: MobViewHandle = createMobViewManager(scene, config, app.renderer, registry);
+
+    // --- NPC (LW0 static bark) — ไม่มี movement/AI, seed ครั้งเดียวจาก npc-data.ts catalog ---
+    const npcManager: NpcManagerHandle = createNpcManager(scene, config, map.mapId);
 
     // --- combat (P1-05 server-authoritative): S1 นักดาบจาก client manifest ---
     // P1-11 (GS §14): ปิด combat ในโซน safe (เมือง) — disable ปุ่มโจมตี client (server ปฏิเสธ cast ซ้ำอีกชั้น).
@@ -643,6 +655,16 @@ export async function createEngine(
       if (e.button !== 0) return; // touch/pen primary contact = button 0 (PointerEvent ครอบ touch เอง)
       if (transition.isLocked()) return; // P1-10: input lock ระหว่างข้าม map
       const foot = footFromEvent(e);
+      // LW0: คลิกโดน NPC (bark dialogue) — เช็คก่อน mob/ground เสมอ (dialogue ไม่ใช่ combat, ไม่ผูก
+      // combatAllowed — NPC วางในโซนที่เดินได้อยู่แล้ว). โดน → เปิด dialogue + หยุด engage/path ค้าง แล้ว
+      // จบ (ไม่ตกไป engage มอน/เดินตามเมาส์ ไม่ทับ FEATURE 1/2 ที่เหลือ).
+      const npc = npcManager.npcUnderClick(foot, NPC_CLICK_RADIUS_TILES);
+      if (npc) {
+        engageState = cancelEngage();
+        player.cancelPath();
+        setActiveDialogue({ npcId: npc.npcId, displayName: npc.displayName, lines: npc.lines });
+        return;
+      }
       // P2-15: รัศมี pick ตาม input mode (mouse 0.60 / touch 0.80, Combat Bible §3).
       const assistRadius = resolveTargetAssistRadius(
         inputModeFromPointerType(e.pointerType),
@@ -843,6 +865,7 @@ export async function createEngine(
         stressHarness.destroy();
         combat.destroy();
         mobView.destroy();
+        npcManager.destroy();
         player.destroy();
         scene.destroy();
       },
@@ -982,6 +1005,9 @@ export async function createEngine(
     },
     setScreenShakeEnabled(enabled: boolean): void {
       config.combatFeel.screenShake.enabled = enabled;
+    },
+    closeDialogue(): void {
+      setActiveDialogue(null);
     },
     destroy,
   };
