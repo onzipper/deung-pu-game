@@ -41,6 +41,16 @@ export class MobState extends Schema {
   @type("number") ty = 0;
   @type("string") state = "idle";
   @type("number") hp = 0;
+  /**
+   * workstream B (Field Boss): guard-gauge ปัจจุบัน + เต็ม (Colyseus auto-sync → client แถบ guard, E3 HUD).
+   * maxGuard > 0 = mob นี้เป็นบอส (มี guard gauge); normal mob = 0/0. server-authoritative (client ไม่ส่งค่านี้).
+   */
+  @type("number") guard = 0;
+  @type("number") maxGuard = 0;
+  /** workstream B: index ของ boss phase (§2.3: 0 Learn / 1 Pressure / 2 Enrage). normal mob = 0. */
+  @type("number") bossPhase = 0;
+  /** workstream B: true ช่วง BREAK/stagger (golden window) — client แสดง stagger + guard bar แตก (§2.4). */
+  @type("boolean") staggered = false;
 }
 
 /**

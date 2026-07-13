@@ -207,6 +207,63 @@ export interface MobSnapshot {
   state: WireMobState;
   /** hp ปัจจุบัน (P1-05: update จริงจาก server combat → client โชว์ HP bar เมื่อ hp < maxHp) */
   hp: number;
+  /**
+   * workstream B (Field Boss): guard-gauge ปัจจุบัน. `maxGuard` > 0 = mob นี้เป็นบอส → client แสดงแถบ guard
+   * (E3 HUD). normal mob = 0/0 (ไม่มี guard gauge). optional (default 0) — server-authoritative.
+   */
+  guard?: number;
+  maxGuard?: number;
+  /** workstream B: index ของ boss phase ปัจจุบัน (§2.3: 0 Learn / 1 Pressure / 2 Enrage). normal mob = 0. */
+  bossPhase?: number;
+  /** workstream B: true ช่วง BREAK/stagger (golden window) — client แสดง stagger + guard bar แตก. default false. */
+  staggered?: boolean;
+}
+
+// ── workstream B: Field Boss depth (guard/break gauge + phase + telegraph, COMBAT_BIBLE §7/§8 · §2.3/§2.4) ──
+// guard/maxGuard/bossPhase/staggered ride MobState schema (auto-sync → HUD bar). message พวกนี้ = **event/juice
+// signal** ล้วน (client เล่น telegraph circle / break VFX-SFX / phase banner) — ความจริง server-authoritative.
+
+/**
+ * message type: server → **ทุก client ในห้อง** — บอสเริ่มท่าโจมตี (anticipation) → client แสดง telegraph
+ * (danger zone) เหนือ effect เสมอ ไม่ขึ้นกับ quality setting (§18.5). payload = BossTelegraphMessage.
+ */
+export const MSG_BOSS_TELEGRAPH = "boss_telegraph";
+
+/** payload ของ MSG_BOSS_TELEGRAPH (server → broadcast, workstream B). */
+export interface BossTelegraphMessage {
+  mobId: string;
+  /** vfx cue ของ telegraph (client วาด danger zone) — เช่น "vfx_telegraph_circle_danger". */
+  vfxCue: string;
+  /** ระยะ anticipation (ms) = dodge window ก่อน active frame (client จับเวลา telegraph). */
+  durationMs: number;
+}
+
+/**
+ * message type: server → **ทุก client ในห้อง** — guard บอสแตก → BREAK (§8). client เล่น break VFX/SFX +
+ * เปิด golden window (รับ damage ×multiplier). payload = BossBreakMessage.
+ */
+export const MSG_BOSS_BREAK = "boss_break";
+
+/** payload ของ MSG_BOSS_BREAK (server → broadcast, workstream B). */
+export interface BossBreakMessage {
+  mobId: string;
+  /** ระยะ stagger (ms) ที่บอสชะงัก (solo 6000 / party 8000, §2.4) — client จับเวลา golden window. */
+  staggerMs: number;
+}
+
+/**
+ * message type: server → **ทุก client ในห้อง** — บอสเปลี่ยน phase (§2.3 Learn→Pressure→Enrage). client แสดง
+ * phase banner / เปลี่ยน music layer. payload = BossPhaseMessage.
+ */
+export const MSG_BOSS_PHASE = "boss_phase";
+
+/** payload ของ MSG_BOSS_PHASE (server → broadcast, workstream B). */
+export interface BossPhaseMessage {
+  mobId: string;
+  /** index ของ phase ใหม่ (0-based). */
+  phaseIndex: number;
+  /** phase id ("learn"|"pressure"|"enrage") — client map เป็น label/effect. */
+  phaseId: string;
 }
 
 /**

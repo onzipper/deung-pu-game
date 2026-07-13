@@ -142,6 +142,75 @@ export interface HitTolerance {
   readonly pointBlankRadiusTiles: number;
 }
 
+/**
+ * Boss phase (workstream B, OWNER_PRODUCTION_DECISIONS §2.3 "First Boss Structure") — เข้าเฟสเมื่อ hp เหลือ
+ * ≤ `hpThresholdPercent` ของ maxHp. factor คูณ timing/damage ฐาน (§9.3) ต่อเฟส. **telegraph (anticipation)
+ * ไม่ถูกย่อ** — ต้องชัดเสมอ (§2.2 ข้อ 1 / GS §18.5). ทุกค่าเป็น Design Knob (§48).
+ */
+export interface BossPhaseConfig {
+  /** phase id (telemetry/label): "learn" | "pressure" | "enrage" (§2.3). */
+  id: string;
+  /** เข้าเฟสนี้เมื่อ hp เหลือ ≤ % นี้ของ maxHp (§2.3: 100 / 65 / 20). เรียง phases มาก→น้อย. */
+  hpThresholdPercent: number;
+  /** คูณ attack cooldown ฐาน (<1 = ตีถี่ขึ้น; Enrage cadence +15% → 0.87, §2.3). */
+  attackCooldownFactor: number;
+  /** คูณ recovery ฐาน (Enrage -10% → 0.9, §2.3). */
+  recoveryFactor: number;
+  /** คูณ damage บอส→ผู้เล่น (Enrage +≤10% → 1.10, §2.3 "damage ไม่เพิ่มเกิน 10%"). */
+  damageFactor: number;
+}
+
+/**
+ * Boss guard-break window baseline (§2.4 Break Baseline + COMBAT_BIBLE §8). guard แตก → boss ชะงัก
+ * (`bossActionDuringBreak: disabled`) เป็นเวลา window (solo/party) + รับ damage ×multiplier ช่วงนั้น (golden
+ * window) → guard เติมกลับ. ทุกค่าเป็น Design Knob (§48).
+ */
+export interface BossBreakConfig {
+  /** ระยะ stagger (วินาที) solo — §2.4 = 6. */
+  breakWindowSecondsSolo: number;
+  /** ระยะ stagger (วินาที) party — §2.4 = 8. */
+  breakWindowSecondsParty: number;
+  /** ตัวคูณ damage ขาเข้าช่วง stagger (golden window) solo — §2.4 = 1.25. */
+  damageMultiplierSolo: number;
+  /** ตัวคูณ damage ขาเข้าช่วง stagger party — §2.4 = 1.20. */
+  damageMultiplierParty: number;
+  /** สัดส่วน guard ที่เติมกลับหลัง stagger จบ (1 = เต็ม; COMBAT_BIBLE §8 "guard refills"). */
+  guardRefillAfterStagger: number;
+  /** reset guard เต็มเมื่อเปลี่ยนเฟสไหม (COMBAT_BIBLE §8 "guard refills/reset per phase config"). */
+  resetGuardOnPhaseChange: boolean;
+}
+
+/**
+ * โมเดลว่าการตี 1 ครั้งของผู้เล่นทุบ guard เท่าไหร่ (COMBAT_BIBLE §8: **Break Power = stat แยกจาก damage**;
+ * "normal AoE damage ไม่ควรเป็นเครื่องมือ break ที่ดีที่สุดโดยอัตโนมัติ"). แยก single/AoE ด้วย §50.1 `maxTargets`
+ * ที่มีอยู่แล้ว — **ไม่ผูกกับ damage/baseMultiplier และไม่ต้องเดาเลขราย skill**. ทุกค่าเป็น Design Knob (§48).
+ *
+ * ⚠️ §50.1 ยังไม่มี field `breakPower` ต่อ skill (37 field, ห้ามเพิ่มเองนอก §59.4) — โมเดลนี้จึง derive จาก
+ * `maxTargets` + equipment breakPower stat (§6.1) เป็นการชั่วคราว; per-skill Break Power ที่แท้จริง = คำถามถึง owner.
+ */
+export interface BossBreakModelConfig {
+  /** break ต่อ 1 hit ของสกิล single-target (ก่อนคูณ aoeFactor). */
+  breakPerHit: number;
+  /** สกิลที่ maxTargets ≤ ค่านี้ = single-target/short-cleave → break เต็ม; เกิน = AoE (ลด). */
+  singleTargetMaxTargets: number;
+  /** ตัวคูณ break ของสกิล AoE (maxTargets เกิน threshold) — <1 ให้ "AoE ไม่ใช่เครื่องมือ break ที่ดีสุด". */
+  aoeFactor: number;
+  /** น้ำหนักของ equipment breakPower stat (§6.1) ที่บวกเข้า break ต่อ cast ที่โดนบอส. */
+  equipmentBreakWeight: number;
+}
+
+/**
+ * Boss depth balance (workstream B — TA §12.1/§15.4, COMBAT_BIBLE §7/§8, OWNER_PRODUCTION_DECISIONS §2).
+ * ใช้กับ mob ที่ `breakPower > 0` เท่านั้น (Field Boss; normal mob = 0 → ไม่มี guard gauge). shared config
+ * (Map 1 มี field boss ตัวเดียว, §2.3 = universal boss rules) — per-boss override = future extension.
+ */
+export interface BossBalanceConfig {
+  break: BossBreakConfig;
+  breakModel: BossBreakModelConfig;
+  /** phase ladder เรียง hpThreshold มาก→น้อย (§2.3). index 0 = Phase 1 (Learn). */
+  phases: BossPhaseConfig[];
+}
+
 export interface CombatBalanceConfig {
   /** k = global damage-diminishing constant (§15.2, proposal §1 default 50, range 30–80) */
   k: number;
@@ -157,6 +226,8 @@ export interface CombatBalanceConfig {
   mobs: Record<string, MobCombatStats>;
   /** stat เริ่มต้นเมื่อ mobType ไม่ตรงใน mobs */
   defaultMob: MobCombatStats;
+  /** boss depth (workstream B) — guard/break window + phase ladder + break model. ใช้กับ mob breakPower>0. */
+  boss: BossBalanceConfig;
 }
 
 /**
@@ -252,5 +323,35 @@ export const DEFAULT_COMBAT_BALANCE_CONFIG: CombatBalanceConfig = {
     hp: 45, atk: 6, def: 4, tierReduction: 1.0,
     moveSpeed: 2.2, attackRange: 1.2, attackCooldown: 2.0,
     anticipationMs: 350, activeMs: 150, recoveryMs: 500, breakPower: 0,
+  },
+  // Boss depth (workstream B) — guard/break window + phase ladder + break model. ใช้กับ mob breakPower>0
+  // (Field Boss หมูป่าหม้อเดือด mobType "boss_boiling_boar" = 100). ค่าที่มี spec = verbatim; ค่าที่ spec เงียบ
+  // = **PENDING OWNER** (เดียวกับ pattern combat balance ทั้งชุด). ผ่าน §48/§59.4 ตอน owner tune.
+  boss: {
+    break: {
+      breakWindowSecondsSolo: 6, // §2.4 verbatim
+      breakWindowSecondsParty: 8, // §2.4 verbatim
+      damageMultiplierSolo: 1.25, // §2.4 verbatim (golden window)
+      damageMultiplierParty: 1.2, // §2.4 verbatim
+      guardRefillAfterStagger: 1.0, // COMBAT_BIBLE §8 "guard refills" — เติมเต็ม (สัดส่วน = knob, PENDING OWNER)
+      resetGuardOnPhaseChange: true, // COMBAT_BIBLE §8 "reset per phase config"
+    },
+    // break model: single vs AoE แยกด้วย §50.1 maxTargets (basic_slash=2/solar_cleave=1 → single; royal_wave=6
+    // → AoE). ค่า breakPerHit/aoeFactor/equipmentBreakWeight = **PENDING OWNER** (spec เงียบเรื่องตัวเลข break
+    // ต่อ hit; ยึดหลัก §8 "AoE ไม่ใช่ break tool ที่ดีสุด" + "Break Power = stat แยกจาก damage").
+    breakModel: {
+      breakPerHit: 3, // guard 100 → ~33 single-target hit ทุบแตก 1 ครั้ง (PENDING OWNER)
+      singleTargetMaxTargets: 2, // maxTargets ≤2 = single/short-cleave (break เต็ม)
+      aoeFactor: 0.4, // AoE ทุบได้ 40% ของ single (PENDING OWNER)
+      equipmentBreakWeight: 1.0, // breakPower stat (§6.1) เข้าเต็มค่าต่อ cast
+    },
+    // phase ladder (§2.3) เรียง hpThreshold มาก→น้อย. Enrage factor = verbatim §2.3 (cadence +15% → cooldown
+    // ×0.87, recovery -10% → ×0.9, damage +10% → ×1.10). Pressure cadence factor 0.85 = PENDING OWNER
+    // (§2.3 บอกแค่ "เพิ่ม combo/arena denial" ไม่ให้ตัวเลข → proxy เป็น cooldown สั้นลง).
+    phases: [
+      { id: "learn", hpThresholdPercent: 100, attackCooldownFactor: 1.0, recoveryFactor: 1.0, damageFactor: 1.0 },
+      { id: "pressure", hpThresholdPercent: 65, attackCooldownFactor: 0.85, recoveryFactor: 1.0, damageFactor: 1.0 },
+      { id: "enrage", hpThresholdPercent: 20, attackCooldownFactor: 0.87, recoveryFactor: 0.9, damageFactor: 1.1 },
+    ],
   },
 };

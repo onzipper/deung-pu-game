@@ -197,6 +197,7 @@ describe("attack — มอน chase เข้าระยะ → contact ผู
     anticipationMs: 100,
     activeMs: 100,
     recoveryMs: 100,
+    breakPower: 0, // normal mob (workstream B: >0 = boss)
   });
 
   test("player ยืนใน pocket → มอนไล่เข้าระยะแล้ว contact (targetPlayerId ถูกต้อง)", () => {

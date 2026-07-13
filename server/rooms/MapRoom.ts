@@ -102,8 +102,14 @@ import {
   MSG_PLAYER_DAMAGED,
   MSG_PLAYER_DEATH,
   MSG_PLAYER_RESPAWN,
+  MSG_BOSS_TELEGRAPH,
+  MSG_BOSS_BREAK,
+  MSG_BOSS_PHASE,
   WS_CLOSE_SESSION_TAKEN_OVER,
   type CastRejectedMessage,
+  type BossTelegraphMessage,
+  type BossBreakMessage,
+  type BossPhaseMessage,
   type PlayerDamagedMessage,
   type PlayerDeathMessage,
   type PlayerRespawnMessage,
@@ -209,10 +215,16 @@ import { appendEntry } from "../db/ledger";
 import { playerBaselineForLevel } from "../../src/server/economy/exp";
 import {
   createMobSimulation,
+  type BossView,
   type MobContactEvent,
   type MobSimulation,
 } from "../../src/game/mob/simulation";
 import type { AiPlayerRef } from "../../src/game/mob/ai";
+import {
+  bossBreakContribution,
+  bossBreakParams,
+  bossDamageModifier,
+} from "../../src/game/mob/boss";
 import type { SkillDefinition } from "../../src/game/skill/types";
 import { loadSkillDefinitions } from "../../src/game/skill/loader";
 import { WARRIOR_SKILLS_SERVER } from "../../src/game/skill/data/warrior-skills-server";
@@ -388,6 +400,16 @@ export class MapRoom extends Room<MapRoomState> {
    * default = this.balance.player (anonymous / ไม่มีของ). never-downgrade zone (combat calc) — ต่อผ่าน pure fn.
    */
   private readonly effectiveStats = new Map<string, PlayerCombatStats>();
+  /**
+   * workstream B: aggregate equipment breakPower stat (§6.1) ต่อ session — bonus.breakPower ที่ recompute คู่กับ
+   * effectiveStats. ป้อนเข้า boss break contribution (§8) ตอน cast โดนบอส. ไม่อยู่ใน schema (server-only).
+   */
+  private readonly sessionBreakPower = new Map<string, number>();
+  /**
+   * workstream B: last-broadcast boss delta ต่อ mobId (telegraphSeq/phaseIndex) — กัน re-broadcast telegraph/phase
+   * ซ้ำทุก sync. เคลียร์ตอน mob หายจาก sim (syncMobsToState stale prune).
+   */
+  private readonly lastBossBroadcast = new Map<string, { telegraphSeq: number; phaseIndex: number }>();
   /**
    * P2-09: per-session progression (level + total cumulative EXP). Loaded best-effort on join (Character
    * level/exp), mutated on each eligible kill, persisted best-effort. Drives the per-level combat baseline
@@ -579,8 +601,11 @@ export class MapRoom extends Room<MapRoomState> {
           anticipationMs: m.anticipationMs,
           activeMs: m.activeMs,
           recoveryMs: m.recoveryMs,
+          breakPower: m.breakPower, // workstream B: >0 (Field Boss) → guard gauge; normal mob 0 → ไม่มี
         };
       },
+      // workstream B: boss depth (guard/break window + phase ladder) — ใช้กับ mob breakPower>0 (Field Boss).
+      bossConfig: this.balance.boss,
     });
     this.syncMobsToState();
     this.setSimulationInterval(
@@ -798,7 +823,9 @@ export class MapRoom extends Room<MapRoomState> {
       const ms = this.balance.mobs[c.mobType] ?? this.balance.defaultMob;
       const stats = this.effectiveStats.get(c.targetPlayerId) ?? this.balance.player;
       const dmg = computeMobDamageToPlayer({
-        mobAtk: ms.atk,
+        // workstream B: boss phase damage factor (§2.3 Enrage +10%) scale mobAtk ก่อนสูตร (input ไม่แตะ formula →
+        //   never-downgrade). normal mob / boss เฟสอื่น = 1.
+        mobAtk: ms.atk * (c.damageMultiplier ?? 1),
         playerDef: stats.def,
         k: this.balance.k,
       });
@@ -895,6 +922,15 @@ export class MapRoom extends Room<MapRoomState> {
       ms.ty = m.pos.ty;
       ms.state = m.moved ? "walk" : "idle";
       ms.hp = m.hp;
+      // workstream B: boss guard/phase/stagger → schema (HUD) + broadcast telegraph/phase deltas.
+      const bv = this.sim.bossView(m.id);
+      if (bv) {
+        ms.guard = bv.guard;
+        ms.maxGuard = bv.maxGuard;
+        ms.bossPhase = bv.phaseIndex;
+        ms.staggered = bv.staggered;
+        this.broadcastBossDeltas(m.id, bv);
+      }
     });
     // ลบ mob ที่ไม่อยู่ใน sim แล้ว (ตายรอ respawn) → client เห็น despawn.
     // เก็บ key ก่อนค่อยลบ (เลี่ยง mutate ระหว่าง iterate MapSchema).
@@ -902,7 +938,43 @@ export class MapRoom extends Room<MapRoomState> {
     this.state.mobs.forEach((_ms, id) => {
       if (!seen.has(id)) stale.push(id);
     });
-    for (const id of stale) this.state.mobs.delete(id);
+    for (const id of stale) {
+      this.state.mobs.delete(id);
+      this.lastBossBroadcast.delete(id); // boss ตาย/despawn → รีเซ็ต delta tracker (respawn เริ่ม telegraph/phase ใหม่)
+    }
+  }
+
+  /**
+   * workstream B: broadcast boss telegraph/phase เมื่อค่าเปลี่ยนจากรอบก่อน (BREAK broadcast แยกใน handleCast).
+   *   • telegraphSeq เพิ่ม → บอสเริ่มท่าใหม่ → MSG_BOSS_TELEGRAPH (client วาด danger zone, §18.5 เหนือ effect).
+   *   • phaseIndex เปลี่ยน → MSG_BOSS_PHASE (client phase banner / music layer).
+   * anticipation ของ telegraph = anticipationMs ฐานของบอส (ไม่ย่อตาม phase; telegraph ต้องชัดเสมอ).
+   */
+  private broadcastBossDeltas(mobId: string, bv: BossView): void {
+    const last = this.lastBossBroadcast.get(mobId);
+    if (!last || bv.telegraphSeq !== last.telegraphSeq) {
+      if (last) {
+        // seq เพิ่ม = swing ใหม่เริ่ม (skip ครั้งแรกที่ยังไม่มี baseline → ไม่ยิง telegraph หลอกตอน spawn)
+        const mobType = this.state.mobs.get(mobId)?.mobType ?? "";
+        const anticipationMs = (this.balance.mobs[mobType] ?? this.balance.defaultMob).anticipationMs;
+        const msg: BossTelegraphMessage = {
+          mobId,
+          vfxCue: "vfx_telegraph_circle_danger",
+          durationMs: anticipationMs,
+        };
+        this.broadcast(MSG_BOSS_TELEGRAPH, msg);
+      }
+    }
+    if (!last || bv.phaseIndex !== last.phaseIndex) {
+      if (last) {
+        const msg: BossPhaseMessage = { mobId, phaseIndex: bv.phaseIndex, phaseId: bv.phaseId };
+        this.broadcast(MSG_BOSS_PHASE, msg);
+      }
+    }
+    this.lastBossBroadcast.set(mobId, {
+      telegraphSeq: bv.telegraphSeq,
+      phaseIndex: bv.phaseIndex,
+    });
   }
 
   /**
@@ -985,12 +1057,22 @@ export class MapRoom extends Room<MapRoomState> {
     const hits: SkillHit[] = [];
     const killedMobTypes: string[] = []; // P2-09: mobType ต่อ mob ที่ตายรอบนี้ → reward ให้ caster
     if (dealsDamage) {
+      // workstream B: party break window (§2.4) — party combat ยังไม่ wired → solo (partySize 1). โตขึ้นเมื่อ
+      //   party system มา (P2B): partySize = eligibleMembers ในระยะ. equipment breakPower ต่อ cast (§6.1).
+      const bp = bossBreakParams(this.balance.boss.break, 1);
+      const equipBreak = this.sessionBreakPower.get(sessionId) ?? 0;
       for (const mobId of hitIds) {
         const mobType = mobTypeById.get(mobId);
         if (mobType === undefined) continue;
         const ms = this.balance.mobs[mobType] ?? this.balance.defaultMob;
         // P2-07: ใช้ effective stats (base + equipment bonus) ของผู้ cast — default = base ถ้าไม่มี entry.
         const stats = this.effectiveStats.get(sessionId) ?? this.balance.player;
+        // workstream B: boss? (breakPower>0). staggered ก่อนตี = golden window → คูณ damage (§2.4). bossModifier
+        //   = def.bossModifier ต่อสกิลเมื่อเป็นบอส (แทน hardcoded 1.0; §50.1/§15.5 AoE royal_wave 0.5 vs solar 1.2).
+        const bossBefore = this.sim.bossView(mobId);
+        const bossModifier = bossBefore
+          ? bossDamageModifier(def.bossModifier, bossBefore.staggered, bp.damageMultiplier)
+          : 1.0;
         const dmg = computeSkillDamage(
           {
             atk: stats.atk,
@@ -1000,8 +1082,7 @@ export class MapRoom extends Room<MapRoomState> {
             k: this.balance.k,
             critRate: stats.critRate,
             critDmg: stats.critDmg,
-            // bossModifier ใช้เฉพาะเมื่อ target เป็น boss — P1 มีแต่ normal mob → 1.0 (proposal §1)
-            bossModifier: 1.0,
+            bossModifier,
             pvpModifier: this.balance.pvpModifier,
             tierReduction: ms.tierReduction,
           },
@@ -1012,8 +1093,21 @@ export class MapRoom extends Room<MapRoomState> {
         if (!applied) continue;
         hits.push({ mobId, dmg: dmg.damage, crit: dmg.crit, killed: applied.killed });
         if (applied.killed) killedMobTypes.push(mobType);
+        // workstream B: ทุบ guard ด้วย break contribution (แยกจาก damage; single-target > AoE, §8) — guard แตก
+        //   → BREAK broadcast + golden window. ทำหลัง damage (ถ้ายังไม่ตาย). ไม่ทุบถ้ากำลัง staggered อยู่.
+        if (bossBefore && !applied.killed) {
+          const contribution = bossBreakContribution(
+            { hitCount: def.hitCount, maxTargets: def.maxTargets, equipmentBreakPower: equipBreak },
+            this.balance.boss.breakModel,
+          );
+          const broke = this.sim.depleteBossGuard(mobId, contribution, now, bp.staggerWindowMs);
+          if (broke?.broke) {
+            const msg: BossBreakMessage = { mobId, staggerMs: bp.staggerWindowMs };
+            this.broadcast(MSG_BOSS_BREAK, msg);
+          }
+        }
       }
-      // sync ทันที → hp ที่ลด + มอนที่ตาย (despawn) สะท้อนใน state broadcast รอบนี้ (ไม่รอ sim tick ถัดไป)
+      // sync ทันที → hp ที่ลด + มอนที่ตาย (despawn) + guard/stagger สะท้อนใน state broadcast รอบนี้ (ไม่รอ sim tick ถัดไป)
       this.syncMobsToState();
     }
 
@@ -1059,6 +1153,9 @@ export class MapRoom extends Room<MapRoomState> {
     const equipped = this.sessionEquipment.get(sessionId) ?? [];
     const bonus = aggregateEquipmentBonus(equipped, ITEM_CATALOG, ENHANCEMENT_CURVE);
     this.effectiveStats.set(sessionId, applyEquipmentBonus(base, bonus));
+    // workstream B: equipment breakPower stat (§6.1) — dead ใน applyEquipmentBonus (ไม่มี combat field) แต่
+    //   ป้อนเข้า boss break contribution ที่นี่ (§8 Break Power = build stat). normal play = 0.
+    this.sessionBreakPower.set(sessionId, bonus.breakPower);
   }
 
   /**
@@ -1647,6 +1744,7 @@ export class MapRoom extends Room<MapRoomState> {
     this.trackers.delete(sessionId);
     this.cooldowns.delete(sessionId);
     this.effectiveStats.delete(sessionId);
+    this.sessionBreakPower.delete(sessionId);
     this.sessionProgress.delete(sessionId);
     this.sessionEquipment.delete(sessionId);
     this.sessionCharacters.delete(sessionId);

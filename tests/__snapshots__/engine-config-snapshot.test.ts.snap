@@ -16,6 +16,45 @@ exports[`engine config — value identity (DEFAULT_* consts) > DEFAULT_CAMERA_CO
 
 exports[`engine config — value identity (DEFAULT_* consts) > DEFAULT_COMBAT_BALANCE_CONFIG 1`] = `
 {
+  "boss": {
+    "break": {
+      "breakWindowSecondsParty": 8,
+      "breakWindowSecondsSolo": 6,
+      "damageMultiplierParty": 1.2,
+      "damageMultiplierSolo": 1.25,
+      "guardRefillAfterStagger": 1,
+      "resetGuardOnPhaseChange": true,
+    },
+    "breakModel": {
+      "aoeFactor": 0.4,
+      "breakPerHit": 3,
+      "equipmentBreakWeight": 1,
+      "singleTargetMaxTargets": 2,
+    },
+    "phases": [
+      {
+        "attackCooldownFactor": 1,
+        "damageFactor": 1,
+        "hpThresholdPercent": 100,
+        "id": "learn",
+        "recoveryFactor": 1,
+      },
+      {
+        "attackCooldownFactor": 0.85,
+        "damageFactor": 1,
+        "hpThresholdPercent": 65,
+        "id": "pressure",
+        "recoveryFactor": 1,
+      },
+      {
+        "attackCooldownFactor": 0.87,
+        "damageFactor": 1.1,
+        "hpThresholdPercent": 20,
+        "id": "enrage",
+        "recoveryFactor": 0.9,
+      },
+    ],
+  },
   "defaultMob": {
     "activeMs": 150,
     "anticipationMs": 350,
@@ -280,6 +319,45 @@ exports[`engine config — value identity (DEFAULT_* consts) > DEFAULT_ENGINE_CO
     },
   },
   "combatBalance": {
+    "boss": {
+      "break": {
+        "breakWindowSecondsParty": 8,
+        "breakWindowSecondsSolo": 6,
+        "damageMultiplierParty": 1.2,
+        "damageMultiplierSolo": 1.25,
+        "guardRefillAfterStagger": 1,
+        "resetGuardOnPhaseChange": true,
+      },
+      "breakModel": {
+        "aoeFactor": 0.4,
+        "breakPerHit": 3,
+        "equipmentBreakWeight": 1,
+        "singleTargetMaxTargets": 2,
+      },
+      "phases": [
+        {
+          "attackCooldownFactor": 1,
+          "damageFactor": 1,
+          "hpThresholdPercent": 100,
+          "id": "learn",
+          "recoveryFactor": 1,
+        },
+        {
+          "attackCooldownFactor": 0.85,
+          "damageFactor": 1,
+          "hpThresholdPercent": 65,
+          "id": "pressure",
+          "recoveryFactor": 1,
+        },
+        {
+          "attackCooldownFactor": 0.87,
+          "damageFactor": 1.1,
+          "hpThresholdPercent": 20,
+          "id": "enrage",
+          "recoveryFactor": 0.9,
+        },
+      ],
+    },
     "defaultMob": {
       "activeMs": 150,
       "anticipationMs": 350,
@@ -1154,6 +1232,45 @@ exports[`engine config — value identity (factory / pure functions) > createEng
     },
   },
   "combatBalance": {
+    "boss": {
+      "break": {
+        "breakWindowSecondsParty": 8,
+        "breakWindowSecondsSolo": 6,
+        "damageMultiplierParty": 1.2,
+        "damageMultiplierSolo": 1.25,
+        "guardRefillAfterStagger": 1,
+        "resetGuardOnPhaseChange": true,
+      },
+      "breakModel": {
+        "aoeFactor": 0.4,
+        "breakPerHit": 3,
+        "equipmentBreakWeight": 1,
+        "singleTargetMaxTargets": 2,
+      },
+      "phases": [
+        {
+          "attackCooldownFactor": 1,
+          "damageFactor": 1,
+          "hpThresholdPercent": 100,
+          "id": "learn",
+          "recoveryFactor": 1,
+        },
+        {
+          "attackCooldownFactor": 0.85,
+          "damageFactor": 1,
+          "hpThresholdPercent": 65,
+          "id": "pressure",
+          "recoveryFactor": 1,
+        },
+        {
+          "attackCooldownFactor": 0.87,
+          "damageFactor": 1.1,
+          "hpThresholdPercent": 20,
+          "id": "enrage",
+          "recoveryFactor": 0.9,
+        },
+      ],
+    },
     "defaultMob": {
       "activeMs": 150,
       "anticipationMs": 350,
@@ -1682,6 +1799,45 @@ exports[`engine config — value identity (factory / pure functions) > createEng
     },
   },
   "combatBalance": {
+    "boss": {
+      "break": {
+        "breakWindowSecondsParty": 8,
+        "breakWindowSecondsSolo": 6,
+        "damageMultiplierParty": 1.2,
+        "damageMultiplierSolo": 1.25,
+        "guardRefillAfterStagger": 1,
+        "resetGuardOnPhaseChange": true,
+      },
+      "breakModel": {
+        "aoeFactor": 0.4,
+        "breakPerHit": 3,
+        "equipmentBreakWeight": 1,
+        "singleTargetMaxTargets": 2,
+      },
+      "phases": [
+        {
+          "attackCooldownFactor": 1,
+          "damageFactor": 1,
+          "hpThresholdPercent": 100,
+          "id": "learn",
+          "recoveryFactor": 1,
+        },
+        {
+          "attackCooldownFactor": 0.85,
+          "damageFactor": 1,
+          "hpThresholdPercent": 65,
+          "id": "pressure",
+          "recoveryFactor": 1,
+        },
+        {
+          "attackCooldownFactor": 0.87,
+          "damageFactor": 1.1,
+          "hpThresholdPercent": 20,
+          "id": "enrage",
+          "recoveryFactor": 0.9,
+        },
+      ],
+    },
     "defaultMob": {
       "activeMs": 150,
       "anticipationMs": 350,
