@@ -185,6 +185,11 @@ export interface NetClientHandlers {
    */
   onSelfVitals?(hp: number, maxHp: number): void;
   /**
+   * E3 (§8.2 level badge): level ของ **self** เปลี่ยน (server-authoritative, ride PlayerState schema) → caller
+   * (app.ts) push เข้า store (badge) + refresh A3 hotbar unlock. ยิงทันทีตอน join + level-up. optional.
+   */
+  onSelfLevel?(level: number): void;
+  /**
    * A1: มอน contact ใส่ผู้เล่น (broadcast) — client juice (hit flash/damage number). hp จริงมาทาง schema/onSelfVitals.
    * caller ใช้ทำ juice (E3/E4). optional — ไม่ผูก HP truth (server-authoritative).
    */
@@ -508,6 +513,8 @@ export function createNetClient(
             handlers.onSelfVitals?.(Number(player.hp) || 0, Number(player.maxHp) || 0);
           $(player).listen("hp", emitVitals);
           $(player).listen("maxHp", emitVitals);
+          // E3 (§8.2): level ของ self (server-authoritative) → HUD badge + A3 unlock. ยิง immediate ตอน wire.
+          $(player).listen("level", (v: unknown) => handlers.onSelfLevel?.(Number(v) || 1));
           return;
         }
         status.remoteCount += 1;

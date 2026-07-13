@@ -1231,6 +1231,9 @@ export class MapRoom extends Room<MapRoomState> {
     // apply EXP/level (source of truth = returned total); recompute per-level combat stats.
     progress.level = outcome.exp.level;
     progress.exp = outcome.exp.exp;
+    // E3: sync level → schema (HUD badge + A3 unlock อัปเดตทันทีตอน level-up)
+    const lvPlayer = this.state.players.get(sessionId);
+    if (lvPlayer) lvPlayer.level = progress.level;
     this.recomputeEffectiveStats(sessionId);
     // A1/A2: level-up ยก maxHp ต่อเลเวล → sync PlayerState.maxHp (ไม่ heal hp ปัจจุบัน; §10 respawn เท่านั้นที่เต็ม).
     this.refreshPlayerMaxHp(sessionId);
@@ -1740,6 +1743,8 @@ export class MapRoom extends Room<MapRoomState> {
     // ไม่ผ่าน onJoin → hp เดิมคงอยู่ (reconnect ไม่ heal); grace หมด = fresh join → เต็ม hp ที่ตำแหน่ง resolve.
     player.maxHp = this.maxHpFor(client.sessionId);
     player.hp = player.maxHp;
+    // E3: sync level ทันทีตอน join (จาก sessionProgress ที่โหลดแล้ว) → HUD badge + A3 unlock ถูกตั้งแต่เกิด
+    player.level = this.sessionProgress.get(client.sessionId)?.level ?? 1;
 
     console.log(
       `[MapRoom ${this.roomId}] join ${client.sessionId} @(${player.tx.toFixed(1)},${player.ty.toFixed(1)}) — ${this.clients.length} online`,

@@ -85,6 +85,11 @@ export interface HudState {
    */
   playerLevel: number | null;
   /**
+   * E3 (§8.2 EXP bar): exp progress ของ local player (จาก MSG_PLAYER_PROGRESS) — `exp` สะสม + `floor`/`ceil` ของ
+   * เลเวลปัจจุบัน. แถบ EXP = (exp-floor)/(ceil-floor); `ceil` 0 = ตัน cap (§9.1 → แถบเต็ม). null ก่อนรู้ค่าครั้งแรก.
+   */
+  playerExp: { exp: number; floor: number; ceil: number } | null;
+  /**
    * เวลา (ms, wall-clock จาก client) ล่าสุดที่ MSG_PLAYER_PROGRESS มาถึง (P2-12) — message นี้มาถึง
    * "หลังฆ่ามอนที่มีสิทธิ์" เท่านั้น (net-protocol.ts comment) จึงใช้เป็นสัญญาณ "ฆ่ามอนแล้วอย่างน้อย 1 ตัว"
    * สำหรับ tutorial checklist (DG lite) โดยไม่ต้องเพิ่ม message ใหม่. null = ยังไม่เคยเกิดใน session นี้.
@@ -115,6 +120,12 @@ export interface HudState {
    */
   playerDead: boolean;
   /**
+   * E4 (§13 death feedback, owner ruling 2026-07-13 = "instant respawn + toast สั้น"): timestamp (ms, client clock)
+   * ล่าสุดที่ local player ตาย — DeathToast อ่านค่านี้แสดง toast สั้น ๆ (respawn เป็น instant server-side อยู่แล้ว
+   * §59.1 → ไม่มีจอตายค้าง; แค่ feedback). null = ยังไม่เคยตายใน session นี้. เปลี่ยนค่า = ตายรอบใหม่ (แสดง toast อีก).
+   */
+  deathAtMs: number | null;
+  /**
    * A3 (P2 UI §8.3): skill hotbar slots (S1-S4). engine publish ตอน init / level-up (unlock) / cast (cooldown).
    * [] ก่อน engine publish ครั้งแรก. SkillBar อ่าน + animate radial เอง (RAF จาก cooldownReadyAtMs).
    */
@@ -130,6 +141,7 @@ export const INITIAL_HUD_STATE: HudState = {
   shopResult: null,
   gold: null,
   playerLevel: null,
+  playerExp: null,
   lastKillAtMs: null,
   storageState: null,
   storageResult: null,
@@ -138,6 +150,7 @@ export const INITIAL_HUD_STATE: HudState = {
   playerHp: null,
   playerMaxHp: null,
   playerDead: false,
+  deathAtMs: null,
   skillSlots: [],
 };
 
@@ -210,7 +223,12 @@ export function setShopResult(result: ShopResultMessage): void {
  * (pattern เดียวกับ createHudPublisher) — default `Date.now()` ตอนเรียกจริงจาก engine glue.
  */
 export function setGoldFromProgress(progress: PlayerProgressMessage, nowMs: number = Date.now()): void {
-  const patch: Partial<HudState> = { playerLevel: progress.level, lastKillAtMs: nowMs };
+  const patch: Partial<HudState> = {
+    playerLevel: progress.level,
+    // E3 (§8.2): เก็บ exp progress สำหรับแถบ EXP (มากับ progress message เดียวกัน)
+    playerExp: { exp: progress.exp, floor: progress.expFloor, ceil: progress.expCeil },
+    lastKillAtMs: nowMs,
+  };
   if (progress.gold !== GOLD_UNKNOWN) patch.gold = progress.gold;
   gameStore.setState(patch);
 }
@@ -224,8 +242,19 @@ export const selectShopResult = (state: HudState): ShopResultMessage | null => s
 /** typed selector — ยอด gold ล่าสุดที่รู้ (P2-09/P2-11) */
 export const selectGold = (state: HudState): number | null => state.gold;
 
+/**
+ * E3 (§8.2 level badge): engine เรียกเมื่อ level ของ self เปลี่ยน (schema listen — ทันทีตอน join/level-up) →
+ * set playerLevel ตรง ๆ. source นี้มาเร็วกว่า MSG_PLAYER_PROGRESS (ไม่ต้องรอ kill แรก) → badge โชว์เลขจริงตั้งแต่เกิด.
+ */
+export function setPlayerLevel(level: number): void {
+  gameStore.setState({ playerLevel: level });
+}
+
 /** typed selector — level ตัวละครล่าสุดที่รู้ (P2-12) */
 export const selectPlayerLevel = (state: HudState): number | null => state.playerLevel;
+
+/** typed selector — exp progress ของ local player (E3 §8.2 EXP bar) */
+export const selectPlayerExp = (state: HudState): HudState["playerExp"] => state.playerExp;
 
 /** typed selector — เวลาฆ่ามอนล่าสุด (P2-12, tutorial checklist signal) */
 export const selectLastKillAtMs = (state: HudState): number | null => state.lastKillAtMs;
@@ -274,6 +303,17 @@ export function setPlayerVitals(hp: number, maxHp: number): void {
 export function setPlayerDead(dead: boolean): void {
   gameStore.setState({ playerDead: dead });
 }
+
+/**
+ * E4: engine เรียกเมื่อ local player ตาย (คู่กับ setPlayerDead(true)) → stamp timestamp ให้ DeathToast แสดง toast
+ * สั้น ๆ. `nowMs` inject ได้ (เทสต์); default performance.now() ตอนเรียกจริง (client clock เดียวกับ DeathToast).
+ */
+export function setDeathNotice(nowMs: number = performance.now()): void {
+  gameStore.setState({ deathAtMs: nowMs });
+}
+
+/** typed selector — timestamp ตายล่าสุด (E4 death toast) */
+export const selectDeathAtMs = (state: HudState): number | null => state.deathAtMs;
 
 /** typed selector — hp ของ local player (A1/A2) */
 export const selectPlayerHp = (state: HudState): number | null => state.playerHp;

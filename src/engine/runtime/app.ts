@@ -68,6 +68,7 @@ import { buildDebugInfo, IDLE_NET_DEBUG_INFO, type EngineDebugInfo } from "./deb
 import {
   createHudPublisher,
   resetHudState,
+  setDeathNotice,
   setDeliveryResult,
   setDeliveryState,
   setEnhanceResult,
@@ -75,6 +76,7 @@ import {
   setInventoryRejection,
   setInventoryState,
   setPlayerDead,
+  setPlayerLevel,
   setPlayerVitals,
   setShopList,
   setShopResult,
@@ -408,9 +410,20 @@ export async function createEngine(
           onSelfAfkChange: (isAfk) => player.setAfk(isAfk),
           // A1/A2 (§2/§10): hp/maxHp ของ self (server-authoritative) → HUD แถบ HP (E3). event-driven ไม่ throttle.
           onSelfVitals: (hp, maxHp) => setPlayerVitals(hp, maxHp),
+          // E3 (§8.2): level ของ self (schema) → badge + refresh A3 hotbar unlock (ปลดสกิลถูกตั้งแต่เกิด/level-up)
+          onSelfLevel: (level) => {
+            setPlayerLevel(level);
+            if (level !== hotbarPlayerLevel) {
+              hotbarPlayerLevel = level;
+              publishSkillSlots();
+            }
+          },
           // A2 (§10): self ตาย → death state (E4 overlay อ่านต่อ). remote death anim = E-work ภายหลัง.
           onPlayerDeath: (msg) => {
-            if (net !== null && net.status.selfSessionId === msg.sessionId) setPlayerDead(true);
+            if (net !== null && net.status.selfSessionId === msg.sessionId) {
+              setPlayerDead(true);
+              setDeathNotice(); // E4: stamp timestamp → DeathToast แสดง toast สั้น (respawn instant ตามมาทันที)
+            }
           },
           // A2 (§10): self respawn ที่ safe camp → snap local player + camera (client-predicted) + เคลียร์ death.
           //   remote: ตำแหน่งมาทาง schema อยู่แล้ว. hp เต็มมาทาง onSelfVitals (schema).

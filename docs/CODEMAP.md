@@ -42,7 +42,7 @@
 - `src/ui/theme/rarity.ts` — rarity color tokens (D-043)
 - `src/ui/components/` — token-driven presentational kit (P2 UI spec §4): PanelFrame, Button, TextInput, ItemSlot, Tooltip, ConfirmDialog(+hold-to-confirm), Toast
 - `src/ui/panels/` — shared panel framework (desktop float / mobile sheet, z-order, keydown block; DG §13) + hud-layout (P2-15). Provider in `src/ui/GameCanvas.tsx`
-- `src/ui/panels/` subdirs (inventory/enhancement/shop/storage/help/mobile/settings/skillbar) — per-feature panels: bag/equip (P2-07) · guaranteed reinforcement, inert `NO_REINFORCEMENT` (P2-10/R8/D-052) · NPC shop (P2-11) · storage+delivery (P2-17) · DG-lite help (P2-12) · joystick/attack + effect-quality/shake (P2-15) · **skillbar**: skill hotbar S1-S4 cooldown radial + unlock-by-level (A3, P2 UI §8.3)
+- `src/ui/panels/` subdirs (inventory/enhancement/shop/storage/help/mobile/settings/skillbar/status) — per-feature panels: bag/equip (P2-07) · reinforcement (P2-10) · shop (P2-11) · storage+delivery (P2-17) · help (P2-12) · mobile/settings (P2-15) · **skillbar** hotbar S1-S4 (A3 §8.3) · **status** HP/EXP/level (E3 §8.2)
 
 ## server (Colyseus realtime process, separate from Next — L4)
 
