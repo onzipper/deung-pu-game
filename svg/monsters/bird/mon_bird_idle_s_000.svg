@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" shape-rendering="crispEdges">
+  <!-- mon_bird idle S frame 0 — foot pivot (32,54). Colors: Sky Teal / Water / Sand / Deep Ink. -->
+  <polygon points="24,52 22,40 32,30 42,40 40,52" fill="#64A0A0" stroke="#171820" stroke-width="1"/>
+  <polygon points="22,40 12,44 24,46" fill="#3F7180"/>
+  <polygon points="42,40 52,44 40,46" fill="#3F7180"/>
+  <polygon points="32,30 36,34 30,34" fill="#D8AE70"/>
+  <rect x="30" y="34" width="3" height="3" fill="#171820"/>
+  <rect x="26" y="52" width="3" height="6" fill="#8E6046"/>
+  <rect x="35" y="52" width="3" height="6" fill="#8E6046"/>
+</svg>

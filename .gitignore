@@ -43,3 +43,6 @@ next-env.d.ts
 
 # claude code agent worktrees (temporary checkouts)
 /.claude/worktrees/
+
+# svg pipeline generated artifacts (manifests + atlas layout — produced by svg:build)
+/svg/.build/

@@ -10,7 +10,9 @@
     "start:server": "tsx --tsconfig server/tsconfig.json server/index.ts",
     "lint": "eslint",
     "test": "vitest run",
-    "e2e": "node scripts/e2e/smoke.mjs"
+    "e2e": "node scripts/e2e/smoke.mjs",
+    "svg:lint": "tsx scripts/svg/lint.ts",
+    "svg:build": "tsx scripts/svg/build.ts"
   },
   "engines": {
     "node": ">=20"

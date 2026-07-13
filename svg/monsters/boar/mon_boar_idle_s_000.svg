@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" shape-rendering="crispEdges">
+  <!-- mon_boar idle S frame 0 — foot pivot (32,54). Colors: Soil Brown / Deep Brown / Clay / Highlight / Deep Ink. -->
+  <polygon points="14,50 16,34 32,28 48,34 50,50" fill="#68483A" stroke="#171820" stroke-width="1"/>
+  <polygon points="26,40 32,30 38,40" fill="#8E6046"/>
+  <rect x="18" y="50" width="5" height="6" fill="#4A332E"/>
+  <rect x="41" y="50" width="5" height="6" fill="#4A332E"/>
+  <rect x="27" y="38" width="3" height="3" fill="#171820"/>
+  <rect x="34" y="38" width="3" height="3" fill="#171820"/>
+  <polygon points="28,44 26,48 30,46" fill="#FFF0C5"/>
+</svg>
