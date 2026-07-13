@@ -7,7 +7,7 @@ const TILE_64x32: TileSize = { width: 64, height: 32 };
 const TILE_128x64: TileSize = { width: 128, height: 64 };
 
 // BLOCKER-1 regression lock: entity/prop placement ต้องใช้ foot basis (tileToScreen)
-// ไม่ใช่ center basis (tileCenterToScreen) — กัน "+0.5 ซ้ำซ้อน" (ดู docs/known-traps.md).
+// ไม่ใช่ center basis (tileCenterToScreen) — กัน "+0.5 ซ้ำซ้อน" (ดู docs/context/engine.md).
 describe("entityFootToScreen — foot convention (ไม่ +0.5)", () => {
   test("= tileToScreen ตรง ๆ (ไม่บวก 0.5)", () => {
     for (const t of [

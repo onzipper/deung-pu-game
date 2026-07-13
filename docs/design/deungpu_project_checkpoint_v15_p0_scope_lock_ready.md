@@ -1,9 +1,9 @@
-# ดึ๋งปุ๊ — Project Checkpoint v15.1 P0 Scope Lock Ready
+# ดึ๋งปุ๊ — Project Checkpoint v15.3 P0 Scope Lock Ready
 
-> สถานะเอกสาร: **P0 Scope Lock Ready / Current Source of Truth v15.1**  
+> สถานะเอกสาร: **P0 Scope Lock Ready / Current Source of Truth v15.3**  
 > จุดประสงค์: ปิดงานการขึ้นโปรเจกต์รอบแรกให้ครบ ไม่มีงานค้างจากเฟส design setup  
 > ใช้ต่อจาก: `deungpu_project_checkpoint_v8.md`  
-> สถานะงาน: **Design Phase 1 + Phase 2 + Combat Juice Layer + Audio Direction + Tech Handoff Readiness + Map Scale/Spawn Density + Engine Foundation Decisions + Runtime/Bot/Channel/Schema Ownership + P0 Scope Lock + v15.1 Amendment (P0/P1 retest) ปิดครบแล้ว**
+> สถานะงาน: **Design Phase 1 + Phase 2 + Combat Juice Layer + Audio Direction + Tech Handoff Readiness + Map Scale/Spawn Density + Engine Foundation Decisions + Runtime/Bot/Channel/Schema Ownership + P0 Scope Lock + v15.1 Amendment (P0/P1 retest) + v15.2 Amendment (Production Bible Set v1) + v15.3 Amendment (Reinforcement System) ปิดครบแล้ว**
 
 ---
 
@@ -16,6 +16,34 @@ Delta:
 1. **§59.1 Reconnect** — เพิ่มรายละเอียด reconnect token per-tab, refresh = reclaim seat เดิม (ไม่สะสมผี), และ**นโยบายแท็บเบื้องหลัง**: สลับแท็บ/พับจอ/minimize = ค้างออนไลน์ตลอด ไม่ auto-disconnect ใน P1 (ทบทวนใหม่ตอน P2 เมื่อมีความเสี่ยง combat ต่อผู้เล่น AFK) — owner เคาะ 2026-07-12
 2. **§59.1 Reconnect** — ระบุจุดเริ่มเกม (start map) + การจำ map ล่าสุดข้าม refresh = งาน P2 (persistence); ระหว่างนี้ boot เข้า P0 Test Field เสมอ (dev map นอก MAP_LAYOUT_BIBLE ทางเดียวไป Map 1 ไม่มีย้อนกลับ) — owner เคาะ 2026-07-12
 3. **§57.3 Map World Model** — เพิ่มข้อว่า exit ทุกจุดต้องมี ground marker (highlight placeholder) มองเห็นได้ จนกว่าจะมี art ประตูจริง — สะท้อนสิ่งที่ implement จริงใน P1 (ยืนยันแล้วตอน owner retest)
+
+## 0.0.1 Amendment Log — v15.2 (2026-07-12) — Production Bible Set v1
+
+Owner ตอบ Owner Decision Queue ครบทุกข้อ (1.1–5.3) ผ่าน **Production Bible Set v1** (10 เล่ม, `docs/design/bibles/` — เล่มคำตอบหลัก: `deungpu_OWNER_DECISIONS_v1.md`). ลำดับ source of truth ตาม `deungpu_PRODUCTION_BIBLE_INDEX_v1.md` §2: Owner Decisions/Checkpoint → Specialized Bibles → Technical Architecture → Feature Spec → Issue → Code — **Bible ชนะเรื่องพฤติกรรม/ความหมายที่ผู้เล่นได้รับ; Tech Architecture ชนะเรื่องวิธี implement**. รายละเอียดเต็มของทุก decision อ่านที่เล่ม Decisions — checkpoint นี้บันทึกเฉพาะจุดที่ supersede/เติมเนื้อเดิม
+
+Delta:
+
+1. **Balance เลิกสถานะ PENDING OWNER** — ประโยค "ค่า balance ทั้งหมดยังเป็น PENDING OWNER" ใน Amendment Log v15.1 ด้านบน **ถูก supersede**: owner รับรอง `docs/design/proposals/deungpu_P1_BALANCE_PROPOSAL_v1.md` เป็น **P2 production baseline** (k=50, ตารางนักดาบ lv1–10, mob Map 1, hit tolerance 1.40/0.35/20°, juice floor 1) — ทุกค่ายังเป็น Design Knob ใน versioned config, tune ผ่าน telemetry + decision record (Bible §0)
+2. **§8 Class** — เพิ่ม 8.1: ลำดับ implement อาชีพ นักดาบ → **นักธนู** → นักหอก → นักเวท → นักอาคม (Bible 1.4/2.1)
+3. **§50.1 Skill Fields** — เพิ่ม 50.1.1: resource = cooldown-only (`resourceCost` default 0), multi-hit rounding ปัดยอดรวมครั้งเดียว, DEF เดียวใน P2, statusEffects แยกชั้น client/server (Bible 1.7/1.8/1.9/2.3)
+4. **§59.1** — เพิ่ม 59.1.2: นโยบายแท็บเบื้องหลังฉบับ production (safe-disconnect flow) **supersede ข้อ 3 ของ 59.1.1** (Bible 5.3 + Q5.1–5.4)
+5. **§59.3** — เพิ่ม 59.3.1: ยืนยัน party model = public shared channel ตาม §59.3 เดิม; private-party-channel ที่ implement ใน P1 = fallback ชั่วคราว (Bible 2.2)
+6. **จุดเริ่มเกม production** = เมืองนครอรุณผนึก (สร้างตัวละคร → starter district → tutorial 5–10 นาที → Map 1) · **Test Field = dev-only ถาวร** · milestone ใหม่ **P2B Boss & Encounter Foundation** · mobile polish = ท้าย P2 เป็น gate ก่อน external closed alpha (Bible 3.1–3.5 — โครง roadmap เต็มดู `docs/design/bibles/deungpu_GAME_PRODUCTION_ROADMAP_v1.md`)
+7. **Art/asset standards** ล็อกตาม Bible 4.1–4.4 + `deungpu_ASSET_PRODUCTION_BIBLE_v1.md` / `deungpu_VISUAL_LANGUAGE_BIBLE_v1.md` (Vertical Slice First, canvas/pivot/palette, SVG placeholder → PNG atlas)
+
+## 0.0.2 Amendment Log — v15.3 (2026-07-12) — Reinforcement System (guaranteed)
+
+Owner เคาะยกเครื่อง **ระบบตีบวก → เสริมแกร่งการันตี** + **E1 ชื่อบอส Map 1** + **E3 monster stat (open)** ในวันเดียว 2026-07-12 (2 ข้อความ, ข้อความที่ 2 ชนะเมื่อขัด). decision record เต็ม + คำถามค้าง R1–R10 = **`docs/design/deungpu_REINFORCEMENT_SYSTEM_DECISION_v1.md`** (LOCKED). checkpoint นี้บันทึกเฉพาะจุด supersede — **additive, เนื้อเดิมคงไว้เพื่อ history**.
+
+Delta:
+
+1. **§"Success Rate Draft" (ตาราง +1..+15) + §"Failure Result"** — **SUPERSEDED**: ไม่มี RNG/Success Rate/Fail/-1/รอยร้าวจากการกดตีบวกอีก · ตีบวก = **เสริมแกร่ง ×1 → +1 การันตี 100%** · เพดาน **+15 ทุกเฟส** (เดิม draft สูงสุด +15 ยังเป็นเพดานที่ถูก — แต่กลไกถึงเพดานเปลี่ยนจาก RNG → วัสดุการันตี)
+2. **§"Item ตีบวก → แกร่ง/เศษแกร่ง"** — **rename**: `แกร่ง` → `เสริมแกร่ง` (`upg_reinforcement`), `เศษแกร่ง` → `เศษเสริมแกร่ง` · แกร่งเดิม "ได้จาก World Boss/Endgame/Raid/Rift/Celestial/HoF/contribution event" = ยังตรงทิศ (แหล่งพิเศษ/hard content) · สูตร **5→1 คงไว้** (v15 pillar ข้อ 31, ไม่เคาะใหม่) · **ขาย+trade ได้** (bindType เดิม account-bound รอเคาะใหม่ — R1/R2)
+3. **Design pillar ข้อ 30–32** — rename `แกร่ง`→`เสริมแกร่ง`; ข้อ 30 "+1 แบบ 100%" ยังจริง (ตอนนี้เป็นกลไกหลักไม่ใช่ item ลับเสริม); ข้อ 32 "ไม่ขายตรงด้วยเพชร" ยังจริง · ข้อ 27–29 (ไม่แตก/-1/รอยร้าว) = ไม่มีผลกับ path เสริมแกร่งการันตีแล้ว
+4. **One-liner "ตีบวกมีเรื่องขิง"** — ถ้อยคำไม่เปลี่ยน แต่ **นิยามภายในเปลี่ยน**: จุดลุ้น/ขิงย้ายจาก "กดตีบวก (RNG)" → "**ล่าเสริมแกร่งจากบอส (drop 8% + pity 15) + สะสมดัน +15**" (owner เคาะให้บันทึกโดยตั้งใจ — ข้อความที่ 2 ข้อ 4)
+5. **§33 Enhancement Audio** — §33.1 เสียงลุ้น / §33.3 ล้มเหลว / §33.4 รอยร้าว = **superseded-for-reinforcement** (ไม่มีเหตุการณ์ให้เล่น) · §33.5 "แกร่ง" = ยังใช้ (พิธีสำเร็จทุกครั้ง) · re-spec audio เต็มเลื่อนไปเฟสผลิตเสียง (รอเคาะ R6)
+6. **E1 บอส Map 1** = `boss_map1_resonant_guardian` / "ผู้พิทักษ์เสียงสะท้อน" / lv8 / P2B (Canonical ID ล็อกหลัง save data; `boss_m1_boar_pot` = legacy placeholder)
+7. **E3 monster combat stat** = OPEN — Pending Design Item "Map 1 Monster Combat Stat Table" (blocks: production tuning + final combat QA; doesNotBlock: schema/loader/placeholder/test)
 
 ---
 
@@ -463,6 +491,8 @@ Drop:
 - Legendary material
 - โอกาสต่ำมากได้ **แกร่ง**
 
+> ⚠ rename (v15.3): `เศษแกร่ง`→`เศษเสริมแกร่ง`, `แกร่ง`→`เสริมแกร่ง` · World Boss = แหล่ง hard-content ที่ยังตรงทิศ philosophy ใหม่ (ดู Reinforcement doc §4.1 hard boss 20–25%)
+
 ## Monster Family
 
 ตระกูลหลัก 7 กลุ่ม:
@@ -494,8 +524,8 @@ Raid Reward:
 
 - ตราสั่นพ้อง
 - Legendary material
-- เศษแกร่ง
-- โอกาสได้แกร่ง
+- เศษแกร่ง  <!-- ⚠ rename v15.3 → เศษเสริมแกร่ง -->
+- โอกาสได้แกร่ง  <!-- ⚠ rename v15.3 → เสริมแกร่ง; Raid = hard-content แหล่งที่ยังตรงทิศ -->
 - Cosmetic
 - Hall of Fame record
 - Weekly title
@@ -539,6 +569,10 @@ Legendary ต่ออาชีพ:
 - นักธนู: ธนูจันทร์สั่นพ้อง
 - นักเวท: คทาสุริยะร้าว
 - นักอาคม: ยันต์ผนึกวิหาร
+
+## 8.1 Amendment (v15.2, 2026-07-12) — ลำดับ implement อาชีพ
+
+Owner เคาะลำดับการ implement (Bible 1.4): นักดาบ (P1 เสร็จแล้ว) → **นักธนู** (อาชีพที่ 2 — ทำ 3 สกิลแรกเพื่อเปิด risk เทคนิคที่นักดาบไม่ครอบคลุม: ranged targeting, projectile travel, circle AoE, multi-hit rounding) → นักหอก → นักเวท → นักอาคม. นักธนูไม่ผูก mana จึงไม่ block ที่ resource system (ดู §50.1.1)
 
 ---
 
@@ -663,6 +697,8 @@ Alert สำคัญ:
 
 ## Success Rate Draft
 
+> **⚠ SUPERSEDED (v15.3, 2026-07-12)** — ตาราง Success Rate + Failure Result ด้านล่าง **ไม่ใช้แล้ว**: ระบบตีบวกไม่มี RNG/Fail/รอยร้าว · ตีบวก = **เสริมแกร่ง ×1 → +1 การันตี 100%** (เพดาน +15 ทุกเฟส) · เนื้อเดิมคงไว้เพื่อ history · ดู `docs/design/deungpu_REINFORCEMENT_SYSTEM_DECISION_v1.md` §2
+
 | ระดับเป้าหมาย | Success Rate |
 |---|---:|
 | +1 | 100% |
@@ -691,6 +727,8 @@ Alert สำคัญ:
 | +13 ถึง +15 | มีโอกาส -1 สูง และร้าวได้ |
 
 ## Item ตีบวก
+
+> **⚠ RENAMED + AMENDED (v15.3, 2026-07-12)** — `แกร่ง` → **เสริมแกร่ง** (`upg_reinforcement`) · `เศษแกร่ง` → **เศษเสริมแกร่ง** (สูตร 5→1 คงไว้) · **ขาย+trade ได้** (supersede "ไม่ขายตรงด้วยเพชร" ยังจริง แต่ trade/ขายผู้เล่นได้แล้ว — bindType รอเคาะ R1/R2) · เสริมแกร่งกลายเป็น **กลไกตีบวกหลัก** (ไม่ใช่ item ลับเสริม): +1 การันตี 100%, ได้จากบอส 8%+pity 15 · ดู `docs/design/deungpu_REINFORCEMENT_SYSTEM_DECISION_v1.md` §3
 
 ### แกร่ง
 
@@ -1414,6 +1452,7 @@ Prototype scene ควรมี:
 30. มี item ลับ **แกร่ง** สำหรับ +1 แบบ 100%
 31. เศษแกร่ง 5 ชิ้นแลกแกร่ง 1 ชิ้น
 32. แกร่งไม่ขายตรงด้วยเพชร
+> ⚠ AMENDED v15.3 (2026-07-12): ข้อ 27–32 · `แกร่ง`→**เสริมแกร่ง**, `เศษแกร่ง`→**เศษเสริมแกร่ง** (5→1 คงไว้) · ข้อ 30 "+1 100%" = กลไกตีบวกหลักแล้ว (ไม่ใช่ item ลับเสริม) · ข้อ 27–29 (ไม่แตก/-1/รอยร้าว) ไม่มีผลกับ path การันตี · ข้อ 32 "ไม่ขายเพชร" ยังจริง **แต่ ขาย+trade ผู้เล่นได้แล้ว** (ข้อความที่ 2; bindType รอเคาะ) · ดู Reinforcement doc
 33. Hall of Fame เป็นระบบขิงหลักของเกม
 34. Weekly Hall of Fame ให้ฉายา 7 วัน + buff utility เล็ก ๆ + cosmetic/showcase
 35. Eternal Hall of Fame จารึกความสำเร็จถาวร
@@ -1505,6 +1544,8 @@ Prototype scene ควรมี:
 คำจำกัดความสุดท้าย:
 
 > **ดึ๋งปุ๊ = MMORPG ฟาร์มสะใจ บอทถูกระบบ ตลาดมีชีวิต ตีบวกมีเรื่องขิง โลกมีความลับ และท้ายเกมยกระดับจากมุกชาวบ้านไปถึงผนึกจักรวาล**
+
+> ⚠ นิยาม v15.3 (2026-07-12): **"ตีบวกมีเรื่องขิง"** — ถ้อยคำคงเดิม แต่จุดลุ้น/ขิงย้ายจาก "การกดตีบวก (RNG)" → "**การล่าเสริมแกร่งจากบอส (drop + pity) + สะสมดัน +15**" (การกดตีบวกเอง = การันตี 100% ไม่มี RNG แล้ว) — owner เคาะให้บันทึกโดยตั้งใจ · ดู Reinforcement doc §8
 ---
 
 # 22. Audio Direction & Soundscape Layer
@@ -2455,6 +2496,8 @@ Signature:
 
 # 33. Enhancement / แกร่ง / Hall of Fame Audio
 
+> **⚠ SUPERSEDED-FOR-REINFORCEMENT (v15.3, 2026-07-12)** — ระบบตีบวกไม่มี RNG/Fail/รอยร้าวแล้ว → **§33.1 "เสียงลุ้นก่อนผลออก" · §33.3 ล้มเหลว · §33.4 รอยร้าว = ไม่มีเหตุการณ์ให้เล่น** · §33.5 "แกร่ง" (พิธี "นี่คือแกร่ง") = ยังใช้ (ทุกครั้ง = พิธีสำเร็จ), rename → เสริมแกร่ง · จุดลุ้นย้ายไป **เสียง drop เสริมแกร่งจากบอส** · re-spec audio เต็มเลื่อนไปเฟสผลิตเสียง (รอเคาะ R6) · ดู `docs/design/deungpu_REINFORCEMENT_SYSTEM_DECISION_v1.md` §11 R6
+
 ## 33.1 ตีบวกปกติ
 
 เสียง:
@@ -3334,6 +3377,15 @@ HUD หลักต้อง:
 - serverAuthority
 - performanceBudget
 
+### 50.1.1 Amendment (v15.2, 2026-07-12) — Resource / Rounding / Damage Type / Field Grouping
+
+Owner เคาะผ่าน Production Bible Set v1 (Bible 1.7/1.8/1.9/2.3):
+
+1. **Resource = cooldown-only** สำหรับ launch foundation — `resourceCost` คงอยู่ใน schema แต่ default = 0 ทุกสกิล; ไม่มี Mana/Rage เป็น core stat ใน P2; นักเวท/นักอาคม balance ด้วย cooldown, cast time, charges, positioning; resource เฉพาะอาชีพ = future extension ที่ต้องผ่าน schema decision ใหม่ (v15 §59.4)
+2. **Multi-hit rounding**: คำนวณทุก sub-hit ด้วย fixed-point → รวม exact total → **round ยอดรวมครั้งเดียว** เป็น integer authoritative → กระจายกลับเป็น sub-hit integer ตามสัดส่วน + remainder distribution แบบ deterministic — ไม่มี bias จากปัดเศษซ้ำ, เลขบนจอรวมตรงกับ HP ที่ลดจริง, proc ต่อ hit ทำงานจาก hit list เดิม (⚠ implementation ปัจจุบันยังปัดต่อ sub-hit — เป็น debt ที่ต้องแก้ก่อน/พร้อมงานนักธนู)
+3. **Damage type**: P2 ใช้ **DEF เดียว** — `damageType` คงไว้เพื่อ animation/VFX/interaction/อนาคต; physical/magic ใช้สูตร mitigation เดียวกัน; ยังไม่เพิ่ม resist stat (ถ้าต้องการ build counter ค่อยเสนอ resist layer ช่วง P4/P5 content review)
+4. **Field grouping** (client/server): `skillName`, `description` = client/shared metadata · `statusEffects` แยก 2 ชั้น — client ได้ public presentation (ชื่อ/icon/short description/duration display), server-only เก็บ magnitude, stacking rule, tick rule, immunity tags, proc condition · client bundle **ห้าม**มี authoritative damage/status formula
+
 ## 50.2 Skill Design Example — นักดาบ / คลื่นดาบราชันย์
 
 - role: AoE farming / frontal clear
@@ -3993,6 +4045,18 @@ Tech impact:
 4. **การ resync ภาพทันทีตอน refocus แท็บ** = งาน P2 (P1 ยังไม่มี fast-resync UX พิเศษ)
 5. **จุดเริ่มเกม (start map) + การจำ map ล่าสุดข้าม refresh** = งาน P2 (ต้องมี persistence) — ระหว่างนี้ boot เข้า dev **P0 Test Field** เสมอ (map ทดสอบนอก MAP_LAYOUT_BIBLE มีทางเดียวไป Map 1 ไม่มีทางย้อนกลับ)
 
+### 59.1.2 Amendment (v15.2, 2026-07-12) — Background Tab Production Policy
+
+**Supersede ข้อ 3 ของ §59.1.1** ("ค้างออนไลน์ตลอด" = นโยบายชั่วคราวเฉพาะ P1 ก่อนมีระบบ save) — นโยบาย production ตาม Bible 5.3 + Q5.1–5.4 (owner เคาะ 2026-07-12), บังคับใช้ตอน **P2** (ต้องมี save ก่อน):
+
+1. **หลักการ: backgrounding ≠ เปิด bot** — พับจอ/สลับแท็บไม่ใช่ช่องทาง farm; automation ต้องกด Online Bot ชัดเจนเท่านั้น (§59.2)
+2. Tab hidden → client หยุดส่ง active input; server ยังถือ character เป็น entity ในโลก
+3. **ในสนาม (field)**: ไม่อยู่ combat ครบ 15s → เริ่ม safe-disconnect countdown → ครบ 30s ยังไม่ combat → disconnect + save ตำแหน่ง safe-valid (login กลับ safe camp ถ้าตำแหน่งไม่ valid) — ไม่ทิ้ง ghost 30s แบบปิดแท็บ เพราะเป็นการออกแบบ deliberate ไม่ใช่หลุด
+4. **ระหว่าง combat**: ตัวละครยังรับ damage ตามปกติ ไม่ auto-cast; disconnect หลัง combat จบ/ตาย
+5. **ในเมือง/safe camp**: disconnect gracefully หลัง hidden 60s
+6. ตัวเลข 15/30/60 = **draft knobs PENDING tune** (Q5.3) · สมาชิก party ที่ยัง active อยู่ได้ **extended window ~120–180s** เป็น knob (Q5.2)
+7. **โหมด "ปักหลัก"** (Q5.4): toggle ชัดเจนสำหรับยืนโชว์ตัวในเมือง/จุดปลอดภัยแบบออนไลน์ค้างไว้ โดยไม่มี automation ใดๆ — ตอบโจทย์ social/show-off โดยไม่ละเมิดเส้น bot
+
 ---
 
 ## 59.2 Offline Pro Bot Materialization
@@ -4064,6 +4128,15 @@ Guardrails:
 - ไม่ควรย้าย channel ระหว่าง combat
 - ไม่ควรใช้ channel switch เพื่อหนี PvP / หนี death / รีเซ็ตมอน exploit
 - world boss/event อาจ lock channel ตาม event rule
+
+### 59.3.1 Amendment (v15.2, 2026-07-12) — Party Channel Model ยืนยัน Public Shared
+
+Owner ยืนยัน (Bible 2.2): **public shared channel เป็น default ของ field farming** ตามพฤติกรรม §59.3 ด้านบน — ดึ๋งปุ๊ต้องยังรู้สึกเป็น MMORPG ที่โลกมีคนอื่น ไม่ใช่ lobby co-op แยกห้องทุก party
+
+- **Private-party-channel ที่ implement จริงใน P1** (party ได้ room ตัวเองผ่าน `filterBy(['mapId','partyId'])`) = **fallback/temporary test mode** ใช้ต่อได้ระหว่าง alpha แต่ไม่ใช่ final field model
+- Dungeon/raid/tutorial instance = private party room (ตรง model P1 พอดี)
+- ถ้า public channel รับทั้ง party ไม่ครบ → สร้าง/เลือก public channel ใหม่ที่รับทั้งกลุ่ม
+- การย้ายไป public shared model **ไม่อยู่ใน P2 core scope** — ทำเมื่อเปิด field model จริง (P2B เป็นต้นไป ตามที่ owner เคาะรอบ Q3 2026-07-12)
 
 ---
 

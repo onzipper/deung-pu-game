@@ -1,24 +1,56 @@
-# Decision index
+# Decision index — locked decisions. Do not re-propose. Rationale: docs/decisions/ (Thai).
 
-decision ที่ล็อกแล้ว — **อย่า re-propose** · เพิ่มแถวเมื่อเจ้าของเคาะ (วันที่ absolute เสมอ)
-
-| วันที่ | Decision | สถานะ | เหตุผล |
-|---|---|---|---|
-| 2026-07-11 | **Spec-first rule**: เชื่อ spec เป็นหลัก ห้ามเดา ห้ามมั่ว ห้ามคิดเอง — งานที่นอกเหนือ/ขัด spec ต้องให้ owner อัปเดต spec ก่อนทุกครั้ง | Locked | owner กำหนดเป็น rule หลักของโปรเจกต์ตอน bootstrap |
-| 2026-07-11 | ~~Game spec canonical = checkpoint v14 · Tech spec = architecture v1.4~~ **Superseded 2026-07-12 → v15 / v1.5** (ดูแถวล่างสุด) | ~~Superseded~~ | ไฟล์เก่ากว่า (v10–v13) merge เข้า v14 แล้ว |
-| 2026-07-11 | Skill schema ownership: field names ตาม v15 §50.1 · Design Knobs ตาม v15 §48 · Design owns semantics/balance, Tech owns implementation (v15 §59.4) | Locked | ตัดปัญหา field ชื่อไม่ตรงระหว่าง design/tech |
-| 2026-07-11 | Locked tech decisions L1–L17 (server-authoritative, MySQL 8 Hostinger, Render SG always-on, 5 อาชีพ, guest+email login, payment mock, 30 CCU, WASD+เมาส์+touch, true isometric, 5-dir+mirror, separated map rooms, reconnect 30s, Howler+Tone) | Locked | ดูรายละเอียด+เหตุผลที่ tech architecture §0.1 — single source, ไม่ copy มาซ้ำ |
-| 2026-07-11 | ใช้ระบบ docs-for-AI ตาม ClickUp doc "AI Operating System — Starter Kit" (entry docs → current-state → routing maps → context packs → guardrails + path-guard test) | Locked | owner สั่ง setup ตาม starter kit ตอน bootstrap |
-| 2026-07-11 | Branch model: `develop` = integration branch — งานแตก branch จาก develop → เปิด PR กลับเข้า develop (owner review บน GitHub) · develop → `main` = owner gate ยืนยันทุกครั้ง | Locked | owner เคาะ |
-| 2026-07-11 | Task tracking ใช้ **ClickUp** · GitHub ใช้รีวิวโค้ด (PR) | ~~Superseded 2026-07-12~~ (ดูแถวล่างสุด) | owner เคาะ |
-| 2026-07-11 | ค่า balance ที่ spec ยังไม่กำหนด (เช่น ค่า k, ตาราง skill): **tech เป็นคนตั้งเลขเสนอ + อัปเดต spec** ให้ owner เคาะ ก่อน implement | Locked | owner เคาะ — สอดคล้อง spec-first rule (spec ถูกอัปเดตก่อนเสมอ) |
-| 2026-07-11 | ภาพ ref `docs/design/art-reference/`: กลุ่ม A (01–03, pixel art) = style+layout target · กลุ่ม B (04–11, painterly) = **layout เท่านั้น ห้ามใช้เป็น style target** | Locked | owner แจ้งว่า 04–11 ไม่ใช่ pixel art — ขัด L14 ถ้าใช้เป็น style |
-| 2026-07-11 | ClickUp token optimization: ใช้แนว (a) ID cache + (b) filter เข้ม/ห้ามดึง list ทั้งใบ + (c) โยนงาน ClickUp ให้ subagent สรุปสั้น — ทำเป็น skill `clickup` | ~~Superseded 2026-07-12~~ (ยกเลิกทั้งแนวทาง — ดูแถวล่างสุด) | owner เคาะแนวทางแล้ว แต่สั่ง hold; ยังไม่สร้าง list ใน ClickUp |
-| 2026-07-12 | **ยกเลิก ClickUp** — track งานในเรปโอผ่าน docs (`current-state.md` = task board · `feature-map.md` · `decision-index.md`) · **ไม่ลบข้อมูลเดิมใน ClickUp** ปล่อยค้างไว้เฉยๆ | Locked | owner สั่งเลิกใช้ ClickUp มาลุยใน repo ที่เดียว — supersede #13, #16 |
-| 2026-07-12 | Game spec canonical = **checkpoint v15** (`docs/design/deungpu_project_checkpoint_v15_p0_scope_lock_ready.md`) · Tech spec = **architecture v1.5** (`docs/tech/deungpu_technical_architecture_v1_5_p0_scope_lock.md`) · เพิ่ม **P0_SCOPE_LOCK_v1** (`docs/design/`) · v14/v1.4 → `docs/history/` | Locked | owner นำ spec v15/v1.5 เข้า repo — supersede แถว canonical เดิม; delta หลัก = P0 Scope Lock (§60–62 / §19) |
-| 2026-07-12 | **P0 execution mode (เฉพาะ batch นี้)**: branch เดียว `feat/p0-engine-foundation` · commit แยกทีละ issue (P0-02→P0-12) · **PR เดียว**เข้า develop ให้ owner review ทีเดียวตอนจบ · gate ภายใน: test+lint+build ต่อ commit, never-downgrade zone รีวิวไขว้ 2 มุมมอง · spec gap ฝั่ง game design = จดคำถามค้าง ไม่เดา | Locked | owner เคาะ — ลด review overhead ระหว่าง P0 |
-| 2026-07-12 | **Test deploy: Render free tier + UptimeRobot ping ไปก่อน** (`https://deung-pu-game.onrender.com`, service ผูก branch `develop`) — เบี่ยงจาก spec ชั่วคราว (tech กำหนด paid always-on): UptimeRobot กันหลับจาก idle ได้ แต่ free tier ยัง restart ได้เป็นระยะ = ห้อง/ตำแหน่งหาย (state in-memory, ยังไม่มี persistence) ยอมรับได้สำหรับช่วงทดสอบ · **ต้องกลับมา paid always-on ก่อนเปิดให้คนเล่นจริง** · client = Hostinger ตาม spec (`NEXT_PUBLIC_RT_URL=wss://deung-pu-game.onrender.com`) | Locked (ชั่วคราว) | owner เคาะ 2026-07-12 — ประหยัดค่าใช้จ่ายช่วง test deploy |
-| 2026-07-12 | **นโยบายแท็บเบื้องหลัง (P1)**: พับจอ/สลับแท็บ/minimize = **ค้างออนไลน์ตลอด** (ไม่ auto-disconnect — ตัวละครยืนในโลกต่อ; ทบทวนอีกทีเมื่อ P2 มีความเสี่ยง combat ต่อผู้เล่น AFK) · ปิดแท็บ/ปิด browser = flow §59.1 เดิม (grace 30s แล้วหาย) · resync ภาพตอน refocus = **P2** | Locked | owner เคาะหลัง retest round 2 |
-| 2026-07-12 | **จุดเริ่มเกม + จำ map ตอน refresh = รอ P2 (persistence)**: ตอนนี้ boot เข้า P0 Test Field เสมอ (dev map, ทางเดียว → Map 1 ไม่มีย้อนกลับ — ตาม MAP_LAYOUT_BIBLE ที่มีแค่เมือง⇄Map 1); refresh ข้าม map แล้วเด้งกลับ map แรก = พฤติกรรมที่รับรู้แล้ว รอระบบ save P2 ค่อยทำ start-map จริง + จำ map ล่าสุด | Locked | owner เคาะ ("รอทำตอน P2 ตามเดิม") |
-| 2026-07-12 | **อัปเดต spec เป็นเวอร์ชันล่าสุด**: owner สั่งให้ tech ปรับ game spec + tech spec สะท้อน decision ที่เคาะระหว่าง P0/P1 (แก้ in-place เป็น amendment + bump minor version — ไม่ rename ไฟล์ กัน reference ทั้ง repo พัง) · ค่า balance ทั้งหมด**ยังเป็น PENDING OWNER เหมือนเดิม** (proposal แยก ไม่ถูก merge เข้า spec จนกว่าเคาะ) | Locked | owner สั่ง 2026-07-12 — เป้า: ปิดงาน P0+P1 |
-| 2026-07-12 | **ขยาย run ยาวถึง P1** (World Sync): จบ P0 เปิด PR แล้ว**ไม่รอ merge** — แตก branch ซ้อน (`feat/p1-world-sync` ต่อจากหัว P0) ลุยต่อ → จบ P1 เปิด PR ที่สอง = **2 PR ซ้อนกัน** review ตามลำดับ · P1 issue breakdown = tech ร่างลง docs ก่อนเริ่ม (owner ดูตอน review) · **ตัวเลข balance (ค่า k, ตาราง skill 5 อาชีพ) ใช้ค่า draft ใน config ที่ mark `PENDING OWNER` + ร่างเป็น spec-update proposal ให้ owner เคาะตอน review** — เลขยังไม่เป็น spec จนกว่าเคาะ · พัฒนา local ทั้งหมด (ยังไม่แตะ Render/MySQL) | Locked | owner เคาะ 2026-07-12 — run ต่อเนื่องไม่สะดุดด่าน balance โดยอำนาจเคาะยังอยู่ที่ owner (สอดคล้อง spec-first + knob rule) |
+| ID | Date | Decision (1 line) | Status | TH |
+|---|---|---|---|---|
+| D-001 | 2026-07-11 | Spec-first: never guess, spec updates first | Locked | `docs/decisions/D-001-spec-first.md` |
+| D-002 | 2026-07-11 | Game spec canonical = v14 (old) | Superseded->D-012 | `docs/decisions/D-002-spec-v14-old.md` |
+| D-003 | 2026-07-11 | Skill fields follow v15 §50.1 | Locked | `docs/decisions/D-003-skill-schema.md` |
+| D-004 | 2026-07-11 | Locked tech decisions L1-L17 (tech §0.1) | Locked | `docs/decisions/D-004-tech-l1-l17.md` |
+| D-005 | 2026-07-11 | Docs-for-AI system per ClickUp Starter Kit | Locked | `docs/decisions/D-005-ai-starter-kit.md` |
+| D-006 | 2026-07-11 | Branch model: branch from develop, PR back | Locked | `docs/decisions/D-006-branch-model.md` |
+| D-007 | 2026-07-11 | Task tracking via ClickUp | Superseded->D-011 | `docs/decisions/D-007-clickup-tracking.md` |
+| D-008 | 2026-07-11 | Balance gaps: tech proposes, owner OKs | Locked | `docs/decisions/D-008-balance-values.md` |
+| D-009 | 2026-07-11 | Art ref A = style target; B = layout only | Locked | `docs/decisions/D-009-art-ref-groups.md` |
+| D-010 | 2026-07-11 | ClickUp token optimization | Superseded->D-011 | `docs/decisions/D-010-clickup-tokens.md` |
+| D-011 | 2026-07-12 | ClickUp cancelled; track work in-repo | Locked | `docs/decisions/D-011-clickup-cancelled.md` |
+| D-012 | 2026-07-12 | Game spec canonical = v15, tech = v1.5 | Locked | `docs/decisions/D-012-spec-v15.md` |
+| D-013 | 2026-07-12 | P0 execution: 1 branch, per-issue commits | Locked | `docs/decisions/D-013-p0-exec.md` |
+| D-014 | 2026-07-12 | AI efficiency: trim current-state, plan e2e | Locked | `docs/decisions/D-014-ai-efficiency.md` |
+| D-015 | 2026-07-12 | Closed P0+P1: merged develop->main (PR #6) | Locked | `docs/decisions/D-015-close-p0-p1.md` |
+| D-016 | 2026-07-12 | Render free tier + UptimeRobot | Locked (temp) | `docs/decisions/D-016-render-free.md` |
+| D-017 | 2026-07-12 | Background tab (P1): always online | Superseded->D-030 | `docs/decisions/D-017-bg-tab-p1.md` |
+| D-018 | 2026-07-12 | Start point + map memory deferred to P2 | Locked | `docs/decisions/D-018-start-map-p2.md` |
+| D-019 | 2026-07-12 | Spec amended for P0/P1; balance PENDING | Locked | `docs/decisions/D-019-spec-update.md` |
+| D-020 | 2026-07-12 | Extended P0/P1 run without merge wait | Locked | `docs/decisions/D-020-extend-p1-run.md` |
+| D-021 | 2026-07-12 | Bible Set v1 = decision baseline | Locked | `docs/decisions/D-021-bible-set-v1.md` |
+| D-022 | 2026-07-12 | P2 balance baseline (Bible 1.1-1.9): k=50 | Locked | `docs/decisions/D-022-balance-p2.md` |
+| D-023 | 2026-07-12 | Profession order: 2nd class = archer | Locked | `docs/decisions/D-023-archer-second.md` |
+| D-024 | 2026-07-12 | Party model: public shared channel default | Locked | `docs/decisions/D-024-party-model.md` |
+| D-025 | 2026-07-12 | Skill fields, click radius, Map 1 layout | Locked | `docs/decisions/D-025-skill-click-map1.md` |
+| D-026 | 2026-07-12 | Roadmap: P2 scope; P2B = Boss milestone | Locked | `docs/decisions/D-026-roadmap-p2.md` |
+| D-027 | 2026-07-12 | Art & asset: Vertical Slice First order | Locked | `docs/decisions/D-027-vertical-slice.md` |
+| D-028 | 2026-07-12 | Living World phasing: clock P2B, weather P3 | Locked | `docs/decisions/D-028-living-world.md` |
+| D-029 | 2026-07-12 | Onboarding: creation P2, checklist tutorial | Locked | `docs/decisions/D-029-onboarding.md` |
+| D-030 | 2026-07-12 | Background tab (prod): idle->safe-disconnect | Locked | `docs/decisions/D-030-bg-tab-prod.md` |
+| D-031 | 2026-07-12 | Ops: Render->paid on hard trigger | Locked | `docs/decisions/D-031-render-paid.md` |
+| D-032 | 2026-07-12 | Docs routing: routine=low, spec=high tier | Locked | `docs/decisions/D-032-docs-routing.md` |
+| D-033 | 2026-07-12 | P2 execution: PR per wave; archer -> P2B | Locked | `docs/decisions/D-033-p2-exec.md` |
+| D-034 | 2026-07-12 | New locked specs: Companion + Achievement | Locked | `docs/decisions/D-034-companion-guide.md` |
+| D-035 | 2026-07-12 | Companion != Bot A; intro -> unlock tutorial | Locked | `docs/decisions/D-035-not-bot-a.md` |
+| D-036 | 2026-07-12 | Asset priority reordered (D3) | Locked | `docs/decisions/D-036-asset-priority-d3.md` |
+| D-037 | 2026-07-12 | Companion local-only; Auto Pilot != bot | Locked | `docs/decisions/D-037-autopilot.md` |
+| D-038 | 2026-07-12 | Achievement v1: participation credit | Locked | `docs/decisions/D-038-achievement-v1.md` |
+| D-039 | 2026-07-12 | Account/Character/Storage locked (S1-S4) | Locked | `docs/decisions/D-039-acct-storage.md` |
+| D-040 | 2026-07-12 | Production decisions P2B->Launch baseline | Locked | `docs/decisions/D-040-p2b-launch.md` |
+| D-041 | 2026-07-12 | UI/Visual spec P2 in repo as DRAFT | Locked (draft) | `docs/decisions/D-041-ui-draft.md` |
+| D-042 | 2026-07-12 | SVG-first = permanent art direction | Locked | `docs/decisions/D-042-svg-first.md` |
+| D-043 | 2026-07-12 | V1-V4: tokens, art model, rarity palette | Locked | `docs/decisions/D-043-v1-v4-tokens.md` |
+| D-044 | 2026-07-12 | Auth = custom lightweight, not Auth.js | Locked | `docs/decisions/D-044-auth-lightweight.md` |
+| D-045 | 2026-07-12 | Economy & Loot Map 1 spec locked | Locked | `docs/decisions/D-045-economy-loot.md` |
+| D-046 | 2026-07-12 | Caveman-code skill not adopted | Locked | `docs/decisions/D-046-caveman-code.md` |
+| D-047 | 2026-07-12 | E1 resolved: Map 1 boss id + lv8 | Locked | `docs/decisions/D-047-e1-boss-map1.md` |
+| D-048 | 2026-07-12 | E2: reinforcement guaranteed +1, cap +15 | Locked | `docs/decisions/D-048-e2-reinforcement.md` |
+| D-049 | 2026-07-12 | E3 open: monster stats pending balance | Open | `docs/decisions/D-049-e3-monster-stats.md` |
+| D-050 | 2026-07-12 | Renamed `เสริมแกร่ง`, tradable | Locked | `docs/decisions/D-050-reinf-rename.md` |
+| D-051 | 2026-07-13 | Reinf fragment: boss-only 10.7%, P2B | Locked | `docs/decisions/D-051-reinf-fragment.md` |
+| D-052 | 2026-07-13 | R1-R10 reinforcement questions closed | Locked | `docs/decisions/D-052-r1-r10-closed.md` |

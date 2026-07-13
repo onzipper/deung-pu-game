@@ -2,6 +2,10 @@
 // Plain TS + pixi เท่านั้น — ห้าม import React / Next.js (layer contract, tech §2).
 // แยก calc (update state) ออกจาก render ไว้ตั้งแต่ต้น เพื่อเตรียม server-authoritative ตอน P1.
 //
+// P2-01 (docs/context/ui.md contract): game loop → publishHudState (throttled, `@/ui/store/game-store`
+//   vanilla zustand store) → React subscribe. `game-store.ts` เป็น **vanilla** store (ไม่มี React import)
+//   จึงนำเข้าที่นี่ได้โดยไม่ผิด "ห้าม import React" ด้านบน — React hook อยู่คนละไฟล์ (use-game-store.ts, UI เท่านั้น).
+//
 // P1-10 (GS §57.3 separated rooms + loading/fade): engine รองรับ **หลาย map + transition**.
 //   โครง: outer shell (app/ui/fps/resize/transition/master tick) คงที่ · "world" (scene + player + mobs +
 //   combat + net + input) = per-map, สร้างผ่าน mountWorld(map, spawn) แล้ว teardown+rebuild ตอนข้าม map.
@@ -11,7 +15,7 @@
 
 import { Application, Container, Text, type Ticker } from "pixi.js";
 import { type EngineConfig, resolveResolution } from "../config";
-import { requireMap, getMap } from "../map/registry";
+import { requireMap, getMap, hasMap } from "../map/registry";
 import { findExitAt, type MapConfig } from "../map/types";
 import { createMapScene, type MapSceneHandle } from "../render/scene";
 import { buildExitMarkerPolygons } from "../render/exit-marker";
@@ -39,10 +43,17 @@ import {
 } from "../net/sync";
 import { DEFAULT_MAP_ID, type PlayerSnapshot } from "@/shared/net-protocol";
 import { partyIdFromLocation } from "../net/party";
+import {
+  readSelectedCharacterId,
+  readSelectedCharacterMapId,
+  rememberSelectedCharacterMapId,
+  pickBootMapId,
+} from "../net/character-session";
 import { createTransitionController } from "./transition";
 import { attachResize } from "./resize";
 import { screenToTile, snapToTile, type TilePoint } from "../iso/coords";
 import { buildDebugInfo, IDLE_NET_DEBUG_INFO, type EngineDebugInfo } from "./debug-info";
+import { createHudPublisher, resetHudState } from "@/ui/store/game-store";
 
 /** handle สาธารณะที่ React (หรือ caller อื่น) ใช้คุมกับ engine — ห้ามให้ caller แตะ pixi ตรง ๆ นอกจากผ่าน app */
 export interface EngineHandle {
@@ -135,6 +146,10 @@ export async function createEngine(
   // P1-08: partyId ของ local player (URL `?party=xyz` > config default) — คงที่ทั้ง session (ทุก world).
   const localPartyId = partyIdFromLocation(config.net.partyId);
 
+  // P2-05 (Storage §5/§7): characterId ที่เลือกจาก Game Hub (sessionStorage) — แนบใน joinOptions ทุก world.
+  // undefined = anonymous (เข้า /game ตรง ๆ / dev) → server spawn default, ไม่ persist. คงที่ทั้ง session.
+  const localCharacterId = readSelectedCharacterId();
+
   // P1-07-fix (§59.1): per-tab reconnect token store (sessionStorage) — คงข้าม refresh/reopen เพื่อ
   // reconnect เข้า seat เดิม (token in-memory หายตอน reload). ตัวเดียวทั้ง session (ทุก world/map ใช้ key
   // เดียว — token ตามหลัง map ปัจจุบัน; transition = consented leave ล้าง token → world ใหม่ fresh join).
@@ -157,6 +172,9 @@ export async function createEngine(
         console.warn(`[transition] ไม่รู้จัก map "${targetMapId}" — ยกเลิก transition`);
         return;
       }
+      // owner-report#6 fix: จำ map ปลายทางไว้ (คู่กับ characterId ที่ hub เขียน) — refresh กลาง /game
+      // หลังข้าม map ต้อง boot map ล่าสุดนี้ ไม่ใช่ map ตอนออกจาก hub
+      rememberSelectedCharacterMapId(targetMapId);
       currentWorld.destroy();
       currentWorld = mountWorld(targetMap, targetSpawn);
       currentWorld.resize(viewW, viewH);
@@ -234,7 +252,7 @@ export async function createEngine(
           graceSeconds: config.reconnect.graceSeconds,
           store: reconnectStore,
         },
-        { mapId: map.mapId, ...initial, partyId: localPartyId },
+        { mapId: map.mapId, ...initial, partyId: localPartyId, characterId: localCharacterId },
         {
           onPlayerAdd: (id, snap) => remotes?.onPlayerAdd(id, snap),
           onPlayerChange: (id, snap) => remotes?.onPlayerChange(id, snap),
@@ -246,7 +264,8 @@ export async function createEngine(
           },
           // Fix issue #1/#2: หลัง join/reconnect → snap local player ไปตำแหน่ง authoritative ของ server
           // (spawn จริง / ตำแหน่ง hold ก่อน refresh) ก่อนส่ง move ก้าวแรก. ใช้ applyCorrection (snap
-          // position + camera, ยกเลิก path) — กัน "วาร์ปกลับจุดเดิม" + กัน exit detection พลาดเพราะ desync.
+          // position + camera) — กัน "วาร์ปกลับจุดเดิม" + กัน exit detection พลาดเพราะ desync. fresh join
+          // = ไม่มี goal → no-op; reconnect กลาง walk → resume goal เดิม (prod fix 2026-07-12).
           onSelfSpawn: (snap) => {
             player.applyCorrection(snap.tx, snap.ty);
             lastSent = null;
@@ -525,8 +544,11 @@ export async function createEngine(
     };
   }
 
-  // --- boot world แรก (DEFAULT_MAP_ID จาก registry) ---
-  const initialMap = requireMap(DEFAULT_MAP_ID);
+  // --- boot world แรก (owner-report#6 fix: map ที่ตัวละครที่เลือก save ไว้ล่าสุด แทน DEFAULT_MAP_ID
+  //     เสมอ — ไม่งั้น server pickLoadPosition mismatch mapId แล้วทิ้งตำแหน่ง save. ตำแหน่งจริงยังมาจาก
+  //     server ผ่าน onSelfSpawn adoption เหมือนเดิม — ที่นี่แค่เลือก "map ไหน" ให้ join ถูกห้อง) ---
+  const bootMapId = pickBootMapId(readSelectedCharacterMapId(), hasMap, DEFAULT_MAP_ID);
+  const initialMap = requireMap(bootMapId);
   currentWorld = mountWorld(initialMap, {
     x: initialMap.spawnPoint.x,
     y: initialMap.spawnPoint.y,
@@ -541,7 +563,9 @@ export async function createEngine(
     transition.resize(width, height);
   });
 
-  // --- master update loop: world tick → transition step → fps ---
+  // --- master update loop: world tick → transition step → fps → HUD publish (P2-01) ---
+  // publisher cadence = debugOverlay.pollIntervalMs เดิม (~250ms/4Hz, P0-11) — ไม่ push ทุก frame เข้า store.
+  const hudPublisher = createHudPublisher(config.debugOverlay.pollIntervalMs);
   let fpsSampleMs = 0;
   const onTick = (ticker: Ticker): void => {
     const dtSeconds = ticker.deltaMS / 1000;
@@ -555,6 +579,11 @@ export async function createEngine(
       fpsText.text = `FPS ${Math.round(app.ticker.FPS)}`;
       fpsSampleMs = 0;
     }
+
+    // build() เป็น thunk — publisher เรียกเฉพาะตอนถึงคิว throttle จริง (กันประกอบ EngineDebugInfo ทุก frame)
+    hudPublisher.publish(performance.now(), () => ({
+      debugInfo: currentWorld.getDebugInfo(app.ticker.FPS),
+    }));
   };
   app.ticker.add(onTick);
 
@@ -566,6 +595,7 @@ export async function createEngine(
     detachResize();
     transition.destroy();
     currentWorld.destroy();
+    resetHudState(); // engine ถูก destroy (unmount/StrictMode/transient) — เคลียร์ store กัน overlay ค้างค่าเก่า
     // removeView: true → เอา canvas ออกจาก DOM ด้วย; ล้าง GPU/texture/context ให้หมด
     app.destroy(
       { removeView: true },

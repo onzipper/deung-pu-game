@@ -120,31 +120,115 @@ describe("computeDamage (§15.2 core)", () => {
   });
 });
 
-describe("computeSkillDamage (hitCount aggregate)", () => {
-  test("hitCount 1 = computeDamage เดี่ยว", () => {
+describe("computeSkillDamage (multi-hit rounding §50.1.1 ข้อ 2 / TA §15.7.1 ข้อ 3)", () => {
+  // อัลกอริทึม (Bible 1.8): exact ทุก sub-hit (ไม่ปัดรายตัว) → รวม exact total → round ครั้งเดียว
+  // = authoritative → กระจาย integer กลับต่อ sub-hit (largest-remainder, tie-break hit index).
+
+  test("hitCount 1 = computeDamage เดี่ยว (ปัดครั้งเดียวอยู่แล้ว → ผลไม่เปลี่ยน)", () => {
     const p = params({ atk: 12, baseMultiplier: 2.2, targetDef: 4 });
-    expect(computeSkillDamage(p, 1, NO_CRIT)).toEqual({ damage: 24, crit: false });
+    expect(computeSkillDamage(p, 1, NO_CRIT)).toEqual({ damage: 24, crit: false, subHits: [24] });
   });
 
-  test("hitCount 3 (archer 0.9/hit) → รวม 3 hit", () => {
-    // per hit: 100 × 0.9 × 1.0 = 90 → รวม 270
+  test("hitCount 3 (archer 0.9/hit) → รวม 3 hit (สัดส่วนลงตัว)", () => {
+    // per hit exact: 100 × 0.9 × 1.0 = 90 → total 270 → round 270 → กระจาย [90,90,90]
     const r = computeSkillDamage(params({ baseMultiplier: 0.9 }), 3, NO_CRIT);
     expect(r.damage).toBe(270);
     expect(r.crit).toBe(false);
+    expect(r.subHits).toEqual([90, 90, 90]);
   });
 
-  test("multi-hit: crit = true ถ้ามี sub-hit ใด crit", () => {
-    // critRate 0.5: roll [0.9(no), 0.1(yes), 0.9(no)] → มี crit
+  test("multi-hit: crit = true ถ้ามี sub-hit ใด crit; ปัดยอดรวมครั้งเดียว", () => {
+    // critRate 0.5: roll [0.9(no), 0.1(yes), 0.9(no)] → hit2 crit ×1.5; exact 100/150/100 → total 350
     const r = computeSkillDamage(
       params({ baseMultiplier: 1, critRate: 0.5, critDmg: 0.5 }),
       3,
       seqRng([0.9, 0.1, 0.9]),
     );
     expect(r.crit).toBe(true);
-    expect(r.damage).toBe(100 + 150 + 100); // hit2 crit ×1.5
+    expect(r.damage).toBe(350);
+    expect(r.subHits).toEqual([100, 150, 100]);
   });
 
-  test("hitCount 0 (utility) → 0 damage", () => {
-    expect(computeSkillDamage(params(), 0, NO_CRIT)).toEqual({ damage: 0, crit: false });
+  test("hitCount 0 (utility) → 0 damage, subHits ว่าง", () => {
+    expect(computeSkillDamage(params(), 0, NO_CRIT)).toEqual({
+      damage: 0,
+      crit: false,
+      subHits: [],
+    });
+  });
+
+  test("สัดส่วนไม่ลงตัว: round ยอดรวมครั้งเดียว ≠ ผลรวมของการปัดรายตัว (กัน bias เศษซ้ำ)", () => {
+    // per hit exact: 100 × 1 × (50/54) = 92.5925… ; hitCount 3
+    // ปัดรายตัว (แบบเดิม): round(92.59)=93 ×3 = 279 (bias สูงเกิน)
+    // อัลกอริทึมใหม่: total 277.777… → round ครั้งเดียว = 278 (ตรง HP จริง)
+    const r = computeSkillDamage(params({ targetDef: 4 }), 3, NO_CRIT);
+    expect(r.damage).toBe(278);
+    // largest-remainder: ideal 92.6667 ต่อ hit (frac 0.6667 เท่ากัน) → +1 ให้ idx 0,1 → [93,93,92]
+    expect(r.subHits).toEqual([93, 93, 92]);
+    expect(r.subHits.reduce((a, b) => a + b, 0)).toBe(r.damage);
+  });
+
+  test("deterministic: input เดิม (rng เดิม) → output เดิมทุก field", () => {
+    const p = params({ targetDef: 7, baseMultiplier: 1.3, critRate: 0.5, critDmg: 0.5 });
+    const a = computeSkillDamage(p, 5, seqRng([0.1, 0.9, 0.1, 0.9, 0.9]));
+    const b = computeSkillDamage(p, 5, seqRng([0.1, 0.9, 0.1, 0.9, 0.9]));
+    expect(a).toEqual(b);
+  });
+
+  test("damage ไม่ติดลบ + subHits ทุกช่อง ≥ 0 (atk 0 → ทุกช่อง 0)", () => {
+    const r = computeSkillDamage(params({ atk: 0 }), 4, NO_CRIT);
+    expect(r.damage).toBe(0);
+    expect(r.subHits).toEqual([0, 0, 0, 0]);
+    expect(r.subHits.every((d) => d >= 0)).toBe(true);
+  });
+
+  // property-style: invariants ต้องเป็นจริงทุก combo (§50.1.1 — never-downgrade combat calc)
+  describe("invariants ครอบหลาย hitCount × สัดส่วนไม่ลงตัว × crit ผสม", () => {
+    const cases: { name: string; p: Partial<DamageParams>; hitCount: number; rng: RngFn }[] = [];
+    const bases: Partial<DamageParams>[] = [
+      { targetDef: 4 }, // factor 50/54
+      { targetDef: 7, baseMultiplier: 1.3 }, // เศษหนัก
+      { targetDef: 13, baseMultiplier: 0.7, atk: 137 }, // เลขไม่กลม
+      { targetDef: 25, penetration: 3, atk: 88, baseMultiplier: 2.2 },
+    ];
+    const critRngs: { name: string; rng: () => RngFn }[] = [
+      { name: "no-crit", rng: () => NO_CRIT },
+      { name: "all-crit", rng: () => ALWAYS_CRIT },
+      { name: "mixed-crit", rng: () => seqRng([0.1, 0.9, 0.9, 0.1, 0.9, 0.1, 0.9]) },
+    ];
+    for (const b of bases) {
+      for (const c of critRngs) {
+        for (const hitCount of [2, 3, 5, 7]) {
+          cases.push({
+            name: `${JSON.stringify(b)} × ${c.name} × hit${hitCount}`,
+            p: { ...b, critRate: c.name === "no-crit" ? 0 : 0.5, critDmg: 0.5 },
+            hitCount,
+            rng: c.rng(),
+          });
+        }
+      }
+    }
+
+    for (const tc of cases) {
+      test(tc.name, () => {
+        const r = computeSkillDamage(params(tc.p), tc.hitCount, tc.rng);
+        // 1. sum(subHits) === damage เสมอ (ไม่มี drift)
+        expect(r.subHits.reduce((a, b) => a + b, 0)).toBe(r.damage);
+        // 2. subHits ยาว = hitCount, ทุกช่อง integer ≥ 0
+        expect(r.subHits).toHaveLength(tc.hitCount);
+        for (const d of r.subHits) {
+          expect(Number.isInteger(d)).toBe(true);
+          expect(d).toBeGreaterThanOrEqual(0);
+        }
+        // 3. damage เป็น integer ≥ 0
+        expect(Number.isInteger(r.damage)).toBe(true);
+        expect(r.damage).toBeGreaterThanOrEqual(0);
+        // 4. deterministic: รันซ้ำด้วย rng ใหม่ชุดเดิม → เท่ากันทุก field
+        const rng2 = tc.rng === NO_CRIT || tc.rng === ALWAYS_CRIT ? tc.rng : undefined;
+        if (rng2) {
+          expect(computeSkillDamage(params(tc.p), tc.hitCount, rng2)).toEqual(r);
+        }
+      });
+    }
   });
 });

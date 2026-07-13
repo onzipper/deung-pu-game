@@ -1,52 +1,58 @@
-# docs/ — สารบัญ
+# docs/ — index
 
-ลำดับเข้า: `AI.md` (root) → `current-state.md` → `decision-index.md` → context pack ที่ตรงงาน
+Entry order: `AI.md` (root) → `current-state.md` → `decision-index.md` → the context pack matching your work.
 
 ## Live state + guardrails
 
-| ไฟล์ | บทบาท |
+| File | Role |
 |---|---|
-| `current-state.md` | ตอนนี้อยู่ไหน/ติด/ค้าง/ห้ามแตะ — อัปเดตทุกรอบ |
-| `decision-index.md` | decision ที่ล็อกแล้ว — ห้าม re-propose |
-| `known-traps.md` | คลังบั๊กที่เคยเจอ — อ่านก่อนแตะโค้ด |
-| `deploy-checklist.md` | ขั้นตอน deploy จริง — Render (server) + Hostinger (client) + smoke test |
-| `history/` | archive (off-budget — อ่านเฉพาะตอนถูกชี้) |
+| `current-state.md` | Status board (EN, ≤3KB) — updated every round |
+| `decision-index.md` | Locked decisions table (EN) — never re-propose · Thai rationale: `decisions/D-NNN-*.md` |
+| `decisions/` | 1 decision = 1 file, Thai verbatim — the rationale authority |
+| `context/` | Per-layer packs, each ends with **Traps** · shell/tooling traps: `agent-rules.md` |
+| `agent-rules.md` | Shared subagent rules (spec-first, never-downgrade, DoD, report format, language policy, tooling traps) |
+| `deploy-checklist.md` | Real deploy steps — Render (server) + Hostinger (client) + smoke test |
+| `history/` | Archives (off-budget — read only when pointed) |
 
 ## Routing maps
 
-| ไฟล์ | บทบาท |
+| File | Role |
 |---|---|
-| `CODEMAP.md` | file → หน้าที่ (test-enforced) |
-| `feature-map.md` | feature → spec §/source/tests |
-| `token-budget.md` | เพดานการอ่านก่อนวางแผน |
+| `CODEMAP.md` | Orientation: which module owns what (grep for symbol-level truth) |
+| `feature-map.md` | Feature → spec § / entry files / tests |
+| `token-budget.md` | Read caps before planning + measured onboarding numbers |
 
-## Context packs (`context/`)
+## Context packs
 
-| ไฟล์ | สำหรับงาน |
+`context/engine.md` (PixiJS/iso/game loop) · `context/game.md` (combat/skill/mob on engine) · `context/ui.md` (React overlay/Next shell) · `context/server.md` (Colyseus/DB/auth).
+
+## Spec — source of truth (owner-gated, Thai — read ONLY the cited §)
+
+### design/ (owns semantics / balance / knobs / schema)
+
+| File | Role |
 |---|---|
-| `context/engine.md` | game engine / PixiJS / iso foundation / combat |
-| `context/ui.md` | React overlay / HUD / Zustand |
+| `design/deungpu_project_checkpoint_v15_p0_scope_lock_ready.md` | **Game spec v15.3** (in-place amendments, log §0.0.x) — §48 Design Knobs · §50.1 skill schema (field-name truth) · §57/§59 engine+runtime decisions |
+| `design/bibles/` | **Production Bible Set v1** (10 books; start: `deungpu_OWNER_DECISIONS_v1.md`; precedence: INDEX §2 — Bible wins behavior/meaning, tech architecture wins implementation) |
+| `design/deungpu_ACCOUNT_CHARACTER_STORAGE_FLOW_SPEC_v1.md` | Account/character/storage flow (locked) — hub, sessions/takeover, item locations |
+| `design/deungpu_OWNER_PRODUCTION_DECISIONS_P2B_TO_LAUNCH_v1.md` | P2B→launch baseline (bots, market, monetization, legal, gates) |
+| `design/deungpu_P2_UI_VISUAL_IMPLEMENTATION_SPEC_v1.md` | UI/visual P2 (LOCKED) — tokens, components, all P2 screens |
+| `design/deungpu_P2_MAP_1_ECONOMY_AND_LOOT_SPEC_v1.md` | Economy & loot Map 1 (locked baseline) — ⚠ enhancement §§ superseded by Reinforcement doc |
+| `design/deungpu_REINFORCEMENT_SYSTEM_DECISION_v1.md` | **Reinforcement system (LOCKED)** — guaranteed +1, cap +15, boss drop+pity, fragments §3.5, R1–R10 closed |
+| `design/deungpu_TECH_TEAM_DECISIONS_SVG_FIRST_NO_FIGMA_v1.md` | SVG-first art direction (locked) — contracts, naming, UI standards |
+| `design/deungpu_DUNG_DUNG_COMPANION_GUIDE_SYSTEM_SPEC_v1.md` | ดึ๋งๆ companion + guidance system (locked; P2 = DG lite) |
+| `design/deungpu_ACHIEVEMENT_AND_ADVENTURE_JOURNAL_SPEC_v1.md` | Achievements + journal (locked; v1 at P2B, GameEvent log from P2) |
+| `design/deungpu_P0_SCOPE_LOCK_v1.md` · `design/deungpu_MAP_LAYOUT_BIBLE_v1.md` · `design/deungpu_MAP_SCALE_AND_SPAWN_DENSITY_SPEC_v1.md` | P0 scope · map layouts · scale/density |
+| `design/proposals/deungpu_P1_BALANCE_PROPOSAL_v1.md` | Balance baseline (APPROVED) — values live in config, never hardcoded |
+| `design/art-reference/` | Owner visual north star (11 images) — compare all UI/scene/effect work against it |
 
-## Spec (source of truth — ห้ามแก้โดยไม่ผ่าน owner)
+### tech/ (owns implementation / runtime / persistence / performance)
 
-### Game spec — `design/` (design เป็นเจ้าของ: semantics / balance / knobs / schema)
-
-| ไฟล์ | บทบาท |
+| File | Role |
 |---|---|
-| `design/deungpu_project_checkpoint_v15_p0_scope_lock_ready.md` | **Canonical game spec v15.1** (amendment in-place, ดู §0.0 Amendment Log ในไฟล์) — §48 Design Knobs · §50.1 Skill Schema (field naming source of truth) · §57 engine decisions · §59 runtime decisions · §61 P0 scope lock |
-| `design/deungpu_P0_SCOPE_LOCK_v1.md` | **P0 Scope Lock** — Engine Foundation Vertical Slice · P0-01→12 issues · done definition · non-goals |
-| `design/deungpu_MAP_LAYOUT_BIBLE_v1.md` | Map 1–10 layout: จุดวาง spawn/boss/secret/route |
-| `design/deungpu_MAP_SCALE_AND_SPAWN_DENSITY_SPEC_v1.md` | ขนาด map, density, AoE target, spawn pack/pocket, telemetry |
-| `design/art-reference/` | **ภาพ ref จาก owner (visual north star)** — 11 ภาพ + index; งาน UI/ฉาก/effect ต้องเทียบกับชุดนี้ |
+| `tech/deungpu_technical_architecture_v1_5_p0_scope_lock.md` | **Tech architecture v1.5.2** — stack, locked L1–L18 (§0.1), plans §12, engine §17 |
+| `tech/deungpu_ENGINE_FOUNDATION_DECISIONS_v1.md` | Engine foundation lock (iso/diamond/5-dir+mirror/rooms) |
+| `tech/deungpu_RUNTIME_BOT_CHANNEL_AND_SCHEMA_OWNERSHIP_DECISIONS_v1.md` | Runtime lock (reconnect/bots/channels/schema ownership) |
+| `tech/deungpu_P2_ISSUE_BREAKDOWN_v1.md` | P2 breakdown (tech DRAFT — editable per work) |
 
-### Tech spec — `tech/` (tech เป็นเจ้าของ: implementation / runtime / persistence / performance)
-
-| ไฟล์ | บทบาท |
-|---|---|
-| `tech/deungpu_technical_architecture_v1_5_p0_scope_lock.md` | **Tech architecture v1.5.1** (amendment in-place, ดู §6.1/§15.7/§17.3 amendment ในไฟล์) — stack, locked decisions §0.1 (L1–L18), MVP plan P0–P6 §12, engine foundation §17, spawn/aggro §18, P0 scope lock §19 |
-| `tech/deungpu_ENGINE_FOUNDATION_DECISIONS_v1.md` | Engine foundation lock: iso/diamond grid/5-dir+mirror/map rooms |
-| `tech/deungpu_RUNTIME_BOT_CHANNEL_AND_SCHEMA_OWNERSHIP_DECISIONS_v1.md` | Runtime lock: reconnect/offline bot/channel + skill schema ownership |
-
-**Ownership rule (v15 §59.4):** Design owns what the skill is; Tech owns how it runs. Field names ตาม v15 §50.1 เท่านั้น
-
-**Spec ยาวมาก** — อ่านเฉพาะ § ที่ตรงงาน (feature-map ชี้ § ให้)
+**Ownership (v15 §59.4):** design owns WHAT a skill is; tech owns HOW it runs. Field names: v15 §50.1 only.

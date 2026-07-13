@@ -41,8 +41,26 @@
 //   - AOI filter บังคับ (P1+/map ใหญ่, §18.2) · resource/mana pool (proposal §5 [8] PENDING OWNER)
 //   - progression/EXP/loot (P2) — P1 ผู้เล่นทุกคน lv1 นักดาบ (stat จาก combatBalance)
 
-import { Room, type Client } from "colyseus";
+import { Room, ServerError, type AuthContext, type Client } from "colyseus";
 import { MapRoomState, MobState, PlayerState } from "../schema/MapRoomState";
+import { authorizeHandshake } from "../security/handshake";
+import { parseAllowedOrigins } from "../security/origin-allowlist";
+import { createRateLimiter } from "../security/rate-limiter";
+import { claimSession, releaseSession } from "../security/session-registry";
+import { acquireLease, releaseLease } from "../security/session-lease";
+import {
+  fetchCharacterOwner,
+  loadCharacterState,
+  saveCharacterState,
+  updateLastPlayed,
+} from "../characters/character-state";
+import {
+  decideOwnership,
+  pickLoadPosition,
+  pickSavePosition,
+  shouldSaveNow,
+} from "../characters/persistence-decision";
+import { verifyRealtimeToken } from "../../src/server/auth/realtime-token";
 import {
   createChannelRegistry,
   type ChannelRegistry,
@@ -56,6 +74,7 @@ import {
   MSG_MOVE,
   MSG_POSITION_CORRECTION,
   MSG_SKILL_RESULT,
+  WS_CLOSE_SESSION_TAKEN_OVER,
   type CastRejectedMessage,
   type CastSkillMessage,
   type JoinOptions,
@@ -115,6 +134,48 @@ interface MapRoomCreateOptions {
  * ไม่ใช่ matchmaking filter — filterBy(['mapId','partyId']) ต่างหากที่ทำ auto-assign/party sync จริง.
  */
 const channelRegistry: ChannelRegistry = createChannelRegistry();
+
+/**
+ * P2-04 (Bible 5.2): rate limit join/auth failure ต่อ IP — sliding window in-memory (single-process, TA §6.2).
+ * เพดาน = 10 fail / 60s → ปฏิเสธ handshake ชั่วคราว. เป็น module-level singleton (ทุก MapRoom ใน process นี้
+ * แชร์ตัวเดียว) เพราะ onAuth เป็น static (เรียกตอน matchmaking ก่อน room instance). knob ตรงนี้ (ยังไม่ config).
+ */
+const AUTH_RATE_LIMIT_MAX_FAILURES = 10;
+const AUTH_RATE_LIMIT_WINDOW_MS = 60_000;
+const handshakeRateLimiter = createRateLimiter({
+  maxFailures: AUTH_RATE_LIMIT_MAX_FAILURES,
+  windowMs: AUTH_RATE_LIMIT_WINDOW_MS,
+});
+
+/** P2-04: เตือนครั้งเดียวเมื่อ ALLOWED_ORIGINS ว่าง (dev mode = เปิดทุก origin) — production ต้องตั้ง. */
+let openOriginWarned = false;
+
+/** P2-04: อ่าน accountId ที่ static onAuth ผูกไว้ใน client.auth (null = dev bypass / ไม่ผูกบัญชี). */
+function accountIdOf(client: Client): string | null {
+  const auth = client.auth as { accountId?: string | null } | undefined;
+  return typeof auth?.accountId === "string" && auth.accountId.length > 0 ? auth.accountId : null;
+}
+
+/** P2-05: อ่าน characterId ที่ onAuth verify ownership แล้วผูกไว้ใน client.auth (null = anonymous/ไม่ผูกตัวละคร). */
+function characterIdOf(client: Client): string | null {
+  const auth = client.auth as { characterId?: string | null } | undefined;
+  return typeof auth?.characterId === "string" && auth.characterId.length > 0
+    ? auth.characterId
+    : null;
+}
+
+/** P2-04: normalize IP จาก AuthContext (x-real-ip/x-forwarded-for อาจเป็น list/array) → key เดียวสำหรับ rate limit. */
+function ipOf(context: AuthContext): string {
+  const raw = context.ip;
+  const first = Array.isArray(raw) ? raw[0] : raw;
+  return (typeof first === "string" ? first.split(",")[0]?.trim() : "") || "unknown";
+}
+
+/** P2-04: normalize Origin header (อาจเป็น string[] ในบางกรณี). */
+function originOf(context: AuthContext): string | undefined {
+  const origin = context.headers?.origin;
+  return Array.isArray(origin) ? origin[0] : origin;
+}
 
 /**
  * P1-08: capacity ต่อ solo channel (§59.3 auto-assign) — เต็ม → matchmaking เปิด channel ใหม่.
@@ -202,6 +263,93 @@ export class MapRoom extends Room<MapRoomState> {
   private graceSeconds = 30;
   /** P1-07: safe camp ของ map (§59.1 reconnect fallback) = map.safeCamp ?? spawnPoint (tile coord) */
   private safeCamp: ReconnectVec2 = { tx: 0, ty: 0 };
+  /**
+   * P2-04 (Storage §4.2): sessionId ที่ถูกเตะด้วย SESSION_TAKEN_OVER (account เดียวกันเข้าจาก tab/device ใหม่).
+   * onLeave เช็ค set นี้เพื่อ **ลบทันที ไม่เข้า grace** (takeover = ตั้งใจเตะ ไม่ใช่หลุดเน็ต ไม่ควร hold seat).
+   */
+  private readonly takenOverSessions = new Set<string>();
+  /**
+   * P2-05 (Storage §24): session ที่ผูกกับตัวละครจริง (มี accountId + characterId ที่ verify ownership แล้ว).
+   * เฉพาะ session เหล่านี้ที่ save CharacterState (anonymous/dev bypass ไม่มี entry → ไม่ persist). lastSaveMs
+   * = throttle hot write. save cycle: interval (throttle) + transition (force) + leave (force).
+   */
+  private readonly sessionCharacters = new Map<
+    string,
+    { accountId: string; characterId: string; lastSaveMs: number }
+  >();
+  /**
+   * P2-05: session ที่กำลังข้าม map (checkExit save ปลายทางไปแล้ว) — onLeave (consented จาก transition)
+   * จะ **ไม่** save ทับด้วยตำแหน่ง map เก่า. เคลียร์ตอน onLeave/removePlayer.
+   */
+  private readonly transitioningSessions = new Set<string>();
+  /** P2-05: ระยะ throttle save (ms) = knob persistence.saveIntervalMs — set ตอน onCreate. */
+  private saveIntervalMs = 30_000;
+
+  /**
+   * P2-04 (Bible 5.2, TA §6.2): **static** onAuth — Colyseus เรียกตอน matchmaking (fresh join/create) ก่อน
+   * สร้าง seat. reconnect ภายใน grace **ไม่ผ่าน** onAuth (reuse seat เดิม) → token ต้องแนบเฉพาะ fresh join.
+   *   ด่าน: rate limit (ต่อ IP) → origin allowlist → verify JWT (signature/exp/aud, §6.2 ข้อ 3).
+   *   production = บังคับ token เสมอ · dev/e2e (NODE_ENV≠production) = ไม่มี token ผ่านได้ (guest bypass)
+   *   เพื่อไม่พัง harness/flow local เดิม. คืน { accountId } (truthy=อนุญาต) → เก็บใน client.auth ให้ onJoin ใช้
+   *   ทำ session lease/takeover. ปฏิเสธ = throw ServerError (matchmaker ส่ง error กลับ client).
+   */
+  static async onAuth(_token: string, options: unknown, context: AuthContext): Promise<unknown> {
+    const ip = ipOf(context);
+    const nowMs = Date.now();
+    // rate limit ก่อน (ถูกที่สุด) — เกินเพดานแล้วปฏิเสธเลย ไม่ต้องทำ crypto
+    if (handshakeRateLimiter.isLimited(ip, nowMs)) {
+      throw new ServerError(4215 /* AUTH_FAILED */, "rate_limited");
+    }
+    // token: brief กำหนดให้ client แนบใน joinOptions (options.token); fallback context.token (_authToken/Bearer)
+    const opt = (options ?? {}) as { token?: unknown; characterId?: unknown };
+    const token =
+      typeof opt.token === "string" ? opt.token : typeof _token === "string" ? _token : undefined;
+
+    const allowlist = parseAllowedOrigins(process.env.ALLOWED_ORIGINS);
+    if (allowlist.length === 0 && !openOriginWarned) {
+      console.warn(
+        "[MapRoom] ALLOWED_ORIGINS ว่าง — เปิด WS handshake ทุก origin (dev mode). " +
+          "⛔ production ต้องตั้ง ALLOWED_ORIGINS (เช่น https://deung-pu.softrock.space).",
+      );
+      openOriginWarned = true;
+    }
+
+    const decision = authorizeHandshake({
+      token,
+      origin: originOf(context),
+      isProduction: process.env.NODE_ENV === "production",
+      allowlist,
+      jwtSecret: process.env.JWT_SECRET,
+      nowSec: Math.floor(nowMs / 1000),
+      verify: verifyRealtimeToken,
+    });
+    if (!decision.ok) {
+      handshakeRateLimiter.recordFailure(ip, nowMs);
+      throw new ServerError(4215 /* AUTH_FAILED */, decision.reason);
+    }
+
+    // P2-05 (Storage §22): ตรวจ ownership ของ characterId ที่ client ขอเข้าเล่น — ต้องเป็นของ accountId
+    //   ที่ verify จาก token. dev bypass (accountId=null) ไม่มีบัญชี → characterId ไร้ผล (anonymous เดิม).
+    //   DB ใช้ไม่ได้ (owner=undefined) → best-effort skip (characterId inert; onJoin โหลด state ไม่ได้อยู่แล้ว).
+    //   ต่างบัญชี/ไม่พบ (reject) → ปฏิเสธ join (นับเป็น failure — กันสแกน characterId). ผ่าน = แนบไป client.auth.
+    let characterId: string | null = null;
+    const requestedCharacterId =
+      typeof opt.characterId === "string" && opt.characterId.length > 0 ? opt.characterId : null;
+    if (decision.accountId && requestedCharacterId) {
+      const owner = await fetchCharacterOwner(requestedCharacterId);
+      if (owner !== undefined) {
+        if (decideOwnership(decision.accountId, owner) === "allow") {
+          characterId = requestedCharacterId;
+        } else {
+          handshakeRateLimiter.recordFailure(ip, nowMs);
+          throw new ServerError(4215 /* AUTH_FAILED */, "bad_character");
+        }
+      }
+    }
+
+    handshakeRateLimiter.reset(ip); // handshake ผ่าน → ล้าง failure ที่สะสมของ IP นี้
+    return { accountId: decision.accountId, characterId };
+  }
 
   onCreate(options: MapRoomCreateOptions = {}): void {
     const state = new MapRoomState();
@@ -269,6 +417,12 @@ export class MapRoom extends Room<MapRoomState> {
       (deltaMs) => this.stepMobSim(deltaMs),
       1000 / DEFAULT_ENGINE_CONFIG.mob.ai.tickHz,
     );
+
+    // P2-05 (Storage §24 · TA §8): save CharacterState เป็นระยะ (throttled hot write) — เฉพาะ session ที่
+    // ผูกตัวละครจริง (sessionCharacters). transition/leave = force save แยกต่างหาก. clock.setInterval ถูก
+    // เก็บกวาดอัตโนมัติตอน dispose. knob = persistence.saveIntervalMs (env-free — server อ่านตรง ๆ).
+    this.saveIntervalMs = DEFAULT_ENGINE_CONFIG.persistence.saveIntervalMs;
+    this.clock.setInterval(() => this.saveAllCharacters(), this.saveIntervalMs);
 
     // P1-05: server combat authority (TA §15/§16.2) — client ส่ง cast intent → validate → damage → broadcast.
     this.onMessage(MSG_CAST_SKILL, (client: Client, message: CastSkillMessage) => {
@@ -346,6 +500,20 @@ export class MapRoom extends Room<MapRoomState> {
         `[MapRoom ${this.roomId}] ${client.sessionId} เข้า exit "${exit.exitId}" → ` +
           `transition ไป ${exit.targetMapId} @(${exit.targetSpawn.x},${exit.targetSpawn.y})`,
       );
+      // P2-05 (Storage §24): save จุดหมาย (map+targetSpawn ปลายทาง) ตอนสั่ง transition — client กำลังจะ
+      //   consented-leave room นี้แล้ว join room ปลายทาง. mark transitioning เพื่อให้ onLeave ไม่ save ทับ
+      //   ด้วยตำแหน่ง exit ของ map เก่า. targetSpawn = registry-validated (เดินได้ในปลายทาง).
+      const rec = this.sessionCharacters.get(client.sessionId);
+      if (rec) {
+        this.transitioningSessions.add(client.sessionId);
+        rec.lastSaveMs = Date.now();
+        void saveCharacterState(
+          rec.characterId,
+          exit.targetMapId,
+          exit.targetSpawn.x,
+          exit.targetSpawn.y,
+        );
+      }
     }
     tracker.lastExitId = exitId;
   }
@@ -504,14 +672,26 @@ export class MapRoom extends Room<MapRoomState> {
     this.broadcast(MSG_SKILL_RESULT, result);
   }
 
-  onJoin(client: Client, options: JoinOptions): void {
+  async onJoin(client: Client, options: JoinOptions): Promise<void> {
+    // P2-05 (Storage §5/§22): accountId + characterId ที่ onAuth verify ownership แล้ว (null = anonymous/dev).
+    const accountId = accountIdOf(client);
+    const characterId = characterIdOf(client);
+
     // P1-07 (§59.1): server = source of truth ว่า spawn ลงได้จริง. พิกัดที่ client ส่ง (fresh join /
     // reconnect เกิน grace) ถ้าเดินไม่ได้/ไม่ finite → snap ไป safe camp. (within-grace reconnect ไม่ผ่าน
     // onJoin เลย → ตำแหน่งเดิมคงอยู่ ไม่ถูก resolve ซ้ำ.)
-    const requested: ReconnectVec2 = {
+    const optionPos: ReconnectVec2 = {
       tx: options?.tx ?? this.safeCamp.tx,
       ty: options?.ty ?? this.safeCamp.ty,
     };
+
+    // P2-05 (Storage §5/§7): มีตัวละคร + DB → โหลด CharacterState. ใช้ตำแหน่ง save เฉพาะเมื่ออยู่ map
+    // เดียวกับ room นี้ (pickLoadPosition) — ไม่งั้นใช้ตำแหน่งที่ client ขอ (spawn/targetSpawn). best-effort:
+    // ไม่มี DB/ไม่มี row (ตัวใหม่) → null → spawn default. (client boot ด้วย mapId ที่ save ไว้ล่าสุดแล้ว
+    // — owner-report#6 fix, src/engine/net/character-session.ts pickBootMapId — ปกติ this.state.mapId
+    // ตรงกับ saved.mapId; ไม่ตรง = fallback ตามปกติ ไม่ crash.)
+    const saved = accountId && characterId ? await loadCharacterState(characterId) : null;
+    const requested = pickLoadPosition(saved, this.state.mapId, optionPos);
     const spawn = resolveSpawnPosition(requested, this.safeCamp, this.isWalkableAt);
 
     const player = new PlayerState();
@@ -539,20 +719,108 @@ export class MapRoom extends Room<MapRoomState> {
     }
     // P1-05: cooldown state ต่อ player (ว่างตอน join → ทุกสกิลพร้อมใช้)
     this.cooldowns.set(client.sessionId, new Map());
+
+    // P2-04 (Storage §4.1/§4.2): มี accountId (verified token) → ยึด 1-active-session ต่อบัญชี.
+    //   in-process registry เตะ session เดิมของ account เดียวกัน (SESSION_TAKEN_OVER, takeover-wins);
+    //   DB lease = authority ข้าม process (best-effort — dev/e2e ไม่มี accountId/DB → ข้าม ไม่พัง join).
+    if (accountId) {
+      const tookOver = claimSession(accountId, client.sessionId, () => this.forceTakeover(client));
+      if (tookOver) {
+        console.log(
+          `[MapRoom ${this.roomId}] account ${accountId} takeover — เตะ session เดิม (§4.2)`,
+        );
+      }
+      void acquireLease(accountId, client.sessionId);
+    }
+
+    // P2-05 (Storage §7.2/§24): ผูก session กับตัวละคร → เปิด save cycle + ตั้ง lastPlayedCharacterId (Continue
+    //   default). เฉพาะเมื่อมีทั้ง accountId + characterId (verified). anonymous/dev = ไม่ persist (flow เดิม).
+    if (accountId && characterId) {
+      this.sessionCharacters.set(client.sessionId, {
+        accountId,
+        characterId,
+        lastSaveMs: Date.now(),
+      });
+      void updateLastPlayed(accountId, characterId);
+    }
+
     console.log(
       `[MapRoom ${this.roomId}] join ${client.sessionId} @(${player.tx.toFixed(1)},${player.ty.toFixed(1)}) — ${this.clients.length} online`,
     );
   }
 
   /**
+   * P2-04 (§4.2): เตะ session เก่าเมื่อ account เดียวกันเข้าเล่นจาก tab/device ใหม่. mark sessionId ไว้ก่อน
+   * (onLeave จะเห็น → ลบทันทีไม่เข้า grace) แล้วสั่ง client.leave(SESSION_TAKEN_OVER). best-effort (client
+   * อาจหลุดไปแล้วถ้ากำลังอยู่ใน grace ตัวเอง).
+   */
+  private forceTakeover(client: Client): void {
+    this.takenOverSessions.add(client.sessionId);
+    try {
+      client.leave(WS_CLOSE_SESSION_TAKEN_OVER);
+    } catch {
+      // client ปิดไปแล้ว — grace/dispose จะเก็บกวาดเอง
+    }
+  }
+
+  /**
+   * P2-04: ปล่อย session ระดับบัญชี (registry + DB lease) เมื่อ player ถูกลบจริง — เฉพาะถ้ายังเป็นของ session
+   * ตัวเอง (takeover-wins: ตัวเก่าที่เพิ่งถูกเตะจะไม่ปล่อย lease/registry ของตัวใหม่). no-op ถ้าไม่มี accountId.
+   */
+  private releaseAccountSession(client: Client): void {
+    const accountId = accountIdOf(client);
+    if (!accountId) return;
+    releaseSession(accountId, client.sessionId);
+    void releaseLease(accountId, client.sessionId);
+  }
+
+  /**
    * P1-07: ลบ player ออกจาก state + tracker + cooldown จริง (หลัง consented leave หรือ grace หมด).
-   * client อื่นเห็น entity หายผ่าน schema removal.
+   * client อื่นเห็น entity หายผ่าน schema removal. P2-05: เก็บกวาด session↔character binding ด้วย.
    */
   private removePlayer(sessionId: string, reason: string): void {
     this.state.players.delete(sessionId);
     this.trackers.delete(sessionId);
     this.cooldowns.delete(sessionId);
+    this.sessionCharacters.delete(sessionId);
+    this.transitioningSessions.delete(sessionId);
     console.log(`[MapRoom ${this.roomId}] remove ${sessionId} (${reason})`);
+  }
+
+  /**
+   * P2-05 (Storage §24): save CharacterState ของ 1 session (best-effort). throttle ด้วย shouldSaveNow เว้น
+   * `force` (transition/leave). ตำแหน่ง = tracker.tx/ty (valid ล่าสุด, ผ่าน validateMove = walkable เสมอ) —
+   * pickSavePosition guard อีกชั้น (non-finite/non-walkable → safe camp). ต้องมี tracker+player อยู่.
+   */
+  private persistSession(sessionId: string, force: boolean): void {
+    const rec = this.sessionCharacters.get(sessionId);
+    if (!rec) return;
+    const now = Date.now();
+    if (!force && !shouldSaveNow(rec.lastSaveMs, now, this.saveIntervalMs)) return;
+    const tracker = this.trackers.get(sessionId);
+    if (!tracker) return;
+    const pos = pickSavePosition(
+      { tx: tracker.tx, ty: tracker.ty },
+      { tx: this.safeCamp.tx, ty: this.safeCamp.ty },
+      this.isWalkableAt,
+    );
+    rec.lastSaveMs = now;
+    void saveCharacterState(rec.characterId, this.state.mapId, pos.tx, pos.ty);
+  }
+
+  /** P2-05: interval save ทุก session ที่ผูกตัวละคร (throttled) — เรียกจาก clock.setInterval (onCreate). */
+  private saveAllCharacters(): void {
+    this.sessionCharacters.forEach((_rec, sessionId) => this.persistSession(sessionId, false));
+  }
+
+  /**
+   * P2-05: save ตอน player ออกจริง (consented leave / grace หมด). force เขียนตำแหน่งปัจจุบัน **เว้น** ถ้า
+   * กำลัง transition (checkExit save จุดหมายไปแล้ว → ไม่ทับด้วย map เก่า). เรียกก่อน removePlayer เสมอ
+   * (ต้องมี tracker/rec อยู่). takeover ไม่เรียก (session ใหม่ authoritative แล้ว).
+   */
+  private persistOnLeave(sessionId: string): void {
+    if (this.transitioningSessions.has(sessionId)) return; // transition save จุดหมายไปแล้ว
+    this.persistSession(sessionId, true);
   }
 
   /**
@@ -567,7 +835,19 @@ export class MapRoom extends Room<MapRoomState> {
   async onLeave(client: Client, consented?: boolean): Promise<void> {
     const sessionId = client.sessionId;
 
+    // P2-04 (§4.2): ถูกเตะด้วย SESSION_TAKEN_OVER → ลบทันที ไม่เข้า grace (ตั้งใจเตะ ไม่ใช่หลุดเน็ต).
+    //   ไม่ releaseAccountSession — registry/lease เป็นของ session ใหม่ที่ยึดไปแล้ว (releaseSession scope ด้วย
+    //   sessionId ก็ no-op อยู่ดี แต่ข้ามไปเลยชัดกว่า).
+    const wasTakenOver = this.takenOverSessions.delete(sessionId);
+    if (wasTakenOver) {
+      this.removePlayer(sessionId, "taken_over");
+      return;
+    }
+
     if (consented) {
+      // P2-05: save ตำแหน่งล่าสุดก่อนลบ (เว้นถ้ากำลัง transition — checkExit save จุดหมายไปแล้ว).
+      this.persistOnLeave(sessionId);
+      this.releaseAccountSession(client);
       this.removePlayer(sessionId, "consented");
       return;
     }
@@ -585,6 +865,12 @@ export class MapRoom extends Room<MapRoomState> {
         `[MapRoom ${this.roomId}] ${sessionId} reconnect สำเร็จใน grace — resume ตำแหน่ง/channel เดิม`,
       );
     } catch {
+      // grace หมด → ลบจริง + ปล่อย session ระดับบัญชี (registry/DB lease). ถ้าระหว่าง grace ถูก account
+      // เดียวกัน takeover (forceTakeover mark sessionId ตอน await กำลังรอ) → เก็บกวาด set ที่นี่ด้วย.
+      // P2-05: save ตำแหน่งล่าสุดก่อนลบ (ผู้เล่นหลุดจริง ไม่กลับใน grace) — เว้นถ้าถูก takeover (ตัวใหม่คุมแล้ว).
+      const wasTakenOverDuringGrace = this.takenOverSessions.delete(sessionId);
+      if (!wasTakenOverDuringGrace) this.persistOnLeave(sessionId);
+      this.releaseAccountSession(client);
       this.removePlayer(sessionId, "grace_expired");
     }
   }

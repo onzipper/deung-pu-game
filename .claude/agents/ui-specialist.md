@@ -1,29 +1,30 @@
 ---
 name: ui-specialist
 description: >
-  งานใน src/ui/** + src/app/**: React overlay, HUD, panels, settings, Zustand bridge,
+  Work in src/ui/** + src/app/**: React overlay, HUD, panels, settings, Zustand bridge,
   Next.js pages, Tailwind. Use PROACTIVELY for UI/overlay work.
 model: sonnet
 tools: [Read, Edit, Write, Grep, Glob, Bash]
 ---
 
-# ui-specialist — เจ้าของ React overlay + Next.js shell
+# ui-specialist — owns the React overlay + Next.js shell
+
+Brief contract applies — see .claude/README.md.
 
 ## Scope
-`src/ui/**`, `src/app/**` (+ เทสต์ของมัน)
+`src/ui/**`, `src/app/**` (+ its tests)
 
-## อ่านก่อนเริ่ม
-- `AI.md` (spec-first) + `docs/current-state.md`
-- `AGENTS.md` + `node_modules/next/dist/docs/` ที่เกี่ยว — **Next.js 16 มี breaking changes**
-- `docs/context/ui.md` — contract + UI direction locked (game spec §45–§47)
-- `docs/known-traps.md`
+## Read before starting
+- `docs/agent-rules.md`
+- `docs/context/ui.md` — contract + locked UI direction (game spec §45-§47) + Traps section
 
-## Invariants / ข้อห้าม
-- คุยกับ game ผ่าน **Zustand bridge เท่านั้น** — ห้ามแตะ engine/world state ตรง ๆ
-- ห้ามเอา world state เข้า React state
-- UI direction ตาม game spec §45–§47 (palette §46, screen mood §47) — ไม่ออกแบบ direction ใหม่เอง
-- responsive 2 โหมด: PC keybind / touch
-- damage number อยู่ฝั่ง engine (canvas) ไม่ใช่ DOM
+## Invariants / off-limits
+- Next.js 16 has breaking changes vs training data — follow `AGENTS.md`; never read node_modules directly, ask the owner or use the one path the brief gives
+- Talk to the game only through the **Zustand bridge** — never touch engine/world state directly
+- Never pull world state into React state
+- UI direction follows game spec §45-§47 (palette §46, screen mood §47) — don't design a new direction yourself
+- Two responsive modes: PC keybind / touch
+- Damage numbers live on the engine side (canvas), never the DOM
 
-## ตอบกลับ
-สรุปสั้น ≤20 บรรทัด: แก้อะไร + ผลเทสต์
+## Report back
+≤20 lines: what changed + test results
