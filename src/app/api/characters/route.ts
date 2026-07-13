@@ -5,6 +5,9 @@ import { readSession, jsonOk, jsonError } from "@/server/auth/http";
 import { getPrisma } from "@/server/db";
 import { getCharacterRepository, statusForCharacterReason } from "@/server/characters/http";
 import { createCharacter, listCharacters } from "@/server/characters/service";
+import { createPrismaInventoryRepository } from "@/server/inventory/prisma-repository";
+import { DEFAULT_ITEM_CATALOG } from "@/server/inventory/item-catalog";
+import { grantStarterLoadout } from "@/server/inventory/starter-loadout";
 
 export const dynamic = "force-dynamic";
 
@@ -52,6 +55,17 @@ export async function POST(request: Request): Promise<Response> {
         { ok: false, reason: result.reason, nameError: result.nameError },
         { status },
       );
+    }
+
+    // Economy §7.7 — grant + equip the starter loadout. Best-effort: creation already committed, so a loadout
+    // hiccup must not fail the create — the grant is idempotent, so a later login-time repair can complete it.
+    try {
+      await grantStarterLoadout(createPrismaInventoryRepository(), DEFAULT_ITEM_CATALOG, {
+        accountId: session.accountId,
+        characterId: result.character.id,
+      });
+    } catch (err) {
+      console.error("starter loadout grant failed", { characterId: result.character.id, err });
     }
     return jsonOk({ ok: true, character: result.character }, 201);
   } catch {
