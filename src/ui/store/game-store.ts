@@ -12,12 +12,16 @@ import { createStore, type StoreApi } from "zustand/vanilla";
 import type { EngineDebugInfo } from "@/engine/runtime/debug-info";
 import {
   GOLD_UNKNOWN,
+  type DeliveryResultMessage,
+  type DeliveryStateMessage,
   type EnhanceResultMessage,
   type InventoryOpRejectedMessage,
   type InventorySnapshot,
   type PlayerProgressMessage,
   type ShopListMessage,
   type ShopResultMessage,
+  type StorageResultMessage,
+  type StorageStateMessage,
 } from "@/shared/net-protocol";
 
 /** HUD state ที่ UI ทุกจอ subscribe ได้ — เพิ่ม slice ใหม่ที่นี่เมื่อ UI ตัวถัดไป (inventory/shop/...) ต้องใช้ */
@@ -60,6 +64,18 @@ export interface HudState {
    * สำหรับ tutorial checklist (DG lite) โดยไม่ต้องเพิ่ม message ใหม่. null = ยังไม่เคยเกิดใน session นี้.
    */
   lastKillAtMs: number | null;
+  /**
+   * snapshot คลังบัญชีล่าสุด (P2-17, MSG_STORAGE_STATE) — null ก่อนขอ/ก่อนได้ผลครั้งแรก. `available: false`
+   * = map นี้ไม่มี storage NPC (HUD ปุ่ม "คลัง" อ่านค่านี้, pattern เดียวกับ shopList). ขอใหม่ทุกครั้งที่
+   * join/ข้าม map (engine glue, เหมือน sendShopListRequest).
+   */
+  storageState: StorageStateMessage | null;
+  /** ผลฝาก/ถอนล่าสุด (P2-17, MSG_STORAGE_RESULT) — null = ยังไม่เคยทำรายการใน session นี้. */
+  storageResult: StorageResultMessage | null;
+  /** snapshot กล่องส่งของล่าสุด (P2-17, MSG_DELIVERY_STATE) — null ก่อนขอ/ก่อนได้ผลครั้งแรก. */
+  deliveryState: DeliveryStateMessage | null;
+  /** ผลรับของล่าสุด (P2-17, MSG_DELIVERY_CLAIM) — null = ยังไม่เคย claim ใน session นี้. */
+  deliveryResult: DeliveryResultMessage | null;
 }
 
 export const INITIAL_HUD_STATE: HudState = {
@@ -72,6 +88,10 @@ export const INITIAL_HUD_STATE: HudState = {
   gold: null,
   playerLevel: null,
   lastKillAtMs: null,
+  storageState: null,
+  storageResult: null,
+  deliveryState: null,
+  deliveryResult: null,
 };
 
 /** store singleton ตัวเดียวทั้งแอป — engine publish เข้านี่, React component subscribe ผ่าน useGameStore */
@@ -162,6 +182,38 @@ export const selectPlayerLevel = (state: HudState): number | null => state.playe
 
 /** typed selector — เวลาฆ่ามอนล่าสุด (P2-12, tutorial checklist signal) */
 export const selectLastKillAtMs = (state: HudState): number | null => state.lastKillAtMs;
+
+/** P2-17: engine เรียกทันทีที่ MSG_STORAGE_STATE มาถึง (event-driven เหมือน setShopList) */
+export function setStorageState(snapshot: StorageStateMessage): void {
+  gameStore.setState({ storageState: snapshot });
+}
+
+/** P2-17: engine เรียกทันทีที่ MSG_STORAGE_RESULT มาถึง (event-driven เหมือน setInventoryRejection) */
+export function setStorageResult(result: StorageResultMessage): void {
+  gameStore.setState({ storageResult: result });
+}
+
+/** P2-17: engine เรียกทันทีที่ MSG_DELIVERY_STATE มาถึง (event-driven เหมือน setShopList) */
+export function setDeliveryState(snapshot: DeliveryStateMessage): void {
+  gameStore.setState({ deliveryState: snapshot });
+}
+
+/** P2-17: engine เรียกทันทีที่ MSG_DELIVERY_RESULT มาถึง (event-driven เหมือน setInventoryRejection) */
+export function setDeliveryResult(result: DeliveryResultMessage): void {
+  gameStore.setState({ deliveryResult: result });
+}
+
+/** typed selector — snapshot คลังบัญชีล่าสุด (P2-17) */
+export const selectStorageState = (state: HudState): StorageStateMessage | null => state.storageState;
+
+/** typed selector — ผลฝาก/ถอนล่าสุด (P2-17) */
+export const selectStorageResult = (state: HudState): StorageResultMessage | null => state.storageResult;
+
+/** typed selector — snapshot กล่องส่งของล่าสุด (P2-17) */
+export const selectDeliveryState = (state: HudState): DeliveryStateMessage | null => state.deliveryState;
+
+/** typed selector — ผลรับของล่าสุด (P2-17) */
+export const selectDeliveryResult = (state: HudState): DeliveryResultMessage | null => state.deliveryResult;
 
 export interface HudPublisher {
   /**

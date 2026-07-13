@@ -23,6 +23,8 @@ import { EnhancementHudButton } from "@/ui/panels/enhancement/EnhancementHudButt
 import { EnhancementPanel } from "@/ui/panels/enhancement/EnhancementPanel";
 import { ShopHudButton } from "@/ui/panels/shop/ShopHudButton";
 import { ShopPanel } from "@/ui/panels/shop/ShopPanel";
+import { StorageHudButton } from "@/ui/panels/storage/StorageHudButton";
+import { StoragePanel } from "@/ui/panels/storage/StoragePanel";
 import { HelpFocusProvider } from "@/ui/panels/help/help-focus-context";
 import { HelpHudButton } from "@/ui/panels/help/HelpHudButton";
 import { HelpPanel } from "@/ui/panels/help/HelpPanel";
@@ -129,6 +131,9 @@ export function GameCanvas() {
           {/* P2-11: ปุ่มร้านค้า render เฉพาะ available:true (city-hub) — ดู ShopHudButton.tsx */}
           <ShopHudButton />
           <ShopPanel getHandle={() => engineRef.current} />
+          {/* P2-17: ปุ่มคลัง render เฉพาะ available:true (city-hub) — ดู StorageHudButton.tsx */}
+          <StorageHudButton />
+          <StoragePanel getHandle={() => engineRef.current} />
           {/* P2-12: ปุ่ม "?" หลัก render เสมอ (DG §5.2) */}
           <HelpHudButton />
           <HelpPanel />

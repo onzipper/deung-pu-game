@@ -12,10 +12,10 @@
 - `src/engine/movement/` — mover (stepMovement), direction resolver, path-follower
 - `src/engine/pathfinding/` — A* on the iso grid (click-to-move)
 - `src/engine/player/` — local player pixi glue + correction-resume (server reconcile)
-- `src/engine/net/` — colyseus client glue, interpolation buffer, reconnect store, remote player/attack, party
+- `src/engine/net/` — colyseus client glue, interpolation buffer, reconnect store, remote player/attack, party, visibility (P2-13)
 - `src/engine/net/net-client.ts` — createNetClient(): connect/join, reconnect (§59.1), self-adopt gating, cast/skill messages
 - `src/engine/animation/` — animation manifest (5-dir+mirror), sprite animator, placeholder textures
-- `src/engine/render/` — depth registry, camera, scene graph, object pool, screen shake, exit marker
+- `src/engine/render/` — depth registry, camera, scene graph, object pool, screen shake, exit marker, afk-label (P2-13)
 - `src/engine/map/` — MapConfig schema/loader/registry + map1/city-hub/p0-test-field configs
 - `src/engine/input/` — keyboard intent tracker (WASD + attack key)
 
@@ -37,10 +37,11 @@
 - `src/ui/` — GameCanvas (mount bridge), DebugOverlay (F3), debug-overlay-logic (pure reducer)
 - `src/ui/store/` — Zustand vanilla store bridge (HUD state, engine→UI one-way, no React import in the vanilla file)
 - `src/ui/panels/` — shared panel/window framework (P2-preface, DG spec §13): panel-stack (pure z-order reducer) + PanelContext (`usePanelManager`, blocks keydown reaching the engine while open) + Panel (desktop float / mobile bottom sheet) + use-media-query. `PanelProvider` mounted in `src/ui/GameCanvas.tsx`.
-- `src/ui/panels/inventory/` — inventory/equipment panel (P2-07): inventory-view (pure logic) + InventoryPanel (bag grid + equip/unequip, no drag-drop) + InventoryHudButton ("I"). Reads HudState.inventory via the bridge; item name = raw itemId (client catalog = SVG-01). Also hosts the "เสริมแกร่ง" button.
-- `src/ui/panels/enhancement/` — guaranteed-reinforcement panel (P2-10, Reinforcement §2.4): enhancement-view (8-state machine + R8 hint "ของหายากมากับบอส") + EnhancementPanel + EnhancementHudButton + enhancement-target-context (selected instanceId). **P2: server always rejects `NO_REINFORCEMENT` (R8/D-052) — inert by design, not a bug.**
-- `src/ui/panels/shop/` — NPC shop panel (P2-11): shop-view (pure logic) + ShopPanel (buy/sell) + ShopHudButton (shows only when available). HudState shop/gold slices + net-client shop sends (per self-spawn).
-- `src/ui/panels/help/` — Guidance "DG lite" (P2-12, client-only): help-articles (registry, oneLine≤120/steps≤4) + guidance-rules ("ทำอะไรต่อดี" v1, cooldown/dismiss, DG §7/§9) + tutorial-checklist (auto walk/kill/equip + manual skill) + guidance-preferences (localStorage) + HelpPanel/HelpHudButton/ContextHelpButton + help-focus-context.
+- `src/ui/panels/inventory/` — inventory/equipment (P2-07): inventory-view (pure) + InventoryPanel (bag grid, equip/unequip) + InventoryHudButton ("I"). itemId raw (SVG-01). Hosts "เสริมแกร่ง" button.
+- `src/ui/panels/enhancement/` — guaranteed reinforcement (P2-10, §2.4): enhancement-view (8-state, R8 hint) + EnhancementPanel + EnhancementHudButton + enhancement-target-context. **P2: always `NO_REINFORCEMENT` (R8/D-052) — inert by design.**
+- `src/ui/panels/shop/` — NPC shop (P2-11): shop-view (pure) + ShopPanel (buy/sell) + ShopHudButton (available-only). HudState shop/gold + net-client sends (per self-spawn).
+- `src/ui/panels/storage/` — storage + delivery box (P2-17): storage-view (pure: fill-state/expiry/reason) + StoragePanel (คลัง 2-col deposit/withdraw, กล่องส่งของ claim) + StorageHudButton (available-only). HudState storage/delivery + net-client sends (per self-spawn).
+- `src/ui/panels/help/` — Guidance "DG lite" (P2-12, client-only): help-articles + guidance-rules ("ทำอะไรต่อดี", §7/§9) + tutorial-checklist + guidance-preferences (localStorage) + HelpPanel/HelpHudButton/ContextHelpButton + help-focus-context.
 
 ## server (Colyseus realtime process, separate from Next — L4)
 
@@ -54,16 +55,16 @@
 - `server/inventory/` — inventory best-effort DB glue for MapRoom (load snapshot on join; capacity + item catalog wiring; mutations strict) + P2-10 reinforcement knobs (enhancement curve + `noReinforcement` rules from DEFAULT config)
 - `server/economy/` — kill-reward wiring for MapRoom: mobType→monsterId map + Prisma seams (ledger/inventory/drop-audit); EXP always, gold/drops/audit only with DB + shop-state (P2-11 config + map availability)
 - `server/db/` — Prisma client singleton (server-only) + ledger contract (getBalance/appendEntry)
-- `server/config/` — P2-09 server-authoritative Design Knobs: economy (drop tables/EXP curve/milestone Gold/enhancement +0..+15) + reinforcement (boss pity/fragment/NO_REINFORCEMENT flag) + versioned loader (`config_versions` → DEFAULT fallback). Server-only, never bundled to client
+- `server/config/` — P2-09 server-authoritative Design Knobs: economy (drop tables/EXP curve/milestone Gold/enhancement +0..+15) + reinforcement (boss pity/fragment/NO_REINFORCEMENT flag) + versioned loader (`config_versions` → DEFAULT fallback). Server-only, never bundled to client + storage (P2-17)
 - `prisma/migrations/` — 0001_init (13 tables) · 0002_shop_ledger_reasons (LedgerReason += shop_buy/shop_sell)
 
 ## src/shared + src/server (client↔server contracts + Next server-only)
 
-- `src/shared/` — net-protocol (wire contract), reconnect/movement-validation (pure), character-name/-class validators
+- `src/shared/` — net-protocol (wire contract), reconnect/movement-validation (pure), character-name/-class validators, afk (P2-13)
 - `src/server/db.ts` — Prisma client singleton on the Next API side (**server-only**, must never enter the client bundle)
 - `src/server/auth/` — token/session-cookie, password hash/policy, email normalize, auth service/upgrade state machine
 - `src/server/characters/` — repository (memory/prisma) + service (slot cap, cross-account guard)
-- `src/server/inventory/` — item catalog (server-authoritative Design Knob: slot + stat bonus) + equipment-stats (pure combat aggregation, folds enhancement +N curve §16.3.1) + repository (memory/prisma: FOR UPDATE + optimistic `version`, incl. `commitEnhancement` + `grantItems` loot→bag stacking/overflow) + service (equip/unequip/move, swap, snapshot) + enhancement-service (P2-10 guaranteed reinforcement +1 cap +15, no RNG)
+- `src/server/inventory/` — item catalog (server-authoritative Design Knob: slot + stat bonus) + equipment-stats (pure combat aggregation, folds enhancement +N curve §16.3.1) + repository (memory/prisma: FOR UPDATE + optimistic `version`, incl. `commitEnhancement` + `grantItems` loot→bag stacking/overflow) + service (equip/unequip/move, swap, snapshot) + enhancement-service (P2-10 guaranteed +1) + storage-service (P2-17)
 - `src/server/economy/` — pure P2-09 resolvers: exp (level-diff/party/level-up/baseline D-055) · drop-roll (weighted pools + guaranteed + audit + reinforcement guard) · kill-reward (orchestrator via injected seams, no DB) · shop (P2-11 buy/sell, compensating refund)
 
 ## scripts + tests
