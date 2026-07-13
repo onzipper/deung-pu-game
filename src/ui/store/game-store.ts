@@ -69,6 +69,17 @@ export interface MinimapBlip {
 export type WorldPhaseView = "dawn" | "day" | "dusk" | "night";
 export type WeatherView = "clear" | "rain";
 
+/**
+ * LW0 (Living World Bible §3/§4 placeholder NPC): dialogue ที่กำลังเปิดอยู่ — engine ตั้งตอนคลิกโดน NPC ใน
+ * โลก (src/engine/runtime/app.ts onPointerDown), null = ไม่มี dialogue ค้าง. one-shot bark ชุดเดียว (ไม่ใช่
+ * §5.2 full NPC routine/dialogueSetId system — ดู src/game/npc/npc-data.ts TODO LW1).
+ */
+export interface ActiveDialogueView {
+  npcId: string;
+  displayName: string;
+  lines: readonly string[];
+}
+
 /** HUD state ที่ UI ทุกจอ subscribe ได้ — เพิ่ม slice ใหม่ที่นี่เมื่อ UI ตัวถัดไป (inventory/shop/...) ต้องใช้ */
 export interface HudState {
   /** snapshot ล่าสุดของ debug overlay (P0-11) — null ก่อน engine publish ครั้งแรก */
@@ -161,6 +172,8 @@ export interface HudState {
   worldPhase: WorldPhaseView | null;
   /** Living World LW0 (§18): weather ปัจจุบัน (clear/rain). null ก่อน engine publish ครั้งแรก. */
   weather: WeatherView | null;
+  /** LW0: NPC bark dialogue ที่เปิดอยู่ (คลิก NPC ในโลก) — null = ไม่มี. ดู ActiveDialogueView. */
+  activeDialogue: ActiveDialogueView | null;
 }
 
 export const INITIAL_HUD_STATE: HudState = {
@@ -186,6 +199,7 @@ export const INITIAL_HUD_STATE: HudState = {
   blips: [],
   worldPhase: null,
   weather: null,
+  activeDialogue: null,
 };
 
 /** store singleton ตัวเดียวทั้งแอป — engine publish เข้านี่, React component subscribe ผ่าน useGameStore */
@@ -385,6 +399,18 @@ export const selectWorldPhase = (state: HudState): WorldPhaseView | null => stat
 
 /** typed selector — weather ปัจจุบัน (Living World LW0 §18) */
 export const selectWeather = (state: HudState): WeatherView | null => state.weather;
+
+/**
+ * LW0: engine เรียกทันทีที่คลิกโดน NPC (event-driven, เหมือน setShopList) — null ปิด dialogue. UI (DialoguePanel)
+ * ต้องไม่เรียกฟังก์ชันนี้ตรง ๆ (ui.md contract: store read-only ฝั่ง UI) — ปิดผ่าน EngineHandle.closeDialogue()
+ * แทน (เหมือน setDepthDebug/setEffectQuality).
+ */
+export function setActiveDialogue(dialogue: ActiveDialogueView | null): void {
+  gameStore.setState({ activeDialogue: dialogue });
+}
+
+/** typed selector — dialogue ที่เปิดอยู่ (LW0 NPC bark) */
+export const selectActiveDialogue = (state: HudState): ActiveDialogueView | null => state.activeDialogue;
 
 export interface HudPublisher {
   /**

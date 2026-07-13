@@ -25,6 +25,7 @@
 
 - `src/game/mob/` — spawn/wander, AI (aggro/leash/LOD), authoritative sim, view manager
 - `src/game/mob/name-catalog.ts` — mobType → Thai nameplate name + rank (undefined = no nameplate)
+- `src/game/npc/` — LW0 static NPC bark: catalog + nearest-click test + view manager (placeholder+label)
 - `src/game/item/icon-catalog.ts` — itemId → icon URL map (null = show raw id)
 - `src/game/skill/` — SkillDefinition (37 fields, GS §50.1) loader + server/client view split (TA §16.1)
 - `src/game/skill/data/warrior-skills-server.ts` (+ client sibling) — **SERVER-ONLY vs CLIENT-SAFE split**: server literals must never reach the client bundle
@@ -43,7 +44,7 @@
 - `src/ui/theme/rarity.ts` — rarity color tokens (D-043)
 - `src/ui/components/` — token-driven presentational kit (P2 UI spec §4): PanelFrame, Button, TextInput, ItemSlot, Tooltip, ConfirmDialog(+hold-to-confirm), Toast
 - `src/ui/panels/` — shared panel framework (desktop float / mobile sheet, z-order, keydown block; DG §13) + hud-layout (P2-15). Provider in `src/ui/GameCanvas.tsx`
-- `src/ui/panels/` subdirs (inventory/enhancement/shop/storage/help/mobile/settings/skillbar/status/minimap/world-status) — per-feature: bag/equip · reinforcement · shop · storage+delivery · help · mobile/settings · skillbar (§8.3) · status (§8.2) · minimap (§8.4) · world-status LW0 chip (§18)
+- `src/ui/panels/` subdirs (inventory/enhancement/shop/storage/help/mobile/settings/skillbar/status/minimap/world-status/dialogue) — per-feature: bag/equip · reinforcement · shop · storage+delivery · help · mobile/settings · skillbar (§8.3) · status (§8.2) · minimap (§8.4) · world-status LW0 chip (§18) · dialogue LW0 bark
 
 ## server (Colyseus realtime process, separate from Next — L4)
 
@@ -54,10 +55,10 @@
 - `server/matchmaking/` — pure channel-number allocator (§59.3 auto-assign)
 - `server/security/` — WS handshake (JWT+origin+rate limit), session takeover/lease (Bible 5.2)
 - `server/characters/` — persistence-decision (pure) + character-state load/upsert (best-effort, no DB = in-memory) + `server/characters/progress-carrier.ts` (cross-room + refresh/takeover level/exp carrier)
-- `server/inventory/` — inventory best-effort DB glue for MapRoom (snapshot on join; capacity + item catalog; mutations strict) + P2-10 reinforcement knobs (enhancement curve + `noReinforcement` from DEFAULT config)
+- `server/inventory/` — inventory best-effort DB glue for MapRoom (snapshot on join; capacity + item catalog; mutations strict) + P2-10 reinforcement knobs
 - `server/economy/` — kill-reward wiring: mobType→monsterId map + Prisma seams (ledger/inventory/drop-audit); EXP always, gold/drops/audit only with DB + shop-state (P2-11 config + map availability)
 - `server/db/` — Prisma client singleton (server-only) + ledger contract (getBalance/appendEntry)
-- `server/config/` — P2-09 server-authoritative Design Knobs: economy (drop tables/EXP curve/milestone Gold/enhancement +0..+15) + reinforcement (boss pity/fragment/NO_REINFORCEMENT flag) + versioned loader (`config_versions` → DEFAULT fallback) + storage (P2-17)
+- `server/config/` — P2-09 server-authoritative Design Knobs: economy (drop/EXP/Gold/enhancement) + reinforcement (pity/fragment/NO_REINFORCEMENT) + versioned loader + storage (P2-17)
 - `prisma/migrations/` — 0001_init (13 tables) · 0002_shop_ledger_reasons (LedgerReason += shop_buy/shop_sell)
 
 ## src/shared + src/server (client↔server contracts + Next server-only)

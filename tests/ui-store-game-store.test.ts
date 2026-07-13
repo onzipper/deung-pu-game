@@ -4,6 +4,7 @@ import {
   gameStore,
   INITIAL_HUD_STATE,
   resetHudState,
+  selectActiveDialogue,
   selectDebugInfo,
   selectDeliveryResult,
   selectDeliveryState,
@@ -16,6 +17,7 @@ import {
   selectShopResult,
   selectStorageResult,
   selectStorageState,
+  setActiveDialogue,
   setDeliveryResult,
   setDeliveryState,
   setGoldFromProgress,
@@ -346,6 +348,27 @@ describe("setStorageState / setStorageResult — เขียน gameStore singl
     setStorageResult(STORAGE_RESULT_A);
     expect(gameStore.getState().storageResult).toEqual(STORAGE_RESULT_A);
     expect(gameStore.getState().storageState).toEqual(STORAGE_STATE_A);
+    resetHudState();
+    expect(gameStore.getState()).toEqual(INITIAL_HUD_STATE);
+  });
+});
+
+// LW0: activeDialogue slice — event-driven เหมือน shop/storage (ดู comment ที่ game-store.ts)
+describe("selectActiveDialogue / setActiveDialogue", () => {
+  test("null ก่อนมี dialogue เปิดอยู่", () => {
+    expect(selectActiveDialogue(INITIAL_HUD_STATE)).toBeNull();
+  });
+
+  test("setActiveDialogue เขียนค่าใหม่ทันที, null เคลียร์กลับ", () => {
+    resetHudState();
+    setActiveDialogue({ npcId: "npc_lungdeung", displayName: "ลุงดึ๋ง", lines: ["บทพูด"] });
+    expect(selectActiveDialogue(gameStore.getState())).toEqual({
+      npcId: "npc_lungdeung",
+      displayName: "ลุงดึ๋ง",
+      lines: ["บทพูด"],
+    });
+    setActiveDialogue(null);
+    expect(selectActiveDialogue(gameStore.getState())).toBeNull();
     resetHudState();
     expect(gameStore.getState()).toEqual(INITIAL_HUD_STATE);
   });

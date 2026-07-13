@@ -28,6 +28,7 @@ import { StoragePanel } from "@/ui/panels/storage/StoragePanel";
 import { HelpFocusProvider } from "@/ui/panels/help/help-focus-context";
 import { HelpHudButton } from "@/ui/panels/help/HelpHudButton";
 import { HelpPanel } from "@/ui/panels/help/HelpPanel";
+import { DialoguePanel } from "@/ui/panels/dialogue/DialoguePanel";
 import { SettingsHudButton } from "@/ui/panels/settings/SettingsHudButton";
 import { SettingsPanel } from "@/ui/panels/settings/SettingsPanel";
 import { applyEffectQualityPreferences } from "@/ui/panels/settings/settings-view";
@@ -153,6 +154,8 @@ export function GameCanvas() {
           {/* P2-12: ปุ่ม "?" หลัก render เสมอ (DG §5.2) */}
           <HelpHudButton />
           <HelpPanel />
+          {/* LW0: dialogue panel — เปิดเองตอนคลิก NPC ในโลก (ไม่มีปุ่ม HUD ของตัวเอง) */}
+          <DialoguePanel getHandle={() => engineRef.current} />
           {/* E3 (P2 UI §8.2): player status cluster (level + HP bar + EXP bar + low-HP pulse) top-left */}
           <StatusCluster />
           {/* §8.4: minimap top-right — top-12 (แทน top-4 ที่ brief แนะนำ) กันชนกับปุ่ม DebugOverlay
