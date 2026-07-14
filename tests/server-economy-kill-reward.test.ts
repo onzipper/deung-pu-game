@@ -81,6 +81,7 @@ function baseDeps(over: Partial<KillRewardDeps> = {}): KillRewardDeps {
     ledger: null,
     inventory: null,
     dropAudit: null,
+    delivery: null,
     ...over,
   };
 }
@@ -182,13 +183,43 @@ describe("grantKillRewards — level-up crosses threshold", () => {
 });
 
 describe("grantKillRewards — inventory full (§12.5)", () => {
-  test("overflow from the inventory seam is surfaced (no silent loss)", async () => {
+  test("overflow from the inventory seam is surfaced (no silent loss, no delivery seam)", async () => {
     const overflow: GrantOutcome = { granted: [], overflow: [{ itemId: "mat_slime_gel", quantity: 1 }] };
     const inv = mockInventory(overflow);
-    const deps = baseDeps({ ledger: mockLedger().ledger, inventory: inv.inventory, dropAudit: mockAudit().audit, rng: scriptedRng([0.0, 0.0, 0.0, 0.99, 0.99]) });
+    const deps = baseDeps({ ledger: mockLedger().ledger, inventory: inv.inventory, dropAudit: mockAudit().audit, delivery: null, rng: scriptedRng([0.0, 0.0, 0.0, 0.99, 0.99]) });
     const out = await grantKillRewards(deps, ctx);
     expect(out.granted).toEqual([]);
     expect(out.overflow).toEqual([{ itemId: "mat_slime_gel", quantity: 1 }]);
+    expect(out.delivered).toEqual([]); // no delivery seam → reported, not persisted
+  });
+
+  // ITEM 2 — bag full + a delivery seam → overflow is persisted to the Delivery Box (delivered), never lost.
+  test("overflow routes to the Delivery Box when a delivery seam is present (persisted, not overflow)", async () => {
+    const overflow: GrantOutcome = { granted: [], overflow: [{ itemId: "mat_slime_gel", quantity: 1 }] };
+    const inv = mockInventory(overflow);
+    const deliverCalls: { accountId: string; items: readonly { itemId: string; quantity: number }[] }[] = [];
+    const delivery = {
+      async createEntry(input: { accountId: string; items: readonly { itemId: string; quantity: number }[] }) {
+        deliverCalls.push(input);
+      },
+    };
+    const deps = baseDeps({ ledger: mockLedger().ledger, inventory: inv.inventory, dropAudit: mockAudit().audit, delivery, rng: scriptedRng([0.0, 0.0, 0.0, 0.99, 0.99]) });
+    const out = await grantKillRewards(deps, ctx);
+    expect(out.granted).toEqual([]);
+    expect(out.delivered).toEqual([{ itemId: "mat_slime_gel", quantity: 1 }]); // persisted to delivery box
+    expect(out.overflow).toEqual([]); // nothing lost / left unpersisted
+    expect(deliverCalls).toHaveLength(1);
+    expect(deliverCalls[0]).toMatchObject({ accountId: "acc1", items: [{ itemId: "mat_slime_gel", quantity: 1 }] });
+  });
+
+  test("a delivery seam is NOT called when the bag had room (no overflow)", async () => {
+    const inv = mockInventory(); // default: everything fits
+    let called = 0;
+    const delivery = { async createEntry() { called++; } };
+    const deps = baseDeps({ inventory: inv.inventory, delivery, rng: scriptedRng([0.0, 0.0, 0.0, 0.99, 0.99]) });
+    const out = await grantKillRewards(deps, ctx);
+    expect(out.delivered).toEqual([]);
+    expect(called).toBe(0);
   });
 });
 

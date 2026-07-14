@@ -310,10 +310,16 @@ export const DEFAULT_COMBAT_BALANCE_CONFIG: CombatBalanceConfig = {
       moveSpeed: 2.8, attackRange: 2.0, attackCooldown: 3.0,
       anticipationMs: 650, activeMs: 300, recoveryMs: 800, breakPower: 0,
     },
-    // Field Boss หมูป่าหม้อเดือด (boss_map1_boiling_boar) — HP/ATK/DEF/tier จาก P1 Balance Proposal §4/§56.5;
-    // attack timing + breakPower 100 จาก D-055 §9.3 (col boss). breakPower = guard gauge (workstream B, ยังไม่ใช้).
+    // Field Boss หมูป่าหม้อเดือด (boss_map1_boiling_boar) — E3 stats (D-064 P2B prep). atk/def/tier/timing จาก
+    // P1 Balance Proposal §4/§56.5 + D-055 §9.3 (col boss); breakPower 100 = guard gauge (workstream B).
+    // HP tune ให้ solo TTK เข้าเป้า **150–240s** (COMBAT_BIBLE §2.5 ผ่าน Maps2-4 §3 validated model).
+    //   TTK model (basic-attack only — mirror Map2-4 published TTKs · sword_basic_slash cd 0.6s, baseMultiplier 1.0):
+    //     dmg/hit = playerATK × [50/(50+def)] × tier × (1 + critRate·critDmg)  [formula.ts computeDamageExact]
+    //             = ATK × [50/75] × 0.65 × 1.025 = ATK × 0.44417 ; DPS = dmg/hit ÷ 0.6 ; TTK = HP ÷ DPS
+    //   ที่ HP 5000 + D-055 player curve (economy.ts PLAYER_BASELINE): lv8 ATK33 → 204.7s · lv9 ATK36 → 187.6s ·
+    //   lv10 ATK40 → 168.9s → ทุกค่าใน [150,240] ✓ (เดิม 2500 = MVP sponge → ~84–102s เร็วเกินเป้า). Design Knob §48.
     boss_boiling_boar: {
-      hp: 2500, atk: 28, def: 25, tierReduction: 0.65,
+      hp: 5000, atk: 28, def: 25, tierReduction: 0.65,
       moveSpeed: 2.4, attackRange: 2.4, attackCooldown: 3.2,
       anticipationMs: 800, activeMs: 400, recoveryMs: 700, breakPower: 100,
     },

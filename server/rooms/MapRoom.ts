@@ -211,9 +211,10 @@ import {
 } from "../inventory/inventory-state";
 import {
   grantKillRewardsForMob,
-  PLAYER_BASELINE_TABLE,
-  EXP_CURVE,
+  loadRoomEconomy,
+  DEFAULT_ROOM_ECONOMY,
   PARTY_REWARD_CONFIG,
+  type RoomEconomyConfig,
 } from "../economy/kill-rewards";
 import {
   grantMilestoneWired,
@@ -469,6 +470,13 @@ export class MapRoom extends Room<MapRoomState> {
   /** G-lite: reward-eligibility knobs (§10.2/§10.3 share thresholds + Reward Radius). Design Knob (§48). */
   private partyReward = PARTY_REWARD_CONFIG;
   /**
+   * ITEM 3 (config DB override): the economy Design Knobs this room runs with (EXP curve / player baseline / drop
+   * tables / milestones / party thresholds). Starts on the in-code DEFAULT bundle and is loaded ONCE at onCreate
+   * (best-effort, async) → swaps to the active DB `config_versions` config, or stays DEFAULT (no DB / no active
+   * row / error). Immutable after that single load — the whole room reads economy values from this one source.
+   */
+  private economy: RoomEconomyConfig = DEFAULT_ROOM_ECONOMY;
+  /**
    * workstream B: last-broadcast boss delta ต่อ mobId (telegraphSeq/phaseIndex) — กัน re-broadcast telegraph/phase
    * ซ้ำทุก sync. เคลียร์ตอน mob หายจาก sim (syncMobsToState stale prune).
    */
@@ -652,6 +660,11 @@ export class MapRoom extends Room<MapRoomState> {
     // loadSkillDefinitions validate 37 field §50.1 (fail-loud ตอน boot ถ้า config เพี้ยน) → full server view.
     this.balance = DEFAULT_ENGINE_CONFIG.combatBalance;
     this.skills = loadSkillDefinitions(WARRIOR_SKILLS_SERVER as unknown[]);
+
+    // ITEM 3 (config DB override): load this room's economy config ONCE (best-effort, non-blocking). Until it
+    // resolves the room uses the DEFAULT bundle (field init); on resolve it swaps to the DB config (or keeps
+    // DEFAULT when no DB / no active row / error). Load-once → immutable for the room's lifetime (no mid-room swaps).
+    void this.loadEconomyOverride();
 
     // P1-03/P1-05: สร้าง mob simulation (spawn ชุดแรกทันที) + ขับด้วย fixed tick ที่ ai.tickHz (TA §11 10Hz).
     // hp ต่อ mobType อ่านจาก combatBalance (single source of truth เดียวกับ damage formula).
@@ -1010,18 +1023,37 @@ export class MapRoom extends Room<MapRoomState> {
   }
 
   /**
-   * E3 (§8.2 EXP bar): sync PlayerState.exp/expFloor/expCeil จาก sessionProgress + EXP_CURVE (§9.1/§9.2) → HUD
+   * E3 (§8.2 EXP bar): sync PlayerState.exp/expFloor/expCeil จาก sessionProgress + this.economy.config.expCurve (§9.1/§9.2) → HUD
    * แถบ EXP + ตัวเลข % แสดงตั้งแต่เกิด (ไม่รอ kill แรก). คิดขอบเลเวลเหมือน MSG_PLAYER_PROGRESS. เรียกตอน join + หลัง kill.
    */
   private syncPlayerExpSchema(sessionId: string): void {
     const player = this.state.players.get(sessionId);
     const progress = this.sessionProgress.get(sessionId);
     if (!player || !progress) return;
-    const capRow = EXP_CURVE.levels.find((l) => l.level === progress.level);
-    const prevRow = EXP_CURVE.levels.find((l) => l.level === progress.level - 1);
+    const levels = this.economy.config.expCurve.levels;
+    const capRow = levels.find((l) => l.level === progress.level);
+    const prevRow = levels.find((l) => l.level === progress.level - 1);
     player.exp = progress.exp;
     player.expFloor = prevRow ? prevRow.cumulative : 0;
     player.expCeil = capRow && capRow.expToNext > 0 ? capRow.cumulative : 0;
+  }
+
+  /**
+   * ITEM 3 (config DB override): resolve this room's economy config ONCE (best-effort — called from onCreate).
+   * Swaps `this.economy` from the DEFAULT bundle to the loaded config (DB active row, else DEFAULT) and updates
+   * `this.partyReward`. Immutable after this single call. Any player who joined before it resolved is re-synced
+   * to the (possibly) new EXP curve / player baseline so the room stays internally consistent — rooms load config
+   * near-instantly, so this loop is normally empty. Never throws (loadRoomEconomy is best-effort).
+   */
+  private async loadEconomyOverride(): Promise<void> {
+    const loaded = await loadRoomEconomy();
+    this.economy = loaded;
+    this.partyReward = loaded.config.partyReward;
+    for (const sessionId of this.sessionProgress.keys()) {
+      this.recomputeEffectiveStats(sessionId);
+      this.refreshPlayerMaxHp(sessionId);
+      this.syncPlayerExpSchema(sessionId);
+    }
   }
 
   /**
@@ -1383,7 +1415,7 @@ export class MapRoom extends Room<MapRoomState> {
    */
   private recomputeEffectiveStats(sessionId: string): void {
     const level = this.sessionProgress.get(sessionId)?.level ?? 1;
-    const base = playerBaselineForLevel(level, PLAYER_BASELINE_TABLE, {
+    const base = playerBaselineForLevel(level, this.economy.config.playerBaseline, {
       critRate: this.balance.player.critRate,
       critDmg: this.balance.player.critDmg,
       penetration: this.balance.player.penetration,
@@ -1421,16 +1453,19 @@ export class MapRoom extends Room<MapRoomState> {
 
     let outcome: Awaited<ReturnType<typeof grantKillRewardsForMob>>;
     try {
-      outcome = await grantKillRewardsForMob({
-        mobType,
-        characterId: rec?.characterId ?? "",
-        accountId: rec?.accountId ?? "",
-        playerLevel: progress.level,
-        playerExp: progress.exp,
-        eligibleMembers, // §9.4 pool split (G-lite): solo=1 · party=eligible count in the reward group
-        killEventId: randomUUID(),
-        persist: !!rec,
-      });
+      outcome = await grantKillRewardsForMob(
+        {
+          mobType,
+          characterId: rec?.characterId ?? "",
+          accountId: rec?.accountId ?? "",
+          playerLevel: progress.level,
+          playerExp: progress.exp,
+          eligibleMembers, // §9.4 pool split (G-lite): solo=1 · party=eligible count in the reward group
+          killEventId: randomUUID(),
+          persist: !!rec,
+        },
+        this.economy, // ITEM 3: this room's economy config (DB override or DEFAULT) — drops/EXP/version
+      );
     } catch (err) {
       console.error(
         `[MapRoom ${this.roomId}] kill-reward DB error ${sessionId} (${mobType}): ` +
@@ -1459,8 +1494,9 @@ export class MapRoom extends Room<MapRoomState> {
       client.send(MSG_INVENTORY_STATE, buildSnapshot(items, INVENTORY_CAPACITY));
     }
 
-    const capRow = EXP_CURVE.levels.find((l) => l.level === progress.level);
-    const prevRow = EXP_CURVE.levels.find((l) => l.level === progress.level - 1);
+    const levels = this.economy.config.expCurve.levels;
+    const capRow = levels.find((l) => l.level === progress.level);
+    const prevRow = levels.find((l) => l.level === progress.level - 1);
     const msg: PlayerProgressMessage = {
       level: progress.level,
       exp: progress.exp,
@@ -1469,7 +1505,8 @@ export class MapRoom extends Room<MapRoomState> {
       gold: outcome.goldBalance !== null ? Number(outcome.goldBalance) : GOLD_UNKNOWN,
       leveledUp: outcome.exp.leveledUp,
       loot: outcome.granted,
-      lootOverflow: outcome.overflow,
+      lootOverflow: outcome.overflow, // §12.5 truly-unpersisted (no DB) — client warns inventory_full
+      lootDelivered: outcome.delivered, // ITEM 2: bag full → routed to Delivery Box (persisted, not lost)
     };
     client.send(MSG_PLAYER_PROGRESS, msg);
 
@@ -1510,12 +1547,15 @@ export class MapRoom extends Room<MapRoomState> {
     const rec = this.sessionCharacters.get(sessionId);
     let outcome: MilestoneGrantOutcome;
     try {
-      outcome = await grantMilestoneWired({
-        accountId: rec?.accountId ?? "",
-        characterId: rec?.characterId ?? "",
-        milestoneId,
-        sessionId,
-      });
+      outcome = await grantMilestoneWired(
+        {
+          accountId: rec?.accountId ?? "",
+          characterId: rec?.characterId ?? "",
+          milestoneId,
+          sessionId,
+        },
+        this.economy.config, // ITEM 3: this room's milestone Design Knobs (DB override or DEFAULT)
+      );
     } catch (err) {
       console.error(
         `[MapRoom ${this.roomId}] milestone DB error ${sessionId} (${milestoneId}): ` +
@@ -1528,7 +1568,7 @@ export class MapRoom extends Room<MapRoomState> {
     // apply milestone EXP through the session-progress path (mirror grantKillReward — EXP is source of truth).
     const progress = this.sessionProgress.get(sessionId);
     if (progress && outcome.exp > 0) {
-      const res = applyExpGain({ level: progress.level, exp: progress.exp, gained: outcome.exp, curve: EXP_CURVE });
+      const res = applyExpGain({ level: progress.level, exp: progress.exp, gained: outcome.exp, curve: this.economy.config.expCurve });
       progress.level = res.level;
       progress.exp = res.exp;
       const player = this.state.players.get(sessionId);

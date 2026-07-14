@@ -505,8 +505,13 @@ export interface PlayerProgressMessage {
   leveledUp: boolean;
   /** ของที่เข้ากระเป๋าจริงรอบนี้ (toast §13.2) — ว่างถ้าไม่มี. */
   loot: LootLine[];
-  /** ของที่กระเป๋าเต็มใส่ไม่ได้ (§12.5 inventory_full — ห้าม silent loss; client เตือน) — ว่างถ้าไม่มี. */
+  /**
+   * ของที่กระเป๋าเต็มใส่ไม่ได้ **และ persist ไม่ได้** (ไม่มี DB) — §12.5 inventory_full (client เตือน). ว่างถ้าไม่มี.
+   * เมื่อมี DB ของล้นจะไปเข้า Delivery Box แทน (`lootDelivered`) → field นี้ว่าง (ไม่มี silent loss).
+   */
   lootOverflow: LootLine[];
+  /** ของที่กระเป๋าเต็ม → เข้า Delivery Box แล้ว (§12.5 no-silent-loss, ITEM 2) — client แจ้ง "ส่งเข้ากล่องพัสดุ". ว่างถ้าไม่มี. */
+  lootDelivered: LootLine[];
 }
 
 /** message type: server → **client เดียว** — แจ้งรางวัล milestone ที่เพิ่งปลดล็อก (C1, Economy §18). */

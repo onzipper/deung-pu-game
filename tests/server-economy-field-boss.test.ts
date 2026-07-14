@@ -47,6 +47,7 @@ async function runKill(monsterId: string, excludedItemIds: ReadonlySet<string>) 
       ledger: null,
       inventory: inv.seam,
       dropAudit: null,
+      delivery: null,
     },
     { characterId: "c1", accountId: "a1", mobType: "boss_boiling_boar", playerLevel: 6, playerExp: 0, eligibleMembers: 1, capacity: 40, killEventId: "k1" },
   );

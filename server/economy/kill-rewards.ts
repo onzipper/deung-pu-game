@@ -11,7 +11,8 @@
 
 import { DEFAULT_ECONOMY_CONFIG } from "../config/economy";
 import { DEFAULT_REINFORCEMENT_CONFIG } from "../config/reinforcement";
-import { ECONOMY_CONFIG_DEF } from "../config/loader";
+import { ECONOMY_CONFIG_DEF, loadEconomyConfig, type ConfigVersionSource } from "../config/loader";
+import type { EconomyConfig, MonsterReward } from "../config/types";
 import { getPrisma } from "../../src/server/db";
 import { appendEntry } from "../db/ledger";
 import {
@@ -23,6 +24,7 @@ import {
 import {
   grantKillRewards,
   type DropAuditRow,
+  type DropDeliverySeam,
   type ItemMeta,
   type KillRewardOutcome,
   type MonsterRewardView,
@@ -41,8 +43,59 @@ const MONSTER_ID_BY_MOB_TYPE: Readonly<Record<string, string>> = {
   boss_boiling_boar: "boss_map1_boiling_boar", // Field Boss (D-064) — ship OB (phase P2)
 };
 
-/** DropAudit.dropTableVersion = economy config version in effect (in-code DEFAULT). */
-const DROP_TABLE_VERSION = ECONOMY_CONFIG_DEF.defaultVersion;
+/**
+ * ITEM 3 (config DB override) — the economy Design Knobs one MapRoom runs with. `config` = the EconomyConfig
+ * loaded once at room create (loader.ts DB `config_versions` override, or DEFAULT when no DB/on error); `version`
+ * = the config_versions version stamped on DropAudit. Immutable per room after the single onCreate load — the
+ * room passes its own bundle in, so drops/EXP/party thresholds all read from ONE consistent source (not the
+ * module DEFAULT). No-DB rooms keep the DEFAULT bundle → behavior byte-identical to before this wiring.
+ */
+export interface RoomEconomyConfig {
+  config: EconomyConfig;
+  version: number;
+}
+/** the fallback bundle (in-code DEFAULT) — every room starts here and swaps to a DB bundle only if one loads. */
+export const DEFAULT_ROOM_ECONOMY: RoomEconomyConfig = {
+  config: DEFAULT_ECONOMY_CONFIG,
+  version: ECONOMY_CONFIG_DEF.defaultVersion,
+};
+
+/**
+ * ITEM 3 — load the room's economy config ONCE (best-effort). DATABASE_URL set → the active `config_versions`
+ * row via loader.ts (which itself falls back to DEFAULT on missing/invalid payload/DB error); no DATABASE_URL →
+ * DEFAULT silently. **Never throws** — any failure yields the DEFAULT bundle so a room always has a usable
+ * config. MapRoom calls this once at onCreate (async, non-blocking) and treats the result as immutable for the
+ * room's lifetime (no mid-room swaps). The real Prisma client is injected via the loader's structural seam.
+ */
+export async function loadRoomEconomy(): Promise<RoomEconomyConfig> {
+  try {
+    const source: ConfigVersionSource | null = process.env.DATABASE_URL
+      ? (getPrisma() as unknown as ConfigVersionSource)
+      : null;
+    const loaded = await loadEconomyConfig(source);
+    return { config: loaded.value, version: loaded.version };
+  } catch {
+    return DEFAULT_ROOM_ECONOMY; // best-effort — never break room create over config
+  }
+}
+
+/** per-config lookup tables (reward + drop table by id) memoized by config identity → built once per config. */
+interface EconomyTables {
+  rewardByMonsterId: Map<string, MonsterReward>;
+  dropTableById: Map<string, DropTable>;
+}
+const tablesByConfig = new WeakMap<EconomyConfig, EconomyTables>();
+function economyTablesFor(config: EconomyConfig): EconomyTables {
+  let t = tablesByConfig.get(config);
+  if (!t) {
+    t = {
+      rewardByMonsterId: new Map(config.monsterRewards.map((r) => [r.monsterId, r])),
+      dropTableById: new Map(config.dropTables.map((tbl) => [tbl.dropTableId, tbl as DropTable])),
+    };
+    tablesByConfig.set(config, t);
+  }
+  return t;
+}
 
 /**
  * C1 (Economy §18.1): engine mobType → milestone mob class (normal hunt / elite / boss) for milestone triggers.
@@ -87,16 +140,11 @@ const FIELD_BOSS_EXCLUDED_ITEM_IDS: ReadonlySet<string> = new Set([
   DEFAULT_REINFORCEMENT_CONFIG.fragment.materialId,
 ]);
 
-const REWARD_BY_MONSTER_ID = new Map(
-  DEFAULT_ECONOMY_CONFIG.monsterRewards.map((r) => [r.monsterId, r]),
-);
-const DROP_TABLE_BY_ID = new Map(DEFAULT_ECONOMY_CONFIG.dropTables.map((t) => [t.dropTableId, t]));
-
-/** the player progression baseline table (D-055 §2) — MapRoom folds it into per-level combat stats. */
+/** the player progression baseline table (D-055 §2) — DEFAULT fallback (rooms read this.economy.config instead). */
 export const PLAYER_BASELINE_TABLE = DEFAULT_ECONOMY_CONFIG.playerBaseline;
-/** the EXP curve (Economy §9) — exposed for the client progress message (level floor/ceil). */
+/** the EXP curve (Economy §9) — DEFAULT fallback for MapRoom field init (rooms read this.economy.config.expCurve). */
 export const EXP_CURVE = DEFAULT_ECONOMY_CONFIG.expCurve;
-/** G-lite party reward knobs (Economy §9.4 + §10.2/§10.3) — MapRoom reads eligibility thresholds + radius. */
+/** G-lite party reward knobs (Economy §9.4 + §10.2/§10.3) — DEFAULT fallback (rooms read this.economy.config). */
 export const PARTY_REWARD_CONFIG = DEFAULT_ECONOMY_CONFIG.partyReward;
 
 function itemMeta(itemId: string): ItemMeta {
@@ -118,6 +166,23 @@ async function writeDropAudit(rows: readonly DropAuditRow[]): Promise<void> {
   });
 }
 
+/**
+ * ITEM 2 — §12.5 bag→Delivery Box fallback for kill loot (mirror the milestone deliverySeam in milestones.ts).
+ * Overflow loot is persisted to the account's Delivery Box so it is never silently lost (before this, the room
+ * only reported `lootOverflow` and the item was dropped). source `achievement_reward` = never-expiry (storage
+ * §16.4) → strongest no-silent-loss guarantee, reusing the milestone seam's source.
+ * ⚠️ FLAG(owner): a dedicated `loot_overflow` DeliverySource enum (schema change via §59.4) would be clearer
+ *    than reusing `achievement_reward`; kept minimal for OB (no DB schema change without owner). Ground-loot
+ *    entity (§12.5 "drop on the ground when bag full") = OUT OF SCOPE (deferred) — delivery is the safe fallback.
+ */
+const deliverySeam: DropDeliverySeam = {
+  async createEntry(input) {
+    await getPrisma().deliveryBoxEntry.create({
+      data: { accountId: input.accountId, source: "achievement_reward", payload: { items: input.items } },
+    });
+  },
+};
+
 export interface KillRewardRequest {
   mobType: string;
   /** "" when anonymous/dev (EXP still computed in-memory; gold/drops skipped). */
@@ -137,12 +202,14 @@ export interface KillRewardRequest {
  */
 export async function grantKillRewardsForMob(
   req: KillRewardRequest,
+  economy: RoomEconomyConfig = DEFAULT_ROOM_ECONOMY,
 ): Promise<KillRewardOutcome | null> {
   const monsterId = MONSTER_ID_BY_MOB_TYPE[req.mobType];
   if (!monsterId) return null;
-  const reward = REWARD_BY_MONSTER_ID.get(monsterId);
+  const { rewardByMonsterId, dropTableById } = economyTablesFor(economy.config);
+  const reward = rewardByMonsterId.get(monsterId);
   if (!reward || reward.phase !== "P2") return null; // Story boss (P2B) / unknown → no live reward
-  const dropTable = DROP_TABLE_BY_ID.get(reward.dropTableId);
+  const dropTable = dropTableById.get(reward.dropTableId);
   if (!dropTable) return null;
 
   // R8 exemption: the Field Boss may drop upg_reinforcement (its sanctioned role); everything else may not.
@@ -164,15 +231,16 @@ export async function grantKillRewardsForMob(
     {
       reward: rewardView,
       dropTable: dropTable as DropTable,
-      pools: DEFAULT_ECONOMY_CONFIG.equipmentPools,
+      pools: economy.config.equipmentPools,
       excludedItemIds,
       itemMeta,
-      expCurve: EXP_CURVE,
+      expCurve: economy.config.expCurve,
       rng: Math.random,
-      dropTableVersion: DROP_TABLE_VERSION,
+      dropTableVersion: economy.version,
       ledger: wired ? { appendEntry: (e) => appendEntry(e) } : null,
       inventory: wired ? { grantItems: (input) => getInventoryRepository().grantItems(input) } : null,
       dropAudit: wired ? { write: writeDropAudit } : null,
+      delivery: wired ? deliverySeam : null,
     },
     {
       characterId: req.characterId,
