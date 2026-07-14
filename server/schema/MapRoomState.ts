@@ -22,6 +22,12 @@ export class PlayerState extends Schema {
   /** partyId (P1-08) — "" = solo. สมาชิก party เดียวกันใน room นี้ share ค่าเดียวกัน (filterBy). */
   @type("string") partyId = "";
   /**
+   * Batch 6 (ARCHER_CLASS_SPEC §6 note 4): classId (นักดาบ "swordsman" / นักธนู "archer") — server-authoritative
+   * (onJoin ตั้งจาก Character.classId ผ่าน loadCharacterClass / joinOptions fallback). Colyseus auto-sync →
+   * client เลือกชุดสกิล/art ตามอาชีพ. client ไม่เคยส่งค่านี้ขึ้น server (authority). default นักดาบ.
+   */
+  @type("string") classId = "swordsman";
+  /**
    * P2-13 (D-056): true เมื่อผู้เล่น idle ครบ idleIndicatorSec (ไม่มี movement/cast) — client แสดงป้าย
    * "AFK" ให้ผู้เล่นอื่นเห็น. server-authoritative (input tracker); reset false ทันทีที่มี input. **ไม่ผูก
    * disconnect** — D-056 ยกเลิก forced disconnect ทั้งชุด (character ค้างในโลกต่อ).

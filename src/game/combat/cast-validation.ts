@@ -104,6 +104,91 @@ export function resolveSkillHits(
   return ordered.slice(0, Math.max(0, skill.maxTargets));
 }
 
+// ── Batch 6: aim-centered ground AoE (ARCHER_CLASS_SPEC §6 note 1 — never-downgrade, top-tier) ──────────
+// นักดาบทุกสกิลเล็งจาก facing/ตัว caster (resolveSkillHits รอบ caster). archer_moon_rain = ground-target:
+// เล็ง **จุดพื้น** ในระยะ range รอบ caster → resolve มอนในรัศมี radius รอบจุดนั้น. discriminator ที่เลือก =
+// `targetShape === "circle" && range > 0`: circle ที่ range>0 = ground (moon_rain range 6); warrior guard_domain
+// = circle range 0 (self รอบตัว) → **คนละ path** (เช็ค isGroundTargetCircle ก่อนแยก). §50.1 ไม่มี field
+// ground/aimMode → ใช้ range เป็นตัวแยก (range 0 = self-centered circle, range>0 = aim-centered). documented ที่นี่.
+
+const AIM_ORIGIN_EPS = 1e-9;
+
+/** discriminator ของ ground-target circle (aim-centered) เทียบ self-centered circle (warrior guard, range 0). */
+export function isGroundTargetCircle(skill: SkillDefinition): boolean {
+  return skill.targetShape === "circle" && skill.range > 0;
+}
+
+/**
+ * clamp จุด aim ให้อยู่ในระยะ `range` จาก caster ตาม ray caster→aim (§6 note 1: "clamp เข้าขอบระยะถ้าเกิน").
+ * aim ในระยะ (หรือ = caster) → คืน aim เดิม; เกิน → คืนจุดบนขอบวงระยะตามทิศเดิม. pure. server ใช้ก่อน hit-test
+ * (validateCast ผ่าน rangeToleranceFactor แล้ว กัน false-reject; ที่นี่ clamp ลงระยะจริงก่อน resolve).
+ */
+export function clampAimToRange(
+  casterPos: TilePoint,
+  aimPos: TilePoint,
+  range: number,
+): TilePoint {
+  const dtx = aimPos.tx - casterPos.tx;
+  const dty = aimPos.ty - casterPos.ty;
+  const dist = Math.hypot(dtx, dty);
+  if (dist <= range || dist < AIM_ORIGIN_EPS) return { tx: aimPos.tx, ty: aimPos.ty };
+  const s = range / dist;
+  return { tx: casterPos.tx + dtx * s, ty: casterPos.ty + dty * s };
+}
+
+/**
+ * หา mobId ที่โดน ground AoE รอบ **จุด aim** (ไม่ใช่ caster) — §6 note 1. reuse findHits ด้วย origin = aimPos +
+ * arc 360 (วงเต็ม รอบจุด) → มอนในรัศมี skill.radius รอบ aim. cap maxTargets เลือก **ใกล้ aim ที่สุด** (nearest-first,
+ * tie-break ลำดับ target ที่ส่งเข้า = stable). caller ต้อง clampAimToRange ก่อน. pure. tolerance default ZERO =
+ * รัศมีตรงตาม spec (§6 note 1 "รัศมี 2.5 รอบจุด" — ไม่ inflate ด้วย interp-lag padding ของ melee).
+ */
+export function resolveGroundAoeHits(
+  skill: SkillDefinition,
+  aimPos: TilePoint,
+  targets: readonly HitTestTarget[],
+  tileSize: TileSize,
+  tolerance: HitTolerance = ZERO_HIT_TOLERANCE,
+): string[] {
+  const radius = skill.radius != null ? skill.radius : skill.range;
+  const shape: AttackShape = { radius, arcDegrees: 360 };
+  // facing ไม่มีผล (arc 360 = วงเต็ม) — ส่ง "S" ค่าใดก็ได้. origin = aimPos (ไม่ใช่ caster).
+  const hitIds = findHits(aimPos, "S", targets, tileSize, shape, tolerance);
+  const posById = new Map<string, TilePoint>(targets.map((t) => [t.id, t.pos] as const));
+  const ordered = hitIds
+    .map((id, i) => ({ id, d: distSq(aimPos, posById.get(id)!), i }))
+    .sort((a, b) => a.d - b.d || a.i - b.i)
+    .map((e) => e.id);
+  return ordered.slice(0, Math.max(0, skill.maxTargets));
+}
+
+// ── Batch 6: swift_step displacement (ARCHER_CLASS_SPEC §3 S4 · §6 note 2) ─────────────────────────────
+// self-displacement server-authoritative, reuse movement walkability (ชนกำแพง = เผ่นเท่าที่เดินได้, min 0).
+// ไม่มี i-frame (spec). pure — รับ callback isWalkable (server ประกอบจาก engine collision, ไม่ copy สูตร).
+
+/**
+ * clamp การเผ่นจาก `from` ไปทาง `dirUnit` (unit vector tile-space) ระยะ `distanceTiles` ให้ลงจุดที่ **เดินได้**
+ * ที่ไกลสุดตามเส้น. sample เป็นช่วง `sampleStepTiles` — เจอ cell เดินไม่ได้ = หยุด คืนจุดเดินได้ล่าสุด (min = from).
+ * ไม่มีจุดเดินได้เลย (ติดกำแพงตั้งแต่ก้าวแรก) → คืน from (เผ่น 0). pure.
+ */
+export function clampDisplacementToWalkable(
+  from: TilePoint,
+  dirUnit: TilePoint,
+  distanceTiles: number,
+  isWalkable: (tx: number, ty: number) => boolean,
+  sampleStepTiles = 0.25,
+): TilePoint {
+  let best: TilePoint = { tx: from.tx, ty: from.ty };
+  const step = Math.max(AIM_ORIGIN_EPS, sampleStepTiles);
+  const steps = Math.max(1, Math.ceil(distanceTiles / step));
+  for (let i = 1; i <= steps; i++) {
+    const d = Math.min(distanceTiles, i * step);
+    const cand = { tx: from.tx + dirUnit.tx * d, ty: from.ty + dirUnit.ty * d };
+    if (!isWalkable(cand.tx, cand.ty)) break; // ชนกำแพง → หยุด (คงจุดเดินได้ล่าสุด)
+    best = cand;
+  }
+  return best;
+}
+
 /** input ของ validateCast — skill = undefined หมายถึง skillId ที่ client ส่งมาไม่รู้จัก. */
 export interface CastValidationInput {
   skill: SkillDefinition | undefined;

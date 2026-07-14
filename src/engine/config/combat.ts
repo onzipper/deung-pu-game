@@ -82,6 +82,32 @@ export interface PlayerCombatStats {
 }
 
 /**
+ * Batch 6 (ARCHER_CLASS_SPEC §2 — **PENDING OWNER**): ตัวคูณ stat ต่ออาชีพ บน player baseline (D-055 curve)
+ * ก่อนบวก gear. atk/hp/def เท่านั้น (secondary crit/pen = level-invariant ฐานเดียวทุกอาชีพ §15.3). ปัด integer
+ * ที่ apply (server, applyClassStatWeights). นักดาบ = 1.0 ทุกตัว (curve ฐาน); นักธนู ×1.15/×0.85/×0.90.
+ */
+export interface ClassStatWeights {
+  /** ตัวคูณ ATK บน baseline (นักธนู 1.15 = ATK สูง §2.1) */
+  atk: number;
+  /** ตัวคูณ HP บน baseline (นักธนู 0.85 = ตัวบาง) */
+  hp: number;
+  /** ตัวคูณ DEF บน baseline (นักธนู 0.90) */
+  def: number;
+}
+
+/**
+ * Batch 6 (ARCHER_CLASS_SPEC §3 S3 archer_target_mark, §6 note 3): debuff บน **เป้า** → เป้ารับดาเมจ ×multiplier
+ * ช่วง durationSeconds. mirror ฝั่งเป้าของ statusEffectDamageReduction (self-buff). value = Design Knob (§48).
+ * id ไม่อยู่ในตาราง = ไม่มีผล. คูณเข้าสูตร damage ผู้เล่นตีเป้า (formula.ts DamageParams.damageTakenMultiplier).
+ */
+export interface StatusEffectDamageTakenEntry {
+  /** ตัวคูณดาเมจที่เป้ารับ (>1 = รับมากขึ้น เช่น mark_dmg_taken_15 = 1.15) */
+  multiplier: number;
+  /** ระยะเวลา debuff (วินาที) นับจากตอนปัก (§3 S3 = 6) */
+  durationSeconds: number;
+}
+
+/**
  * Mob combat stat ต่อ mobType (P1-05, proposal §2.2 — **PENDING OWNER**). server-authoritative.
  * ใช้ทั้ง damage formula (def/tierReduction) + hp เริ่มต้นของ simulation (single source of truth).
  */
@@ -234,6 +260,26 @@ export interface CombatBalanceConfig {
    * self_damage_reduction_30 → ลด 30%). value เป็น Design Knob (§48). id ไม่อยู่ในตาราง = ไม่มีผล (0).
    */
   statusEffectDamageReduction: Record<string, number>;
+  /**
+   * Batch 6 (ARCHER_CLASS_SPEC §2): ตัวคูณ stat ต่ออาชีพ บน player baseline (classId → weights). นักดาบ = 1.0;
+   * นักธนู = 1.15/0.85/0.90. classId ที่ไม่อยู่ในตาราง → fallback 1.0 (ไม่มีผล). Design Knob (§48) PENDING OWNER.
+   */
+  classStatWeights: Record<string, ClassStatWeights>;
+  /**
+   * Batch 6 (ARCHER_CLASS_SPEC §3 S3 archer_target_mark): debuff บนเป้า → เป้ารับดาเมจ ×multiplier ช่วง duration.
+   * mark_dmg_taken_15 = 1.15/6s. id ไม่อยู่ในตาราง = ไม่มีผล. Design Knob (§48) PENDING OWNER.
+   */
+  statusEffectDamageTakenMultiplier: Record<string, StatusEffectDamageTakenEntry>;
+  /**
+   * Batch 6 (ARCHER_CLASS_SPEC §3 S4 archer_swift_step): self moveSpeed buff → +fraction ระหว่าง activeTime.
+   * swift_step_speed_20 = +0.20. server กว้าง allowance move validation ตาม buff (กัน false-reject). Design Knob (§48).
+   */
+  statusEffectMoveSpeedBonus: Record<string, number>;
+  /**
+   * Batch 6 (ARCHER_CLASS_SPEC §3 S4): ระยะเผ่นถอยหลัง (tile) ของ swift_step-style skill — server ใช้ movement
+   * walkability clamp เดิม (ชนกำแพง = เผ่นเท่าที่เดินได้). Design Knob (§48) PENDING OWNER.
+   */
+  swiftStepDashTiles: number;
 }
 
 /**
@@ -459,4 +505,20 @@ export const DEFAULT_COMBAT_BALANCE_CONFIG: CombatBalanceConfig = {
   statusEffectDamageReduction: {
     self_damage_reduction_30: 0.3,
   },
+  // Batch 6 (ARCHER_CLASS_SPEC §2): class stat weights บน player baseline. นักดาบ = curve ฐาน (1.0);
+  //   นักธนู = ATK×1.15 / HP×0.85 / DEF×0.90 (ตัวบาง ตีแรง). Design Knob (§48) PENDING OWNER.
+  classStatWeights: {
+    swordsman: { atk: 1.0, hp: 1.0, def: 1.0 },
+    archer: { atk: 1.15, hp: 0.85, def: 0.9 },
+  },
+  // Batch 6 (ARCHER_CLASS_SPEC §3 S3 · §6 note 3): mark debuff → เป้ารับดาเมจ ×1.15 นาน 6s. Design Knob (§48).
+  statusEffectDamageTakenMultiplier: {
+    mark_dmg_taken_15: { multiplier: 1.15, durationSeconds: 6 },
+  },
+  // Batch 6 (ARCHER_CLASS_SPEC §3 S4 · §6 note 3): self moveSpeed buff +20% ระหว่าง activeTime. Design Knob (§48).
+  statusEffectMoveSpeedBonus: {
+    swift_step_speed_20: 0.2,
+  },
+  // Batch 6 (ARCHER_CLASS_SPEC §3 S4): ระยะเผ่นถอยหลัง swift_step = 2.5 tile. Design Knob (§48) PENDING OWNER.
+  swiftStepDashTiles: 2.5,
 };

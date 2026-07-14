@@ -27,7 +27,7 @@
 - `src/game/npc/` — LW0 static NPC bark: catalog + nearest-click test + view manager (placeholder+label)
 - `src/game/item/icon-catalog.ts` — itemId → icon URL map (null = show raw id)
 - `src/game/skill/` — SkillDefinition (37 fields, GS §50.1) loader + server/client view split (TA §16.1)
-- `src/game/skill/data/warrior-skills-server.ts` (+ client sibling) — **SERVER-ONLY vs CLIENT-SAFE split**: server literals must never reach the client bundle
+- `src/game/skill/data/warrior-skills-server.ts` (+ archer sibling + client views) — SERVER-ONLY vs CLIENT-SAFE; MapRoom loads skills per class
 - `src/game/combat/` — hit-test, cast-validation, damage-number/hit-stop/screen-shake juice, combat-stub, target-engage
 - `src/game/combat/skill-vfx.ts` — F4 skill VFX playback (client-only)
 - `src/game/combat/formula.ts` — **PURE + SERVER-ONLY** damage formula (§15.2/§50.1.1) — never in the client bundle

@@ -50,7 +50,7 @@ export function CharacterGrid({
             <div className="mt-4 flex flex-col gap-2">
               <Link
                 href="/game"
-                onClick={() => rememberSelectedCharacter(c.id, c.lastMapId)}
+                onClick={() => rememberSelectedCharacter(c.id, c.lastMapId, c.classId)}
                 className="flex min-h-[48px] items-center justify-center rounded-(--dp-radius-md) bg-(--dp-resonance-teal) px-4 text-[14px] font-semibold text-(--dp-deep-ink) hover:bg-(--dp-resonance-light)"
               >
                 เข้าเกม
