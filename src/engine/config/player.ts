@@ -80,9 +80,8 @@ export interface PlayerAnimationConfig {
  * ผูก config ซ้ำ). วางเหนือป้าย AFK เสมอ (gapAboveAfk ติดลบ) ให้สองป้ายอ่านออกพร้อมกัน ไม่ทับ. ไม่มี spec
  * สี/ขนาด → ค่านี้เป็น Design Knob.
  *
- * Legibility pass (fix/nameplate-legibility): เพิ่ม bg chip (dark rounded rect หลังตัวอักษร) + drop shadow +
- * textResolution ให้อ่านออกชัดบน pixelate pipeline (renderResolution 0.5 + textureScaleMode "nearest",
- * src/engine/config/render.ts — ไม่แตะไฟล์นั้น). ทุกค่าใหม่เป็น Design Knob (§48), ไม่ hardcode inline.
+ * Legibility: bg chip + Thai typography render ผ่าน full-resolution nameplate overlay; world canvas ยังคง
+ * renderResolution 0.5 + nearest ตาม D-065. ทุกค่าเป็น Design Knob (§48), ไม่ hardcode inline.
  */
 export interface PlayerNameplateConfig {
   /** ระยะ (px) ที่ป้ายชื่อสูงกว่าป้าย AFK (ติดลบ = ขึ้นบน) — ต้อง < -fontSize เพื่อไม่ทับป้าย AFK */
@@ -116,8 +115,7 @@ export interface PlayerNameplateConfig {
   /** รัศมีมุมโค้งของ chip (px) */
   cornerRadius: number;
   /**
-   * resolution ของ glyph texture ของ Text นี้โดยเฉพาะ (แยกจาก renderer resolution 0.5 ทั้งเกม) —
-   * ให้ตัวอักษรคมกว่าที่ pixelate pipeline ปกติจะให้ (Pixi v8 Text accepts `resolution` option).
+   * resolution ของ glyph texture ของ Text นี้โดยเฉพาะบน full-resolution nameplate overlay.
    */
   textResolution: number;
 }
@@ -226,23 +224,23 @@ export const DEFAULT_PLAYER_CONFIG: PlayerConfig = {
   },
   animation: DEFAULT_PLAYER_ANIMATION_CONFIG,
   nameplate: {
-    // ป้ายชื่อสูงกว่า afk-label 19px (fontSize 14 + stroke/chip ≈ 17 + gap 2) → สองป้ายอ่านออกพร้อมกัน ไม่ทับ
-    gapAboveAfk: -19,
-    fontSize: 14, // legibility pass: 11→14
-    fontFamily: "monospace",
+    // ป้ายชื่อสูงกว่า afk-label พอให้ glyph ไทยและ chip ไม่ทับกัน
+    gapAboveAfk: -21,
+    fontSize: 16,
+    fontFamily: '"Noto Sans Thai", "Leelawadee UI", Tahoma, sans-serif',
     color: 0xe8f0ff, // ขาวอมฟ้า = ชื่อผู้เล่น (แยกจาก AFK เหลือง 0xffd23f)
     strokeColor: 0x000000,
-    strokeWidth: 4, // legibility pass: 3→4
+    strokeWidth: 2,
     shadowColor: 0x000000,
     shadowAlpha: 0.5,
-    shadowBlur: 2,
+    shadowBlur: 1,
     shadowDistance: 1,
     bgColor: 0x1a1a1a, // เทาเข้มเกือบดำ = contrast บนพื้นเขียว/ป่า
-    bgAlpha: 0.55,
-    paddingX: 6,
-    paddingY: 3,
+    bgAlpha: 0.75,
+    paddingX: 5,
+    paddingY: 2,
     cornerRadius: 4,
-    textResolution: 3, // glyph texture คมกว่า renderer resolution 0.5 ทั้งเกม (src/engine/config/render.ts)
+    textResolution: 3, // high-resolution glyph texture บน nameplate overlay
   },
 };
 

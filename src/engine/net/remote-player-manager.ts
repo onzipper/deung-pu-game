@@ -17,7 +17,7 @@
 // caster ที่ไม่ใช่ตัวเอง → ล็อกคลิป attack ชั่วคราว (timing pure ใน remote-attack.ts, pattern เดียวกับ
 // local-player.ts triggerAttack) แล้วคืน control ให้ anim จาก interpolation sample ต่อ (idle/walk).
 
-import type { Container, Renderer, Text } from "pixi.js";
+import { Container, type Renderer, type Text } from "pixi.js";
 import type { EngineConfig } from "@/engine/config";
 import type { TilePoint } from "@/engine/iso/coords";
 import type { MapSceneHandle } from "@/engine/render/scene";
@@ -28,6 +28,7 @@ import {
   setNameLabelText,
   updateNameLabel,
 } from "@/engine/render/name-label";
+import type { NameplateLayerHandle } from "@/engine/render/nameplate-layer";
 import {
   createInterpolationBuffer,
   type InterpolationBuffer,
@@ -117,6 +118,7 @@ export function createRemotePlayerManager(
   config: EngineConfig,
   renderer: Renderer,
   registry?: AssetRegistry,
+  nameplates?: NameplateLayerHandle,
   now: () => number = () => performance.now(),
 ): RemotePlayerManager {
   // atlas art ถ้ามี assetId (ตัวเดียวกับ local player) + peek เจอ + anim ครบ → ใช้ atlas manifest/texture
@@ -168,13 +170,19 @@ export function createRemotePlayerManager(
     });
     const pos: TilePoint = { tx: snap.tx, ty: snap.ty };
     scene.addEntity(entityId(sessionId), animator.view, pos);
-    // P2-13 (D-056): ป้าย AFK เป็น child ของ sprite view (Sprite = Container) → ลอยตามหัว + destroy พร้อม view.
+    // P2-13 + NAMEPLATES: render บน full-res overlay เมื่อมี; sprite child เป็น fallback เดิม.
     const label = createAfkLabel(remoteStyle.bodyHeight, remoteStyle.walkBob);
-    animator.view.addChild(label);
-    // NAMEPLATES: ป้ายชื่อ (child ของ view เช่นกัน) — ชื่อจาก snapshot ที่ sync (PlayerState.name). ว่าง = ซ่อน.
     const nameLabel = createNameLabel(remoteAfkOffsetY, nameplateCfg);
     setNameLabelText(nameLabel, snap.name);
-    animator.view.addChild(nameLabel);
+    if (nameplates) {
+      const labelGroup = new Container();
+      labelGroup.addChild(label);
+      labelGroup.addChild(nameLabel);
+      nameplates.addEntity(entityId(sessionId), labelGroup, pos);
+    } else {
+      animator.view.addChild(label);
+      animator.view.addChild(nameLabel);
+    }
     const buffer = newBuffer();
     // seed snapshot แรก ณ ตำแหน่ง spawn → entity เพิ่งเกิดจะ clamp ที่นี่ (ไม่ลากจากที่ไกล)
     buffer.push(now(), snap.tx, snap.ty, snap.direction, snap.anim);
@@ -213,6 +221,7 @@ export function createRemotePlayerManager(
     const entry = remotes.get(sessionId);
     if (!entry) return;
     remotes.delete(sessionId);
+    nameplates?.removeEntity(entityId(sessionId));
     scene.removeEntity(entityId(sessionId)); // destroy view
     entry.animator.destroy(); // ปล่อย texture ที่ generate
   };
@@ -238,6 +247,7 @@ export function createRemotePlayerManager(
         entry.current.tx = sample.tx;
         entry.current.ty = sample.ty;
         scene.moveEntity(entityId(sessionId), entry.current);
+        nameplates?.moveEntity(entityId(sessionId), entry.current);
         entry.facing = sample.direction;
         entry.anim = sample.anim;
         entry.animator.setState(entry.anim, entry.facing);
@@ -257,6 +267,7 @@ export function createRemotePlayerManager(
             entry.current.tx = sample.tx;
             entry.current.ty = sample.ty;
             scene.moveEntity(entityId(sessionId), entry.current);
+            nameplates?.moveEntity(entityId(sessionId), entry.current);
           }
           entry.facing = sample.direction;
           entry.anim = sample.anim;
@@ -265,9 +276,13 @@ export function createRemotePlayerManager(
         const isAttacking = advanceRemoteAttack(entry.attack, dtSeconds * 1000, attackDurationMs);
         entry.animator.setState(isAttacking ? "attack" : entry.anim, entry.facing);
         // P2-13 (D-056): toggle ป้าย AFK + counter-flip กัน mirror (หลัง setState — view.scale.x อาจเพิ่ง flip)
-        updateAfkLabel(entry.label, entry.animator.view, entry.afk);
-        // NAMEPLATES: counter-flip ป้ายชื่อกัน mirror (visible คุมด้วย setNameLabelText แล้ว)
-        updateNameLabel(entry.nameLabel, entry.animator.view);
+        if (nameplates) {
+          entry.label.visible = entry.afk;
+        } else {
+          updateAfkLabel(entry.label, entry.animator.view, entry.afk);
+          // NAMEPLATES: counter-flip ป้ายชื่อกัน mirror (visible คุมด้วย setNameLabelText แล้ว)
+          updateNameLabel(entry.nameLabel, entry.animator.view);
+        }
         entry.animator.update(dtSeconds);
       }
     },

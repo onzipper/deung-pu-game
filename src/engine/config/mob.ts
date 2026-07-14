@@ -132,9 +132,8 @@ export interface MobHpBarConfig {
  * (src/game/mob/name-catalog.ts) เสมอ ไม่ผูกกับการโดนตี (ต่างจาก hpBar). สีต่อ rank (ไม่มี spec, ใช้ default
  * นี้เป็น knob): normal = ขาว, elite = ส้ม, boss = แดง+ใหญ่กว่า. วางเหนือ hpBar เสมอ (offsetY ติดลบกว่า hpBar.offsetY).
  *
- * Legibility pass (fix/nameplate-legibility): เพิ่ม bg chip (dark rounded rect หลังตัวอักษร) + drop shadow +
- * textResolution ให้อ่านออกชัดบน pixelate pipeline (renderResolution 0.5 + textureScaleMode "nearest",
- * src/engine/config/render.ts — ไม่แตะไฟล์นั้น). ทุกค่าใหม่เป็น Design Knob (§48), ไม่ hardcode inline.
+ * Legibility: bg chip + Thai typography render ผ่าน full-resolution nameplate overlay; world canvas ยังคง
+ * renderResolution 0.5 + nearest ตาม D-065. ทุกค่าเป็น Design Knob (§48), ไม่ hardcode inline.
  */
 export interface MobNameplateConfig {
   /** ระยะ (px) เหนือ foot ของมอน (ลบ = ขึ้นบน) — ต้องอยู่เหนือ hpBar.offsetY เสมอ (ติดลบกว่า) */
@@ -178,10 +177,19 @@ export interface MobNameplateConfig {
   /** รัศมีมุมโค้งของ chip (px) */
   cornerRadius: number;
   /**
-   * resolution ของ glyph texture ของ Text นี้โดยเฉพาะ (แยกจาก renderer resolution 0.5 ทั้งเกม) —
-   * ให้ตัวอักษรคมกว่าที่ pixelate pipeline ปกติจะให้ (Pixi v8 Text accepts `resolution` option).
+   * resolution ของ glyph texture ของ Text นี้โดยเฉพาะบน full-resolution nameplate overlay.
    */
   textResolution: number;
+  /** รัศมีรอบผู้เล่น (tile) ที่อนุญาตให้แสดงป้ายชื่อมอนปกติ */
+  normalRevealRadiusTiles: number;
+  /** จำนวนป้ายชื่อมอนปกติสูงสุดที่แสดงพร้อมกัน (elite/boss ไม่นับรวม) */
+  normalVisibleLimit: number;
+  /** ระยะขั้นต่ำโดยประมาณบนระนาบ isometric ก่อนแสดงป้ายชื่อมอนปกติอีกป้าย */
+  normalMinProjectedSpacingTiles: number;
+  /** รอบเวลา (ms) สำหรับคำนวณชุดป้ายชื่อใหม่ เพื่อลดงานใน render loop */
+  visibilityRefreshMs: number;
+  /** ระยะเวลา (ms) ที่ป้ายชื่อ fade เข้า/ออกเมื่อชุดที่ควรแสดงเปลี่ยน */
+  fadeDurationMs: number;
 }
 
 /** รวม config ของ mob ทั้งหมด (P0-09 spawn/wander/render + P1-03 ai/lod/respawn + P1-05 hpBar) — Design Knob. */
@@ -276,26 +284,31 @@ export const DEFAULT_MOB_CONFIG: MobConfig = {
     // hpBar.offsetY = -46 (เหนือหัว) → nameplate ต้องอยู่เหนือกว่านั้นอีก (ติดลบมากกว่า) กันซ้อนทับ
     // (hpBar.height 4 + gap ~6px ≈ -56)
     offsetY: -56,
-    fontSize: 14, // legibility pass: 11→14 (busy ground bg ต้องใหญ่ขึ้นให้อ่านออก)
-    eliteFontSize: 15, // ใหญ่กว่าปกติเล็กน้อยให้เด่นว่าเป็น elite
-    bossFontSize: 18, // ใหญ่กว่าปกติชัดเจนให้เด่นว่าเป็นบอส (ไม่มี spec — nameplate rank knob)
-    fontFamily: "monospace",
+    fontSize: 16,
+    eliteFontSize: 17,
+    bossFontSize: 20,
+    fontFamily: '"Noto Sans Thai", "Leelawadee UI", Tahoma, sans-serif',
     normalColor: 0xffffff, // ขาว = มอนปกติ
     eliteColor: 0xff9d2e, // ส้ม = elite (Fire tone ใกล้เคียง MASTER_PALETTE)
     bossColor: 0xff4040, // แดง = บอส
     strokeColor: 0x000000,
-    strokeWidth: 4, // legibility pass: 3→4 เส้นขอบหนาขึ้น
+    strokeWidth: 2,
     shadowColor: 0x000000,
     shadowAlpha: 0.5,
-    shadowBlur: 2,
+    shadowBlur: 1,
     shadowDistance: 1,
     bgColor: 0x1a1a1a, // เทาเข้มเกือบดำ = contrast บนพื้นเขียว/ป่า
-    bgAlpha: 0.55,
-    bossBgAlpha: 0.65, // เข้มกว่าเล็กน้อยให้ boss เด่น
-    paddingX: 6,
-    paddingY: 3,
+    bgAlpha: 0.75,
+    bossBgAlpha: 0.84,
+    paddingX: 5,
+    paddingY: 2,
     cornerRadius: 4,
-    textResolution: 3, // glyph texture คมกว่า renderer resolution 0.5 ทั้งเกม (src/engine/config/render.ts)
+    textResolution: 3, // high-resolution glyph texture บน nameplate overlay
+    normalRevealRadiusTiles: 5,
+    normalVisibleLimit: 6,
+    normalMinProjectedSpacingTiles: 1.25,
+    visibilityRefreshMs: 200,
+    fadeDurationMs: 140,
   },
   defaultStyle: {
     bodyColor: 0x8a8a8a,

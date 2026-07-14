@@ -33,6 +33,12 @@ import {
 import { createMobAnimationManifest } from "@/game/mob/manifest";
 import { generateMobTextures } from "@/game/mob/placeholder";
 import { getMobNameEntry, type MobRank } from "@/game/mob/name-catalog";
+import {
+  selectVisibleMobNameplateIds,
+  stepNameplateAlpha,
+  type MobNameplateCandidate,
+} from "@/game/mob/nameplate-visibility";
+import type { NameplateLayerHandle } from "@/engine/render/nameplate-layer";
 
 /** texture + manifest ต่อ mobType — atlas มี manifest ของตัวเอง (คนละตัวกับ placeholder ที่แชร์). */
 interface MobRenderSet {
@@ -52,6 +58,10 @@ interface MobViewEntry {
   readonly buffer: InterpolationBuffer;
   /** HP bar (P1-05) — child ของ container เดียวกับ animator; โชว์เมื่อ hp < maxHp */
   readonly hpBar: Graphics;
+  /** ป้ายชื่อที่เปิด/ปิดตาม rank, ระยะ และ density limit */
+  readonly nameplate: Container | null;
+  readonly rank: MobRank;
+  nameplateTargetVisible: boolean;
   /** hp สูงสุดของ mobType (จาก combatBalance) — คิด ratio ของ hp bar */
   readonly maxHp: number;
   /** hp ปัจจุบันจาก snapshot ล่าสุด (server-authoritative, P1-05) */
@@ -91,8 +101,8 @@ export interface MobViewHandle {
   syncAll(snapshots: readonly MobSnapshot[]): void;
   /** ลบมอนทั้งหมด (สลับ source online↔offline) — คง texture cache ไว้. */
   removeAll(): void;
-  /** เรียกทุก frame (dt วินาที): sample buffer ที่ now−bufferMs → ขยับ + เดา facing + เดินเฟรม animator. */
-  update(dtSeconds: number): void;
+  /** เรียกทุก frame: interpolate/animate และปรับชุดป้ายชื่อตามตำแหน่งผู้เล่นเป็นช่วง ๆ */
+  update(dtSeconds: number, playerPosition: Readonly<TilePoint>): void;
   /** ตำแหน่งมอนที่ render อยู่ (combat stub hit-test). */
   getAliveTargets(): MobHitTarget[];
   /** Minimap (§8.4) blips — ตำแหน่ง + rank ของมอนที่ render อยู่ (throttled publish ที่ app.ts, ไม่ใช่ทุก frame). */
@@ -111,6 +121,7 @@ export function createMobViewManager(
   config: EngineConfig,
   renderer: Renderer,
   registry?: AssetRegistry,
+  nameplates?: NameplateLayerHandle,
   now: () => number = () => performance.now(),
 ): MobViewHandle {
   const { mob, tileSize, net } = config;
@@ -144,14 +155,8 @@ export function createMobViewManager(
    * ตอน add() เพราะชื่อ/rank ผูกกับ mobType คงที่ (ไม่ต้อง redraw ทุก frame). ไม่พบ mobType ใน catalog →
    * null (ไม่ render, ไม่ crash, ไม่โชว์ raw id — ดู brief nameplates).
    *
-   * Legibility pass (fix/nameplate-legibility): Container ห่อ bg chip (dark rounded rect, sized ตาม text
-   * bounds ที่วัดได้ครั้งเดียวตรงนี้ — ชื่อมอนไม่เปลี่ยนหลังสร้าง จึงไม่ต้อง resize ทุก frame เหมือน player
-   * nameplate) + Text ที่ resolution สูงกว่า renderer resolution ทั้งเกม (0.5) ให้ glyph คมขึ้น. ไม่ต้อง
-   * counter-flip (เป็น sibling ของ animator.view ที่ไม่ flip — ดู comment ตรง add() ด้านล่าง).
-   *
-   * Pixi v8 caveat: `Text` ใน pixi.js@8.19 ไม่มี public `.texture` accessor (ตรวจด้วย prototype
-   * introspection จริง — ดู header comment ของ src/engine/render/name-label.ts) จึง "ตั้ง scaleMode เฉพาะ
-   * label นี้เป็น linear" ทำไม่ได้ด้วย public API — ใช้ resolution เป็น lever หลักแทน.
+   * Container ห่อ chip + Text; runtime ปกติย้ายทั้งก้อนไป full-resolution nameplate overlay เพื่อไม่ให้
+   * glyph ไทยผ่าน world render 0.5x. ชื่อ/rank คงที่จึงวัด bounds ครั้งเดียวตอนสร้าง.
    */
   const createNameplate = (mobType: string, cfg: MobNameplateConfig): Container | null => {
     const entry = getMobNameEntry(mobType);
@@ -217,6 +222,7 @@ export function createMobViewManager(
   };
 
   const mobs = new Map<string, MobViewEntry>();
+  let nameplateRefreshElapsedMs = Number.POSITIVE_INFINITY;
   const entityId = (mobId: string): string => MOB_ID_PREFIX + mobId;
 
   const newBuffer = (): InterpolationBuffer =>
@@ -236,20 +242,24 @@ export function createMobViewManager(
       animation: snap.state,
       direction: INITIAL_FACING,
     });
-    // wrap animator + hp bar + nameplate ใน container เดียว (foot ที่ local 0,0) — scene.addEntity/moveEntity
-    // ขยับ container ทั้งก้อน; hp bar/nameplate เป็น child ลอยเหนือหัวตาม offset. scene.removeEntity destroy
-    // container(children:true) → animator sprite + hp bar + nameplate หาย, texture ที่แชร์ไม่โดน destroy (ดู
-    // destroy()). mirror: flip (scale.x = -1) เกิดที่ animator.view เอง (animator.ts ~61) ไม่ใช่ที่ container
-    // → hpBar/nameplate เป็น sibling ของ animator.view ใน container ไม่โดน flip ตาม ไม่ต้อง counter-flip
-    // (ต่างจาก afk-label ที่แปะเป็น child ของ sprite ที่ flip โดยตรง).
+    // sprite + HP bar อยู่ใน low-res world; nameplate ไป full-res overlay เมื่อมี layer (fallback เป็น sibling เดิม).
     const container = new Container();
     container.addChild(animator.view);
     const hpBar = new Graphics();
     container.addChild(hpBar);
-    const nameplate = createNameplate(snap.mobType, nameplateCfg);
-    if (nameplate) container.addChild(nameplate);
-
     const pos: TilePoint = { tx: snap.tx, ty: snap.ty };
+    const nameplate = createNameplate(snap.mobType, nameplateCfg);
+    const rank: MobRank = getMobNameEntry(snap.mobType)?.rank ?? "normal";
+    const nameplateTargetVisible = rank !== "normal";
+    if (nameplate) {
+      nameplate.alpha = nameplateTargetVisible ? 1 : 0;
+      nameplate.visible = nameplateTargetVisible;
+    }
+    if (nameplate) {
+      if (nameplates) nameplates.addEntity(entityId(snap.mobId), nameplate, pos);
+      else container.addChild(nameplate);
+    }
+
     scene.addEntity(entityId(snap.mobId), container, pos);
     const buffer = newBuffer();
     buffer.push(now(), snap.tx, snap.ty, "S", snap.state); // seed → entity เพิ่งเกิด clamp ที่นี่
@@ -261,6 +271,9 @@ export function createMobViewManager(
       animator,
       buffer,
       hpBar,
+      nameplate,
+      rank,
+      nameplateTargetVisible,
       maxHp,
       hp: snap.hp,
       current: { tx: snap.tx, ty: snap.ty },
@@ -286,6 +299,7 @@ export function createMobViewManager(
     const entry = mobs.get(mobId);
     if (!entry) return;
     mobs.delete(mobId);
+    nameplates?.removeEntity(entityId(mobId));
     scene.removeEntity(entityId(mobId)); // destroy sprite view (texture แชร์ต่อ mobType, ไม่ destroy ที่นี่)
   };
 
@@ -313,7 +327,7 @@ export function createMobViewManager(
       for (const id of [...mobs.keys()]) remove(id);
     },
 
-    update(dtSeconds: number): void {
+    update(dtSeconds: number, playerPosition: Readonly<TilePoint>): void {
       const renderTime = now() - interp.bufferMs;
       for (const [mobId, entry] of mobs) {
         const sample = entry.buffer.sampleAt(renderTime);
@@ -324,6 +338,7 @@ export function createMobViewManager(
             entry.current.tx = sample.tx;
             entry.current.ty = sample.ty;
             scene.moveEntity(entityId(mobId), entry.current);
+            nameplates?.moveEntity(entityId(mobId), entry.current);
             // facing derive จาก delta ตำแหน่ง (ไม่ sync ทิศ) → resolveDirection เหมือน wander เดิม
             entry.facing = resolveDirection({ tx: dx, ty: dy }, tileSize, entry.facing);
           }
@@ -331,6 +346,40 @@ export function createMobViewManager(
         }
         entry.animator.setState(entry.anim, entry.facing);
         entry.animator.update(dtSeconds);
+      }
+
+      nameplateRefreshElapsedMs += dtSeconds * 1000;
+      const refreshIntervalMs = Math.max(0, nameplateCfg.visibilityRefreshMs);
+      if (nameplateRefreshElapsedMs >= refreshIntervalMs) {
+        nameplateRefreshElapsedMs = 0;
+        const candidates: MobNameplateCandidate[] = [];
+        for (const [mobId, entry] of mobs) {
+          candidates.push({
+            id: mobId,
+            rank: entry.rank,
+            position: entry.current,
+            damaged: entry.hp < entry.maxHp,
+          });
+        }
+        const visibleIds = selectVisibleMobNameplateIds(
+          candidates,
+          playerPosition,
+          nameplateCfg,
+        );
+        for (const [mobId, entry] of mobs) {
+          entry.nameplateTargetVisible = visibleIds.has(mobId);
+        }
+      }
+
+      for (const entry of mobs.values()) {
+        if (!entry.nameplate) continue;
+        entry.nameplate.alpha = stepNameplateAlpha(
+          entry.nameplate.alpha,
+          entry.nameplateTargetVisible,
+          dtSeconds,
+          nameplateCfg.fadeDurationMs,
+        );
+        entry.nameplate.visible = entry.nameplate.alpha > 0;
       }
     },
 

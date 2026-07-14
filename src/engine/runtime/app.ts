@@ -18,6 +18,7 @@ import { type EngineConfig, resolveResolution } from "../config";
 import { requireMap, getMap, hasMap } from "../map/registry";
 import { findExitAt, type MapConfig } from "../map/types";
 import { createMapScene, type MapSceneHandle } from "../render/scene";
+import { createNameplateLayer } from "../render/nameplate-layer";
 import { buildExitMarkerPolygons } from "../render/exit-marker";
 import { createAssetRegistry } from "../assets/registry";
 import { collectMapAssetIds } from "../assets/collect";
@@ -215,11 +216,15 @@ export async function createEngine(
   });
 
   container.appendChild(app.canvas);
+  app.canvas.style.display = "block";
 
   // pixelate: ให้ browser upscale canvas เองแบบ nearest (คมเป็นบล็อก ไม่เบลอ)
   if (config.render.pixelate && config.render.cssImageRendering) {
     app.canvas.style.imageRendering = "pixelated";
   }
+
+  // World stays on the D-065 low-res pass; Thai/world labels render on a transparent native-res pass.
+  const nameplateLayer = await createNameplateLayer(container, config);
 
   let viewW = Math.max(1, container.clientWidth);
   let viewH = Math.max(1, container.clientHeight);
@@ -304,14 +309,32 @@ export async function createEngine(
     );
 
     // --- local player (P0-05): spawn ที่ map.spawnPoint แล้ว snap ไป spawn จริง (targetSpawn ตอน transition) ---
-    const player = createLocalPlayer(scene, map, config, app.renderer, registry);
+    const player = createLocalPlayer(
+      scene,
+      map,
+      config,
+      app.renderer,
+      registry,
+      nameplateLayer,
+    );
     player.applyCorrection(spawn.x, spawn.y); // ย้าย + snap กล้องมาที่จุดเกิดจริง (idempotent ถ้า = spawnPoint)
 
     // --- mobs (P1-03): server-authoritative → view manager render จาก snapshot ---
-    const mobView: MobViewHandle = createMobViewManager(scene, config, app.renderer, registry);
+    const mobView: MobViewHandle = createMobViewManager(
+      scene,
+      config,
+      app.renderer,
+      registry,
+      nameplateLayer,
+    );
 
     // --- NPC (LW0 static bark) — ไม่มี movement/AI, seed ครั้งเดียวจาก npc-data.ts catalog ---
-    const npcManager: NpcManagerHandle = createNpcManager(scene, config, map.mapId);
+    const npcManager: NpcManagerHandle = createNpcManager(
+      scene,
+      config,
+      map.mapId,
+      nameplateLayer,
+    );
 
     // --- combat (P1-05 server-authoritative): S1 นักดาบจาก client manifest ---
     // P1-11 (GS §14): ปิด combat ในโซน safe (เมือง) — disable ปุ่มโจมตี client (server ปฏิเสธ cast ซ้ำอีกชั้น).
@@ -391,7 +414,13 @@ export async function createEngine(
     let sendAccumMs = 0;
     let lastSent: PlayerSnapshot | null = null;
     if (config.net.enabled) {
-      remotes = createRemotePlayerManager(scene, config, app.renderer, registry);
+      remotes = createRemotePlayerManager(
+        scene,
+        config,
+        app.renderer,
+        registry,
+        nameplateLayer,
+      );
       // joinOptions: mapId ของ world นี้ + spawn (server spawn player ที่นี่ตั้งแต่เฟรมแรก / ตอน transition ที่ targetSpawn)
       const initial: PlayerSnapshot = {
         tx: spawn.x,
@@ -562,7 +591,7 @@ export async function createEngine(
         if (stepped) mobView.syncAll(localSim.snapshots());
       }
 
-      mobView.update(dtSeconds);
+      mobView.update(dtSeconds, player.position);
     };
 
     // --- pointer → tile helper (P0-11 debug + P1-09 click-to-move) ---
@@ -904,6 +933,7 @@ export async function createEngine(
     viewW = width;
     viewH = height;
     app.renderer.resize(width, height);
+    nameplateLayer.resize(width, height);
     currentWorld.resize(width, height);
     transition.resize(width, height);
   });
@@ -921,6 +951,9 @@ export async function createEngine(
     currentWorld.tick(dtSeconds, deltaMs, ticker.deltaTime, locked);
     // transition step (อาจ swap world ตอนจอมืดสุด — เกิดหลัง tick ของ world เดิมเสร็จแล้ว)
     transition.update(deltaMs);
+    nameplateLayer.syncCamera(currentWorld.scene.world);
+    nameplateLayer.setTransitionAlpha(transition.getFadeAlpha());
+    nameplateLayer.render();
 
     // Living World LW0 (Bible §3.3 tint · §4 rain): client-side clock → phase tint + rain overlay (screen-space,
     // ไม่แตะ collision/spawn §3.3). rain แสดงเฉพาะ map ใน rainMapIds (§4.1 Map 1); คำนวณ tint หลัง transition.update
@@ -961,6 +994,7 @@ export async function createEngine(
     detachResize();
     transition.destroy();
     currentWorld.destroy();
+    nameplateLayer.destroy();
     // P3: ทำลาย atlas ทั้งหมด (texture + source PNG) หลัง world ปล่อย view หมดแล้ว — ก่อน app.destroy
     // ล้าง GPU context. entity ที่ยืม atlas texture ถูก remove ไปกับ currentWorld.destroy() แล้ว (non-owning).
     registry.destroy();
