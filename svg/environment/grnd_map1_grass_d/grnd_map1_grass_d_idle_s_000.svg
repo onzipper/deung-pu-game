@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 32" width="64" height="32" shape-rendering="crispEdges">
+  <defs>
+    <clipPath id="gD">
+      <path d="M32,0 L64,16 L32,32 L0,16 Z"/>
+    </clipPath>
+  </defs>
+  <path d="M32,0 L64,16 L32,32 L0,16 Z" fill="#3F6845"/>
+  <g clip-path="url(#gD)">
+    <ellipse cx="24" cy="12" rx="7" ry="3.5" fill="#284536"/>
+    <ellipse cx="42" cy="22" rx="8" ry="3.5" fill="#284536"/>
+    <path d="M20,13 L22,8 L24,13 Z" fill="#6F9658"/>
+    <path d="M23,14 L25,9 L27,14 Z" fill="#9DB56C"/>
+    <path d="M26,13 L27.5,9.5 L29,13 Z" fill="#6F9658"/>
+    <path d="M38,23 L40,17 L42,23 Z" fill="#6F9658"/>
+    <path d="M41,24 L43,18 L45,24 Z" fill="#9DB56C"/>
+    <path d="M44,23 L45.5,19 L47,23 Z" fill="#6F9658"/>
+    <path d="M12,19 L14,15 L16,19 Z" fill="#9DB56C"/>
+    <path d="M50,14 L51.5,10.5 L53,14 Z" fill="#6F9658"/>
+    <path d="M31,27 L32.5,23.5 L34,27 Z" fill="#9DB56C"/>
+    <ellipse cx="35" cy="8" rx="1.6" ry="1" fill="#C8D691"/>
+  </g>
+</svg>
