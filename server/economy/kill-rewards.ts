@@ -43,9 +43,9 @@ const MONSTER_ID_BY_MOB_TYPE: Readonly<Record<string, string>> = {
   boar_elite: "elite_map1_boar_rampage",
   boss_boiling_boar: "boss_map1_boiling_boar", // Field Boss (D-064) — ship OB (phase P2)
 
-  // Maps 2–4 (Batch 5) — engine mobType (map2/3/4.ts pocket) → economy monsterId (§10.1 convention mon/elite/boss_
-  //   _mapN_*). reward.phase = P2B → grantKillRewardsForMob() คืน null (ยังไม่ grant live จน owner promote §7).
-  //   mobClassForMobType/monsterIdForMobType (milestone/achievement) derive จาก prefix ของ id เหล่านี้อัตโนมัติ.
+  // Maps 2–4 (Batch 5b LIVE) — engine mobType (map2/3/4.ts pocket) → economy monsterId (§10.1 convention
+  //   mon/elite/boss_mapN_*). reward.phase = P2 → grantKillRewardsForMob() แจก EXP/gold/drop เต็มรูปแบบ (owner
+  //   re-sequence 2026-07-14). mobClassForMobType/monsterIdForMobType (milestone/achievement) derive จาก prefix.
   // Map 2
   mushroom_startle: "mon_map2_mushroom_startle",
   scarecrow_walker: "mon_map2_scarecrow_walker",
@@ -154,8 +154,19 @@ const EXCLUDED_ITEM_IDS: ReadonlySet<string> = new Set([
   DEFAULT_REINFORCEMENT_CONFIG.fragment.materialId,
 ]);
 
-/** Field Boss monsterId (D-064) — the sanctioned reinforcement source (§4.2 pity ladder wraps its kill). */
-const FIELD_BOSS_MONSTER_ID = DEFAULT_REINFORCEMENT_CONFIG.bossId;
+/**
+ * Field Boss monsterIds that fire the §4.2 reinforcement pity ladder + §3.5 fragment (boss-only reinforcement
+ * model, Reinforcement §4). Map 1 Field Boss (D-064, from config) + Maps 2–4 Field Bosses (Batch 5b LIVE). The
+ * §4.2 ladder + §3.5 fragment config is boss-GENERIC (one rate for the whole game — 8% base + pity 15); each id
+ * keys its OWN (accountId, bossId) pity row (D-064 per-account-per-boss scope). Story boss
+ * boss_map1_resonant_guardian is deliberately absent (instanced P2B — no field reinforcement source).
+ */
+const REINFORCEMENT_BOSS_IDS: ReadonlySet<string> = new Set([
+  DEFAULT_REINFORCEMENT_CONFIG.bossId, // boss_map1_boiling_boar (Field Boss Map 1, D-064)
+  "boss_map2_field_warden", // Maps 2–4 Field Bosses (MAPS_2_4 §5 boss-only reinforcement · same §4.2 ladder)
+  "boss_map3_nameless_warden",
+  "boss_map4_moondark_dryad",
+]);
 
 /** the player progression baseline table (D-055 §2) — DEFAULT fallback (rooms read this.economy.config instead). */
 export const PLAYER_BASELINE_TABLE = DEFAULT_ECONOMY_CONFIG.playerBaseline;
@@ -227,10 +238,11 @@ export interface WiredKillRewardOutcome extends KillRewardOutcome {
 }
 
 /**
- * grant one eligible kill's rewards. Returns null for an unmapped mobType or a non-P2 monster (boss = P2B, drop
- * not shipped in P2). EXP is always computed; gold/drops/audit run only when `persist` (DB + character). For the
- * Field Boss (§4.2 source) it also runs the reinforcement pity ladder + fragment roll (§3.5) and merges those
- * grants into the loot + attaches `reinforcementProgress`.
+ * grant one eligible kill's rewards. Returns null for an unmapped mobType or a non-P2 monster (Story boss
+ * boss_map1_resonant_guardian = P2B). EXP is always computed; gold/drops/audit run only when `persist` (DB +
+ * character). For a Field Boss (§4.2 source — Map 1 + Maps 2–4, REINFORCEMENT_BOSS_IDS) it also runs the
+ * reinforcement pity ladder + fragment roll (§3.5) and merges those grants into the loot + attaches
+ * `reinforcementProgress`.
  */
 export async function grantKillRewardsForMob(
   req: KillRewardRequest,
@@ -284,15 +296,16 @@ export async function grantKillRewardsForMob(
     },
   );
 
-  // B4 — Field Boss reinforcement (§4.2 pity ladder) + fragment (§3.5). Per ACCOUNT per boss (D-064); each
-  // eligible member's grant reads/writes its own pity row. The pity module picks Prisma vs in-memory + null grant
-  // seams internally (no-DB dev tracks pity in memory, items not persisted). Grants merge into the kill loot so
-  // the existing snapshot-refresh + loot toast pick them up; the pity progress rides `reinforcementProgress`.
-  if (monsterId === FIELD_BOSS_MONSTER_ID) {
+  // B4 + Batch 5b — Field Boss reinforcement (§4.2 pity ladder) + fragment (§3.5) for EVERY Field Boss (Map 1
+  // D-064 + Maps 2–4 LIVE), boss-generic ladder keyed per ACCOUNT per boss (D-064). Each eligible member's grant
+  // reads/writes its own pity row for THIS boss. The pity module picks Prisma vs in-memory + null grant seams
+  // internally (no-DB dev tracks pity in memory, items not persisted). Grants merge into the kill loot so the
+  // existing snapshot-refresh + loot toast pick them up; the pity progress rides `reinforcementProgress`.
+  if (REINFORCEMENT_BOSS_IDS.has(monsterId)) {
     const r = await grantFieldBossReinforcementWired({
       accountId: req.accountId,
       characterId: req.characterId,
-      bossId: FIELD_BOSS_MONSTER_ID,
+      bossId: monsterId, // §4.2 scope keys on THIS boss (each Field Boss owns its pity row)
     });
     if (r.granted.length > 0) outcome.granted.push(...r.granted);
     if (r.delivered.length > 0) outcome.delivered.push(...r.delivered);

@@ -93,17 +93,29 @@ describe("applyExpGain — level-up rollover (§9.1/§9.2)", () => {
     });
   });
 
-  test("cap: at lv10 EXP never accumulates past cumulative cap (§9.1)", () => {
-    const r = applyExpGain({ level: 10, exp: 7440, gained: 1000, curve: CURVE });
-    expect(r.level).toBe(10);
-    expect(r.exp).toBe(7440);
+  test("cap: at lv22 EXP never accumulates past cumulative cap (§9.1, Batch 5b lv22)", () => {
+    const r = applyExpGain({ level: 22, exp: 116080, gained: 1000, curve: CURVE });
+    expect(r.level).toBe(22);
+    expect(r.exp).toBe(116080);
     expect(r.leveledUp).toBe(false);
   });
 
-  test("gain that overshoots into the cap clamps EXP to the cap total", () => {
-    const r = applyExpGain({ level: 9, exp: 7000, gained: 5000, curve: CURVE });
+  test("lv10 no longer the cap — EXP accumulates within lv10 (Batch 5b extended curve)", () => {
+    const r = applyExpGain({ level: 10, exp: 7440, gained: 1000, curve: CURVE });
     expect(r.level).toBe(10);
-    expect(r.exp).toBe(7440);
+    expect(r.exp).toBe(8440); // curve extended → not clamped at 7440 anymore
+    expect(r.leveledUp).toBe(false);
+  });
+
+  test("level-up past 10 works: lv10 + 2280 → lv11 (Batch 5b)", () => {
+    const r = applyExpGain({ level: 10, exp: 7440, gained: 2280, curve: CURVE });
+    expect(r).toEqual({ level: 11, exp: 9720, leveledUp: true, levelsGained: 1 });
+  });
+
+  test("gain that overshoots into the lv22 cap clamps EXP to the cap total", () => {
+    const r = applyExpGain({ level: 21, exp: 116000, gained: 5000, curve: CURVE });
+    expect(r.level).toBe(22);
+    expect(r.exp).toBe(116080);
   });
 });
 
@@ -114,7 +126,9 @@ describe("deriveLevel (§9.2 thresholds)", () => {
     expect(deriveLevel(120, CURVE)).toBe(2);
     expect(deriveLevel(340, CURVE)).toBe(3);
     expect(deriveLevel(7440, CURVE)).toBe(10);
-    expect(deriveLevel(999999, CURVE)).toBe(10); // clamped at cap
+    expect(deriveLevel(9720, CURVE)).toBe(11); // Batch 5b lv10→11 threshold
+    expect(deriveLevel(116080, CURVE)).toBe(22); // band cap (lv22)
+    expect(deriveLevel(999999, CURVE)).toBe(22); // clamped at cap (was 10)
   });
 });
 
