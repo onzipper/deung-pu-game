@@ -1,0 +1,32 @@
+{
+  "assetId": "vfx_royal_wave",
+  "category": "vfx",
+  "frameSize": [
+    128,
+    96
+  ],
+  "pivot": [
+    64,
+    80
+  ],
+  "mirrorSafe": true,
+  "drawnDirections": [
+    "S"
+  ],
+  "mirrorMap": {
+    "SW": "S",
+    "SE": "S",
+    "W": "S",
+    "E": "S",
+    "NW": "S",
+    "N": "S",
+    "NE": "S"
+  },
+  "animations": {
+    "play": {
+      "fps": 15,
+      "loop": false,
+      "frameCount": 3
+    }
+  }
+}

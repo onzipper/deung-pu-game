@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 112 112" width="112" height="112" shape-rendering="crispEdges">
+  <!-- สุริยะฟาด เฟรม 0 — แสงรวมตัวด้านบน -->
+  <circle cx="56" cy="30" r="12" fill="#F4B852"/>
+  <circle cx="56" cy="30" r="7" fill="#FFF0C5"/>
+  <path d="M56,10 L59,18 L53,18 Z" fill="#F4B852"/>
+  <path d="M40,16 L46,22 L40,24 Z" fill="#DD6840"/>
+  <path d="M72,16 L66,22 L72,24 Z" fill="#DD6840"/>
+</svg>

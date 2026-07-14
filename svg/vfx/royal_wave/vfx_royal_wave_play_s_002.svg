@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 96" width="128" height="96" shape-rendering="crispEdges">
+  <!-- คลื่นราชัน เฟรม 2 — สลายเป็นละออง -->
+  <path d="M20,62 Q64,44 108,62 L104,68 Q64,52 24,68 Z" fill="#B0B9EC" opacity="0.5"/>
+  <circle cx="30" cy="58" r="2.5" fill="#B0B9EC" opacity="0.7"/>
+  <circle cx="64" cy="48" r="3" fill="#B0B9EC" opacity="0.7"/>
+  <circle cx="98" cy="58" r="2.5" fill="#B0B9EC" opacity="0.7"/>
+  <circle cx="46" cy="54" r="2" fill="#7786C8" opacity="0.6"/>
+  <circle cx="82" cy="54" r="2" fill="#7786C8" opacity="0.6"/>
+</svg>

@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 96" width="128" height="96" shape-rendering="crispEdges">
+  <!-- คลื่นราชัน เฟรม 1 — คลื่นแผ่กว้างเต็มแรง -->
+  <path d="M16,66 Q64,34 112,66 L104,80 Q64,52 24,80 Z" fill="#B0B9EC"/>
+  <path d="M26,68 Q64,42 102,68 L96,76 Q64,54 32,76 Z" fill="#7786C8"/>
+  <path d="M38,68 Q64,50 90,68 L86,72 Q64,58 42,72 Z" fill="#4B568E"/>
+  <path d="M20,58 L26,60 L22,64 Z" fill="#B0B9EC"/>
+  <path d="M106,58 L102,62 L108,64 Z" fill="#B0B9EC"/>
+</svg>

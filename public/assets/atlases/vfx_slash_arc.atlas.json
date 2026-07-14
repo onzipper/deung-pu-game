@@ -1,0 +1,33 @@
+{
+  "image": "vfx_slash_arc.png",
+  "rasterized": true,
+  "width": 192,
+  "height": 192,
+  "frameSize": [
+    96,
+    96
+  ],
+  "frames": [
+    {
+      "key": "play_s_0",
+      "x": 0,
+      "y": 0,
+      "w": 96,
+      "h": 96
+    },
+    {
+      "key": "play_s_1",
+      "x": 96,
+      "y": 0,
+      "w": 96,
+      "h": 96
+    },
+    {
+      "key": "play_s_2",
+      "x": 0,
+      "y": 96,
+      "w": 96,
+      "h": 96
+    }
+  ]
+}
