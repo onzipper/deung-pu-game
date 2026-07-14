@@ -82,6 +82,42 @@ export interface EnhancementCommit {
 }
 
 /**
+ * B4 fragment exchange (Reinforcement §3.5, never-downgrade zone): spend `consumeCount` `upg_reinforcement_fragment`
+ * from ONE bag stack + grant `reinforcementQuantity` `upg_reinforcement` back, all under row locks — atomic so a
+ * crash can never spend the fragments without producing the reinforcement (or vice-versa). `fragmentExpectedVersion`
+ * = the version the service read (the FOR UPDATE re-check + a stale client version reject a double-exchange).
+ */
+export interface FragmentExchangeCommit {
+  accountId: string;
+  characterId: string;
+  /** the `upg_reinforcement_fragment` stack to spend from. */
+  fragmentInstanceId: string;
+  fragmentExpectedVersion: number;
+  /** §3.5 exchange input (5). */
+  consumeCount: number;
+  /** canonical `upg_reinforcement` id to grant. */
+  reinforcementItemId: string;
+  /** §3.5 exchange output (1). */
+  reinforcementQuantity: number;
+  /** §12.1 anti-dup stamp for the granted reinforcement (null — materials carry none). */
+  reinforcementUniqueEquipGroup: string | null;
+  /** bag capacity — the granted reinforcement needs a mergeable stack or a free slot, else `inventory_full`. */
+  capacity: number;
+}
+
+/**
+ * outcome of an atomic fragment exchange: applied (5 spent, 1 granted) · insufficient (stack has < consumeCount)
+ * · conflict (optimistic-lock mismatch / the fragment stack changed) · inventory_full (no mergeable reinforcement
+ * stack AND no free slot → nothing spent, all-or-nothing). **Strict** — a real DB error propagates.
+ */
+export type FragmentExchangeStatus = "applied" | "insufficient" | "conflict" | "inventory_full";
+export interface FragmentExchangeOutcome {
+  status: FragmentExchangeStatus;
+  /** reinforcement quantity that landed in the bag when applied (else 0). */
+  grantedReinforcement: number;
+}
+
+/**
  * P2-09 drop grant — one item to insert into the bag. `stackable` items merge into an existing bag stack of the
  * same itemId (quantity+n); non-stackable (equipment) create one instance per unit, each taking its own slot.
  * `uniqueEquipGroup` is the §12.1 anti-dup stamp from the item def (equipment; null otherwise).
@@ -138,6 +174,15 @@ export interface InventoryRepository {
    * like it worked). No RNG (guaranteed 100%): the log's `rngRoll` is a fixed sentinel.
    */
   commitEnhancement(commit: EnhancementCommit): Promise<void>;
+  /**
+   * B4 fragment exchange (Reinforcement §3.5, never-downgrade zone): in ONE transaction, lock the fragment stack
+   * (FOR UPDATE), verify `version` === expected **and** quantity ≥ `consumeCount`; then spend `consumeCount`
+   * (destroy the stack at 0) and grant `reinforcementQuantity` `upg_reinforcement` (merge into an existing
+   * reinforcement stack, else a free bag slot). No mergeable stack AND no free slot → `inventory_full`, nothing
+   * spent (all-or-nothing). Version mismatch / not enough held → `conflict` / `insufficient`. **Strict** — a DB
+   * error propagates (an exchange that did not persist must not look like it worked).
+   */
+  commitFragmentExchange(commit: FragmentExchangeCommit): Promise<FragmentExchangeOutcome>;
   /**
    * P2-11 shop sell (never-downgrade zone: items are money-like): consume `quantity` from ONE owned bag
    * instance in a single row-locked transaction. Lock the row (FOR UPDATE), verify `version` ===

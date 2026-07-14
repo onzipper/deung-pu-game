@@ -155,15 +155,14 @@ const DROP_TABLES: DropTable[] = [
   },
   {
     // Field Boss หมูป่าหม้อเดือด (D-064) — capstone Map 1, ship OB (phase P2).
-    // ⚠️ นี่คือ **ตารางเดียว** ที่ได้รับอนุญาตให้ดรอป `upg_reinforcement` (วัสดุเสริมแกร่งตัวเต็ม) — R8 guard
-    //    ใน kill-rewards.ts ยกเว้นเฉพาะ monsterId นี้. OB ให้ตัวเต็มตรง ๆ; pity ladder + fragment/exchange = post-OB.
+    // ⚠️ B4 (Reinforcement §4.2/§3.5): `upg_reinforcement` (ตัวเต็ม) + `upg_reinforcement_fragment` (เศษ) **ไม่ได้
+    //    ดรอปจากตารางนี้แล้ว** — มาจาก pity ladder (8% + pity การันตีรอบ 15) + fragment roll (10.7%) ใน
+    //    server/economy/reinforcement-pity.ts (per-account-per-boss) แทน OB shortcut เดิม (guaranteed ตัวเต็ม 1–2).
+    //    ทั้งสอง id ถูก R8 guard กันออกจาก generic roll สำหรับทุกมอน (รวม Field Boss) — kill-rewards.ts.
     dropTableId: "drop_map1_field_boss_v1",
     monsterId: "boss_map1_boiling_boar",
     phase: "P2",
-    guaranteed: [
-      { itemId: "upg_reinforcement", poolId: null, quantity: { min: 1, max: 2 } },
-      { itemId: "mat_boss_resonance_core", poolId: null, quantity: { min: 1, max: 3 } },
-    ],
+    guaranteed: [{ itemId: "mat_boss_resonance_core", poolId: null, quantity: { min: 1, max: 3 } }],
     rolls: [
       { rollId: "uncommon_equipment", chancePercent: 70, itemId: null, poolId: "uncommon_boar_gear", quantity: { min: 1, max: 1 } },
       { rollId: "rare_equipment", chancePercent: 15, itemId: null, poolId: "rare_map1_gear", quantity: { min: 1, max: 1 } },

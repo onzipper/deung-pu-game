@@ -89,6 +89,8 @@ import {
   MSG_MOVE_ITEM,
   MSG_ENHANCE_ITEM,
   MSG_ENHANCE_RESULT,
+  MSG_FRAGMENT_EXCHANGE,
+  MSG_FRAGMENT_EXCHANGE_RESULT,
   MSG_SHOP_LIST_REQUEST,
   MSG_SHOP_LIST,
   MSG_SHOP_BUY,
@@ -127,6 +129,8 @@ import {
   type MoveItemMessage,
   type EnhanceItemMessage,
   type EnhanceResultMessage,
+  type FragmentExchangeMessage,
+  type FragmentExchangeResultMessage,
   type InventoryOp,
   type InventoryOpRejectedMessage,
   type PlayerProgressMessage,
@@ -183,6 +187,10 @@ import {
   type EnhanceResult,
 } from "../../src/server/inventory/enhancement-service";
 import {
+  exchangeFragments,
+  type FragmentExchangeResult,
+} from "../../src/server/inventory/fragment-exchange-service";
+import {
   depositToStorage,
   withdrawFromStorage,
   claimDeliveryEntry,
@@ -200,6 +208,7 @@ import {
   ITEM_CATALOG,
   ENHANCEMENT_CURVE,
   REINFORCEMENT_RULES,
+  FRAGMENT_EXCHANGE_RULES,
   ENHANCEMENT_CONFIG_VERSION,
   STORAGE_CONFIG,
   STORAGE_CAPACITY,
@@ -752,6 +761,13 @@ export class MapRoom extends Room<MapRoomState> {
     //   ปฏิเสธ (flag inert P2 / no material / max / lock): MSG_ENHANCE_RESULT ok:false + reason. (§2.3/R8)
     this.onMessage(MSG_ENHANCE_ITEM, (client: Client, message: EnhanceItemMessage) => {
       void this.runEnhanceOp(client, message);
+    });
+
+    // B4: fragment exchange (เศษเสริมแกร่ง 5 → เสริมแกร่ง 1, Reinforcement §3.5) — server-authoritative, atomic.
+    //   client ส่ง intent (fragment stack instanceId + expectedVersion + idempotencyKey) → สำเร็จ: result + snapshot;
+    //   ปฏิเสธ (no DB / เศษไม่พอ / กระเป๋าเต็ม / lock): MSG_FRAGMENT_EXCHANGE_RESULT ok:false + reason.
+    this.onMessage(MSG_FRAGMENT_EXCHANGE, (client: Client, message: FragmentExchangeMessage) => {
+      void this.runFragmentExchangeOp(client, message);
     });
 
     // P2-11: starter NPC shop (Economy §8) — buy/sell ผ่าน ledger + inventory transaction, ราคา = server config.
@@ -1507,6 +1523,8 @@ export class MapRoom extends Room<MapRoomState> {
       loot: outcome.granted,
       lootOverflow: outcome.overflow, // §12.5 truly-unpersisted (no DB) — client warns inventory_full
       lootDelivered: outcome.delivered, // ITEM 2: bag full → routed to Delivery Box (persisted, not lost)
+      // B4 (§4.2): Field Boss kill carries the pity progress (omit for every other mob) → panel เสริมแกร่ง.
+      ...(outcome.reinforcementProgress ? { reinforcementProgress: outcome.reinforcementProgress } : {}),
     };
     client.send(MSG_PLAYER_PROGRESS, msg);
 
@@ -1694,6 +1712,52 @@ export class MapRoom extends Room<MapRoomState> {
     // C2b: enhancement achievements (max_value plus / counter / streak). enhance.fail has NO live source in P2
     //   (guaranteed +1, no RNG — a business reject like NO_REINFORCEMENT is not a fail outcome). Documented TODO.
     this.emitAchievement(client, "enhance.success", { plus: result.newLevel }, Date.now());
+  }
+
+  /**
+   * B4: run one fragment exchange (5 เศษเสริมแกร่ง → 1 เสริมแกร่ง, Reinforcement §3.5) then answer the client.
+   * Only character-bound sessions with a DB (anonymous/dev → reject NO_DB). Success → MSG_FRAGMENT_EXCHANGE_RESULT
+   * (ok, granted) + MSG_INVENTORY_STATE (new snapshot: −5 เศษ, +1 เสริมแกร่ง). Business reject (เศษไม่พอ / กระเป๋าเต็ม
+   * / version lock) → ok:false + reason. DB error → resync signal (TRANSACTION_CONFLICT) — never faked as success
+   * (never-downgrade zone: an exchange that did not persist must not look like it worked).
+   */
+  private async runFragmentExchangeOp(client: Client, message: FragmentExchangeMessage): Promise<void> {
+    const rec = this.sessionCharacters.get(client.sessionId);
+    if (!rec || !inventoryPersistenceAvailable()) {
+      const rejected: FragmentExchangeResultMessage = { ok: false, granted: 0, reason: "NO_DB" };
+      client.send(MSG_FRAGMENT_EXCHANGE_RESULT, rejected);
+      return;
+    }
+    let result: FragmentExchangeResult;
+    try {
+      result = await exchangeFragments(
+        { repo: getInventoryRepository(), catalog: ITEM_CATALOG, rules: FRAGMENT_EXCHANGE_RULES },
+        {
+          characterId: rec.characterId,
+          accountId: rec.accountId,
+          instanceId: String(message?.instanceId ?? ""),
+          expectedVersion: Number(message?.expectedVersion),
+          idempotencyKey: String(message?.idempotencyKey ?? ""),
+          capacity: INVENTORY_CAPACITY,
+        },
+      );
+    } catch (err) {
+      console.warn(
+        `[MapRoom ${this.roomId}] fragment-exchange DB error ${client.sessionId}: ` +
+          (err instanceof Error ? err.message : String(err)),
+      );
+      const rejected: FragmentExchangeResultMessage = { ok: false, granted: 0, reason: "TRANSACTION_CONFLICT" };
+      client.send(MSG_FRAGMENT_EXCHANGE_RESULT, rejected);
+      return;
+    }
+    if (!result.ok) {
+      const rejected: FragmentExchangeResultMessage = { ok: false, granted: 0, reason: result.reason };
+      client.send(MSG_FRAGMENT_EXCHANGE_RESULT, rejected);
+      return;
+    }
+    const okMsg: FragmentExchangeResultMessage = { ok: true, granted: result.grantedReinforcement };
+    client.send(MSG_FRAGMENT_EXCHANGE_RESULT, okMsg);
+    client.send(MSG_INVENTORY_STATE, result.snapshot);
   }
 
   /**

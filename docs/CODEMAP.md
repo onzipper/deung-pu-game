@@ -55,7 +55,7 @@
 - `server/security/` — WS handshake (JWT+origin+rate limit), session takeover/lease (Bible 5.2)
 - `server/characters/` — persistence-decision (pure) + character-state load/upsert (best-effort, no DB = in-memory) + progress-carrier.ts (cross-room + refresh/takeover level/exp carrier)
 - `server/inventory/` — best-effort DB glue for MapRoom (snapshot on join; capacity + item catalog; mutations strict) + P2-10 reinforcement knobs
-- `server/economy/` — kill-reward wiring: mobType→monsterId + Prisma seams (ledger/inventory/drop-audit); EXP always, gold/drops/audit only with DB · shop-state (P2-11) · milestones (C1 §18) · achievements (C2b: progress-store/ledger seams + emit/snapshot + client-event whitelist)
+- `server/economy/` — kill-reward wiring: mobType→monsterId + Prisma seams (ledger/inventory/drop-audit); EXP always, gold/drops/audit w/ DB · shop-state (P2-11) · milestones (C1 §18) · achievements (C2b: seams + emit/snapshot + whitelist) · reinforcement-pity (B4: §4.2 pity + §3.5 fragment, Prisma/mem)
 - `server/db/` — Prisma client singleton (server-only) + ledger contract (getBalance/appendEntry)
 - `server/config/` — Design Knobs: economy (drop/EXP/Gold/enh/partyReward) + reinforcement (pity/fragment/NO_REINFORCEMENT) + loader + storage (P2-17) + achievements.ts (C2a, 65 rows)
 - `prisma/migrations/` — 0001_init (13 tables) · 0002_shop_ledger_reasons (LedgerReason += shop_buy/shop_sell)
@@ -66,8 +66,8 @@
 - `src/server/db.ts` — Prisma client singleton on the Next API side (**server-only**, must never enter the client bundle)
 - `src/server/auth/` — token/session-cookie, password hash/policy, email normalize, auth service/upgrade state machine
 - `src/server/characters/` — repository (memory/prisma) + service (slot cap, cross-account guard)
-- `src/server/inventory/` — item catalog (Design Knob: slot + stat bonus) + equipment-stats (combat aggregation, folds +N curve §16.3.1) + repository (memory/prisma: FOR UPDATE + optimistic `version`, commitEnhancement/grantItems loot→bag) + service (equip/unequip/move/swap/snapshot) + enhancement-service (P2-10) + storage-service (P2-17)
-- `src/server/economy/` — pure P2-09 resolvers: exp (level-diff/party/level-up/baseline D-055) · drop-roll (pools+guaranteed+audit+reinforcement guard) · kill-reward (injected seams, no DB) · shop · milestone (C1 §18, idempotent) · achievement-engine (C2b: rule evaluator all 7 types + DI, auto-claim idempotent)
+- `src/server/inventory/` — item catalog (slot/stat bonus; + reinf/fragment materials) + equipment-stats (+N curve §16.3.1) + repository (memory/prisma; optimistic `version`; commit{Enhancement,FragmentExchange}/grantItems) + service (equip/move/snapshot) + enhancement/fragment-exchange(B4 5→1)/storage services
+- `src/server/economy/` — pure P2-09 resolvers: exp (level-diff/party/level-up/D-055) · drop-roll (pools+guaranteed+audit+reinforcement guard) · kill-reward (injected seams, no DB) · reinforcement-pity (B4: §4.2 pity + §3.5 fragment) · shop · milestone (C1 §18, idempotent) · achievement-engine (C2b: 7-type evaluator + DI)
 
 ## scripts + tests
 

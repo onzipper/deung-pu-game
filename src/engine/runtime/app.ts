@@ -79,6 +79,7 @@ import {
   setDeliveryResult,
   setDeliveryState,
   setEnhanceResult,
+  setFragmentExchangeResult,
   setGoldFromProgress,
   setInventoryRejection,
   setInventoryState,
@@ -544,6 +545,8 @@ export async function createEngine(
           onInventoryOpRejected: (rejected) => setInventoryRejection(rejected),
           // P2-10: ผลเสริมแกร่ง → Zustand bridge ตรง ๆ (event-driven, ดู comment ที่ game-store.ts setEnhanceResult)
           onEnhanceResult: (result) => setEnhanceResult(result),
+          // B4: ผลแลกเศษ 5→1 → Zustand bridge ตรง ๆ (event-driven, เหมือน onEnhanceResult)
+          onFragmentExchangeResult: (result) => setFragmentExchangeResult(result),
           // P2-11: catalog ร้าน + ผลซื้อ/ขาย → Zustand bridge ตรง ๆ (event-driven, เหมือน onEnhanceResult)
           onShopList: (list) => setShopList(list),
           onShopResult: (result) => setShopResult(result),

@@ -11,6 +11,8 @@ import {
   type DepositInput,
   type EnhancementCommit,
   type EnhancementLogInput,
+  type FragmentExchangeCommit,
+  type FragmentExchangeOutcome,
   type GrantItemsInput,
   type GrantOutcome,
   type InstanceMutation,
@@ -220,6 +222,51 @@ export function createInMemoryInventoryRepository(): InMemoryInventoryRepository
         r.location = "DESTROYED";
         r.slot = null;
       }
+    },
+
+    async commitFragmentExchange(commit: FragmentExchangeCommit): Promise<FragmentExchangeOutcome> {
+      const frag = byId.get(commit.fragmentInstanceId);
+      // verify BEFORE touching anything (all-or-nothing; mirrors the tx FOR UPDATE + check).
+      if (!frag || frag.location !== "CHARACTER_INVENTORY" || frag.version !== commit.fragmentExpectedVersion) {
+        return { status: "conflict", grantedReinforcement: 0 };
+      }
+      if (commit.consumeCount < 1 || frag.quantity < commit.consumeCount) {
+        return { status: "insufficient", grantedReinforcement: 0 };
+      }
+      // can the granted reinforcement be placed? an existing reinforcement stack always merges; otherwise it needs
+      // a free slot AFTER the fragment consume (a depleted fragment stack frees its own slot).
+      const bag = Array.from(byId.values()).filter(
+        (r) => r.characterId === commit.characterId && r.location === "CHARACTER_INVENTORY",
+      );
+      const mergeStack = bag.find(
+        (r) => r.itemId === commit.reinforcementItemId && r.id !== frag.id,
+      );
+      const fragDepletes = frag.quantity - commit.consumeCount === 0;
+      if (!mergeStack) {
+        const used = new Set<number>();
+        for (const r of bag) if (r.slot !== null && r.id !== frag.id) used.add(r.slot);
+        if (!fragDepletes && frag.slot !== null) used.add(frag.slot); // fragment slot stays occupied
+        let freeSlot = -1;
+        for (let s = 0; s < commit.capacity; s++) if (!used.has(s)) { freeSlot = s; break; }
+        if (freeSlot < 0) return { status: "inventory_full", grantedReinforcement: 0 };
+      }
+      // WRITE fragment: spend consumeCount (destroy at 0).
+      frag.quantity -= commit.consumeCount;
+      frag.version += 1;
+      if (frag.quantity === 0) {
+        frag.location = "DESTROYED";
+        frag.slot = null;
+      }
+      // WRITE reinforcement: merge or new slot (grantIntoBag re-scans the now-updated bag).
+      grantIntoBag(commit.accountId, commit.characterId, commit.capacity, [
+        {
+          itemId: commit.reinforcementItemId,
+          quantity: commit.reinforcementQuantity,
+          stackable: true,
+          uniqueEquipGroup: commit.reinforcementUniqueEquipGroup,
+        },
+      ]);
+      return { status: "applied", grantedReinforcement: commit.reinforcementQuantity };
     },
 
     // ── P2-17 storage + delivery ─────────────────────────────────────────────

@@ -58,9 +58,12 @@ export const ICON_FILES: Readonly<Record<string, string>> = {
   mat_resonance_dust: "itm_mat_resonance_dust_uncommon_v01.svg",
   mat_boss_resonance_core: "itm_mat_boss_resonance_core_uncommon_v01.svg",
 
-  // Reinforcement material (server/config/reinforcement.ts materialId, R10 rename — NOT part of
-  // item-catalog.ts's DEFAULT_ITEM_CATALOG, so it's outside the sync test's id set but still needs art).
+  // Reinforcement material + fragment (server/config/reinforcement.ts, R10 rename). B4 added both to
+  // item-catalog.ts's DEFAULT_ITEM_CATALOG (stackable materials §3.1/§3.5) → now inside the sync test's id set.
   upg_reinforcement: "itm_upg_reinforcement_rare_v01.svg",
+  // B4 PLACEHOLDER: เศษเสริมแกร่ง reuses the เสริมแกร่ง icon until dedicated fragment art lands (SVG pipeline /
+  //   L2 final-art order = owner-deferred). Swap to `itm_upg_reinforcement_fragment_*` once art exists.
+  upg_reinforcement_fragment: "itm_upg_reinforcement_rare_v01.svg",
 };
 
 /** equipment slot key (item-catalog.ts EQUIPMENT_SLOTS, §1.1) → empty-slot placeholder SVG under svg/ui/. */
