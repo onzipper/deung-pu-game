@@ -7,6 +7,7 @@
 import type {
   EconomyConfig,
   EquipmentPool,
+  ExpLevelRow,
   MilestoneReward,
   MonsterReward,
   DropTable,
@@ -69,6 +70,21 @@ const EQUIPMENT_POOLS: EquipmentPool[] = [
       { itemId: "eq_talisman_moon_echo", weight: 20 },
     ],
   },
+  // ── Maps 2–4 equipment pools (MAPS_2_4 spec §4) — ⚠️ ENTRIES ว่างไว้ก่อน (owner-gated §7 Q2) ──────────────
+  // เอกสาร §4 อ้าง pool_mapN_*_gear ในตารางดรอป (§5) แต่ **ยังไม่ mint Equipment Item Master ของ Map 2–4** (item
+  // id/stat จริง = extension แยก, mirror Map 1 §7.2–§7.6 — รอ owner เคาะ §7 Q2). ประกาศ pool ครบเพื่อให้ตารางดรอป
+  // well-formed (drop table อ้าง poolId ได้จริง); entries ว่าง → rollDropTable/pickFromPool คืน null = ไม่ดรอป gear
+  // จน Q2 mint item + ใส่ weight. ไม่ hardcode weight เดา (ห้ามตัดสิน balance เอง). ทุกค่า = Design Knob §48.
+  { poolId: "pool_map2_common_gear", entries: [] },
+  { poolId: "pool_map2_uncommon_gear", entries: [] },
+  { poolId: "pool_map2_rare_gear", entries: [] },
+  { poolId: "pool_map3_common_gear", entries: [] },
+  { poolId: "pool_map3_uncommon_gear", entries: [] },
+  { poolId: "pool_map3_rare_gear", entries: [] },
+  { poolId: "pool_map4_common_gear", entries: [] },
+  { poolId: "pool_map4_uncommon_gear", entries: [] },
+  { poolId: "pool_map4_rare_gear", entries: [] },
+  { poolId: "pool_map4_epic_gear", entries: [] }, // Epic ตัวแรกในเนื้อหา (Map 4 boss 6%, §5.3)
 ];
 
 // ── monster rewards (Economy §10.1 / D-055 §9.1 identity) ─────────────────────
@@ -81,6 +97,30 @@ const MONSTER_REWARDS: MonsterReward[] = [
   { monsterId: "boss_map1_resonant_guardian", level: 8, exp: 550, goldMin: 180, goldMax: 260, respawnSeconds: 0, dropTableId: "drop_map1_boss_v1", phase: "P2B" },
   // Field Boss หมูป่าหม้อเดือด (D-064) — capstone Map 1, ship OB live (phase P2). open-world respawn ~4 นาที.
   { monsterId: "boss_map1_boiling_boar", level: 6, exp: 300, goldMin: 120, goldMax: 200, respawnSeconds: 240, dropTableId: "drop_map1_field_boss_v1", phase: "P2" },
+
+  // ── Maps 2–4 monster rewards (MAPS_2_4 spec §2 · EXP/Gold/Respawn verbatim) ────────────────────────────
+  // phase = **P2B** (config พร้อม, ยังไม่ grant live) — mirror pattern boss_map1_resonant_guardian: OB scope =
+  //   "Map 1 only" (current-state) + EXP curve lv11–22 (§7 Q1) / equipment master (§7 Q2) / boss reinforcement
+  //   (§7 Q3) = owner-gated. grantKillRewardsForMob() คืน null เมื่อ phase ≠ "P2" → มอนสู้ได้ (combat = engine)
+  //   แต่ยังไม่แจก reward จนกว่า owner promote → P2 + เคาะ Q1/Q2/Q3. boss respawn "Encounter" → 240s placeholder.
+  // Map 2 — ถนนชายไร่
+  { monsterId: "mon_map2_mushroom_startle", level: 8, exp: 50, goldMin: 14, goldMax: 20, respawnSeconds: 25, dropTableId: "drop_map2_mushroom_startle_v1", phase: "P2B" },
+  { monsterId: "mon_map2_scarecrow_walker", level: 10, exp: 60, goldMin: 18, goldMax: 26, respawnSeconds: 30, dropTableId: "drop_map2_scarecrow_walker_v1", phase: "P2B" },
+  { monsterId: "mon_map2_greenlight_rat", level: 11, exp: 66, goldMin: 20, goldMax: 28, respawnSeconds: 25, dropTableId: "drop_map2_greenlight_rat_v1", phase: "P2B" },
+  { monsterId: "elite_map2_talisman_scarecrow", level: 13, exp: 680, goldMin: 120, goldMax: 180, respawnSeconds: 300, dropTableId: "drop_map2_elite_v1", phase: "P2B" },
+  { monsterId: "boss_map2_field_warden", level: 14, exp: 1000, goldMin: 320, goldMax: 460, respawnSeconds: 240, dropTableId: "drop_map2_boss_v1", phase: "P2B" },
+  // Map 3 — ทางป่าเก่า
+  { monsterId: "mon_map3_gnawing_root", level: 12, exp: 72, goldMin: 22, goldMax: 32, respawnSeconds: 30, dropTableId: "drop_map3_gnawing_root_v1", phase: "P2B" },
+  { monsterId: "mon_map3_shadow_monkey", level: 14, exp: 82, goldMin: 26, goldMax: 36, respawnSeconds: 30, dropTableId: "drop_map3_shadow_monkey_v1", phase: "P2B" },
+  { monsterId: "mon_map3_walking_stone", level: 15, exp: 92, goldMin: 30, goldMax: 42, respawnSeconds: 35, dropTableId: "drop_map3_walking_stone_v1", phase: "P2B" },
+  { monsterId: "elite_map3_mossless_stone", level: 17, exp: 900, goldMin: 160, goldMax: 240, respawnSeconds: 390, dropTableId: "drop_map3_elite_v1", phase: "P2B" },
+  { monsterId: "boss_map3_nameless_warden", level: 18, exp: 1300, goldMin: 420, goldMax: 600, respawnSeconds: 240, dropTableId: "drop_map3_boss_v1", phase: "P2B" },
+  // Map 4 — ป่าจันทร์เงา
+  { monsterId: "mon_map4_moonlight_wisp", level: 16, exp: 92, goldMin: 30, goldMax: 42, respawnSeconds: 30, dropTableId: "drop_map4_moonlight_wisp_v1", phase: "P2B" },
+  { monsterId: "mon_map4_dream_mushroom", level: 17, exp: 96, goldMin: 32, goldMax: 44, respawnSeconds: 30, dropTableId: "drop_map4_dream_mushroom_v1", phase: "P2B" },
+  { monsterId: "mon_map4_shadow_deer", level: 19, exp: 108, goldMin: 38, goldMax: 52, respawnSeconds: 40, dropTableId: "drop_map4_shadow_deer_v1", phase: "P2B" },
+  { monsterId: "elite_map4_shattered_moon_deer", level: 21, exp: 1100, goldMin: 200, goldMax: 300, respawnSeconds: 420, dropTableId: "drop_map4_elite_v1", phase: "P2B" },
+  { monsterId: "boss_map4_moondark_dryad", level: 22, exp: 1600, goldMin: 520, goldMax: 740, respawnSeconds: 240, dropTableId: "drop_map4_boss_v1", phase: "P2B" },
 ];
 
 // ── drop tables (Economy §11) — Kraeng/upg_kraeng rows SUPERSEDED to 0% (Reinforcement §4) ────
@@ -166,6 +206,180 @@ const DROP_TABLES: DropTable[] = [
     rolls: [
       { rollId: "uncommon_equipment", chancePercent: 70, itemId: null, poolId: "uncommon_boar_gear", quantity: { min: 1, max: 1 } },
       { rollId: "rare_equipment", chancePercent: 15, itemId: null, poolId: "rare_map1_gear", quantity: { min: 1, max: 1 } },
+      { rollId: "potion", chancePercent: 100, itemId: "con_small_potion", poolId: null, quantity: { min: 3, max: 5 } },
+    ],
+  },
+
+  // ── Maps 2–4 drop tables (MAPS_2_4 spec §5 — mirror Map 1 §11 format) ───────────────────────────────────
+  // phase = **P2B** (config พร้อม, ไม่ roll live จนกว่า reward.phase → P2, §7 owner-gate). per-mob table (มอนปกติ
+  //   ต่างวัสดุ → 1:1 monsterId↔dropTable เหมือน Map 1; spec ตั้งชื่อ family "drop_mapN_normal" แต่ engine ผูก 1
+  //   table ต่อ 1 monsterId → split ต่อมอน). equipment pool = pool_mapN_*_gear (entries ว่างจน §7 Q2). potion =
+  //   con_small_potion (mid-tier potion = §7 Q6, owner-gated). **ไม่มี reinforcement/เศษ ในตารางไหน** — boss-only
+  //   ผ่าน pity path (§4.2/§3.5) + rate ของ boss Map 2–4 = owner-gated §7 Q3 (ยังไม่ wire, ดูรายงาน). R8 guard
+  //   กัน upg_reinforcement ออกจาก generic roll อยู่แล้ว (kill-rewards.ts).
+  // Map 2 — ถนนชายไร่ (§5.1)
+  {
+    dropTableId: "drop_map2_mushroom_startle_v1", monsterId: "mon_map2_mushroom_startle", phase: "P2B",
+    guaranteed: [],
+    rolls: [
+      { rollId: "material", chancePercent: 70, itemId: "mat_startle_spore", poolId: null, quantity: { min: 1, max: 2 } },
+      { rollId: "potion", chancePercent: 4, itemId: "con_small_potion", poolId: null, quantity: { min: 1, max: 1 } },
+      { rollId: "common_equipment", chancePercent: 18, itemId: null, poolId: "pool_map2_common_gear", quantity: { min: 1, max: 1 } },
+    ],
+  },
+  {
+    dropTableId: "drop_map2_scarecrow_walker_v1", monsterId: "mon_map2_scarecrow_walker", phase: "P2B",
+    guaranteed: [],
+    rolls: [
+      { rollId: "material", chancePercent: 70, itemId: "mat_resonant_straw", poolId: null, quantity: { min: 1, max: 2 } },
+      { rollId: "potion", chancePercent: 5, itemId: "con_small_potion", poolId: null, quantity: { min: 1, max: 1 } },
+      { rollId: "common_equipment", chancePercent: 20, itemId: null, poolId: "pool_map2_common_gear", quantity: { min: 1, max: 1 } },
+      { rollId: "uncommon_equipment", chancePercent: 6, itemId: null, poolId: "pool_map2_uncommon_gear", quantity: { min: 1, max: 1 } },
+    ],
+  },
+  {
+    dropTableId: "drop_map2_greenlight_rat_v1", monsterId: "mon_map2_greenlight_rat", phase: "P2B",
+    guaranteed: [],
+    rolls: [
+      { rollId: "main_material", chancePercent: 55, itemId: "mat_greenlight_whisker", poolId: null, quantity: { min: 1, max: 1 } },
+      { rollId: "secondary_material", chancePercent: 20, itemId: "mat_resonant_straw", poolId: null, quantity: { min: 1, max: 1 } },
+      { rollId: "potion", chancePercent: 5, itemId: "con_small_potion", poolId: null, quantity: { min: 1, max: 1 } },
+      { rollId: "common_equipment", chancePercent: 16, itemId: null, poolId: "pool_map2_common_gear", quantity: { min: 1, max: 1 } },
+    ],
+  },
+  {
+    // Elite หุ่นฟางพันยันต์ (§5.1 elite) — guaranteed material + rolls. respawn 5m, ไม่มี pity.
+    dropTableId: "drop_map2_elite_v1", monsterId: "elite_map2_talisman_scarecrow", phase: "P2B",
+    guaranteed: [
+      { itemId: "mat_resonant_straw", poolId: null, quantity: { min: 2, max: 4 } },
+      { itemId: "mat_greenlight_whisker", poolId: null, quantity: { min: 1, max: 2 } },
+    ],
+    rolls: [
+      { rollId: "uncommon_equipment", chancePercent: 60, itemId: null, poolId: "pool_map2_uncommon_gear", quantity: { min: 1, max: 1 } },
+      { rollId: "rare_equipment", chancePercent: 8, itemId: null, poolId: "pool_map2_rare_gear", quantity: { min: 1, max: 1 } },
+      { rollId: "potion", chancePercent: 25, itemId: "con_small_potion", poolId: null, quantity: { min: 1, max: 2 } },
+    ],
+  },
+  {
+    // Boss หุ่นฟางผู้เฝ้าไร่ (§5.1 boss) — guaranteed boss material (ACCOUNT_BOUND) + uncommon pool; potion 100% roll.
+    dropTableId: "drop_map2_boss_v1", monsterId: "boss_map2_field_warden", phase: "P2B",
+    guaranteed: [
+      { itemId: "mat_warden_talisman_ash", poolId: null, quantity: { min: 2, max: 4 } },
+      { itemId: null, poolId: "pool_map2_uncommon_gear", quantity: { min: 1, max: 1 } },
+    ],
+    rolls: [
+      { rollId: "rare_equipment", chancePercent: 20, itemId: null, poolId: "pool_map2_rare_gear", quantity: { min: 1, max: 1 } },
+      { rollId: "potion", chancePercent: 100, itemId: "con_small_potion", poolId: null, quantity: { min: 3, max: 5 } },
+    ],
+  },
+  // Map 3 — ทางป่าเก่า (§5.2)
+  {
+    dropTableId: "drop_map3_gnawing_root_v1", monsterId: "mon_map3_gnawing_root", phase: "P2B",
+    guaranteed: [],
+    rolls: [
+      { rollId: "material", chancePercent: 70, itemId: "mat_old_root_scrap", poolId: null, quantity: { min: 1, max: 2 } },
+      { rollId: "potion", chancePercent: 5, itemId: "con_small_potion", poolId: null, quantity: { min: 1, max: 1 } },
+      { rollId: "common_equipment", chancePercent: 18, itemId: null, poolId: "pool_map3_common_gear", quantity: { min: 1, max: 1 } },
+    ],
+  },
+  {
+    dropTableId: "drop_map3_shadow_monkey_v1", monsterId: "mon_map3_shadow_monkey", phase: "P2B",
+    guaranteed: [],
+    rolls: [
+      { rollId: "material", chancePercent: 65, itemId: "mat_shadow_pelt", poolId: null, quantity: { min: 1, max: 2 } },
+      { rollId: "potion", chancePercent: 6, itemId: "con_small_potion", poolId: null, quantity: { min: 1, max: 1 } },
+      { rollId: "common_equipment", chancePercent: 20, itemId: null, poolId: "pool_map3_common_gear", quantity: { min: 1, max: 1 } },
+    ],
+  },
+  {
+    dropTableId: "drop_map3_walking_stone_v1", monsterId: "mon_map3_walking_stone", phase: "P2B",
+    guaranteed: [],
+    rolls: [
+      { rollId: "main_material", chancePercent: 55, itemId: "mat_mossless_shard", poolId: null, quantity: { min: 1, max: 1 } },
+      { rollId: "secondary_material", chancePercent: 22, itemId: "mat_old_root_scrap", poolId: null, quantity: { min: 1, max: 1 } },
+      { rollId: "potion", chancePercent: 5, itemId: "con_small_potion", poolId: null, quantity: { min: 1, max: 1 } },
+      { rollId: "common_equipment", chancePercent: 16, itemId: null, poolId: "pool_map3_common_gear", quantity: { min: 1, max: 1 } },
+      { rollId: "uncommon_equipment", chancePercent: 7, itemId: null, poolId: "pool_map3_uncommon_gear", quantity: { min: 1, max: 1 } },
+    ],
+  },
+  {
+    // Elite หินไร้ตะไคร่ (§5.2 elite, hidden) — respawn 6.5m.
+    dropTableId: "drop_map3_elite_v1", monsterId: "elite_map3_mossless_stone", phase: "P2B",
+    guaranteed: [
+      { itemId: "mat_mossless_shard", poolId: null, quantity: { min: 2, max: 4 } },
+      { itemId: "mat_shadow_pelt", poolId: null, quantity: { min: 1, max: 2 } },
+    ],
+    rolls: [
+      { rollId: "uncommon_equipment", chancePercent: 60, itemId: null, poolId: "pool_map3_uncommon_gear", quantity: { min: 1, max: 1 } },
+      { rollId: "rare_equipment", chancePercent: 10, itemId: null, poolId: "pool_map3_rare_gear", quantity: { min: 1, max: 1 } },
+      { rollId: "potion", chancePercent: 25, itemId: "con_small_potion", poolId: null, quantity: { min: 1, max: 2 } },
+    ],
+  },
+  {
+    // Boss ผู้เฝ้าทางที่ไม่มีชื่อ (§5.2 boss).
+    dropTableId: "drop_map3_boss_v1", monsterId: "boss_map3_nameless_warden", phase: "P2B",
+    guaranteed: [
+      { itemId: "mat_nameless_marker_stone", poolId: null, quantity: { min: 2, max: 4 } },
+      { itemId: null, poolId: "pool_map3_uncommon_gear", quantity: { min: 1, max: 1 } },
+    ],
+    rolls: [
+      { rollId: "rare_equipment", chancePercent: 22, itemId: null, poolId: "pool_map3_rare_gear", quantity: { min: 1, max: 1 } },
+      { rollId: "potion", chancePercent: 100, itemId: "con_small_potion", poolId: null, quantity: { min: 3, max: 5 } },
+    ],
+  },
+  // Map 4 — ป่าจันทร์เงา (§5.3)
+  {
+    dropTableId: "drop_map4_moonlight_wisp_v1", monsterId: "mon_map4_moonlight_wisp", phase: "P2B",
+    guaranteed: [],
+    rolls: [
+      { rollId: "material", chancePercent: 68, itemId: "mat_moonlight_residue", poolId: null, quantity: { min: 1, max: 2 } },
+      { rollId: "potion", chancePercent: 6, itemId: "con_small_potion", poolId: null, quantity: { min: 1, max: 1 } },
+      { rollId: "common_equipment", chancePercent: 18, itemId: null, poolId: "pool_map4_common_gear", quantity: { min: 1, max: 1 } },
+    ],
+  },
+  {
+    dropTableId: "drop_map4_dream_mushroom_v1", monsterId: "mon_map4_dream_mushroom", phase: "P2B",
+    guaranteed: [],
+    rolls: [
+      { rollId: "material", chancePercent: 70, itemId: "mat_dream_cap", poolId: null, quantity: { min: 1, max: 2 } },
+      { rollId: "potion", chancePercent: 6, itemId: "con_small_potion", poolId: null, quantity: { min: 1, max: 1 } },
+      { rollId: "common_equipment", chancePercent: 20, itemId: null, poolId: "pool_map4_common_gear", quantity: { min: 1, max: 1 } },
+    ],
+  },
+  {
+    dropTableId: "drop_map4_shadow_deer_v1", monsterId: "mon_map4_shadow_deer", phase: "P2B",
+    guaranteed: [],
+    rolls: [
+      { rollId: "main_material", chancePercent: 55, itemId: "mat_shadow_dew", poolId: null, quantity: { min: 1, max: 1 } },
+      { rollId: "secondary_material", chancePercent: 22, itemId: "mat_moonlight_residue", poolId: null, quantity: { min: 1, max: 1 } },
+      { rollId: "potion", chancePercent: 5, itemId: "con_small_potion", poolId: null, quantity: { min: 1, max: 1 } },
+      { rollId: "common_equipment", chancePercent: 16, itemId: null, poolId: "pool_map4_common_gear", quantity: { min: 1, max: 1 } },
+      { rollId: "uncommon_equipment", chancePercent: 8, itemId: null, poolId: "pool_map4_uncommon_gear", quantity: { min: 1, max: 1 } },
+    ],
+  },
+  {
+    // Elite กวางจันทร์แตก (§5.3 elite) — respawn 7m.
+    dropTableId: "drop_map4_elite_v1", monsterId: "elite_map4_shattered_moon_deer", phase: "P2B",
+    guaranteed: [
+      { itemId: "mat_shadow_dew", poolId: null, quantity: { min: 2, max: 4 } },
+      { itemId: "mat_dream_cap", poolId: null, quantity: { min: 1, max: 2 } },
+    ],
+    rolls: [
+      { rollId: "uncommon_equipment", chancePercent: 60, itemId: null, poolId: "pool_map4_uncommon_gear", quantity: { min: 1, max: 1 } },
+      { rollId: "rare_equipment", chancePercent: 12, itemId: null, poolId: "pool_map4_rare_gear", quantity: { min: 1, max: 1 } },
+      { rollId: "potion", chancePercent: 30, itemId: "con_small_potion", poolId: null, quantity: { min: 1, max: 2 } },
+    ],
+  },
+  {
+    // Boss นางไม้จันทร์ดับ (§5.3 boss, ปิดแบนด์ lv22) — guaranteed Rare boss material + rare pool; Epic ตัวแรก 6%.
+    dropTableId: "drop_map4_boss_v1", monsterId: "boss_map4_moondark_dryad", phase: "P2B",
+    guaranteed: [
+      { itemId: "mat_moondark_sap", poolId: null, quantity: { min: 2, max: 4 } },
+      { itemId: null, poolId: "pool_map4_rare_gear", quantity: { min: 1, max: 1 } },
+    ],
+    rolls: [
+      { rollId: "rare_equipment", chancePercent: 25, itemId: null, poolId: "pool_map4_rare_gear", quantity: { min: 1, max: 1 } },
+      { rollId: "epic_equipment", chancePercent: 6, itemId: null, poolId: "pool_map4_epic_gear", quantity: { min: 1, max: 1 } },
       { rollId: "potion", chancePercent: 100, itemId: "con_small_potion", poolId: null, quantity: { min: 3, max: 5 } },
     ],
   },
@@ -273,6 +487,21 @@ const STARTER_SHOP: ShopConfig = {
     eq_talisman_sprout: 30,
     eq_talisman_firmness: 72,
     eq_talisman_moon_echo: 180,
+    // Maps 2–4 materials (MAPS_2_4 spec §4 "Sell" — Design Knob §48). ขายที่ร้าน city-hub เดียว (mirror Map 1);
+    //   Map 2 starter shop (§7 Q6) = owner-gated ยังไม่ทำ. boss-material (ash/marker/sap) ขายได้ปกติ (ACCOUNT_BOUND
+    //   ไม่ห้ามขาย; ต่างจากเสริมแกร่งที่ขายไม่ได้). ราคา additive → ไม่กระทบ Map 1 (ขายได้ต่อเมื่อ material ดรอปจริง = P2).
+    mat_startle_spore: 6, // M2 mushroom_startle (Common)
+    mat_resonant_straw: 8, // M2 scarecrow_walker (Common)
+    mat_greenlight_whisker: 14, // M2 greenlight_rat (Uncommon)
+    mat_warden_talisman_ash: 26, // M2 boss (Uncommon, ACCOUNT_BOUND)
+    mat_old_root_scrap: 9, // M3 gnawing_root (Common)
+    mat_shadow_pelt: 11, // M3 shadow_monkey (Common)
+    mat_mossless_shard: 18, // M3 walking_stone (Uncommon)
+    mat_nameless_marker_stone: 34, // M3 boss (Uncommon, ACCOUNT_BOUND)
+    mat_moonlight_residue: 12, // M4 moonlight_wisp (Common)
+    mat_dream_cap: 13, // M4 dream_mushroom (Common)
+    mat_shadow_dew: 22, // M4 shadow_deer (Uncommon)
+    mat_moondark_sap: 40, // M4 boss (Rare, ACCOUNT_BOUND)
   },
 };
 
@@ -335,3 +564,27 @@ export const DEFAULT_ECONOMY_CONFIG: EconomyConfig = {
     rewardRadiusTiles: 12,
   },
 };
+
+// ── EXP curve extension lv10–22 (Maps 2–4 · MAPS_2_4 §1 band · §7 Q1 OWNER-GATED) ──────────────────────────
+// ⚠️ DORMANT + owner-gated (§7 Q1): DEFAULT_ECONOMY_CONFIG.expCurve คง levelCap 10 + 10 แถว (P2 cap §9.1, ยังไม่ยก).
+//   Maps 2–4 band lv8–22 ต้องมี curve ต่อ; ตารางนี้ = "ราง" (Design Knob §48) พร้อมให้ owner promote — **ยังไม่ wire**
+//   เข้า live curve (จึงไม่กระทบ progression OB / lv cap เดิม; server-config-values.test lock lv10 = ยังเขียว).
+//
+// EXTRAPOLATION RULE (ระบุตาม brief + §7 Q1 rec): expToNext[N+1] = round(expToNext[N] × 1.23, ปัด 10 ใกล้สุด),
+//   ต่อ ratio lv8→9 เดิม (1850/1500 = 1.233 ≈ §7 Q1 "~1.24"); lv22 = cap (expToNext 0). lv10 un-cap (0 → 2280).
+//   cumulative = running sum ต่อจาก lv9 (7440). ทุกค่าปรับได้ (owner เคาะ Q1 ตอน promote Map 2–4 → P2).
+export const POST_P2_EXP_CURVE_EXTENSION_LV10_22: readonly ExpLevelRow[] = [
+  { level: 10, expToNext: 2280, cumulative: 9720 }, // un-cap (live คง 0 จน promote)
+  { level: 11, expToNext: 2800, cumulative: 12520 },
+  { level: 12, expToNext: 3440, cumulative: 15960 },
+  { level: 13, expToNext: 4230, cumulative: 20190 },
+  { level: 14, expToNext: 5200, cumulative: 25390 },
+  { level: 15, expToNext: 6400, cumulative: 31790 },
+  { level: 16, expToNext: 7870, cumulative: 39660 },
+  { level: 17, expToNext: 9680, cumulative: 49340 },
+  { level: 18, expToNext: 11910, cumulative: 61250 },
+  { level: 19, expToNext: 14650, cumulative: 75900 },
+  { level: 20, expToNext: 18020, cumulative: 93920 },
+  { level: 21, expToNext: 22160, cumulative: 116080 },
+  { level: 22, expToNext: 0, cumulative: 116080 }, // Map 4 exit / band cap (lv22)
+];

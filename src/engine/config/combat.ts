@@ -329,6 +329,94 @@ export const DEFAULT_COMBAT_BALANCE_CONFIG: CombatBalanceConfig = {
       moveSpeed: 2.2, attackRange: 1.2, attackCooldown: 2.0,
       anticipationMs: 350, activeMs: 150, recoveryMs: 500, breakPower: 0,
     },
+
+    // ── Maps 2–4 (MAPS_2_4_ECONOMY_AND_LOOT_SPEC §3, D-055 §9.3 shape) ─────────────────────────────
+    // ค่า verbatim จากตาราง §3.1/§3.2/§3.3 (atkCD = วินาที; antic/act/rec = ms). key = MobPocket.mobType ที่
+    // map2/3/4.ts ใช้ (mushroom_startle ↔ mon_map2_mushroom_startle ผ่าน MONSTER_ID_BY_MOB_TYPE ใน
+    // server/economy/kill-rewards.ts). aggro/leash ไม่อยู่ใน MobCombatStats (§7 Q4) → อยู่ mob.ts ai.aggroRadius/
+    // leashRadius. bosses มี breakPower>0 → เข้า guard/break system (config boss ใช้ร่วมกัน, per-boss override = future).
+    // ทุกค่า = Design Knob §48 (extrapolate จาก Map 1 D-055 อย่างต่อเนื่อง — HP tune ให้ TTK เป้าหมาย §3).
+
+    // Map 2 — ถนนชายไร่ (§3.1)
+    mushroom_startle: {
+      hp: 120, atk: 24, def: 14, tierReduction: 1.0, // mon_map2_mushroom_startle (เห็ดสะดุ้ง) lv8
+      moveSpeed: 2.2, attackRange: 1.2, attackCooldown: 2.0,
+      anticipationMs: 350, activeMs: 150, recoveryMs: 500, breakPower: 0,
+    },
+    scarecrow_walker: {
+      hp: 190, atk: 30, def: 20, tierReduction: 1.0, // mon_map2_scarecrow_walker (หุ่นฟางเดินได้) lv10
+      moveSpeed: 2.5, attackRange: 1.5, attackCooldown: 2.6,
+      anticipationMs: 500, activeMs: 220, recoveryMs: 650, breakPower: 0,
+    },
+    greenlight_rat: {
+      hp: 150, atk: 30, def: 16, tierReduction: 1.0, // mon_map2_greenlight_rat (หนูนาแสงเขียว) lv11
+      moveSpeed: 3.6, attackRange: 1.3, attackCooldown: 2.2,
+      anticipationMs: 280, activeMs: 120, recoveryMs: 420, breakPower: 0,
+    },
+    talisman_scarecrow: {
+      hp: 1300, atk: 44, def: 30, tierReduction: 0.8, // elite_map2_talisman_scarecrow (หุ่นฟางพันยันต์) lv13
+      moveSpeed: 2.8, attackRange: 2.0, attackCooldown: 3.0,
+      anticipationMs: 650, activeMs: 300, recoveryMs: 800, breakPower: 0,
+    },
+    field_warden: {
+      hp: 6000, atk: 46, def: 34, tierReduction: 0.65, // boss_map2_field_warden (หุ่นฟางผู้เฝ้าไร่) lv14 · TTK ~178s
+      moveSpeed: 2.4, attackRange: 2.4, attackCooldown: 3.2,
+      anticipationMs: 800, activeMs: 400, recoveryMs: 700, breakPower: 100,
+    },
+
+    // Map 3 — ทางป่าเก่า (§3.2)
+    gnawing_root: {
+      hp: 230, atk: 34, def: 26, tierReduction: 1.0, // mon_map3_gnawing_root (รากไม้กัดเท้า) lv12
+      moveSpeed: 1.6, attackRange: 1.4, attackCooldown: 2.8,
+      anticipationMs: 600, activeMs: 260, recoveryMs: 700, breakPower: 0,
+    },
+    shadow_monkey: {
+      hp: 180, atk: 40, def: 22, tierReduction: 1.0, // mon_map3_shadow_monkey (ลิงเงา) lv14
+      moveSpeed: 3.8, attackRange: 1.4, attackCooldown: 2.2,
+      anticipationMs: 280, activeMs: 120, recoveryMs: 420, breakPower: 0,
+    },
+    walking_stone: {
+      hp: 300, atk: 46, def: 42, tierReduction: 1.0, // mon_map3_walking_stone (หินเดินได้) lv15 — DEF สูงสุดของแมพ
+      moveSpeed: 2.0, attackRange: 1.6, attackCooldown: 3.0,
+      anticipationMs: 650, activeMs: 300, recoveryMs: 800, breakPower: 0,
+    },
+    mossless_stone: {
+      hp: 1500, atk: 56, def: 50, tierReduction: 0.8, // elite_map3_mossless_stone (หินไร้ตะไคร่) lv17 · hidden elite
+      moveSpeed: 2.2, attackRange: 2.0, attackCooldown: 3.2,
+      anticipationMs: 700, activeMs: 320, recoveryMs: 850, breakPower: 0,
+    },
+    nameless_warden: {
+      hp: 6800, atk: 58, def: 44, tierReduction: 0.62, // boss_map3_nameless_warden (ผู้เฝ้าทางที่ไม่มีชื่อ) lv18 · TTK ~191s
+      moveSpeed: 2.4, attackRange: 2.6, attackCooldown: 3.2,
+      anticipationMs: 850, activeMs: 420, recoveryMs: 700, breakPower: 110,
+    },
+
+    // Map 4 — ป่าจันทร์เงา (§3.3)
+    moonlight_wisp: {
+      hp: 190, atk: 44, def: 26, tierReduction: 1.0, // mon_map4_moonlight_wisp (ผีแสงจันทร์) lv16
+      moveSpeed: 3.0, attackRange: 1.5, attackCooldown: 2.4,
+      anticipationMs: 300, activeMs: 140, recoveryMs: 450, breakPower: 0,
+    },
+    dream_mushroom: {
+      hp: 200, atk: 44, def: 30, tierReduction: 1.0, // mon_map4_dream_mushroom (เห็ดฝัน) lv17
+      moveSpeed: 2.0, attackRange: 1.3, attackCooldown: 2.6,
+      anticipationMs: 400, activeMs: 180, recoveryMs: 550, breakPower: 0,
+    },
+    shadow_deer: {
+      hp: 250, atk: 54, def: 40, tierReduction: 1.0, // mon_map4_shadow_deer (กวางเงา) lv19 — movement สูง หนีเก่ง
+      moveSpeed: 3.8, attackRange: 1.6, attackCooldown: 2.6,
+      anticipationMs: 350, activeMs: 160, recoveryMs: 480, breakPower: 0,
+    },
+    shattered_moon_deer: {
+      hp: 1600, atk: 68, def: 60, tierReduction: 0.8, // elite_map4_shattered_moon_deer (กวางจันทร์แตก) lv21
+      moveSpeed: 3.0, attackRange: 2.2, attackCooldown: 3.2,
+      anticipationMs: 700, activeMs: 320, recoveryMs: 850, breakPower: 0,
+    },
+    moondark_dryad: {
+      hp: 7800, atk: 70, def: 54, tierReduction: 0.6, // boss_map4_moondark_dryad (นางไม้จันทร์ดับ) lv22 ปิดแบนด์ · TTK ~211s
+      moveSpeed: 2.4, attackRange: 2.6, attackCooldown: 3.4,
+      anticipationMs: 850, activeMs: 440, recoveryMs: 700, breakPower: 120,
+    },
   },
   // fallback เมื่อ mobType ไม่ตรง — mirror slime baseline (placeholder, ไม่ใช่ค่า spec ใหม่).
   defaultMob: {

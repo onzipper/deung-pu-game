@@ -42,6 +42,28 @@ const MONSTER_ID_BY_MOB_TYPE: Readonly<Record<string, string>> = {
   boar: "mon_map1_boar",
   boar_elite: "elite_map1_boar_rampage",
   boss_boiling_boar: "boss_map1_boiling_boar", // Field Boss (D-064) — ship OB (phase P2)
+
+  // Maps 2–4 (Batch 5) — engine mobType (map2/3/4.ts pocket) → economy monsterId (§10.1 convention mon/elite/boss_
+  //   _mapN_*). reward.phase = P2B → grantKillRewardsForMob() คืน null (ยังไม่ grant live จน owner promote §7).
+  //   mobClassForMobType/monsterIdForMobType (milestone/achievement) derive จาก prefix ของ id เหล่านี้อัตโนมัติ.
+  // Map 2
+  mushroom_startle: "mon_map2_mushroom_startle",
+  scarecrow_walker: "mon_map2_scarecrow_walker",
+  greenlight_rat: "mon_map2_greenlight_rat",
+  talisman_scarecrow: "elite_map2_talisman_scarecrow",
+  field_warden: "boss_map2_field_warden",
+  // Map 3
+  gnawing_root: "mon_map3_gnawing_root",
+  shadow_monkey: "mon_map3_shadow_monkey",
+  walking_stone: "mon_map3_walking_stone",
+  mossless_stone: "elite_map3_mossless_stone",
+  nameless_warden: "boss_map3_nameless_warden",
+  // Map 4
+  moonlight_wisp: "mon_map4_moonlight_wisp",
+  dream_mushroom: "mon_map4_dream_mushroom",
+  shadow_deer: "mon_map4_shadow_deer",
+  shattered_moon_deer: "elite_map4_shattered_moon_deer",
+  moondark_dryad: "boss_map4_moondark_dryad",
 };
 
 /**

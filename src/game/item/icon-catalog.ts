@@ -64,6 +64,24 @@ export const ICON_FILES: Readonly<Record<string, string>> = {
   // B4 PLACEHOLDER: เศษเสริมแกร่ง reuses the เสริมแกร่ง icon until dedicated fragment art lands (SVG pipeline /
   //   L2 final-art order = owner-deferred). Swap to `itm_upg_reinforcement_fragment_*` once art exists.
   upg_reinforcement_fragment: "itm_upg_reinforcement_rare_v01.svg",
+
+  // Maps 2–4 materials (MAPS_2_4 spec §4). PLACEHOLDER: reuse Map 1 material art ตาม rarity ที่ใกล้สุด จนกว่า
+  //   L2 final-art (owner-deferred) — sync test (a) ต้องมี entry ครบ; test (b) ไฟล์ต้องมีจริง → reuse ไฟล์ที่มีอยู่.
+  //   Map 2
+  mat_startle_spore: "itm_mat_slime_gel_common_v01.svg", // Common placeholder
+  mat_resonant_straw: "itm_mat_soft_feather_common_v01.svg", // Common placeholder
+  mat_greenlight_whisker: "itm_mat_sharp_tusk_uncommon_v01.svg", // Uncommon placeholder
+  mat_warden_talisman_ash: "itm_mat_boss_resonance_core_uncommon_v01.svg", // Uncommon boss placeholder
+  //   Map 3
+  mat_old_root_scrap: "itm_mat_coarse_hide_common_v01.svg", // Common placeholder
+  mat_shadow_pelt: "itm_mat_coarse_hide_common_v01.svg", // Common placeholder
+  mat_mossless_shard: "itm_mat_resonance_dust_uncommon_v01.svg", // Uncommon placeholder
+  mat_nameless_marker_stone: "itm_mat_boss_resonance_core_uncommon_v01.svg", // Uncommon boss placeholder
+  //   Map 4
+  mat_moonlight_residue: "itm_mat_slime_gel_common_v01.svg", // Common placeholder
+  mat_dream_cap: "itm_mat_soft_feather_common_v01.svg", // Common placeholder
+  mat_shadow_dew: "itm_mat_resonance_dust_uncommon_v01.svg", // Uncommon placeholder
+  mat_moondark_sap: "itm_upg_reinforcement_rare_v01.svg", // Rare placeholder (reuse rare material art)
 };
 
 /** equipment slot key (item-catalog.ts EQUIPMENT_SLOTS, §1.1) → empty-slot placeholder SVG under svg/ui/. */

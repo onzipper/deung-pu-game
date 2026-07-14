@@ -246,6 +246,10 @@ export const DEFAULT_MOB_CONFIG: MobConfig = {
       boar_elite: 8, // elite_map1_boar_rampage
       boss_boiling_boar: 10, // Field Boss หมูป่าหม้อเดือด — aggro กว้าง (ประจำลาน boss)
       mushroom: 5, // test-field placeholder (ไม่ใช่ Map 1/D-055)
+      // Maps 2–4 (MAPS_2_4 spec §3 aggro column). key = MobPocket.mobType.
+      mushroom_startle: 5, scarecrow_walker: 6, greenlight_rat: 6, talisman_scarecrow: 8, field_warden: 10, // Map 2
+      gnawing_root: 5, shadow_monkey: 7, walking_stone: 5, mossless_stone: 8, nameless_warden: 10, // Map 3
+      moonlight_wisp: 7, dream_mushroom: 5, shadow_deer: 7, shattered_moon_deer: 8, moondark_dryad: 11, // Map 4
     },
     defaultAggroRadius: 4,
     leashRadius: {
@@ -257,6 +261,10 @@ export const DEFAULT_MOB_CONFIG: MobConfig = {
       boar_elite: 14, // elite_map1_boar_rampage
       boss_boiling_boar: 18, // Field Boss หมูป่าหม้อเดือด
       mushroom: 9, // test-field placeholder (ไม่ใช่ Map 1/D-055) — mirror slime
+      // Maps 2–4 (MAPS_2_4 spec §3 leash column) — ต้อง > aggroRadius ต่อ mobType (acquire ก่อน leash-out).
+      mushroom_startle: 9, scarecrow_walker: 10, greenlight_rat: 12, talisman_scarecrow: 14, field_warden: 18, // Map 2
+      gnawing_root: 8, shadow_monkey: 13, walking_stone: 9, mossless_stone: 14, nameless_warden: 18, // Map 3
+      moonlight_wisp: 13, dream_mushroom: 9, shadow_deer: 14, shattered_moon_deer: 15, moondark_dryad: 18, // Map 4
     },
     defaultLeashRadius: 8, // fallback เมื่อ mobType ไม่ตรง (tech default, > defaultAggroRadius 4)
     deaggroRadius: 9, // เป้าหนีห่างมอนเกิน 9 tile → ปล่อย
@@ -376,6 +384,92 @@ export const DEFAULT_MOB_CONFIG: MobConfig = {
       bounceAmount: 2,
       shape: "slime",
       assetId: "mon_map1_boss_boiling_boar",
+    },
+
+    // ── Maps 2–4 placeholder styles (MAPS_2_4 spec §2 identity) ──────────────────────────────────
+    // ยังไม่มี art จริง → ไม่ตั้ง assetId (Graphics placeholder path; art = follow-up pass, SVG pipeline / L2).
+    // shape จำกัด "slime"|"mushroom" (geometry เดิม) → dome/เห็ด = "mushroom", ที่เหลือ = "slime" ต่างด้วยสี/ขนาด.
+    // ขนาดไล่ตาม rank เหมือน Map 1 (normal ~20–26 · elite ~34 · boss ~44). hpBar/nameplate = ค่า default.
+
+    // Map 2 — ถนนชายไร่
+    mushroom_startle: {
+      bodyColor: 0x7f9c5a, // moss green (เห็ดสะดุ้ง = โดมตะไคร่)
+      accentColor: 0x4d6138, // moss deep
+      width: 22, height: 20, bounceAmount: 3, shape: "mushroom",
+    },
+    scarecrow_walker: {
+      bodyColor: 0xd8ae70, // Sand (หุ่นฟาง = กล่องฟาง)
+      accentColor: 0x8e6046, // Clay
+      width: 26, height: 26, bounceAmount: 2, shape: "slime",
+    },
+    greenlight_rat: {
+      bodyColor: 0x8fce6b, // fresh leaf (หนูนาแสงเขียว = วงรีเล็กใบสด)
+      accentColor: 0x3f6f2e,
+      width: 20, height: 14, bounceAmount: 3, shape: "slime",
+    },
+    talisman_scarecrow: {
+      bodyColor: 0xc9a35a, // straw + ยันต์
+      accentColor: 0xb23b3b, // talisman red
+      width: 34, height: 28, bounceAmount: 2, shape: "slime",
+    },
+    field_warden: {
+      bodyColor: 0xa8823f, // ผู้เฝ้าไร่ (ฟางเข้ม)
+      accentColor: 0x6b4a24,
+      width: 44, height: 34, bounceAmount: 2, shape: "slime",
+    },
+
+    // Map 3 — ทางป่าเก่า
+    gnawing_root: {
+      bodyColor: 0x5a3d29, // deep brown (รากไม้ = กล่องน้ำตาลเข้ม)
+      accentColor: 0x2f2015,
+      width: 24, height: 22, bounceAmount: 2, shape: "slime",
+    },
+    shadow_monkey: {
+      bodyColor: 0x3b3550, // warm ink (ลิงเงา = วงรีหมึกอุ่น)
+      accentColor: 0x1c1826,
+      width: 22, height: 20, bounceAmount: 3, shape: "slime",
+    },
+    walking_stone: {
+      bodyColor: 0x8a8f96, // clay/stone gray (หินเดินได้ = กล่องดินเผา)
+      accentColor: 0x585c62,
+      width: 26, height: 24, bounceAmount: 1, shape: "slime",
+    },
+    mossless_stone: {
+      bodyColor: 0xb9bec4, // pale bare stone (หินไร้ตะไคร่ = หินสว่างไร้ตะไคร่)
+      accentColor: 0x6f757c,
+      width: 34, height: 30, bounceAmount: 1, shape: "slime",
+    },
+    nameless_warden: {
+      bodyColor: 0x4a4636, // ผู้เฝ้าทางที่ไม่มีชื่อ (เข้มหม่น)
+      accentColor: 0x211f18,
+      width: 44, height: 36, bounceAmount: 2, shape: "slime",
+    },
+
+    // Map 4 — ป่าจันทร์เงา
+    moonlight_wisp: {
+      bodyColor: 0xc9d4f2, // moon light (ผีแสงจันทร์ = วงรีแสงจันทร์)
+      accentColor: 0x7786c8, // Moon Blue
+      width: 20, height: 18, bounceAmount: 3, shape: "slime",
+    },
+    dream_mushroom: {
+      bodyColor: 0xb69ad6, // corruption light (เห็ดฝัน = โดมแสงเพี้ยน)
+      accentColor: 0x6b4b8f,
+      width: 24, height: 24, bounceAmount: 2, shape: "mushroom",
+    },
+    shadow_deer: {
+      bodyColor: 0x5b6aa0, // moon blue (กวางเงา = กล่องสูงฟ้าจันทร์)
+      accentColor: 0x2f3a63,
+      width: 24, height: 30, bounceAmount: 2, shape: "slime",
+    },
+    shattered_moon_deer: {
+      bodyColor: 0x8fa0d8, // bright moon (กวางจันทร์แตก)
+      accentColor: 0x4b568e, // Moon Deep
+      width: 34, height: 34, bounceAmount: 2, shape: "slime",
+    },
+    moondark_dryad: {
+      bodyColor: 0x35435a, // dark moon (นางไม้จันทร์ดับ = ปิดแบนด์ ถึกสุด)
+      accentColor: 0x8fa0d8,
+      width: 44, height: 40, bounceAmount: 2, shape: "slime",
     },
   },
 };
