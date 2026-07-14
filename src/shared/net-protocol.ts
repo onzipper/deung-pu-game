@@ -509,6 +509,21 @@ export interface PlayerProgressMessage {
   lootOverflow: LootLine[];
 }
 
+/** message type: server → **client เดียว** — แจ้งรางวัล milestone ที่เพิ่งปลดล็อก (C1, Economy §18). */
+export const MSG_MILESTONE_GRANTED = "milestone_granted";
+
+/**
+ * payload ของ MSG_MILESTONE_GRANTED (server → client เดียว, C1). ยิงครั้งเดียวตอน milestone ปลดล็อกสำเร็จ
+ * (one-time per account, §18.2). `gold`/`exp` = จำนวนที่แจกรอบนี้ (delta ไม่ใช่ยอดรวม) — client โชว์ toast สั้น ๆ.
+ */
+export interface MilestoneGrantedMessage {
+  milestoneId: string;
+  /** Gold ที่แจก (§18.3 D-053) — 0 = ไม่มี. */
+  gold: number;
+  /** EXP ที่แจก (§18.1). */
+  exp: number;
+}
+
 /** message type: server → **client เดียว** — ผลการเสริมแกร่ง (สำเร็จ/ปฏิเสธ) (P2-10). */
 export const MSG_ENHANCE_RESULT = "enhance_result";
 

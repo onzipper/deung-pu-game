@@ -25,6 +25,8 @@ import {
 } from "./net";
 import type { PathfindingConfig, PlayerConfig } from "./player";
 import { DEFAULT_PATHFINDING_CONFIG, DEFAULT_PLAYER_CONFIG } from "./player";
+import type { CompanionConfig } from "./companion";
+import { DEFAULT_COMPANION_CONFIG } from "./companion";
 import type { RenderStyleConfig } from "./render";
 import { DEFAULT_RENDER_STYLE_CONFIG } from "./render";
 import type { WorldConfig } from "./world";
@@ -81,6 +83,8 @@ export interface EngineConfig {
   camera: CameraConfig;
   /** local player movement + placeholder style (P0-05) */
   player: PlayerConfig;
+  /** ดึ๋งๆ companion follow-entity knob (C4-MVP, §12.2/§5.1) — client-only cosmetic, มีทุก map */
+  companion: CompanionConfig;
   /** pathfinding + click-to-move + touch knob (P1-09, TA §17.3 · L11) */
   pathfinding: PathfindingConfig;
   /** input knob (P2-15) — virtual joystick touch (deadzone + ขนาดวาด) */
@@ -130,6 +134,7 @@ export const DEFAULT_ENGINE_CONFIG: EngineConfig = {
   theme: DEFAULT_SCENE_THEME,
   camera: DEFAULT_CAMERA_CONFIG,
   player: DEFAULT_PLAYER_CONFIG,
+  companion: DEFAULT_COMPANION_CONFIG,
   pathfinding: DEFAULT_PATHFINDING_CONFIG,
   input: DEFAULT_INPUT_CONFIG,
   transition: DEFAULT_TRANSITION_CONFIG,
@@ -178,6 +183,7 @@ export function createEngineConfig(
     // theme/player/mob มี nested object — override ทั้งก้อนเมื่อกำหนด, ไม่งั้นใช้ default
     theme: overrides.theme ?? DEFAULT_ENGINE_CONFIG.theme,
     player: overrides.player ?? DEFAULT_ENGINE_CONFIG.player,
+    companion: overrides.companion ?? DEFAULT_ENGINE_CONFIG.companion,
     pathfinding: overrides.pathfinding ?? DEFAULT_ENGINE_CONFIG.pathfinding,
     input: overrides.input ?? DEFAULT_ENGINE_CONFIG.input,
     movementValidation:

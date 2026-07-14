@@ -43,6 +43,7 @@ import {
   MSG_MOVE,
   MSG_MOVE_ITEM,
   MSG_PLAYER_PROGRESS,
+  MSG_MILESTONE_GRANTED,
   MSG_PLAYER_DAMAGED,
   MSG_PLAYER_DEATH,
   MSG_PLAYER_RESPAWN,
@@ -79,6 +80,7 @@ import {
   type MoveItemMessage,
   type MoveMessage,
   type PlayerProgressMessage,
+  type MilestoneGrantedMessage,
   type PlayerDamagedMessage,
   type PlayerDeathMessage,
   type PlayerRespawnMessage,
@@ -250,6 +252,11 @@ export interface NetClientHandlers {
    * (event-driven). optional.
    */
   onPlayerProgress?(msg: PlayerProgressMessage): void;
+  /**
+   * C1 (Economy §18): milestone ปลดล็อก (server → client เดียว, MSG_MILESTONE_GRANTED) — ยิงครั้งเดียวตอน
+   * milestone แจกสำเร็จ (one-time per account). caller push เข้า Zustand bridge → MilestoneToast แสดง toast. optional.
+   */
+  onMilestoneGranted?(msg: MilestoneGrantedMessage): void;
   /**
    * P2-17: snapshot คลังบัญชีล่าสุด (server → client เดียว, MSG_STORAGE_STATE) — ยิงตอบ MSG_STORAGE_OPEN
    * + หลังทุก deposit/withdraw สำเร็จ. `available: false` = map นี้ไม่มี storage NPC (HUD ปุ่ม "คลัง" อ่าน
@@ -635,6 +642,10 @@ export function createNetClient(
     // P2-09: progression หลังฆ่ามอน — P2-11 shop ใช้เฉพาะ gold (ดู comment ที่ onPlayerProgress ด้านบน)
     joinedRoom.onMessage(MSG_PLAYER_PROGRESS, (msg: PlayerProgressMessage) => {
       handlers.onPlayerProgress?.(msg);
+    });
+    // C1 (§18): milestone ปลดล็อก → MilestoneToast (caller push เข้า Zustand bridge)
+    joinedRoom.onMessage(MSG_MILESTONE_GRANTED, (msg: MilestoneGrantedMessage) => {
+      handlers.onMilestoneGranted?.(msg);
     });
     // P2-17: snapshot คลัง (ตอบ MSG_STORAGE_OPEN + หลัง deposit/withdraw สำเร็จ) + ผลฝาก/ถอน
     joinedRoom.onMessage(MSG_STORAGE_STATE, (state: StorageStateMessage) => {

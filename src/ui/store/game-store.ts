@@ -17,6 +17,7 @@ import {
   type EnhanceResultMessage,
   type InventoryOpRejectedMessage,
   type InventorySnapshot,
+  type MilestoneGrantedMessage,
   type PlayerProgressMessage,
   type ShopListMessage,
   type ShopResultMessage,
@@ -156,6 +157,11 @@ export interface HudState {
    */
   deathAtMs: number | null;
   /**
+   * C1 (Economy §18): milestone ล่าสุดที่เพิ่งปลดล็อก (จาก MSG_MILESTONE_GRANTED) — MilestoneToast อ่าน `atMs`
+   * แสดง toast สั้น ๆ (pattern เดียวกับ deathAtMs: ค่า atMs เปลี่ยน = milestone ใหม่ → แสดงอีก). null = ยังไม่เคยปลดล็อกใน session นี้.
+   */
+  milestoneNotice: { milestoneId: string; gold: number; exp: number; atMs: number } | null;
+  /**
    * A3 (P2 UI §8.3): skill hotbar slots (S1-S4). engine publish ตอน init / level-up (unlock) / cast (cooldown).
    * [] ก่อน engine publish ครั้งแรก. SkillBar อ่าน + animate radial เอง (RAF จาก cooldownReadyAtMs).
    */
@@ -174,6 +180,13 @@ export interface HudState {
   weather: WeatherView | null;
   /** LW0: NPC bark dialogue ที่เปิดอยู่ (คลิก NPC ในโลก) — null = ไม่มี. ดู ActiveDialogueView. */
   activeDialogue: ActiveDialogueView | null;
+  /**
+   * C4 (§5.1): timestamp (ms, performance.now) ล่าสุดที่ผู้เล่นคลิกดึ๋งๆ companion ในโลก → ขอเปิด help panel
+   * ("ดึ๋งๆ ช่วยเหลือ"). engine ตั้งค่านี้ (requestHelpPanel) — HelpPanel effect subscribe แล้ว openPanel เมื่อ
+   * ค่าเปลี่ยน (ui.md contract: engine ไม่ import React/panel state; UI สั่งเปิดเอง — pattern เดียวกับ activeDialogue).
+   * null = ยังไม่เคยคลิกใน session นี้. ค่าเปลี่ยน = คลิกใหม่ → เปิดอีก.
+   */
+  helpPanelRequestedAt: number | null;
 }
 
 export const INITIAL_HUD_STATE: HudState = {
@@ -195,11 +208,13 @@ export const INITIAL_HUD_STATE: HudState = {
   playerMaxHp: null,
   playerDead: false,
   deathAtMs: null,
+  milestoneNotice: null,
   skillSlots: [],
   blips: [],
   worldPhase: null,
   weather: null,
   activeDialogue: null,
+  helpPanelRequestedAt: null,
 };
 
 /** store singleton ตัวเดียวทั้งแอป — engine publish เข้านี่, React component subscribe ผ่าน useGameStore */
@@ -371,6 +386,19 @@ export function setDeathNotice(nowMs: number = performance.now()): void {
 /** typed selector — timestamp ตายล่าสุด (E4 death toast) */
 export const selectDeathAtMs = (state: HudState): number | null => state.deathAtMs;
 
+/**
+ * C1 (Economy §18): engine เรียกทันทีที่ MSG_MILESTONE_GRANTED มาถึง → stamp notice ให้ MilestoneToast แสดง
+ * toast สั้น ๆ. `nowMs` inject ได้ (เทสต์) — default Date.now() ตอนเรียกจริงจาก engine glue.
+ */
+export function setMilestoneNotice(msg: MilestoneGrantedMessage, nowMs: number = Date.now()): void {
+  gameStore.setState({
+    milestoneNotice: { milestoneId: msg.milestoneId, gold: msg.gold, exp: msg.exp, atMs: nowMs },
+  });
+}
+
+/** typed selector — milestone ล่าสุดที่ปลดล็อก (C1 milestone toast) */
+export const selectMilestoneNotice = (state: HudState): HudState["milestoneNotice"] => state.milestoneNotice;
+
 /** typed selector — hp ของ local player (A1/A2) */
 export const selectPlayerHp = (state: HudState): number | null => state.playerHp;
 
@@ -411,6 +439,18 @@ export function setActiveDialogue(dialogue: ActiveDialogueView | null): void {
 
 /** typed selector — dialogue ที่เปิดอยู่ (LW0 NPC bark) */
 export const selectActiveDialogue = (state: HudState): ActiveDialogueView | null => state.activeDialogue;
+
+/**
+ * C4 (§5.1): engine เรียกทันทีที่ผู้เล่นคลิกโดนดึ๋งๆ companion ในโลก (app.ts onPointerDown) → stamp timestamp
+ * ให้ HelpPanel effect เปิด help panel. `nowMs` inject ได้ (เทสต์); default performance.now() ตอนเรียกจริง
+ * (client clock เดียวกับ effect deps). engine ไม่ import React → สั่งเปิดผ่าน store แทน (เหมือน setActiveDialogue).
+ */
+export function requestHelpPanel(nowMs: number = performance.now()): void {
+  gameStore.setState({ helpPanelRequestedAt: nowMs });
+}
+
+/** typed selector — timestamp ล่าสุดที่ขอเปิด help panel (C4 companion click) */
+export const selectHelpPanelRequestedAt = (state: HudState): number | null => state.helpPanelRequestedAt;
 
 export interface HudPublisher {
   /**

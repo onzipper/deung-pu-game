@@ -23,6 +23,7 @@ import { buildExitMarkerPolygons } from "../render/exit-marker";
 import { createAssetRegistry } from "../assets/registry";
 import { collectMapAssetIds } from "../assets/collect";
 import { createLocalPlayer, type LocalPlayerHandle } from "../player/local-player";
+import { createCompanion, type CompanionHandle } from "../player/companion";
 import { createMobViewManager, type MobViewHandle, type MobBlip } from "@/game/mob/manager";
 import { createMobSimulation, type MobSimulation } from "@/game/mob/simulation";
 import { createNpcManager, type NpcManagerHandle } from "@/game/npc/manager";
@@ -81,10 +82,12 @@ import {
   setGoldFromProgress,
   setInventoryRejection,
   setInventoryState,
+  setMilestoneNotice,
   setPlayerDead,
   setPlayerExp,
   setPlayerLevel,
   setPlayerVitals,
+  requestHelpPanel,
   setShopList,
   setShopResult,
   setSkillSlots,
@@ -319,6 +322,13 @@ export async function createEngine(
     );
     player.applyCorrection(spawn.x, spawn.y); // ย้าย + snap กล้องมาที่จุดเกิดจริง (idempotent ถ้า = spawnPoint)
 
+    // --- ดึ๋งๆ companion (C4-MVP, §12.2/§5.1) — client-only cosmetic follow entity, มีทุก map (เมือง+field).
+    //     ตามผู้เล่น local, no collision/combat (§3.2), depth-sort เข้า entity layer เหมือน mob/NPC. คลิก →
+    //     help panel (onPointerDown ด้านล่าง). config.companion.enabled=false → ข้าม (null, update/destroy no-op). ---
+    const companion: CompanionHandle | null = config.companion.enabled
+      ? createCompanion(scene, config, registry, player, nameplateLayer)
+      : null;
+
     // --- mobs (P1-03): server-authoritative → view manager render จาก snapshot ---
     const mobView: MobViewHandle = createMobViewManager(
       scene,
@@ -539,6 +549,8 @@ export async function createEngine(
               publishSkillSlots();
             }
           },
+          // C1 (§18): milestone ปลดล็อก → stamp notice ให้ MilestoneToast แสดง toast สั้น ๆ
+          onMilestoneGranted: (msg) => setMilestoneNotice(msg),
           // P2-17: คลัง+กล่องส่งของ → Zustand bridge ตรง ๆ (event-driven, เหมือน onShopList/onShopResult)
           onStorageState: (state) => setStorageState(state),
           onStorageResult: (result) => setStorageResult(result),
@@ -696,6 +708,19 @@ export async function createEngine(
         setActiveDialogue({ npcId: npc.npcId, displayName: npc.displayName, lines: npc.lines });
         return;
       }
+      // C4 (§5.1): คลิกโดนดึ๋งๆ companion (client-only cosmetic) — เช็คหลัง NPC (NPC ชนะ tie) ก่อน mob.
+      // companion ไม่ใช่ combat → คลิก = ขอเปิด help ("ดึ๋งๆ ช่วยเหลือ"): ยกเลิก engage/path ค้าง แล้วจบ
+      // (ไม่ตกไป engage มอน/เดินตามเมาส์). request ผ่าน store (engine ไม่ import React) → HelpPanel effect เปิด.
+      if (companion) {
+        const cp = companion.getPosition();
+        const dsq = (cp.tx - foot.tx) ** 2 + (cp.ty - foot.ty) ** 2;
+        if (dsq <= config.companion.clickRadiusTiles ** 2) {
+          engageState = cancelEngage();
+          player.cancelPath();
+          requestHelpPanel();
+          return;
+        }
+      }
       // P2-15: รัศมี pick ตาม input mode (mouse 0.60 / touch 0.80, Combat Bible §3).
       const assistRadius = resolveTargetAssistRadius(
         inputModeFromPointerType(e.pointerType),
@@ -822,6 +847,8 @@ export async function createEngine(
         const frozen = locked || tabHidden;
         // calc: player intent → movement (freeze ตอน lock/hidden)
         if (!frozen) player.update(dtSeconds);
+        // C4: companion follow-step (client-only cosmetic) — freeze คู่ player (ไม่ขยับตอน transition/hidden)
+        if (!frozen) companion?.update(dtSeconds);
         // calc: mobs (server interpolation / offline sim) — render ต่อเนื่องแม้ frozen
         updateMobs(dtSeconds, deltaMs);
         if (!frozen) {
@@ -897,6 +924,7 @@ export async function createEngine(
         combat.destroy();
         mobView.destroy();
         npcManager.destroy();
+        companion?.destroy();
         player.destroy();
         scene.destroy();
       },

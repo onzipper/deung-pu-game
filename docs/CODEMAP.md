@@ -4,13 +4,13 @@
 
 ## src/engine (foundation layer — TA §17, plain TS + PixiJS, no React/Next.js)
 
-- `src/engine/config.ts` — barrel — Design Knobs/types (EngineConfig, DEFAULT_ENGINE_CONFIG); domain modules under `src/engine/config/` (scene, player, input, mob, combat, combat-feel, net, engine, world), re-exported
+- `src/engine/config.ts` — barrel — Design Knobs/types (EngineConfig, DEFAULT_ENGINE_CONFIG); domain modules under `src/engine/config/` (scene, player, companion, input, mob, combat, combat-feel, net, engine, world), re-exported
 - `src/engine/runtime/` — engine lifecycle: transition (map fade), resize, assets, debug-info · LW0: world-clock (§3) + weather-overlay (§4)
 - `src/engine/runtime/app.ts` — createEngine(): per-map world (player+mobs+combat+net+input), master tick, F3/F4, pressAttack/effect-quality knobs (P2-15)
 - `src/engine/iso/` — iso projection + depth-sort math (**never-downgrade zone**)
 - `src/engine/movement/` — mover (stepMovement), direction resolver, path-follower
 - `src/engine/pathfinding/` — A* on the iso grid (click-to-move)
-- `src/engine/player/` — local player pixi glue + correction-resume (server reconcile)
+- `src/engine/player/` — local player pixi glue + correction-resume (server reconcile) + companion (C4 follow-entity)
 - `src/engine/net/` — colyseus glue, interp buffer, reconnect store, remote player/attack, party, visibility (P2-13)
 - `src/engine/net/net-client.ts` — createNetClient(): connect/join, reconnect (§59.1), self-adopt gating, cast/skill messages
 - `src/engine/animation/` — animation manifest (5-dir+mirror), sprite animator, placeholder textures, texture-set (non-owning handles)
@@ -56,7 +56,7 @@
 - `server/security/` — WS handshake (JWT+origin+rate limit), session takeover/lease (Bible 5.2)
 - `server/characters/` — persistence-decision (pure) + character-state load/upsert (best-effort, no DB = in-memory) + `server/characters/progress-carrier.ts` (cross-room + refresh/takeover level/exp carrier)
 - `server/inventory/` — inventory best-effort DB glue for MapRoom (snapshot on join; capacity + item catalog; mutations strict) + P2-10 reinforcement knobs
-- `server/economy/` — kill-reward wiring: mobType→monsterId map + Prisma seams (ledger/inventory/drop-audit); EXP always, gold/drops/audit only with DB + shop-state (P2-11 config + map availability)
+- `server/economy/` — kill-reward wiring: mobType→monsterId map + Prisma seams (ledger/inventory/drop-audit); EXP always, gold/drops/audit only with DB + shop-state (P2-11) + milestones (C1 §18 wiring)
 - `server/db/` — Prisma client singleton (server-only) + ledger contract (getBalance/appendEntry)
 - `server/config/` — P2-09 server-authoritative Design Knobs: economy (drop/EXP/Gold/enhancement) + reinforcement (pity/fragment/NO_REINFORCEMENT) + versioned loader + storage (P2-17)
 - `prisma/migrations/` — 0001_init (13 tables) · 0002_shop_ledger_reasons (LedgerReason += shop_buy/shop_sell)
@@ -68,7 +68,7 @@
 - `src/server/auth/` — token/session-cookie, password hash/policy, email normalize, auth service/upgrade state machine
 - `src/server/characters/` — repository (memory/prisma) + service (slot cap, cross-account guard)
 - `src/server/inventory/` — item catalog (server-authoritative Design Knob: slot + stat bonus) + equipment-stats (pure combat aggregation, folds enhancement +N curve §16.3.1) + repository (memory/prisma: FOR UPDATE + optimistic `version`, `commitEnhancement`/`grantItems` loot→bag) + service (equip/unequip/move/swap/snapshot) + enhancement-service (P2-10) + storage-service (P2-17)
-- `src/server/economy/` — pure P2-09 resolvers: exp (level-diff/party/level-up/baseline D-055) · drop-roll (weighted pools + guaranteed + audit + reinforcement guard) · kill-reward (injected seams, no DB) · shop (P2-11 buy/sell, compensating refund)
+- `src/server/economy/` — pure P2-09 resolvers: exp (level-diff/party/level-up/baseline D-055) · drop-roll (weighted pools + guaranteed + audit + reinforcement guard) · kill-reward (injected seams, no DB) · shop (P2-11) · milestone (C1 §18 grant, idempotent)
 
 ## scripts + tests
 

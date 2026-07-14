@@ -276,6 +276,19 @@ exports[`engine config — value identity (DEFAULT_* consts) > DEFAULT_COMBAT_ST
 }
 `;
 
+exports[`engine config — value identity (DEFAULT_* consts) > DEFAULT_COMPANION_CONFIG 1`] = `
+{
+  "assetId": "cmp_dungdung",
+  "clickRadiusTiles": 0.75,
+  "deadZoneTiles": 0.9,
+  "displayName": "ดึ๋งๆ",
+  "enabled": true,
+  "speedFactor": 1.05,
+  "teleportDistanceTiles": 6,
+  "trailDistanceTiles": 0.9,
+}
+`;
+
 exports[`engine config — value identity (DEFAULT_* consts) > DEFAULT_DEBUG_OVERLAY_CONFIG 1`] = `
 {
   "defaultVisible": true,
@@ -552,6 +565,16 @@ exports[`engine config — value identity (DEFAULT_* consts) > DEFAULT_ENGINE_CO
       "minLevelOnCrit": 1,
       "minLevelOnKill": 1,
     },
+  },
+  "companion": {
+    "assetId": "cmp_dungdung",
+    "clickRadiusTiles": 0.75,
+    "deadZoneTiles": 0.9,
+    "displayName": "ดึ๋งๆ",
+    "enabled": true,
+    "speedFactor": 1.05,
+    "teleportDistanceTiles": 6,
+    "trailDistanceTiles": 0.9,
   },
   "debugOverlay": {
     "defaultVisible": true,
@@ -1768,6 +1791,16 @@ exports[`engine config — value identity (factory / pure functions) > createEng
       "minLevelOnKill": 1,
     },
   },
+  "companion": {
+    "assetId": "cmp_dungdung",
+    "clickRadiusTiles": 0.75,
+    "deadZoneTiles": 0.9,
+    "displayName": "ดึ๋งๆ",
+    "enabled": true,
+    "speedFactor": 1.05,
+    "teleportDistanceTiles": 6,
+    "trailDistanceTiles": 0.9,
+  },
   "debugOverlay": {
     "defaultVisible": true,
     "depthLabelColor": 16769126,
@@ -2485,6 +2518,16 @@ exports[`engine config — value identity (factory / pure functions) > createEng
       "minLevelOnCrit": 1,
       "minLevelOnKill": 1,
     },
+  },
+  "companion": {
+    "assetId": "cmp_dungdung",
+    "clickRadiusTiles": 0.75,
+    "deadZoneTiles": 0.9,
+    "displayName": "ดึ๋งๆ",
+    "enabled": true,
+    "speedFactor": 1.05,
+    "teleportDistanceTiles": 6,
+    "trailDistanceTiles": 0.9,
   },
   "debugOverlay": {
     "defaultVisible": true,

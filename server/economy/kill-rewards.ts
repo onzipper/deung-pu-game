@@ -45,6 +45,19 @@ const MONSTER_ID_BY_MOB_TYPE: Readonly<Record<string, string>> = {
 const DROP_TABLE_VERSION = ECONOMY_CONFIG_DEF.defaultVersion;
 
 /**
+ * C1 (Economy §18.1): engine mobType → milestone mob class (normal hunt / elite / boss) for milestone triggers.
+ * Derived from the monsterId prefix (mon_/elite_/boss_) so it stays in lock-step with MONSTER_ID_BY_MOB_TYPE.
+ * Unmapped / test mob (mushroom) → null (no milestone).
+ */
+export function mobClassForMobType(mobType: string): "normal" | "elite" | "boss" | null {
+  const monsterId = MONSTER_ID_BY_MOB_TYPE[mobType];
+  if (!monsterId) return null;
+  if (monsterId.startsWith("boss_")) return "boss";
+  if (monsterId.startsWith("elite_")) return "elite";
+  return "normal";
+}
+
+/**
  * R8 loot guard (defence-in-depth): reinforcement ids must never leak into GENERIC loot. The Field Boss is the
  * one sanctioned exception (D-064) — it is the reinforcement-material source, so `upg_reinforcement` is an
  * allowed drop for it and is NOT in its excluded set. Every other monster keeps the full exclusion.

@@ -1,0 +1,37 @@
+{
+  "assetId": "cmp_dungdung",
+  "category": "companion",
+  "frameSize": [
+    64,
+    64
+  ],
+  "pivot": [
+    32,
+    54
+  ],
+  "mirrorSafe": true,
+  "drawnDirections": [
+    "S",
+    "N"
+  ],
+  "mirrorMap": {
+    "SW": "S",
+    "SE": "S",
+    "W": "S",
+    "E": "S",
+    "NW": "N",
+    "NE": "N"
+  },
+  "animations": {
+    "idle": {
+      "fps": 4,
+      "loop": true,
+      "frameCount": 2
+    },
+    "walk": {
+      "fps": 8,
+      "loop": true,
+      "frameCount": 4
+    }
+  }
+}
