@@ -25,6 +25,8 @@ import { ShopHudButton } from "@/ui/panels/shop/ShopHudButton";
 import { ShopPanel } from "@/ui/panels/shop/ShopPanel";
 import { StorageHudButton } from "@/ui/panels/storage/StorageHudButton";
 import { StoragePanel } from "@/ui/panels/storage/StoragePanel";
+import { JournalHudButton } from "@/ui/panels/journal/JournalHudButton";
+import { JournalPanel } from "@/ui/panels/journal/JournalPanel";
 import { HelpFocusProvider } from "@/ui/panels/help/help-focus-context";
 import { HelpHudButton } from "@/ui/panels/help/HelpHudButton";
 import { HelpPanel } from "@/ui/panels/help/HelpPanel";
@@ -153,6 +155,9 @@ export function GameCanvas() {
           {/* P2-17: ปุ่มคลัง render เฉพาะ available:true (city-hub) — ดู StorageHudButton.tsx */}
           <StorageHudButton />
           <StoragePanel getHandle={() => engineRef.current} />
+          {/* C3-MVP: ปุ่ม "สมุด" render เสมอทุก map (เหมือน inventory/enhancement) — ดู JournalHudButton.tsx */}
+          <JournalHudButton />
+          <JournalPanel getHandle={() => engineRef.current} />
           {/* P2-12: ปุ่ม "?" หลัก render เสมอ (DG §5.2) */}
           <HelpHudButton />
           <HelpPanel />

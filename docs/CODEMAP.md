@@ -35,16 +35,15 @@
 ## src/ui + src/app (React overlay + Next.js shell)
 
 - `src/app/` — root layout, landing page, globals.css
-- `src/app/game/` — route /game: server shell → GameCanvas
-- `src/app/game/boot-gate.ts` — **pure DI** entry gate (Storage §5): redirects to /hub when authed with no character; reads fresh character/map before mount
+- `src/app/game/` — route /game: server shell → GameCanvas; `src/app/game/boot-gate.ts` = DI entry gate (Storage §5)
 - `src/app/hub/` — Game Hub route: auth/upgrade panels, character grid/create, enter-game
-- `src/app/api/` — auth endpoints (guest/register/login/upgrade/session/rt-token) + characters (list/create)
+- `src/app/api/` — auth (guest/register/login/upgrade/session/rt-token) + characters (list/create)
 - `src/ui/` — GameCanvas (mount bridge), DebugOverlay (F3), debug-overlay-logic (pure reducer)
-- `src/ui/store/` — Zustand vanilla store bridge (HUD state, engine→UI one-way, no React import in the vanilla file)
+- `src/ui/store/` — Zustand vanilla store bridge (HUD state, engine→UI one-way, no React import)
 - `src/ui/theme/rarity.ts` — rarity color tokens (D-043)
-- `src/ui/components/` — token-driven presentational kit (P2 UI spec §4): PanelFrame, Button, TextInput, ItemSlot, Tooltip, ConfirmDialog(+hold-to-confirm), Toast
-- `src/ui/panels/` — shared panel framework (desktop float / mobile sheet, z-order, keydown block; DG §13) + hud-layout/hud-icon-catalog.ts (P2-15/F5). Provider in `src/ui/GameCanvas.tsx`
-- `src/ui/panels/` subdirs (inventory/enhancement/shop/storage/help/mobile/settings/skillbar/status/minimap/world-status/dialogue) — skillbar §8.3, status §8.2, minimap §8.4, world-status §18 (LW0), dialogue = LW0 bark
+- `src/ui/components/` — token kit §4: PanelFrame, Button, TextInput, ItemSlot, Tooltip, ConfirmDialog(+hold-to-confirm), Toast
+- `src/ui/panels/` — panel framework (float/sheet, z-order, keydown; DG §13) + hud-layout/hud-icon-catalog.ts, provider in `src/ui/GameCanvas.tsx`
+- `src/ui/panels/` subdirs — inventory/enhancement/shop/storage/help/mobile/settings · skillbar §8.3 · status §8.2 · minimap §8.4 · world-status §18 · dialogue = LW0 bark · journal (C3) = adventurer log, Achievement tab real
 
 ## server (Colyseus realtime process, separate from Next — L4)
 
