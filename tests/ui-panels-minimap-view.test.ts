@@ -4,6 +4,7 @@ import {
   facingToArrowRadians,
   minimapLayoutFor,
   projectTileToMinimap,
+  unprojectMinimapToTile,
 } from "@/ui/panels/minimap/minimap-view";
 
 describe("minimap-view — minimapLayoutFor (§8.4/§9.1/§9.2)", () => {
@@ -50,6 +51,36 @@ describe("minimap-view — projectTileToMinimap", () => {
       x: 50,
       y: 50,
     });
+  });
+});
+
+describe("minimap-view — unprojectMinimapToTile (Auto Pilot pick, D-037)", () => {
+  const bounds = { width: 40, height: 40 };
+
+  test("มุมซ้ายบน (0,0) px → tile (0,0)", () => {
+    expect(unprojectMinimapToTile({ x: 0, y: 0 }, bounds, 180)).toEqual({ tx: 0, ty: 0 });
+  });
+
+  test("กึ่งกลาง widget → กึ่งกลาง map (tile 20,20)", () => {
+    expect(unprojectMinimapToTile({ x: 90, y: 90 }, bounds, 180)).toEqual({ tx: 20, ty: 20 });
+  });
+
+  test("round-trip: project(unproject(px)) = px เดิม (ในกรอบ)", () => {
+    const px = { x: 63, y: 117 };
+    const tile = unprojectMinimapToTile(px, bounds, 180);
+    const back = projectTileToMinimap(tile, bounds, 180);
+    expect(back.x).toBeCloseTo(px.x);
+    expect(back.y).toBeCloseTo(px.y);
+  });
+
+  test("คลิกนอกกรอบ → clamp เข้าขอบ map (ไม่เกิน bounds)", () => {
+    const tile = unprojectMinimapToTile({ x: 500, y: -30 }, bounds, 180);
+    expect(tile.tx).toBe(40); // clamp fx=1 → width
+    expect(tile.ty).toBe(0); // clamp fy=0
+  });
+
+  test("innerSize = 0 → tile (0,0) (กันหารศูนย์)", () => {
+    expect(unprojectMinimapToTile({ x: 10, y: 10 }, bounds, 0)).toEqual({ tx: 0, ty: 0 });
   });
 });
 

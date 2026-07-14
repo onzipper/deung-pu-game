@@ -524,6 +524,11 @@ exports[`engine config — value identity (DEFAULT_* consts) > DEFAULT_ENGINE_CO
   },
   "antialias": true,
   "autoDensity": true,
+  "autoPilot": {
+    "arrivalToleranceTiles": 0.5,
+    "enabled": true,
+    "replanIntervalMs": 500,
+  },
   "backgroundAlpha": 1,
   "backgroundColor": 1776419,
   "camera": {
@@ -2266,6 +2271,11 @@ exports[`engine config — value identity (factory / pure functions) > createEng
   },
   "antialias": true,
   "autoDensity": true,
+  "autoPilot": {
+    "arrivalToleranceTiles": 0.5,
+    "enabled": true,
+    "replanIntervalMs": 500,
+  },
   "backgroundAlpha": 1,
   "backgroundColor": 1776419,
   "camera": {
@@ -3361,6 +3371,11 @@ exports[`engine config — value identity (factory / pure functions) > createEng
   },
   "antialias": true,
   "autoDensity": true,
+  "autoPilot": {
+    "arrivalToleranceTiles": 0.5,
+    "enabled": true,
+    "replanIntervalMs": 500,
+  },
   "backgroundAlpha": 1,
   "backgroundColor": 1776419,
   "camera": {

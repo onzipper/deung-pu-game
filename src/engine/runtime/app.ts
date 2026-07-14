@@ -23,6 +23,7 @@ import { buildExitMarkerPolygons } from "../render/exit-marker";
 import { createAssetRegistry } from "../assets/registry";
 import { collectMapAssetIds } from "../assets/collect";
 import { createLocalPlayer, type LocalPlayerHandle } from "../player/local-player";
+import { createAutoPilot, type AutoPilotHandle } from "../player/auto-pilot";
 import { createCompanion, type CompanionHandle } from "../player/companion";
 import { createMobViewManager, type MobViewHandle, type MobBlip } from "@/game/mob/manager";
 import { createMobSimulation, type MobSimulation } from "@/game/mob/simulation";
@@ -78,6 +79,7 @@ import {
   createHudPublisher,
   resetHudState,
   setActiveDialogue,
+  setAutoPilotState,
   setDeathNotice,
   setDeliveryResult,
   setDeliveryState,
@@ -146,6 +148,14 @@ export interface EngineHandle {
    * store read-only ฝั่ง UI, imperative command ต้องผ่าน EngineHandle).
    */
   closeDialogue(): void;
+  /**
+   * Auto Pilot (Batch 7a, D-037): เริ่ม auto-walk ไป tile ที่ผู้เล่นยืนยันจาก minimap (Minimap confirm chip
+   * เรียกผ่านนี้). engine ตรวจ walkable+path เอง — เดินไม่ถึง → publish stopReason "noPath" (chip โชว์เหตุผล).
+   * ไม่ใช่บอท (D-037): auto-walk เท่านั้น. delegate ไป world ปัจจุบัน (getter live เหมือน pressAttack).
+   */
+  startAutoPilot(dest: TilePoint): void;
+  /** Auto Pilot (D-037): หยุด auto-walk (ผู้เล่นกด ✖หยุดบน HUD chip) — reason "manual". delegate ไป world. */
+  stopAutoPilot(): void;
   /** เก็บกวาดครบ: ticker, resize observer, canvas, GPU resources */
   destroy(): void;
 }
@@ -173,6 +183,9 @@ interface WorldHandle {
   pressAttack(): void;
   /** A3 (P2 UI §8.3): cast สกิลช่อง slot (1-4) — ตรวจ unlock/cooldown แล้วส่ง cast (ดู castSlot ใน mountWorld). */
   castSlot(slot: number): void;
+  /** Auto Pilot (D-037): เริ่ม/หยุด auto-walk ของ world ปัจจุบัน (ดู startAutoPilot/stopAutoPilot ใน mountWorld). */
+  startAutoPilot(dest: TilePoint): void;
+  stopAutoPilot(): void;
   getDebugInfo(fps: number): EngineDebugInfo;
   /** Minimap (§8.4) danger/elite/normal blips — mob view render positions, throttled ผ่าน hudPublisher เดียวกับ debugInfo (ไม่ publish ทุก frame) */
   getBlips(): MobBlip[];
@@ -338,6 +351,26 @@ export async function createEngine(
       nameplateLayer,
     );
     player.applyCorrection(spawn.x, spawn.y); // ย้าย + snap กล้องมาที่จุดเกิดจริง (idempotent ถ้า = spawnPoint)
+
+    // --- Auto Pilot (Batch 7a, D-037 LOCKED) — client-side auto-walk ไปจุดหมายที่ผู้เล่นยืนยัน (ไม่ใช่บอท).
+    //     ขับ player ผ่าน moveTo/path เดียวกับ click-to-move. stop conditions ถูก hook ที่ integration hub นี้
+    //     (visibility/hp/disconnect/transition/attack/manual click) → autoPilot.stop(reason). controller เอง
+    //     ตรวจ arrival/manual-WASD/no-path ใน update(). publish state → game-store (HUD chip + minimap dot). ---
+    const autoPilot: AutoPilotHandle = createAutoPilot(player, map, config.autoPilot, {
+      maxSearchNodes: config.pathfinding.maxSearchNodes,
+      onChange: (change) =>
+        setAutoPilotState({
+          active: change.active,
+          destination: change.destination
+            ? { tx: change.destination.tx, ty: change.destination.ty }
+            : null,
+          stopReason: change.stopReason,
+        }),
+    });
+    // D-037 combat hook (โดน damage): hp ของ self ลด ระหว่าง auto-pilot → stop("combat"). onSelfVitals อัปเดตค่านี้.
+    let lastKnownHp: number | null = null;
+    // D-037 combat hook (ออกโจมตี): isAttacking rising-edge (Space/คลิก/ปุ่มมือถือ) ระหว่าง auto-pilot → stop("combat").
+    let prevAttacking = false;
 
     // --- ดึ๋งๆ companion (C4-MVP, §12.2/§5.1) — client-only cosmetic follow entity, มีทุก map (เมือง+field).
     //     ตามผู้เล่น local, no collision/combat (§3.2), depth-sort เข้า entity layer เหมือน mob/NPC. คลิก →
@@ -529,7 +562,14 @@ export async function createEngine(
           // NAMEPLATES: self ชื่อตัวละคร (server-set จาก character.name) → ป้ายชื่อเหนือหัวตัวเอง (display-only).
           onSelfName: (name) => player.setName(name),
           // A1/A2 (§2/§10): hp/maxHp ของ self (server-authoritative) → HUD แถบ HP (E3). event-driven ไม่ throttle.
-          onSelfVitals: (hp, maxHp) => setPlayerVitals(hp, maxHp),
+          // D-037 stop: hp ลด ระหว่าง auto-pilot = "โดน damage" → เข้าสู่การต่อสู้ → stop("combat"). heal/respawn (hp เพิ่ม) ไม่หยุด.
+          onSelfVitals: (hp, maxHp) => {
+            if (autoPilot.isActive && lastKnownHp !== null && hp < lastKnownHp) {
+              autoPilot.stop("combat");
+            }
+            lastKnownHp = hp;
+            setPlayerVitals(hp, maxHp);
+          },
           // E3 (§8.2): level ของ self (schema) → badge + refresh A3 hotbar unlock (ปลดสกิลถูกตั้งแต่เกิด/level-up)
           onSelfLevel: (level) => {
             setPlayerLevel(level);
@@ -738,6 +778,9 @@ export async function createEngine(
     };
 
     const onPointerDown = (e: PointerEvent): void => {
+      // D-037 stop (manual): คลิก/แตะในโลก = ผู้เล่นเข้าคุมเอง (เดิน/เล็งมอน/คุย NPC) → หยุด auto-pilot "ก่อน"
+      //   ออกคำสั่งใหม่เสมอ (stop() cancelPath ก่อน แล้วโค้ดข้างล่างค่อย moveTo/engage → path ใหม่ไม่ถูกล้าง).
+      autoPilot.stop("manual");
       // FEATURE 1: ปุ่มกลาง = โจมตีมอนที่ใกล้ตัวสุด (ไม่จำกัดรัศมี — "นับทั้งแมพ" ตามที่ผู้เล่นขอ,
       // ไม่ cap ด้วย assist radius). reuse engageMob เดิม (หัน+ตี/เดินเข้า) — ไม่มี net message ใหม่.
       if (e.button === 1) {
@@ -805,6 +848,7 @@ export async function createEngine(
      */
     const pressAttack = (): void => {
       if (transition.isLocked()) return;
+      autoPilot.stop("combat"); // D-037 stop: ปุ่มโจมตีมือถือ = ออกโจมตี → เข้าสู่การต่อสู้
       const assist = combatAllowed
         ? mobUnderClick(player.position, config.pathfinding.targetAssist.keyboardAssistRadius)
         : null;
@@ -883,6 +927,9 @@ export async function createEngine(
         ? createVisibilityController({
             onHidden: () => {
               tabHidden = true;
+              // D-037 stop: "must NOT run in a background tab" → หยุด auto-pilot ทันที (ไม่ใช่แค่ freeze —
+              //   freeze จะ resume ตอนกลับมา ผิด D-037). listener cleanup = visibility.detach() ใน world.destroy.
+              autoPilot.stop("tabHidden");
             },
             onVisible: () => {
               tabHidden = false;
@@ -899,8 +946,21 @@ export async function createEngine(
         // P2-13 (D-056): freeze input/net-send ตอน transition lock **หรือ** แท็บ hidden (บาง browser ยัง
         //   tick 1Hz ตอน background) — render (mob/combat/scene) เดินต่อ. connection ไม่ถูกแตะ (ไม่ disconnect).
         const frozen = locked || tabHidden;
+        // D-037 stop (transition): ต้องข้าม map-channel (transition lock) → หยุด auto-pilot (world กำลังจะถูก swap).
+        if (locked) autoPilot.stop("transition");
+        // D-037 stop (disconnect): net หลุด (offline) ระหว่าง auto-pilot → หยุด (client เดินต่อเองไม่ได้แล้ว).
+        if (net?.status.state === "offline") autoPilot.stop("disconnect");
         // calc: player intent → movement (freeze ตอน lock/hidden)
-        if (!frozen) player.update(dtSeconds);
+        if (!frozen) {
+          player.update(dtSeconds);
+          // D-037 stop (combat): isAttacking rising-edge = ผู้เล่นออกโจมตี (Space/คลิก/ปุ่มมือถือ) → เข้าสู่การต่อสู้.
+          //   auto-pilot ไม่เคยสั่งโจมตีเอง → edge นี้ = manual attack เสมอ. เช็คหลัง player.update (isAttacking สด).
+          const attackingNow = player.isAttacking;
+          if (attackingNow && !prevAttacking) autoPilot.stop("combat");
+          prevAttacking = attackingNow;
+          // Auto Pilot monitor: arrival / manual-WASD / no-path + replan ตามคาบ (ต้องรันหลัง player.update).
+          autoPilot.update(dtSeconds);
+        }
         // C4: companion follow-step (client-only cosmetic) — freeze คู่ player (ไม่ขยับตอน transition/hidden)
         if (!frozen) companion?.update(dtSeconds);
         // calc: mobs (server interpolation / offline sim) — render ต่อเนื่องแม้ frozen
@@ -945,6 +1005,15 @@ export async function createEngine(
       },
       pressAttack,
       castSlot,
+      startAutoPilot(dest): void {
+        // ยกเลิก engage/chase + hold-to-walk ที่ค้างก่อน (auto-pilot ขับ moveTo แทน ไม่ให้สองระบบชนกัน).
+        engageState = cancelEngage();
+        leftHeld = false;
+        autoPilot.start(dest);
+      },
+      stopAutoPilot(): void {
+        autoPilot.stop("manual"); // ผู้เล่นกด ✖หยุด บน HUD chip = manual
+      },
       getDebugInfo(fps): EngineDebugInfo {
         return buildDebugInfo({
           fps,
@@ -972,6 +1041,7 @@ export async function createEngine(
         app.canvas.removeEventListener("pointerdown", onPointerDown);
         window.removeEventListener("keydown", onStressToggleKeyDown);
         visibility?.detach(); // P2-13: ถอด visibilitychange listener
+        autoPilot.destroy(); // D-037: หยุด auto-walk ค้าง (world สลับ/unmount)
         net?.disconnect();
         remotes?.destroy();
         stressHarness.destroy();
@@ -1150,6 +1220,12 @@ export async function createEngine(
     },
     closeDialogue(): void {
       setActiveDialogue(null);
+    },
+    startAutoPilot(dest: TilePoint): void {
+      currentWorld.startAutoPilot(dest);
+    },
+    stopAutoPilot(): void {
+      currentWorld.stopAutoPilot();
     },
     destroy,
   };

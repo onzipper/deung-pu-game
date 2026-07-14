@@ -4,20 +4,20 @@
 
 ## src/engine (foundation layer — TA §17, plain TS + PixiJS, no React/Next.js)
 
-- `src/engine/config.ts` — barrel — Design Knobs/types (EngineConfig, DEFAULT_ENGINE_CONFIG); domain modules under `src/engine/config/` (scene/player/companion/input/mob/combat/combat-feel/net/engine/world)
+- `src/engine/config.ts` — barrel — Design Knobs/types (EngineConfig, DEFAULT_ENGINE_CONFIG); domain modules under `src/engine/config/` (scene/player/auto-pilot/companion/input/mob/combat/combat-feel/net/engine/world)
 - `src/engine/runtime/` — engine lifecycle: transition (map fade), resize, assets, debug-info · LW0: world-clock (§3) + weather-overlay (§4)
 - `src/engine/runtime/app.ts` — createEngine(): per-map world (player+mobs+combat+net+input), master tick, F3/F4, pressAttack/effect-quality knobs (P2-15)
 - `src/engine/iso/` — iso projection + depth-sort math (**never-downgrade zone**)
 - `src/engine/movement/` — mover (stepMovement), direction resolver, path-follower
 - `src/engine/pathfinding/` — A* on the iso grid (click-to-move)
-- `src/engine/player/` — local player pixi glue + correction-resume (server reconcile) + companion (C4 follow-entity)
+- `src/engine/player/` — local player pixi glue + correction-resume (server reconcile) + companion (C4 follow-entity) + auto-pilot (D-037, ≠ bot)
 - `src/engine/net/` — colyseus glue, interp buffer, reconnect store, remote player/attack, party, visibility (P2-13)
 - `src/engine/net/net-client.ts` — createNetClient(): connect/join, reconnect (§59.1), self-adopt gating, cast/skill messages
 - `src/engine/animation/` — animation manifest (5-dir+mirror), sprite animator, placeholder textures, texture-set (non-owning handles)
 - `src/engine/assets/` — runtime atlas loader/registry (engine-scope, fail-soft → placeholder)
 - `src/engine/config/render.ts` — pixelate knob (on/scale/nearest-filter/CSS)
-- `src/engine/render/` — depth registry, camera, scene graph, pool, screen shake, exit marker, afk-label, name-label, nameplate-layer (full-res world-label overlay, Thai glyphs crisp above D-065 0.5x pass) · `src/engine/audio/` SFX
-- `src/engine/map/` — MapConfig schema/loader/registry + map1/map2/map3/map4/city-hub/p0-test-field configs (Batch 5: +maps 2-4)
+- `src/engine/render/` — depth registry, camera, scene graph, pool, screen shake, exit marker, afk-label, name-label, nameplate-layer (full-res world-label overlay, Thai crisp above D-065 0.5x) · `src/engine/audio/` SFX
+- `src/engine/map/` — MapConfig schema/loader/registry + map1/map2/map3/map4/city-hub/p0-test-field configs
 - `src/engine/input/` — keyboard (WASD+attack) + joystick→8-dir intent + target-assist (per-mode click radius, Combat Bible §3, P2-15)
 
 ## src/game (combat/entity logic on top of the engine)
@@ -27,7 +27,7 @@
 - `src/game/npc/` — LW0 static NPC bark: catalog + nearest-click test + view manager (placeholder+label)
 - `src/game/item/icon-catalog.ts` — itemId → icon URL map (null = show raw id)
 - `src/game/skill/` — SkillDefinition (37 fields, GS §50.1) loader + server/client view split (TA §16.1)
-- `src/game/skill/data/warrior-skills-server.ts` (+ archer sibling + client views) — SERVER-ONLY vs CLIENT-SAFE; MapRoom loads skills per class
+- `src/game/skill/data/warrior-skills-server.ts` (+archer+client views) — SERVER-ONLY vs CLIENT-SAFE; MapRoom loads skills per class
 - `src/game/combat/` — hit-test, cast-validation, damage-number/hit-stop/screen-shake juice, combat-stub, target-engage
 - `src/game/combat/skill-vfx.ts` — F4 skill VFX playback (client-only)
 - `src/game/combat/formula.ts` — **PURE + SERVER-ONLY** damage formula (§15.2/§50.1.1) — never in the client bundle
@@ -43,7 +43,7 @@
 - `src/ui/theme/rarity.ts` — rarity color tokens (D-043)
 - `src/ui/components/` — token kit §4: PanelFrame, Button, TextInput, ItemSlot, Tooltip, ConfirmDialog(+hold-to-confirm), Toast
 - `src/ui/panels/` — panel framework (float/sheet, z-order, keydown; DG §13) + hud-layout/hud-icon-catalog.ts, provider in `src/ui/GameCanvas.tsx`
-- `src/ui/panels/` subdirs — inventory/enhancement/shop/storage/help/mobile/settings · skillbar §8.3 · status §8.2 · minimap §8.4 · world-status §18 · dialogue = LW0 bark · journal (C3) = adventurer log + Achievement tab
+- `src/ui/panels/` subdirs — inventory/enhancement/shop/storage/help/mobile/settings · skillbar §8.3 · status §8.2 · minimap §8.4 · auto-pilot = pick/chip (D-037) · world-status §18 · dialogue = LW0 bark · journal (C3) = adventurer log + Achievement tab
 
 ## server (Colyseus realtime process, separate from Next — L4)
 
@@ -53,11 +53,11 @@
 - `server/schema/` — @colyseus/schema state (PlayerState/MobState/MapRoomState)
 - `server/matchmaking/` — pure channel-number allocator (§59.3 auto-assign)
 - `server/security/` — WS handshake (JWT+origin+rate limit), session takeover/lease (Bible 5.2)
-- `server/characters/` — persistence-decision (pure) + character-state load/upsert (best-effort, no DB = in-memory) + progress-carrier.ts (cross-room + refresh/takeover level/exp carrier)
+- `server/characters/` — persistence-decision (pure) + character-state load/upsert (best-effort, no DB = in-memory) + progress-carrier.ts (cross-room/refresh/takeover level·exp)
 - `server/inventory/` — best-effort DB glue for MapRoom (snapshot on join; capacity + item catalog; mutations strict) + P2-10 reinforcement knobs
-- `server/economy/` — kill-reward wiring: mobType→monsterId + Prisma seams (ledger/inventory/drop-audit); EXP always, gold/drops/audit w/ DB · shop-state (P2-11) · milestones (C1 §18) · achievements (C2b: seams + emit/snapshot + whitelist) · reinforcement-pity (B4: §4.2 pity + §3.5 fragment, Prisma/mem)
+- `server/economy/` — kill-reward wiring: mobType→monsterId + Prisma seams (ledger/inventory/drop-audit); EXP always, gold/drops/audit w/ DB · shop-state (P2-11) · milestones (C1 §18) · achievements (C2b) · reinforcement-pity (B4 §4.2/§3.5, Prisma/mem)
 - `server/db/` — Prisma client singleton (server-only) + ledger contract (getBalance/appendEntry)
-- `server/config/` — Design Knobs: economy (drop/EXP/Gold/enh/partyReward) + reinforcement (pity/fragment/NO_REINFORCEMENT) + loader + storage (P2-17) + achievements.ts (C2a, 65 rows)
+- `server/config/` — Design Knobs: economy (drop/EXP/Gold/enh/partyReward) + reinforcement (pity/fragment/NO_REINFORCEMENT) + loader + storage (P2-17) + achievements.ts (C2a)
 - `prisma/migrations/` — 0001_init (13 tables) · 0002_shop_ledger_reasons (LedgerReason += shop_buy/shop_sell)
 
 ## src/shared + src/server (client↔server contracts + Next server-only)
