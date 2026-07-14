@@ -10,6 +10,7 @@ import { useEffect, useState } from "react";
 import type { EngineHandle } from "@/engine/runtime/app";
 import { useGameStore } from "@/ui/store/use-game-store";
 import { selectSkillSlots, type SkillSlotView } from "@/ui/store/game-store";
+import { skillIconUrl } from "./skill-icon-catalog";
 
 export interface SkillBarProps {
   getHandle: () => EngineHandle | null;
@@ -37,10 +38,14 @@ function SkillSlotButton({ slot, onCast }: { slot: SkillSlotView; onCast: () => 
   const size = slot.isPrimary ? 64 : 56; // §8.3 primary 64, skill slot 56
   // เหลือกี่วินาที = frac × cooldown เต็ม (ไม่อ่าน clock ใน render — render ต้อง pure)
   const remainingSec = Math.ceil((remainingFrac * slot.cooldownTotalMs) / 1000);
+  const iconUrl = skillIconUrl(slot.skillId);
+  const [iconFailed, setIconFailed] = useState(false);
+  const showIcon = iconUrl && !iconFailed;
   return (
     <button
       type="button"
       onClick={onCast}
+      title={slot.displayName}
       aria-label={
         slot.unlocked
           ? `${slot.displayName} (ปุ่ม ${slot.keyLabel})`
@@ -54,10 +59,24 @@ function SkillSlotButton({ slot, onCast }: { slot: SkillSlotView; onCast: () => 
       }
       style={{ width: size, height: size }}
     >
-      {/* ชื่อสกิลย่อ (placeholder ก่อนมี HUD icon จริง — F5 §18) */}
-      <span className="flex h-full w-full items-center justify-center px-1 text-center text-[10px] leading-tight">
-        {slot.displayName}
-      </span>
+      {/* icon = ภาพหลักของช่อง (F5) — locked ใช้ grayscale/opacity ต่อ (ซ้อนกับ filter บนปุ่มตอน !unlocked
+          อยู่แล้ว), ไม่พบ icon (id ไม่อยู่ใน catalog) หรือโหลดไม่ขึ้น → fallback เป็นชื่อสกิลย่อแบบเดิม */}
+      {showIcon ? (
+        // eslint-disable-next-line @next/next/no-img-element -- decorative per-slot icon, same pattern as ItemSlot.tsx
+        <img
+          src={iconUrl}
+          alt=""
+          aria-hidden
+          className={
+            "h-full w-full max-w-full object-contain p-1.5 " + (slot.unlocked ? "" : "opacity-60")
+          }
+          onError={() => setIconFailed(true)}
+        />
+      ) : (
+        <span className="flex h-full w-full items-center justify-center px-1 text-center text-[10px] leading-tight">
+          {slot.displayName}
+        </span>
+      )}
       {/* key label บนซ้าย (§8.3) */}
       <span className="absolute left-0.5 top-0.5 rounded bg-black/60 px-1 text-[10px] font-bold text-amber-200">
         {slot.keyLabel}

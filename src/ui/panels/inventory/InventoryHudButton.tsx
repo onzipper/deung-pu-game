@@ -13,6 +13,7 @@
 import { useEffect } from "react";
 import { usePanelManager, useIsMobilePanel } from "@/ui/panels";
 import { hudButtonStyle } from "@/ui/panels/hud-layout";
+import { hudIconUrl } from "@/ui/panels/hud-icon-catalog";
 import { INVENTORY_PANEL_ID } from "./inventory-view";
 
 export function InventoryHudButton() {
@@ -35,10 +36,16 @@ export function InventoryHudButton() {
       type="button"
       onClick={() => manager.openPanel(INVENTORY_PANEL_ID)}
       aria-label="เปิดกระเป๋า"
-      className={className}
+      className={`${className} inline-flex items-center gap-1.5`}
       style={style}
     >
-      กระเป๋า <span className="text-(--dp-sand)">(I)</span>
+      {/* eslint-disable-next-line @next/next/no-img-element -- decorative HUD glyph, closed icon set (hud-icon-catalog.ts) */}
+      <img src={hudIconUrl("inventory")} alt="" aria-hidden className="h-5 w-5 shrink-0" />
+      {!isMobile && (
+        <span>
+          กระเป๋า <span className="text-(--dp-sand)">(I)</span>
+        </span>
+      )}
     </button>
   );
 }

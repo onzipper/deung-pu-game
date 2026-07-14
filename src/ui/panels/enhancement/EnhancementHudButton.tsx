@@ -7,6 +7,7 @@
 
 import { usePanelManager, useIsMobilePanel } from "@/ui/panels";
 import { hudButtonStyle } from "@/ui/panels/hud-layout";
+import { hudIconUrl } from "@/ui/panels/hud-icon-catalog";
 import { ENHANCEMENT_PANEL_ID } from "./enhancement-view";
 
 export function EnhancementHudButton() {
@@ -19,10 +20,12 @@ export function EnhancementHudButton() {
       type="button"
       onClick={() => manager.openPanel(ENHANCEMENT_PANEL_ID)}
       aria-label="เปิดเสริมแกร่ง"
-      className={className}
+      className={`${className} inline-flex items-center gap-1.5`}
       style={style}
     >
-      เสริมแกร่ง
+      {/* eslint-disable-next-line @next/next/no-img-element -- decorative HUD glyph, closed icon set (hud-icon-catalog.ts) */}
+      <img src={hudIconUrl("enhancement")} alt="" aria-hidden className="h-5 w-5 shrink-0" />
+      {!isMobile && <span>เสริมแกร่ง</span>}
     </button>
   );
 }

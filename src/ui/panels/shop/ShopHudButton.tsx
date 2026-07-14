@@ -10,6 +10,7 @@
 
 import { usePanelManager, useIsMobilePanel } from "@/ui/panels";
 import { hudButtonStyle } from "@/ui/panels/hud-layout";
+import { hudIconUrl } from "@/ui/panels/hud-icon-catalog";
 import { selectShopList } from "@/ui/store/game-store";
 import { useGameStore } from "@/ui/store/use-game-store";
 import { isShopAvailable, SHOP_PANEL_ID } from "./shop-view";
@@ -27,10 +28,12 @@ export function ShopHudButton() {
       type="button"
       onClick={() => manager.openPanel(SHOP_PANEL_ID)}
       aria-label="เปิดร้านค้า"
-      className={className}
+      className={`${className} inline-flex items-center gap-1.5`}
       style={style}
     >
-      ร้านค้า
+      {/* eslint-disable-next-line @next/next/no-img-element -- decorative HUD glyph, closed icon set (hud-icon-catalog.ts) */}
+      <img src={hudIconUrl("shop")} alt="" aria-hidden className="h-5 w-5 shrink-0" />
+      {!isMobile && <span>ร้านค้า</span>}
     </button>
   );
 }
