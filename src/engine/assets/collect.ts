@@ -43,6 +43,11 @@ export function collectMapAssetIds(
   }
   push((config.theme.defaultProp as MaybeAsset).assetId);
 
+  // 4. ground tiles (F1) — theme-level (global today, not per-map). real fields บน SceneTheme
+  // (ไม่ต้อง cast MaybeAsset เหมือน prop/mob); push() no-op เมื่อ undefined อยู่แล้ว.
+  push(config.theme.groundTileAssetIdA);
+  push(config.theme.groundTileAssetIdB);
+
   // dedupe คงลำดับพบครั้งแรก
   return [...new Set(ids)];
 }

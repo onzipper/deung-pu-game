@@ -1,0 +1,19 @@
+{
+  "image": "grnd_map1_grass_b.png",
+  "rasterized": true,
+  "width": 64,
+  "height": 32,
+  "frameSize": [
+    64,
+    32
+  ],
+  "frames": [
+    {
+      "key": "idle_s_0",
+      "x": 0,
+      "y": 0,
+      "w": 64,
+      "h": 32
+    }
+  ]
+}

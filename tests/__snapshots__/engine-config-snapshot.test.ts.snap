@@ -858,6 +858,8 @@ exports[`engine config — value identity (DEFAULT_* consts) > DEFAULT_ENGINE_CO
     },
     "gridLineAlpha": 0.35,
     "gridLineColor": 10335596,
+    "groundTileAssetIdA": "grnd_map1_grass_a",
+    "groundTileAssetIdB": "grnd_map1_grass_b",
     "props": {
       "bush": {
         "assetId": "prop_map1_bush",
@@ -1295,6 +1297,8 @@ exports[`engine config — value identity (DEFAULT_* consts) > DEFAULT_SCENE_THE
   },
   "gridLineAlpha": 0.35,
   "gridLineColor": 10335596,
+  "groundTileAssetIdA": "grnd_map1_grass_a",
+  "groundTileAssetIdB": "grnd_map1_grass_b",
   "props": {
     "bush": {
       "assetId": "prop_map1_bush",
@@ -1973,6 +1977,8 @@ exports[`engine config — value identity (factory / pure functions) > createEng
     },
     "gridLineAlpha": 0.35,
     "gridLineColor": 10335596,
+    "groundTileAssetIdA": "grnd_map1_grass_a",
+    "groundTileAssetIdB": "grnd_map1_grass_b",
     "props": {
       "bush": {
         "assetId": "prop_map1_bush",
@@ -2641,6 +2647,8 @@ exports[`engine config — value identity (factory / pure functions) > createEng
     },
     "gridLineAlpha": 0.35,
     "gridLineColor": 10335596,
+    "groundTileAssetIdA": "grnd_map1_grass_a",
+    "groundTileAssetIdB": "grnd_map1_grass_b",
     "props": {
       "bush": {
         "assetId": "prop_map1_bush",

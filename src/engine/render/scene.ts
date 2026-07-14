@@ -141,15 +141,29 @@ function buildPropDisplay(
 }
 
 /**
- * วาด ground layer ทั้งใบ "ครั้งเดียว" ลง Graphics เดียว:
- * แต่ละ cell = diamond (มุม = tile-integer 4 จุด), checker fill หรือ blocked color,
- * แล้ว stroke เส้น grid. ไม่ต้อง depth sort (พื้นราบ coplanar ไม่ทับกัน).
+ * วาด ground layer ทั้งใบ "ครั้งเดียว" (ไม่ depth sort — พื้นราบ coplanar ไม่ทับกัน):
+ *   • F1 (Bible §10.1): ถ้า theme มี groundTileAssetIdA/B + atlas โหลดแล้ว → ปูด้วย ground-tile Sprite
+ *     (anchor top-center จาก atlas, pivot [32,0]/frameSize [64,32] → (0.5,0) = ยอด diamond ตรงกับ
+ *     screen point ของมุม tile บนสุด) ลง spriteLayer (ล่างสุด).
+ *   • fail-soft: cell ที่ blocked หรือ atlas/frame ไม่พร้อม → Graphics fill (blockedColor / tileColorA/B)
+ *     — pattern เดียวกับ buildPropDisplay (peek + null-check, ไม่ throw).
+ *   • grid-line stroke วาด "ทุก cell" เสมอ (ทับ sprite ด้วย) บน overlay (บนสุด) — คงลุค grid เดิมเป๊ะ.
+ * spriteLayer เพิ่มก่อน overlay → fallback fill + เส้น grid วาดทับ sprite (grid ต้องเห็นเหนือลายหญ้า).
  */
-function buildGround(map: MapConfig, config: EngineConfig): Graphics {
-  const g = new Graphics();
+function buildGround(
+  map: MapConfig,
+  config: EngineConfig,
+  registry?: AssetRegistry,
+): Container {
   const { tileSize } = config;
   const { width, height } = map.bounds;
   const theme = config.theme;
+
+  const texA = theme.groundTileAssetIdA ? (registry?.peek(theme.groundTileAssetIdA) ?? null) : null;
+  const texB = theme.groundTileAssetIdB ? (registry?.peek(theme.groundTileAssetIdB) ?? null) : null;
+
+  const spriteLayer = new Container(); // grass sprites — bottom
+  const overlay = new Graphics();      // fallback fills (blocked / missing-texture cells) + grid-line strokes for EVERY cell — top
 
   for (let ty = 0; ty < height; ty++) {
     for (let tx = 0; tx < width; tx++) {
@@ -160,21 +174,37 @@ function buildGround(map: MapConfig, config: EngineConfig): Graphics {
       const poly = [a.sx, a.sy, b.sx, b.sy, c.sx, c.sy, d.sx, d.sy];
 
       const blocked = isBlockedTile(map, tx, ty);
-      const fillColor = blocked
-        ? theme.blockedColor
-        : (tx + ty) % 2 === 0
-          ? theme.tileColorA
-          : theme.tileColorB;
+      const useA = (tx + ty) % 2 === 0;
+      const atlas = !blocked ? (useA ? texA : texB) : null;
+      const frame = atlas?.textures.get("idle", "S")[0] ?? null;
 
-      g.poly(poly).fill({ color: fillColor });
-      g.poly(poly).stroke({
+      // frame truthy ⇒ atlas non-null เสมอ (frame มาจาก atlas?.…) — `&& atlas` เพื่อให้ TS narrow type.
+      if (frame && atlas) {
+        const sprite = new Sprite(frame);
+        sprite.anchor.set(atlas.textures.anchor.x, atlas.textures.anchor.y);
+        sprite.position.set(a.sx, a.sy);
+        spriteLayer.addChild(sprite);
+      } else {
+        const fillColor = blocked
+          ? theme.blockedColor
+          : useA
+            ? theme.tileColorA
+            : theme.tileColorB;
+        overlay.poly(poly).fill({ color: fillColor });
+      }
+      // grid line ALWAYS drawn (over sprite tiles too) — unchanged visual behavior from before.
+      overlay.poly(poly).stroke({
         color: theme.gridLineColor,
         width: 1,
         alpha: theme.gridLineAlpha,
       });
     }
   }
-  return g;
+
+  const container = new Container();
+  container.addChild(spriteLayer);
+  container.addChild(overlay);
+  return container;
 }
 
 /**
@@ -191,7 +221,7 @@ export function createMapScene(
 
   // ── layer tree ─────────────────────────────────────────────────────────
   const world = new Container();
-  const ground = buildGround(map, config);
+  const ground = buildGround(map, config, assetRegistry);
   // exit marker layer (P1 fix): ground-level overlay — เหนือ ground, ใต้ entityLayer (วาดก่อน entity
   // = อยู่ข้างหลัง entity ในลำดับ paint). ไม่ depth-sort (พื้นราบ coplanar เหมือน ground).
   const exitMarkerLayer = new Container();
