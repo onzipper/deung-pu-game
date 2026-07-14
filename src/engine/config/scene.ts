@@ -58,6 +58,15 @@ export interface SceneTheme {
   defaultProp: PropStyle;
   /** style ต่อ propId */
   props: Record<string, PropStyle>;
+  /**
+   * F1 (ASSET_PRODUCTION_BIBLE §10.1): assetId ของ ground-tile atlas คู่ checker (A/B).
+   * undefined = ยังไม่มี art จริง → ใช้ tileColorA/B (Graphics fallback) เหมือนเดิม.
+   * ทั้งคู่ต้อง set พร้อมกันหรือไม่ set เลย.
+   * NOTE: theme เป็น global เดียว (EngineConfig.theme) ยังไม่ per-map — per-map override
+   * (เช่น พื้นหินสำหรับ city-hub) เป็น follow-up ในอนาคต, out of scope ที่นี่.
+   */
+  groundTileAssetIdA?: string;
+  groundTileAssetIdB?: string;
 }
 
 /** พฤติกรรมกล้อง (fixed iso · no rotation · no zoom — P0). */
@@ -138,6 +147,9 @@ export const DEFAULT_SCENE_THEME: SceneTheme = {
     signpost: { color: 0xb47e52, width: 12, height: 34, shape: "box", assetId: "prop_map1_signpost" }, // Warm Wood
     stump: { color: 0x8e6046, width: 20, height: 16, shape: "ellipse", assetId: "prop_map1_stump" }, // Clay
   },
+  // F1 (Bible §10.1): ground-tile atlas คู่ checker — คู่กับ tileColorA/B (Leaf / Deep Leaf) เป็น fallback.
+  groundTileAssetIdA: "grnd_map1_grass_a",
+  groundTileAssetIdB: "grnd_map1_grass_b",
 };
 
 export const DEFAULT_CAMERA_CONFIG: CameraConfig = {
