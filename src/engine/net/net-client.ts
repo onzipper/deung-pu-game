@@ -36,6 +36,8 @@ import {
   MSG_CAST_REJECTED,
   MSG_ENHANCE_ITEM,
   MSG_ENHANCE_RESULT,
+  MSG_FRAGMENT_EXCHANGE,
+  MSG_FRAGMENT_EXCHANGE_RESULT,
   MSG_EQUIP_ITEM,
   MSG_INVENTORY_OP_REJECTED,
   MSG_INVENTORY_STATE,
@@ -78,6 +80,8 @@ import {
   type DeliveryStateMessage,
   type EnhanceItemMessage,
   type EnhanceResultMessage,
+  type FragmentExchangeMessage,
+  type FragmentExchangeResultMessage,
   type EquipItemMessage,
   type InventoryOpRejectedMessage,
   type InventorySnapshot,
@@ -242,6 +246,12 @@ export interface NetClientHandlers {
    */
   onEnhanceResult?(result: EnhanceResultMessage): void;
   /**
+   * B4: ผลการแลกเศษเสริมแกร่ง 5→1 (server → client เดียว, MSG_FRAGMENT_EXCHANGE_RESULT) — ok=true มากับ
+   * MSG_INVENTORY_STATE snapshot ใหม่แยกต่างหาก (server ส่งสองข้อความ), ok=false มี reason (NO_DB/
+   * NOT_ENOUGH_FRAGMENTS/INVENTORY_FULL/TRANSACTION_CONFLICT). caller push เข้า Zustand bridge ตรง ๆ. optional.
+   */
+  onFragmentExchangeResult?(result: FragmentExchangeResultMessage): void;
+  /**
    * P2-11: catalog ของร้านบน map ปัจจุบัน (ตอบ MSG_SHOP_LIST_REQUEST) — `available: false` = map นี้ไม่มี
    * ร้าน (HUD ปุ่ม "ร้านค้า" อ่านค่านี้ตัดสินว่าโชว์ปุ่มไหม). caller push เข้า Zustand bridge ตรง ๆ
    * (event-driven เหมือน onInventoryState). optional.
@@ -383,6 +393,8 @@ export interface NetClientHandle {
   sendMoveItem(msg: MoveItemMessage): void;
   /** P2-10: ขอเสริมแกร่ง equipment ที่ถืออยู่ +1 (no-op ถ้ายังไม่ online) — server ตัดสินทั้งหมด (§2.3). */
   sendEnhanceItem(msg: EnhanceItemMessage): void;
+  /** B4: ขอแลกเศษเสริมแกร่ง 5 → เสริมแกร่ง 1 (no-op ถ้ายังไม่ online) — server ตัดสินทั้งหมด (§3.5). */
+  sendFragmentExchange(msg: FragmentExchangeMessage): void;
   /** P2-11: ขอ catalog ร้านของ map ปัจจุบัน (no-op ถ้ายังไม่ online) — เรียกตอน join/เปลี่ยน map. */
   sendShopListRequest(msg: ShopListRequestMessage): void;
   /** P2-11: ขอซื้อ item จากร้าน (no-op ถ้ายังไม่ online) — ราคา/เงื่อนไขทั้งหมด server ตัดสิน. */
@@ -653,6 +665,10 @@ export function createNetClient(
     joinedRoom.onMessage(MSG_ENHANCE_RESULT, (result: EnhanceResultMessage) => {
       handlers.onEnhanceResult?.(result);
     });
+    // B4: ผลแลกเศษ 5→1 (ok/reject) — สำเร็จมากับ MSG_INVENTORY_STATE snapshot ใหม่แยกอีกข้อความ (ด้านบน)
+    joinedRoom.onMessage(MSG_FRAGMENT_EXCHANGE_RESULT, (result: FragmentExchangeResultMessage) => {
+      handlers.onFragmentExchangeResult?.(result);
+    });
     // P2-11: catalog ร้าน (ตอบ MSG_SHOP_LIST_REQUEST) + ผลซื้อ/ขาย
     joinedRoom.onMessage(MSG_SHOP_LIST, (list: ShopListMessage) => {
       handlers.onShopList?.(list);
@@ -868,6 +884,10 @@ export function createNetClient(
     sendEnhanceItem(msg: EnhanceItemMessage): void {
       if (!room || status.state !== "online") return;
       room.send(MSG_ENHANCE_ITEM, msg);
+    },
+    sendFragmentExchange(msg: FragmentExchangeMessage): void {
+      if (!room || status.state !== "online") return;
+      room.send(MSG_FRAGMENT_EXCHANGE, msg);
     },
     sendShopListRequest(msg: ShopListRequestMessage): void {
       if (!room || status.state !== "online") return;

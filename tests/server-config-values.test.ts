@@ -162,29 +162,20 @@ describe("monster rewards (Economy §10.1 / D-055 §9.1)", () => {
 describe("drop tables (Economy §11 — Kraeng rows SUPERSEDED → 0%)", () => {
   const tables = DEFAULT_ECONOMY_CONFIG.dropTables;
 
-  test("ไม่มี upg_kraeng ในตารางไหนเลย (R10); upg_reinforcement ดรอปได้เฉพาะ Field Boss (D-064)", () => {
+  test("ไม่มี upg_kraeng/upg_reinforcement/เศษ ในตารางดรอปไหนเลย (B4 §4.2/§3.5 — มาจาก pity path, ไม่ใช่ drop table)", () => {
     const json = JSON.stringify(tables);
     expect(json).not.toMatch(/upg_kraeng/);
-    // OB: Field Boss หมูป่าหม้อเดือด = แหล่งวัสดุเสริมแกร่งเดียว → upg_reinforcement อยู่ในตารางนั้นตารางเดียว
-    for (const t of tables) {
-      const hasReinforcement = JSON.stringify(t).includes("upg_reinforcement");
-      if (t.dropTableId === "drop_map1_field_boss_v1") {
-        expect(hasReinforcement, "field boss table ต้องดรอป upg_reinforcement").toBe(true);
-      } else {
-        expect(hasReinforcement, `${t.dropTableId} ต้องไม่ดรอป reinforcement (R8)`).toBe(false);
-      }
-    }
-    // fragment ยังไม่ดรอปดิบจากตารางไหน (fragment/exchange = post-OB)
-    expect(json).not.toMatch(/upg_reinforcement_fragment/);
+    // B4: เสริมแกร่ง (ตัวเต็ม) + เศษ ไม่ได้ดรอปจาก drop table แล้ว — pity ladder (§4.2) + fragment roll (§3.5) ใน
+    //     server/economy/reinforcement-pity.ts เป็นแหล่งเดียว (R8 guard กันทั้งสอง id ออกจากทุก generic roll).
+    expect(json).not.toMatch(/upg_reinforcement/);
   });
 
-  test("Field Boss table = phase P2 (ship OB) + guaranteed upg_reinforcement + boss core (D-064)", () => {
+  test("Field Boss table = phase P2 (ship OB) + guaranteed boss core เท่านั้น (B4: ไม่มี guaranteed เสริมแกร่งแล้ว)", () => {
     const fb = tables.find((t) => t.dropTableId === "drop_map1_field_boss_v1")!;
     expect(fb.phase).toBe("P2");
     expect(fb.monsterId).toBe("boss_map1_boiling_boar");
     const guaranteedIds = fb.guaranteed.map((g) => g.itemId);
-    expect(guaranteedIds).toContain("upg_reinforcement");
-    expect(guaranteedIds).toContain("mat_boss_resonance_core");
+    expect(guaranteedIds).toEqual(["mat_boss_resonance_core"]); // B4: เสริมแกร่ง ย้ายไป pity path
   });
 
   test("drop chance ทุก roll อยู่ในช่วง 0–100", () => {

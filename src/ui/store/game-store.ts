@@ -15,9 +15,11 @@ import {
   type DeliveryResultMessage,
   type DeliveryStateMessage,
   type EnhanceResultMessage,
+  type FragmentExchangeResultMessage,
   type InventoryOpRejectedMessage,
   type InventorySnapshot,
   type MilestoneGrantedMessage,
+  type ReinforcementProgress,
   type AchievementUnlockedMessage,
   type AchievementsSnapshotMessage,
   type AchievementRow,
@@ -100,6 +102,16 @@ export interface HudState {
    * (server ส่งสองข้อความ), ok=false มี reason. null = ยังไม่เคยเสริมแกร่งใน session นี้.
    */
   enhanceResult: EnhanceResultMessage | null;
+  /**
+   * B4: ผลการแลกเศษเสริมแกร่ง 5→1 ล่าสุด (MSG_FRAGMENT_EXCHANGE_RESULT) — ok=true มากับ `inventory` snapshot
+   * ใหม่แยกข้อความ, ok=false มี reason. null = ยังไม่เคยแลกใน session นี้.
+   */
+  fragmentExchangeResult: FragmentExchangeResultMessage | null;
+  /**
+   * B4 (§4.2): Field Boss reinforcement pity progress ล่าสุด (มากับ MSG_PLAYER_PROGRESS หลังฆ่า Field Boss) —
+   * panel เสริมแกร่ง แสดง "ประกันบอส: pityCount/guaranteedAtClear". null = ยังไม่เคยฆ่า Field Boss ใน session นี้.
+   */
+  reinforcementProgress: ReinforcementProgress | null;
   /**
    * catalog ร้านบน map ปัจจุบัน (P2-11, MSG_SHOP_LIST) — null ก่อนขอ/ก่อนได้ผลครั้งแรก. `available: false`
    * = map นี้ไม่มีร้าน (HUD ปุ่ม "ร้านค้า" อ่านค่านี้). ขอใหม่ทุกครั้งที่ join/ข้าม map (engine glue).
@@ -207,6 +219,8 @@ export const INITIAL_HUD_STATE: HudState = {
   inventory: null,
   inventoryRejection: null,
   enhanceResult: null,
+  fragmentExchangeResult: null,
+  reinforcementProgress: null,
   shopList: null,
   shopResult: null,
   gold: null,
@@ -279,6 +293,19 @@ export function setEnhanceResult(result: EnhanceResultMessage): void {
 export const selectEnhanceResult = (state: HudState): EnhanceResultMessage | null =>
   state.enhanceResult;
 
+/** B4: engine เรียกทันทีที่ MSG_FRAGMENT_EXCHANGE_RESULT มาถึง (event-driven เหมือน setEnhanceResult). */
+export function setFragmentExchangeResult(result: FragmentExchangeResultMessage): void {
+  gameStore.setState({ fragmentExchangeResult: result });
+}
+
+/** typed selector — ผลแลกเศษล่าสุด (B4) */
+export const selectFragmentExchangeResult = (state: HudState): FragmentExchangeResultMessage | null =>
+  state.fragmentExchangeResult;
+
+/** typed selector — pity progress ล่าสุดของ Field Boss (B4 §4.2) */
+export const selectReinforcementProgress = (state: HudState): ReinforcementProgress | null =>
+  state.reinforcementProgress;
+
 /** P2-11: engine เรียกทันทีที่ MSG_SHOP_LIST มาถึง (event-driven เหมือน setInventoryState) */
 export function setShopList(list: ShopListMessage): void {
   gameStore.setState({ shopList: list });
@@ -308,6 +335,8 @@ export function setGoldFromProgress(progress: PlayerProgressMessage, nowMs: numb
     lastKillAtMs: nowMs,
   };
   if (progress.gold !== GOLD_UNKNOWN) patch.gold = progress.gold;
+  // B4 (§4.2): Field Boss kill carries pity progress → เก็บไว้ให้ panel เสริมแกร่ง (omit = ไม่ใช่ boss kill, คงค่าเดิม)
+  if (progress.reinforcementProgress) patch.reinforcementProgress = progress.reinforcementProgress;
   gameStore.setState(patch);
 }
 

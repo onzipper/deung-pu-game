@@ -30,6 +30,7 @@ import {
   type MonsterRewardView,
 } from "../../src/server/economy/kill-reward";
 import type { DropTable } from "../../src/server/economy/drop-roll";
+import { grantFieldBossReinforcementWired } from "./reinforcement-pity";
 
 /**
  * engine mobType → economy monsterId (§10.1). mushroom = test-field placeholder (no economy reward → no drop).
@@ -120,25 +121,19 @@ export function monsterIdForMobType(mobType: string): string | null {
 }
 
 /**
- * R8 loot guard (defence-in-depth): reinforcement ids must never leak into GENERIC loot. The Field Boss is the
- * one sanctioned exception (D-064) — it is the reinforcement-material source, so `upg_reinforcement` is an
- * allowed drop for it and is NOT in its excluded set. Every other monster keeps the full exclusion.
+ * R8 loot guard (defence-in-depth): the reinforcement + fragment ids must never come through the GENERIC drop
+ * roll — not even for the Field Boss. B4 makes the Field Boss's reinforcement (§4.2 pity ladder) + fragment
+ * (§3.5) come from the dedicated pity path (grantFieldBossReinforcementWired), NOT the drop table, so ALL
+ * monsters (Field Boss included) exclude BOTH ids from the generic roll. (This supersedes the OB shortcut where
+ * the drop table guaranteed `upg_reinforcement` directly and the Field Boss excluded only the fragment.)
  */
 const EXCLUDED_ITEM_IDS: ReadonlySet<string> = new Set([
   DEFAULT_REINFORCEMENT_CONFIG.materialId,
   DEFAULT_REINFORCEMENT_CONFIG.fragment.materialId,
 ]);
 
-/** Field Boss monsterId (D-064) — the sanctioned reinforcement-material source. */
+/** Field Boss monsterId (D-064) — the sanctioned reinforcement source (§4.2 pity ladder wraps its kill). */
 const FIELD_BOSS_MONSTER_ID = DEFAULT_REINFORCEMENT_CONFIG.bossId;
-
-/**
- * excluded set for the Field Boss: `upg_reinforcement` is ALLOWED (it is the boss's whole point), only the
- * fragment stays blocked (fragment/exchange = post-OB, never dropped raw).
- */
-const FIELD_BOSS_EXCLUDED_ITEM_IDS: ReadonlySet<string> = new Set([
-  DEFAULT_REINFORCEMENT_CONFIG.fragment.materialId,
-]);
 
 /** the player progression baseline table (D-055 §2) — DEFAULT fallback (rooms read this.economy.config instead). */
 export const PLAYER_BASELINE_TABLE = DEFAULT_ECONOMY_CONFIG.playerBaseline;
@@ -196,14 +191,29 @@ export interface KillRewardRequest {
   persist: boolean;
 }
 
+/** B4: reinforcement pity progress for the client (§4.2) — "ประกันบอส: pityCount/guaranteedAtClear". */
+export interface ReinforcementProgressView {
+  /** clears-since-drop AFTER this kill (0 right after a drop). */
+  pityCount: number;
+  /** §4.2 guaranteedAtClear (15) — the denominator of the pity display. */
+  guaranteedAtClear: number;
+}
+
+/** KillRewardOutcome plus the Field Boss's reinforcement pity progress (present only on a Field Boss kill). */
+export interface WiredKillRewardOutcome extends KillRewardOutcome {
+  reinforcementProgress?: ReinforcementProgressView;
+}
+
 /**
  * grant one eligible kill's rewards. Returns null for an unmapped mobType or a non-P2 monster (boss = P2B, drop
- * not shipped in P2). EXP is always computed; gold/drops/audit run only when `persist` (DB + character).
+ * not shipped in P2). EXP is always computed; gold/drops/audit run only when `persist` (DB + character). For the
+ * Field Boss (§4.2 source) it also runs the reinforcement pity ladder + fragment roll (§3.5) and merges those
+ * grants into the loot + attaches `reinforcementProgress`.
  */
 export async function grantKillRewardsForMob(
   req: KillRewardRequest,
   economy: RoomEconomyConfig = DEFAULT_ROOM_ECONOMY,
-): Promise<KillRewardOutcome | null> {
+): Promise<WiredKillRewardOutcome | null> {
   const monsterId = MONSTER_ID_BY_MOB_TYPE[req.mobType];
   if (!monsterId) return null;
   const { rewardByMonsterId, dropTableById } = economyTablesFor(economy.config);
@@ -211,10 +221,6 @@ export async function grantKillRewardsForMob(
   if (!reward || reward.phase !== "P2") return null; // Story boss (P2B) / unknown → no live reward
   const dropTable = dropTableById.get(reward.dropTableId);
   if (!dropTable) return null;
-
-  // R8 exemption: the Field Boss may drop upg_reinforcement (its sanctioned role); everything else may not.
-  const excludedItemIds =
-    monsterId === FIELD_BOSS_MONSTER_ID ? FIELD_BOSS_EXCLUDED_ITEM_IDS : EXCLUDED_ITEM_IDS;
 
   const wired = req.persist && inventoryPersistenceAvailable() && req.characterId.length > 0;
 
@@ -227,12 +233,14 @@ export async function grantKillRewardsForMob(
     dropTableId: reward.dropTableId,
   };
 
-  return grantKillRewards(
+  // generic loot/EXP/gold — the reinforcement + fragment ids are always excluded (R8); they come from the
+  // dedicated Field Boss pity path below, never the drop table.
+  const outcome: WiredKillRewardOutcome = await grantKillRewards(
     {
       reward: rewardView,
       dropTable: dropTable as DropTable,
       pools: economy.config.equipmentPools,
-      excludedItemIds,
+      excludedItemIds: EXCLUDED_ITEM_IDS,
       itemMeta,
       expCurve: economy.config.expCurve,
       rng: Math.random,
@@ -253,4 +261,22 @@ export async function grantKillRewardsForMob(
       killEventId: req.killEventId,
     },
   );
+
+  // B4 — Field Boss reinforcement (§4.2 pity ladder) + fragment (§3.5). Per ACCOUNT per boss (D-064); each
+  // eligible member's grant reads/writes its own pity row. The pity module picks Prisma vs in-memory + null grant
+  // seams internally (no-DB dev tracks pity in memory, items not persisted). Grants merge into the kill loot so
+  // the existing snapshot-refresh + loot toast pick them up; the pity progress rides `reinforcementProgress`.
+  if (monsterId === FIELD_BOSS_MONSTER_ID) {
+    const r = await grantFieldBossReinforcementWired({
+      accountId: req.accountId,
+      characterId: req.characterId,
+      bossId: FIELD_BOSS_MONSTER_ID,
+    });
+    if (r.granted.length > 0) outcome.granted.push(...r.granted);
+    if (r.delivered.length > 0) outcome.delivered.push(...r.delivered);
+    if (r.overflow.length > 0) outcome.overflow.push(...r.overflow);
+    outcome.reinforcementProgress = { pityCount: r.pityCount, guaranteedAtClear: r.guaranteedAtClear };
+  }
+
+  return outcome;
 }

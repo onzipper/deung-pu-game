@@ -490,6 +490,17 @@ export interface LootLine {
   quantity: number;
 }
 
+/**
+ * B4 (Reinforcement §4.2): Field Boss reinforcement pity progress — ride MSG_PLAYER_PROGRESS หลังฆ่า Field Boss
+ * (มีเฉพาะ boss kill; omit = ไม่ใช่ boss kill). client แสดง "ประกันบอส: pityCount/guaranteedAtClear" ใน panel เสริมแกร่ง.
+ */
+export interface ReinforcementProgress {
+  /** clears-since-drop หลัง kill นี้ (§4.2) — 0 ทันทีหลังดรอป (reset). */
+  pityCount: number;
+  /** §4.2 guaranteedAtClear (15) — ตัวหารของแถบประกัน. */
+  guaranteedAtClear: number;
+}
+
 /** payload ของ MSG_PLAYER_PROGRESS (server → client เดียว, P2-09). */
 export interface PlayerProgressMessage {
   level: number;
@@ -512,6 +523,11 @@ export interface PlayerProgressMessage {
   lootOverflow: LootLine[];
   /** ของที่กระเป๋าเต็ม → เข้า Delivery Box แล้ว (§12.5 no-silent-loss, ITEM 2) — client แจ้ง "ส่งเข้ากล่องพัสดุ". ว่างถ้าไม่มี. */
   lootDelivered: LootLine[];
+  /**
+   * B4 (§4.2): Field Boss reinforcement pity progress — present ONLY after a Field Boss kill (server attaches it
+   * for `boss_map1_boiling_boar`). omit = ไม่ใช่ boss kill (client เก็บค่าล่าสุดไว้แสดงใน panel เสริมแกร่ง). optional.
+   */
+  reinforcementProgress?: ReinforcementProgress;
 }
 
 /** message type: server → **client เดียว** — แจ้งรางวัล milestone ที่เพิ่งปลดล็อก (C1, Economy §18). */
@@ -601,6 +617,37 @@ export interface EnhanceResultMessage {
   /** enhancement level ใหม่เมื่อ ok=true (ปฏิเสธ = -1). */
   level: number;
   /** reason เมื่อ ok=false — "NO_ITEM"|"NO_REINFORCEMENT"|"MAX_LEVEL"|"ITEM_LOCKED" (§2.4 UI states). */
+  reason?: string;
+}
+
+// ── B4 fragment exchange (เศษเสริมแกร่ง 5 → เสริมแกร่ง 1 · Reinforcement §3.5) ─────────────────────────────
+//
+// Client ส่ง **intent เท่านั้น** (instanceId ของ stack เศษ + expectedVersion ที่เห็นล่าสุด + idempotencyKey) —
+// server ตัดสินทั้งหมด (validate ≥5 เศษ → consume 5 → grant 1 เสริมแกร่ง, atomic ผ่าน commitFragmentExchange).
+// สำเร็จ → MSG_FRAGMENT_EXCHANGE_RESULT (ok, granted) + MSG_INVENTORY_STATE (snapshot ใหม่); ปฏิเสธ → ok:false +
+// reason. double-apply กันด้วย optimistic `version` (retry ที่ถือ version เดิม = TRANSACTION_CONFLICT ไม่แลกซ้ำ).
+
+/** message type: client → server (intent) — ขอแลกเศษเสริมแกร่ง 5 → เสริมแกร่ง 1 (B4). */
+export const MSG_FRAGMENT_EXCHANGE = "fragment_exchange";
+
+/** payload ของ MSG_FRAGMENT_EXCHANGE (client → server, B4). instanceId = stack เศษที่จะใช้จ่าย. */
+export interface FragmentExchangeMessage {
+  instanceId: string;
+  /** version ที่ client เห็นล่าสุดของ stack เศษ (optimistic lock + retry guard). */
+  expectedVersion: number;
+  /** client transaction id — carried for telemetry; server ใช้ version lock เป็นตัวกัน double-apply. */
+  idempotencyKey: string;
+}
+
+/** message type: server → **client เดียว** — ผลการแลกเศษ (สำเร็จ/ปฏิเสธ) (B4). */
+export const MSG_FRAGMENT_EXCHANGE_RESULT = "fragment_exchange_result";
+
+/** payload ของ MSG_FRAGMENT_EXCHANGE_RESULT (server → client เดียว, B4). */
+export interface FragmentExchangeResultMessage {
+  ok: boolean;
+  /** จำนวนเสริมแกร่งที่ได้เมื่อ ok=true (ปฏิเสธ = 0). */
+  granted: number;
+  /** reason เมื่อ ok=false — "NO_DB"|"NOT_ENOUGH_FRAGMENTS"|"INVENTORY_FULL"|"TRANSACTION_CONFLICT". */
   reason?: string;
 }
 

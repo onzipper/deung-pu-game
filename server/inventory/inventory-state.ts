@@ -20,6 +20,7 @@ import type {
 } from "../../src/server/inventory/repository";
 import type { EnhancementCurve } from "../../src/server/inventory/equipment-stats";
 import type { ReinforcementRules } from "../../src/server/inventory/enhancement-service";
+import type { FragmentExchangeRules } from "../../src/server/inventory/fragment-exchange-service";
 import { DEFAULT_ECONOMY_CONFIG } from "../config/economy";
 import { DEFAULT_REINFORCEMENT_CONFIG } from "../config/reinforcement";
 import { DEFAULT_STORAGE_CONFIG } from "../config/storage";
@@ -44,6 +45,13 @@ export const REINFORCEMENT_RULES: ReinforcementRules = {
 };
 /** economy config version stamped on enhancement_logs (the in-code DEFAULT version). */
 export const ENHANCEMENT_CONFIG_VERSION = ECONOMY_CONFIG_DEF.defaultVersion;
+/** B4 fragment exchange knobs (Reinforcement §3.5 — 5 เศษเสริมแกร่ง → 1 เสริมแกร่ง). */
+export const FRAGMENT_EXCHANGE_RULES: FragmentExchangeRules = {
+  fragmentMaterialId: DEFAULT_REINFORCEMENT_CONFIG.fragment.materialId,
+  reinforcementMaterialId: DEFAULT_REINFORCEMENT_CONFIG.materialId,
+  inputCount: DEFAULT_REINFORCEMENT_CONFIG.fragment.exchangeInputCount,
+  outputCount: DEFAULT_REINFORCEMENT_CONFIG.fragment.exchangeOutputCount,
+};
 
 // P2-17 — server-authoritative Design Knobs for personal storage + delivery box (Storage §10/§15/§16). Same
 // posture as ITEM_CATALOG / SHOP_CONFIG (in-code DEFAULT; DB config_versions override via loader.ts not yet

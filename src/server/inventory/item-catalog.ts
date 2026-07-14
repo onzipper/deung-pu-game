@@ -206,8 +206,11 @@ const EQUIPMENT_DEFINITIONS: readonly ItemDefinition[] = [
 ];
 
 // ── Map 1 non-equipment master (Economy §7.1) — registry entries (no slot/stat). effect/bind modeled by their
-//    own systems when built (consumable effect, §4.3 bind); the upgrade material `upg_reinforcement` is owned by
-//    the reinforcement config (server/config/reinforcement.ts), not declared here. ──
+//    own systems when built (consumable effect, §4.3 bind). The reinforcement material's *role* (guaranteed +1)
+//    lives in the reinforcement config (server/config/reinforcement.ts); the catalog row here only carries the
+//    registry identity + `stackable: true` (Reinforcement §3.1/§3.5 stackSize 999) so grants merge into one bag
+//    stack and the 5→1 fragment exchange (B4) can spend 5 from a single stack — a non-catalog id would default
+//    to non-stackable and break both. rarity is display-only (no drop pool references these ids). ──
 const NON_EQUIPMENT_DEFINITIONS: readonly ItemDefinition[] = [
   { id: "con_small_potion", kind: "consumable", rarity: "common", reqLevel: 1, stackable: true },
   { id: "mat_slime_gel", kind: "material", rarity: "common", reqLevel: 1, stackable: true },
@@ -216,6 +219,10 @@ const NON_EQUIPMENT_DEFINITIONS: readonly ItemDefinition[] = [
   { id: "mat_sharp_tusk", kind: "material", rarity: "uncommon", reqLevel: 1, stackable: true },
   { id: "mat_resonance_dust", kind: "material", rarity: "uncommon", reqLevel: 1, stackable: true },
   { id: "mat_boss_resonance_core", kind: "material", rarity: "uncommon", reqLevel: 1, stackable: true },
+  // B4 (Reinforcement §3.1/§3.5): เสริมแกร่ง + เศษเสริมแกร่ง — stackable materials (stackSize 999). ids ตรง
+  //   reinforcement config (upg_reinforcement / upg_reinforcement_fragment, R10). role/exchange = reinforcement系.
+  { id: "upg_reinforcement", kind: "material", rarity: "rare", reqLevel: 1, stackable: true },
+  { id: "upg_reinforcement_fragment", kind: "material", rarity: "uncommon", reqLevel: 1, stackable: true },
 ];
 
 /** full Map 1 item catalog (Economy §7) — spec-locked, keyed by item def id. */

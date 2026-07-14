@@ -1,16 +1,27 @@
 import { describe, expect, test } from "vitest";
 import {
   canConfirmEnhance,
+  canExchangeFragments,
+  countFragmentMaterial,
   countReinforcementMaterial,
   ENHANCEMENT_PANEL_ID,
   enhanceStateMessage,
   enhancementTransitionLabel,
+  findFragmentStack,
+  fragmentExchangeMessage,
+  FRAGMENT_MATERIAL_ID,
   REINFORCEMENT_MATERIAL_ID,
+  reinforcementPityLabel,
   resolveEnhanceUiState,
   type EnhancePhase,
   type EnhanceUiState,
 } from "@/ui/panels/enhancement/enhancement-view";
-import type { EnhanceResultMessage, InventoryItemView, InventorySnapshot } from "@/shared/net-protocol";
+import type {
+  EnhanceResultMessage,
+  FragmentExchangeResultMessage,
+  InventoryItemView,
+  InventorySnapshot,
+} from "@/shared/net-protocol";
 
 const bagItem = (over: Partial<InventoryItemView> = {}): InventoryItemView => ({
   instanceId: "i1",
@@ -167,5 +178,84 @@ describe("countReinforcementMaterial", () => {
   test("materialId override เอง (custom id) ใช้ได้", () => {
     const s = snapshot({ bag: [bagItem({ itemId: "frag_x", quantity: 9, slot: 0 })] });
     expect(countReinforcementMaterial(s, "frag_x")).toBe(9);
+  });
+});
+
+// ── B4 fragment exchange + pity display ──────────────────────────────────────
+describe("FRAGMENT_MATERIAL_ID", () => {
+  test("ตรง materialId ตาม §3.5", () => {
+    expect(FRAGMENT_MATERIAL_ID).toBe("upg_reinforcement_fragment");
+  });
+});
+
+describe("countFragmentMaterial", () => {
+  test("null → 0; รวมทุก stack ของเศษ", () => {
+    expect(countFragmentMaterial(null)).toBe(0);
+    const s = snapshot({
+      bag: [
+        bagItem({ instanceId: "f1", itemId: FRAGMENT_MATERIAL_ID, quantity: 3, slot: 0 }),
+        bagItem({ instanceId: "f2", itemId: FRAGMENT_MATERIAL_ID, quantity: 4, slot: 1 }),
+        bagItem({ instanceId: "r", itemId: "upg_reinforcement", quantity: 2, slot: 2 }),
+      ],
+    });
+    expect(countFragmentMaterial(s)).toBe(7); // ไม่นับ upg_reinforcement
+  });
+});
+
+describe("findFragmentStack", () => {
+  test("null snapshot / ไม่มีเศษ → null", () => {
+    expect(findFragmentStack(null)).toBeNull();
+    expect(findFragmentStack(snapshot({ bag: [bagItem()] }))).toBeNull();
+  });
+
+  test("เลือก stack ที่ quantity มากสุด (ส่ง instanceId + version ใน intent)", () => {
+    const s = snapshot({
+      bag: [
+        bagItem({ instanceId: "f1", itemId: FRAGMENT_MATERIAL_ID, quantity: 2, slot: 0, version: 4 }),
+        bagItem({ instanceId: "f2", itemId: FRAGMENT_MATERIAL_ID, quantity: 6, slot: 1, version: 7 }),
+      ],
+    });
+    const found = findFragmentStack(s)!;
+    expect(found.instanceId).toBe("f2");
+    expect(found.version).toBe(7);
+  });
+});
+
+describe("canExchangeFragments", () => {
+  test("กดได้เมื่อ ≥ 5 (§3.5 input)", () => {
+    expect(canExchangeFragments(4)).toBe(false);
+    expect(canExchangeFragments(5)).toBe(true);
+    expect(canExchangeFragments(12)).toBe(true);
+    expect(canExchangeFragments(0)).toBe(false);
+  });
+});
+
+describe("reinforcementPityLabel", () => {
+  test("null → null (ยังไม่เคยฆ่า Field Boss → ซ่อนแถบ)", () => {
+    expect(reinforcementPityLabel(null)).toBeNull();
+  });
+  test("แสดง X/Y (§4.2)", () => {
+    expect(reinforcementPityLabel({ pityCount: 3, guaranteedAtClear: 15 })).toBe("ประกันบอส: 3/15");
+    expect(reinforcementPityLabel({ pityCount: 0, guaranteedAtClear: 15 })).toBe("ประกันบอส: 0/15");
+  });
+});
+
+describe("fragmentExchangeMessage", () => {
+  const res = (over: Partial<FragmentExchangeResultMessage>): FragmentExchangeResultMessage => ({
+    ok: false,
+    granted: 0,
+    ...over,
+  });
+  test("ok → บอกจำนวนที่ได้", () => {
+    expect(fragmentExchangeMessage(res({ ok: true, granted: 1 }))).toBe("แลกสำเร็จ ได้เสริมแกร่ง ×1");
+  });
+  test.each([
+    ["NOT_ENOUGH_FRAGMENTS"],
+    ["INVENTORY_FULL"],
+    ["NO_DB"],
+    ["TRANSACTION_CONFLICT"],
+    ["something_unmapped"],
+  ])("reason=%s → ข้อความไม่ว่าง", (reason) => {
+    expect(fragmentExchangeMessage(res({ reason }))).not.toBe("");
   });
 });
