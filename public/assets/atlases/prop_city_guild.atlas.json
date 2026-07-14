@@ -1,0 +1,19 @@
+{
+  "image": "prop_city_guild.png",
+  "rasterized": true,
+  "width": 144,
+  "height": 120,
+  "frameSize": [
+    144,
+    120
+  ],
+  "frames": [
+    {
+      "key": "idle_s_0",
+      "x": 0,
+      "y": 0,
+      "w": 144,
+      "h": 120
+    }
+  ]
+}

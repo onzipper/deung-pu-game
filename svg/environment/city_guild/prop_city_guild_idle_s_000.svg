@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 144 120" width="144" height="120" shape-rendering="crispEdges">
+  <!-- กิลด์นักล่า — อาคารไม้เข้ม ธงหน้าอาคาร ป้ายโล่+ดาบ -->
+  <path d="M72,108 L132,92 L72,76 L12,92 Z" fill="#4A332E"/>
+  <rect x="24" y="44" width="96" height="48" fill="#B47E52"/>
+  <path d="M24,44 L24,92 L12,92 Z" fill="#8E6046"/>
+  <path d="M120,44 L120,92 L132,92 Z" fill="#8E6046"/>
+  <rect x="30" y="52" width="16" height="14" fill="#294B5A"/>
+  <rect x="98" y="52" width="16" height="14" fill="#294B5A"/>
+  <rect x="58" y="58" width="24" height="34" fill="#2B2230"/>
+  <path d="M58,58 L70,48 L82,58 Z" fill="#2B2230"/>
+  <path d="M14,50 L72,22 L130,50 L122,56 L72,32 L22,56 Z" fill="#2B2230"/>
+  <path d="M22,56 L72,32 L122,56 L72,76 Z" fill="#4A332E"/>
+  <rect x="34" y="20" width="6" height="34" fill="#68483A"/>
+  <path d="M40,20 L62,24 L40,34 Z" fill="#D84848"/>
+  <path d="M92,64 L112,64 L112,76 Q102,84 92,76 Z" fill="#7786C8"/>
+  <path d="M98,66 L106,66 L106,74 Q102,77 98,74 Z" fill="#B0B9EC"/>
+  <circle cx="72" cy="40" r="6" fill="#E8BF4F"/>
+</svg>

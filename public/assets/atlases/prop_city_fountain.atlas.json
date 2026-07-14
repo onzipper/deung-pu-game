@@ -1,0 +1,19 @@
+{
+  "image": "prop_city_fountain.png",
+  "rasterized": true,
+  "width": 112,
+  "height": 88,
+  "frameSize": [
+    112,
+    88
+  ],
+  "frames": [
+    {
+      "key": "idle_s_0",
+      "x": 0,
+      "y": 0,
+      "w": 112,
+      "h": 88
+    }
+  ]
+}

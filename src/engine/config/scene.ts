@@ -143,6 +143,13 @@ export const DEFAULT_SCENE_THEME: SceneTheme = {
     bush: { color: 0x9db56c, width: 26, height: 20, shape: "ellipse", assetId: "prop_map1_bush" }, // Moss
     signpost: { color: 0xb47e52, width: 12, height: 34, shape: "box", assetId: "prop_map1_signpost" }, // Warm Wood
     stump: { color: 0x8e6046, width: 20, height: 16, shape: "ellipse", assetId: "prop_map1_stump" }, // Clay
+    // F2: city-hub landmark props (GS §3.3 เขตในเมือง) — real atlas art; placeholder ใช้เฉพาะ atlas พัง.
+    city_temple: { color: 0xf2d6a0, width: 96, height: 60, shape: "box", assetId: "prop_city_temple" }, // วิหารผนึก (Parchment)
+    city_blacksmith: { color: 0x8e6046, width: 64, height: 56, shape: "box", assetId: "prop_city_blacksmith" }, // ถนนร้านตีเหล็ก (Clay)
+    city_guild: { color: 0x3f7180, width: 64, height: 56, shape: "box", assetId: "prop_city_guild" }, // กิลด์นักล่า (Water)
+    city_gate: { color: 0x4a332e, width: 84, height: 60, shape: "box", assetId: "prop_city_gate" }, // ประตูเมืองใต้ (Deep Brown)
+    city_noticeboard: { color: 0xb47e52, width: 28, height: 40, shape: "box", assetId: "prop_city_noticeboard" }, // จุดประกาศข่าวนักล่า (Warm Wood)
+    city_fountain: { color: 0x64a0a0, width: 48, height: 30, shape: "ellipse", assetId: "prop_city_fountain" }, // น้ำพุลานกลางเมือง (Sky Teal)
   },
   // F1 v2 (Bible §10.1): 6 variants ฐาน Leaf สีเดียวกัน — กระจายด้วย hash ตำแหน่ง (ไม่ใช่ checker).
   // tileColorA/B (Leaf / Deep Leaf) ยังเป็น fallback เมื่อ atlas ไม่พร้อม.
