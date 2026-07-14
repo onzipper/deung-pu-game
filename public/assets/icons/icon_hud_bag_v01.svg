@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" shape-rendering="crispEdges">
+  <path d="M16,24 Q16,18 22,18 L42,18 Q48,18 48,24 L50,48 Q50,54 44,54 L20,54 Q14,54 14,48 Z" fill="#B47E52"/>
+  <path d="M18,26 Q18,21 23,21 L41,21 Q46,21 46,26 L48,47 Q48,51 44,51 L20,51 Q16,51 16,47 Z" fill="#8E6046"/>
+  <path d="M24,18 Q24,10 32,10 Q40,10 40,18 L37,18 Q37,13 32,13 Q27,13 27,18 Z" fill="#68483A"/>
+  <rect x="27" y="30" width="10" height="8" fill="#D8AE70"/>
+  <rect x="29" y="27" width="6" height="4" fill="#F2D6A0"/>
+</svg>

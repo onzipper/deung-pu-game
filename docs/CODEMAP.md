@@ -42,8 +42,8 @@
 - `src/ui/store/` — Zustand vanilla store bridge (HUD state, engine→UI one-way, no React import in the vanilla file)
 - `src/ui/theme/rarity.ts` — rarity color tokens (D-043)
 - `src/ui/components/` — token-driven presentational kit (P2 UI spec §4): PanelFrame, Button, TextInput, ItemSlot, Tooltip, ConfirmDialog(+hold-to-confirm), Toast
-- `src/ui/panels/` — shared panel framework (desktop float / mobile sheet, z-order, keydown block; DG §13) + hud-layout (P2-15). Provider in `src/ui/GameCanvas.tsx`
-- `src/ui/panels/` subdirs (inventory/enhancement/shop/storage/help/mobile/settings/skillbar/status/minimap/world-status/dialogue) — per-feature: bag/equip · reinforcement · shop · storage+delivery · help · mobile/settings · skillbar (§8.3) · status (§8.2) · minimap (§8.4) · world-status LW0 chip (§18) · dialogue LW0 bark
+- `src/ui/panels/` — shared panel framework (desktop float / mobile sheet, z-order, keydown block; DG §13) + hud-layout/hud-icon-catalog.ts (P2-15/F5). Provider in `src/ui/GameCanvas.tsx`
+- `src/ui/panels/` subdirs (inventory/enhancement/shop/storage/help/mobile/settings/skillbar/status/minimap/world-status/dialogue) — per-feature: bag/equip · reinforcement · shop · storage+delivery · help · mobile/settings · skillbar (§8.3+icons) · status (§8.2) · minimap (§8.4) · world-status LW0 chip (§18) · dialogue LW0 bark
 
 ## server (Colyseus realtime process, separate from Next — L4)
 
