@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" shape-rendering="crispEdges">
+  <!-- walk S เฟรม 3 — เด้งขึ้น (ยืดตัวขึ้นจากพื้น) -->
+  <ellipse cx="32" cy="54" rx="13" ry="2.5" fill="#171820" opacity="0.35"/>
+  <path d="M32,16 Q44,18 44,36 Q44,50 32,50 Q20,50 20,36 Q20,18 32,16 Z" fill="#35C6B0"/>
+  <path d="M32,19 Q41,21 41,35 Q41,47 32,47 Q23,47 23,35 Q23,21 32,19 Z" fill="#7CE9D0"/>
+  <circle cx="32" cy="33" r="5" fill="#E8BF4F"/>
+  <circle cx="32" cy="33" r="2.5" fill="#FFF0C5"/>
+  <circle cx="27" cy="30" r="2.5" fill="#171820"/>
+  <circle cx="37" cy="30" r="2.5" fill="#171820"/>
+  <circle cx="27.8" cy="29.2" r="0.9" fill="#FFF0C5"/>
+  <circle cx="37.8" cy="29.2" r="0.9" fill="#FFF0C5"/>
+  <path d="M29,38 Q32,41 35,38" stroke="#167C78" stroke-width="2" fill="none"/>
+  <ellipse cx="25" cy="23" rx="3.5" ry="2.2" fill="#A4CCC0" transform="rotate(-30 25 23)"/>
+</svg>

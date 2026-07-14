@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" shape-rendering="crispEdges">
+  <!-- walk N เฟรม 3 — เด้งขึ้น -->
+  <ellipse cx="32" cy="54" rx="13" ry="2.5" fill="#171820" opacity="0.35"/>
+  <path d="M32,16 Q44,18 44,36 Q44,50 32,50 Q20,50 20,36 Q20,18 32,16 Z" fill="#35C6B0"/>
+  <path d="M32,19 Q41,21 41,35 Q41,47 32,47 Q23,47 23,35 Q23,21 32,19 Z" fill="#167C78"/>
+  <circle cx="32" cy="33" r="4" fill="#E8BF4F" opacity="0.7"/>
+  <ellipse cx="39" cy="23" rx="3.5" ry="2.2" fill="#A4CCC0" transform="rotate(30 39 23)"/>
+</svg>

@@ -4,13 +4,13 @@
 
 ## src/engine (foundation layer — TA §17, plain TS + PixiJS, no React/Next.js)
 
-- `src/engine/config.ts` — barrel — Design Knobs/types (EngineConfig, DEFAULT_ENGINE_CONFIG); domain modules under `src/engine/config/` (scene, player, input, mob, combat, combat-feel, net, engine, world), re-exported
+- `src/engine/config.ts` — barrel — Design Knobs/types (EngineConfig, DEFAULT_ENGINE_CONFIG); domain modules under `src/engine/config/` (scene, player, companion, input, mob, combat, combat-feel, net, engine, world), re-exported
 - `src/engine/runtime/` — engine lifecycle: transition (map fade), resize, assets, debug-info · LW0: world-clock (§3) + weather-overlay (§4)
 - `src/engine/runtime/app.ts` — createEngine(): per-map world (player+mobs+combat+net+input), master tick, F3/F4, pressAttack/effect-quality knobs (P2-15)
 - `src/engine/iso/` — iso projection + depth-sort math (**never-downgrade zone**)
 - `src/engine/movement/` — mover (stepMovement), direction resolver, path-follower
 - `src/engine/pathfinding/` — A* on the iso grid (click-to-move)
-- `src/engine/player/` — local player pixi glue + correction-resume (server reconcile)
+- `src/engine/player/` — local player pixi glue + correction-resume (server reconcile) + companion (C4 follow-entity)
 - `src/engine/net/` — colyseus glue, interp buffer, reconnect store, remote player/attack, party, visibility (P2-13)
 - `src/engine/net/net-client.ts` — createNetClient(): connect/join, reconnect (§59.1), self-adopt gating, cast/skill messages
 - `src/engine/animation/` — animation manifest (5-dir+mirror), sprite animator, placeholder textures, texture-set (non-owning handles)
