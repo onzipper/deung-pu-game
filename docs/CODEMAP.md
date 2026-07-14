@@ -1,7 +1,6 @@
-# CODEMAP — orientation only: which module owns what.
+# CODEMAP — module ownership
 
-> For symbol-level truth, grep `src/`, `server/`, `tests/` (see `AI.md` Search rules).
-> Update on file add/move/delete (path-guard enforced). Archive: `docs/history/2026-07-13-codemap-archive.md`.
+> Use targeted grep for symbol truth (`AI.md`). Update for added/moved/deleted files. Archive: `docs/history/2026-07-13-codemap-archive.md`.
 
 ## src/engine (foundation layer — TA §17, plain TS + PixiJS, no React/Next.js)
 
@@ -17,13 +16,13 @@
 - `src/engine/animation/` — animation manifest (5-dir+mirror), sprite animator, placeholder textures, texture-set (non-owning handles)
 - `src/engine/assets/` — runtime atlas loader/registry (engine-scope, fail-soft → placeholder)
 - `src/engine/config/render.ts` — pixelate knob (on/scale/nearest-filter/CSS)
-- `src/engine/render/` — depth registry, camera, scene graph, pool, screen shake, exit marker, afk-label, name-label (player over-head name) · `src/engine/audio/` SFX
+- `src/engine/render/` — depth registry, camera, scene graph, pool, screen shake, exit marker, afk-label, name-label, nameplate-layer (full-res world-label overlay, keeps Thai glyphs crisp above the D-065 0.5x world pass) · `src/engine/audio/` SFX
 - `src/engine/map/` — MapConfig schema/loader/registry + map1/city-hub/p0-test-field configs
 - `src/engine/input/` — keyboard (WASD+attack) + joystick→8-dir intent + target-assist (per-mode click radius, Combat Bible §3, P2-15)
 
 ## src/game (combat/entity logic on top of the engine)
 
-- `src/game/mob/` — spawn/wander, AI (aggro/leash/LOD), authoritative sim, view manager
+- `src/game/mob/` — mob sim, AI, views, and nameplate LOD/fade
 - `src/game/mob/name-catalog.ts` — mobType → Thai nameplate name + rank (undefined = no nameplate)
 - `src/game/npc/` — LW0 static NPC bark: catalog + nearest-click test + view manager (placeholder+label)
 - `src/game/item/icon-catalog.ts` — itemId → icon URL map (null = show raw id)

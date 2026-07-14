@@ -15,6 +15,7 @@ import type { EngineConfig } from "@/engine/config";
 import type { MapSceneHandle } from "@/engine/render/scene";
 import type { TilePoint } from "@/engine/iso/coords";
 import { createNameLabel, setNameLabelText } from "@/engine/render/name-label";
+import type { NameplateLayerHandle } from "@/engine/render/nameplate-layer";
 import { getNpcSpawns, type NpcSpawn } from "@/game/npc/npc-data";
 import { findNearestNpc } from "@/game/npc/npc-click";
 
@@ -49,6 +50,7 @@ export function createNpcManager(
   scene: MapSceneHandle,
   config: EngineConfig,
   mapId: string,
+  nameplates?: NameplateLayerHandle,
 ): NpcManagerHandle {
   const npcs = getNpcSpawns(mapId);
   const entityId = (npcId: string): string => NPC_ID_PREFIX + npcId;
@@ -58,7 +60,8 @@ export function createNpcManager(
     container.addChild(drawNpcFigure());
     const label = createNameLabel(NPC_LABEL_BASE_OFFSET_Y, config.player.nameplate);
     setNameLabelText(label, npc.displayName);
-    container.addChild(label);
+    if (nameplates) nameplates.addEntity(entityId(npc.npcId), label, npc.tile);
+    else container.addChild(label);
     scene.addEntity(entityId(npc.npcId), container, npc.tile);
   }
 
@@ -67,7 +70,10 @@ export function createNpcManager(
       return findNearestNpc(npcs, foot, radius);
     },
     destroy(): void {
-      for (const npc of npcs) scene.removeEntity(entityId(npc.npcId));
+      for (const npc of npcs) {
+        nameplates?.removeEntity(entityId(npc.npcId));
+        scene.removeEntity(entityId(npc.npcId));
+      }
     },
   };
 }

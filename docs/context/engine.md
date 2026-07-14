@@ -25,6 +25,7 @@ Scope: `src/engine/**` (+ `src/game/**` combat mechanics that sit on it) · Read
 - `src/engine/config.ts` — barrel re-exporting every tunable engine value (Design Knobs) from domain modules under `src/engine/config/`
 - `src/engine/assets/registry.ts` — runtime atlas registry (engine-scope): fail-soft, missing asset/atlas → placeholder, never crash
 - `src/engine/config/render.ts` — pixelate render knob (Design Knob)
+- `src/game/mob/nameplate-visibility.ts` — visual-only nameplate priority, spacing, and fade helpers
 
 ## Invariants
 - Every balance value is a Design Knob (GS §48) → read from config, never hardcode.

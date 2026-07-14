@@ -57,6 +57,8 @@ function createFadeOverlay(
 export interface TransitionController {
   /** input lock — true = กำลัง transition (caller ต้องไม่รับ input / ส่ง move). */
   isLocked(): boolean;
+  /** alpha ของม่านดำปัจจุบัน (0..1) — ใช้ sync full-resolution overlay ที่อยู่นอก world canvas. */
+  getFadeAlpha(): number;
   /**
    * เริ่ม transition. `swap` ถูกเรียก **ครั้งเดียว** ตอนจอมืดสุด (teardown + rebuild world).
    * no-op ถ้ากำลัง transition อยู่ (กัน re-trigger ซ้อน).
@@ -82,10 +84,14 @@ export function createTransitionController(
 
   let state: TransitionState = idleTransition();
   let pendingSwap: (() => void) | null = null;
+  let fadeAlpha = 0;
 
   return {
     isLocked(): boolean {
       return isTransitionLocked(state);
+    },
+    getFadeAlpha(): number {
+      return fadeAlpha;
     },
     start(swap: () => void): void {
       if (isTransitionLocked(state)) return;
@@ -96,6 +102,7 @@ export function createTransitionController(
       if (state.phase === "idle") return;
       const result = advanceTransition(state, deltaMs, config);
       state = result.state;
+      fadeAlpha = result.alpha;
       overlay.setAlpha(result.alpha);
       if (result.fireSwap && pendingSwap) {
         const swap = pendingSwap;
