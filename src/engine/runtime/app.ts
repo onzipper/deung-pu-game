@@ -67,7 +67,7 @@ import {
 } from "../net/character-session";
 import { createTransitionController } from "./transition";
 import { phaseAt, phaseTintAt, realMsPerGameMinute, worldMinuteAt } from "./world-clock";
-import type { WeatherKind } from "@/engine/config";
+import type { WeatherKind, WorldPhase } from "@/engine/config";
 import { attachResize } from "./resize";
 import { screenToTile, snapToTile, type TilePoint } from "../iso/coords";
 import { buildDebugInfo, IDLE_NET_DEBUG_INFO, type EngineDebugInfo } from "./debug-info";
@@ -83,6 +83,8 @@ import {
   setInventoryRejection,
   setInventoryState,
   setMilestoneNotice,
+  setAchievementUnlocked,
+  setAchievementsSnapshot,
   setPlayerDead,
   setPlayerExp,
   setPlayerLevel,
@@ -268,6 +270,11 @@ export async function createEngine(
   let currentMapId = "";
   let weather: WeatherKind = "clear";
   let phaseOffsetMs = 0; // debug fast-forward (cyclePhaseKeyCode) — บวกกับ Date.now() เพื่อ demo phase
+  // C2b (§13): living-world client-event edge state — report weather/phase only on TRANSITION edges + a rain
+  //   accumulator (1 tick/min while raining on the rain map) for ach_rain_walk_30. engine-scope (คงข้าม world).
+  let prevRainWeather: WeatherKind = "clear";
+  let prevPhaseId: WorldPhase | null = null;
+  let rainTickAccumMs = 0;
 
   /**
    * P1-10: ขอข้าม map. schedule swap ผ่าน transition controller — จอมืดสุด → teardown world เดิม +
@@ -475,6 +482,8 @@ export async function createEngine(
             // P2-17: ขอเปิดคลัง+กล่องส่งของทันทีเหมือนกัน — server ตอบ 2 snapshot (available:false = map
             // นี้ไม่มี storage NPC, HUD ปุ่ม "คลัง" อ่านค่านี้ pattern เดียวกับ shop).
             net?.sendStorageOpen();
+            // C2b (Part 5): ขอ snapshot achievement ตอน self เข้า room → game-store field พร้อมให้ journal (C3) อ่าน.
+            net?.sendAchievementsRequest();
           },
           // P2-13 (D-056): self AFK flag (server-set) → toggle ป้าย "AFK" ของตัวเอง (display-only).
           onSelfAfkChange: (isAfk) => player.setAfk(isAfk),
@@ -551,6 +560,9 @@ export async function createEngine(
           },
           // C1 (§18): milestone ปลดล็อก → stamp notice ให้ MilestoneToast แสดง toast สั้น ๆ
           onMilestoneGranted: (msg) => setMilestoneNotice(msg),
+          // C2b: achievement ปลดล็อก → AchievementToast; snapshot → game-store field (journal C3 consume)
+          onAchievementUnlocked: (msg) => setAchievementUnlocked(msg),
+          onAchievementsSnapshot: (msg) => setAchievementsSnapshot(msg),
           // P2-17: คลัง+กล่องส่งของ → Zustand bridge ตรง ๆ (event-driven, เหมือน onShopList/onShopResult)
           onStorageState: (state) => setStorageState(state),
           onStorageResult: (result) => setStorageResult(result),
@@ -706,6 +718,8 @@ export async function createEngine(
         engageState = cancelEngage();
         player.cancelPath();
         setActiveDialogue({ npcId: npc.npcId, displayName: npc.displayName, lines: npc.lines });
+        // C2b (§13 client event): คุย NPC → achievement (ทักทายชาวบ้าน/ขาประจำ). server whitelist + rate-limit.
+        net?.sendClientEvent({ type: "npc.talk", payload: { npcId: npc.npcId } });
         return;
       }
       // C4 (§5.1): คลิกโดนดึ๋งๆ companion (client-only cosmetic) — เช็คหลัง NPC (NPC ชนะ tie) ก่อน mob.
@@ -995,6 +1009,30 @@ export async function createEngine(
     currentWorld.scene.setPhaseTint(tint.color, tint.alpha);
     currentWorld.scene.setWeather(rainOn);
     currentWorld.scene.updateWeather(deltaMs, config.combatFeel.effectQuality.current);
+
+    // C2b (§13 client events): report living-world state on TRANSITION EDGES only (not per frame). rain tick =
+    //   1/min while raining on the rain map → ach_rain_walk_30 accumulator. server whitelists + rate-limits these.
+    const worldNet = currentWorld.net;
+    if (worldNet !== null) {
+      const worldPhaseNow = phaseAt(worldMinuteAt(worldNowMs, config.world));
+      if (rainOn !== prevRainWeather) {
+        prevRainWeather = rainOn;
+        worldNet.sendClientEvent({ type: "weather.changed", payload: { weather: rainOn } });
+      }
+      if (worldPhaseNow !== prevPhaseId) {
+        prevPhaseId = worldPhaseNow;
+        worldNet.sendClientEvent({ type: "phase.changed", payload: { phase: worldPhaseNow, mapId: currentMapId } });
+      }
+      if (rainOn === "rain") {
+        rainTickAccumMs += deltaMs;
+        if (rainTickAccumMs >= 60_000) {
+          rainTickAccumMs -= 60_000;
+          worldNet.sendClientEvent({ type: "weather.rain.tick", payload: { mapId: currentMapId } });
+        }
+      } else {
+        rainTickAccumMs = 0;
+      }
+    }
 
     fpsSampleMs += ticker.deltaMS;
     if (fpsSampleMs >= FPS_SAMPLE_INTERVAL_MS) {

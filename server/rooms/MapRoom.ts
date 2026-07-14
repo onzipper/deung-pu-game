@@ -143,6 +143,12 @@ import {
   type DeliveryClaimMessage,
   type DeliveryStateMessage,
   type DeliveryResultMessage,
+  MSG_ACHIEVEMENT_UNLOCKED,
+  MSG_CLIENT_EVENT,
+  MSG_ACHIEVEMENTS_REQUEST,
+  MSG_ACHIEVEMENTS_SNAPSHOT,
+  type ClientEventMessage,
+  type AchievementsSnapshotMessage,
 } from "../../src/shared/net-protocol";
 import {
   validateMove,
@@ -212,9 +218,16 @@ import {
   grantMilestoneWired,
   milestonesForTrigger,
   mobClassForMobType,
+  monsterIdForMobType,
   type MilestoneGrantOutcome,
   type MilestoneTrigger,
 } from "../economy/milestones";
+import {
+  buildAchievementsSnapshot,
+  emitAchievementEvent,
+  forgetAchievementSession,
+  sanitizeClientEvent,
+} from "../economy/achievements";
 import { SHOP_CONFIG, shopForMap, shopItemMeta } from "../economy/shop-state";
 import {
   buyShopItem,
@@ -726,6 +739,15 @@ export class MapRoom extends Room<MapRoomState> {
       void this.runDeliveryClaim(client, message);
     });
 
+    // C2b (Achievement §13): client-reported cosmetic/meme events (whitelisted + rate-limited server-side).
+    this.onMessage(MSG_CLIENT_EVENT, (client: Client, message: ClientEventMessage) => {
+      this.handleClientEvent(client, message);
+    });
+    // C2b (Part 5): journal snapshot request → masked achievement rows (hidden not spoiled, §8.4).
+    this.onMessage(MSG_ACHIEVEMENTS_REQUEST, (client: Client) => {
+      void this.handleAchievementsRequest(client);
+    });
+
     this.onMessage(MSG_MOVE, (client: Client, message: MoveMessage) => {
       const player = this.state.players.get(client.sessionId);
       const tracker = this.trackers.get(client.sessionId);
@@ -899,6 +921,18 @@ export class MapRoom extends Room<MapRoomState> {
   private handlePlayerDeath(sessionId: string, killerMobId: string): void {
     const death: PlayerDeathMessage = { sessionId, mobId: killerMobId };
     this.broadcast(MSG_PLAYER_DEATH, death);
+    // C2b: death achievements (counter first_death/death_100 · composite die-before-kill · sameCell death_spot).
+    //   Capture the death cell BEFORE respawn snaps the player to safe camp; route the toast to the owner.
+    const player = this.state.players.get(sessionId);
+    const client = this.clients.find((c) => c.sessionId === sessionId);
+    if (client && player) {
+      this.emitAchievement(
+        client,
+        "death",
+        { mapId: this.state.mapId, gridCell: `${Math.floor(player.tx)},${Math.floor(player.ty)}`, cause: "mob" },
+        Date.now(),
+      );
+    }
     this.respawnPlayerToSafeCamp(sessionId);
   }
 
@@ -1095,9 +1129,13 @@ export class MapRoom extends Room<MapRoomState> {
     // targets = มอนมีชีวิตทั้งหมดในห้อง (pos ปัจจุบันจาก sim) + lookup mobType เพื่อ resolve stat
     const targets: HitTestTarget[] = [];
     const mobTypeById = new Map<string, string>();
+    // C2b: snapshot each live mob's hp + foot pos BEFORE this cast's damage (no sim.tick runs mid-cast, so this
+    //   is exactly the pre-killing-blow state for a mob killed this cast). read-only — combat math untouched.
+    const mobPre = new Map<string, { hp: number; tx: number; ty: number }>();
     this.sim.forEach((m) => {
       targets.push({ id: m.id, pos: { tx: m.pos.tx, ty: m.pos.ty } });
       mobTypeById.set(m.id, m.mobType);
+      mobPre.set(m.id, { hp: m.hp, tx: m.pos.tx, ty: m.pos.ty });
     });
 
     // TODO(ground-target skills): geometry ปัจจุบัน anchor ที่ caster+facing (arc/cone/line/self-circle
@@ -1155,7 +1193,33 @@ export class MapRoom extends Room<MapRoomState> {
         const applied = this.sim.damageMob(mobId, dmg.damage);
         if (!applied) continue;
         hits.push({ mobId, dmg: dmg.damage, crit: dmg.crit, killed: applied.killed });
-        if (applied.killed) killedMobTypes.push(mobType);
+        if (applied.killed) {
+          killedMobTypes.push(mobType);
+          // C2b: mob.killed derived-field event (achievement combat rows). All fields derived from data already
+          //   at this site — pre-damage mob state (mobPre) + killer state (player). partySize/damageShare are
+          //   hardcoded solo (party G-lite ต่อทีหลัง). monsterId = economy id (not engine mobType).
+          const pre = mobPre.get(mobId);
+          const maxHp = ms.hp > 0 ? ms.hp : 1;
+          const hpBefore = pre ? pre.hp : maxHp;
+          const selfMaxHp = player.maxHp > 0 ? player.maxHp : 1;
+          this.emitAchievement(
+            client,
+            "mob.killed",
+            {
+              monsterId: monsterIdForMobType(mobType) ?? mobType,
+              rank: mobClassForMobType(mobType) ?? "normal",
+              hpFracBefore: hpBefore / maxHp,
+              overkillPct: ((dmg.damage - hpBefore) / maxHp) * 100,
+              playerHpFrac: player.hp / selfMaxHp,
+              lastHitByPlayer: true,
+              partySize: 1,
+              damageSharePct: 100,
+              mapId: this.state.mapId,
+              gridCell: `${Math.floor(pre ? pre.tx : 0)},${Math.floor(pre ? pre.ty : 0)}`,
+            },
+            now,
+          );
+        }
         // workstream B: ทุบ guard ด้วย break contribution (แยกจาก damage; single-target > AoE, §8) — guard แตก
         //   → BREAK broadcast + golden window. ทำหลัง damage (ถ้ายังไม่ตาย). ไม่ทุบถ้ากำลัง staggered อยู่.
         if (bossBefore && !applied.killed) {
@@ -1308,6 +1372,16 @@ export class MapRoom extends Room<MapRoomState> {
     };
     client.send(MSG_PLAYER_PROGRESS, msg);
 
+    // C2b: kill-derived achievement events — level-up (max_value newLevel), gold earned (Σ toward 50k) + gold
+    //   balance (max_value), and one item.dropped per loot line that landed. All from `outcome` already at hand.
+    const nowMs = Date.now();
+    if (outcome.exp.leveledUp) this.emitAchievement(client, "level.up", { newLevel: progress.level }, nowMs);
+    if (outcome.goldRolled > 0) this.emitAchievement(client, "gold.earned", { amount: outcome.goldRolled }, nowMs);
+    if (outcome.goldBalance !== null) {
+      this.emitAchievement(client, "gold.balance", { balance: Number(outcome.goldBalance) }, nowMs);
+    }
+    for (const line of outcome.granted) this.emitAchievement(client, "item.dropped", { itemId: line.itemId }, nowMs);
+
     // C1 (Economy §18.1): a kill can unlock a milestone (first hunt / first elite). Fire-and-forget AFTER the
     // kill reward is sent so it never delays/breaks the kill path; the grant is one-time per account (idempotent).
     const mobClass = mobClassForMobType(mobType);
@@ -1362,6 +1436,8 @@ export class MapRoom extends Room<MapRoomState> {
       if (res.leveledUp) {
         this.recomputeEffectiveStats(sessionId);
         this.refreshPlayerMaxHp(sessionId);
+        // C2b: a milestone's EXP can cross a level → level.up achievement event (max_value newLevel).
+        this.emitAchievement(client, "level.up", { newLevel: progress.level }, Date.now());
       }
       if (rec) void saveCharacterProgress(rec.characterId, progress.level, progress.exp);
     }
@@ -1373,6 +1449,54 @@ export class MapRoom extends Room<MapRoomState> {
       const items = await loadCharacterItemsBestEffort(rec.characterId);
       client.send(MSG_INVENTORY_STATE, buildSnapshot(items, INVENTORY_CAPACITY));
     }
+  }
+
+  /**
+   * C2b: fire one achievement event for a client (fire-and-forget). Resolves the session's scope ids
+   * (account/character) + wires the unlock toast back to that client. `void`ed by every caller so it never
+   * delays/breaks the triggering combat/economy path. Anonymous/dev (no scope id) → the service skips silently.
+   */
+  private emitAchievement(
+    client: Client,
+    type: string,
+    payload: Record<string, unknown>,
+    nowMs: number,
+    clientReported = false,
+  ): void {
+    const rec = this.sessionCharacters.get(client.sessionId);
+    void emitAchievementEvent({
+      type,
+      payload,
+      accountId: rec?.accountId,
+      characterId: rec?.characterId,
+      sessionId: client.sessionId,
+      nowMs,
+      clientReported,
+      notify: (m) => client.send(MSG_ACHIEVEMENT_UNLOCKED, m),
+    });
+  }
+
+  /** C2b (§13): a whitelisted, sanitized client-reported event → achievement service (rate-limited inside). */
+  private handleClientEvent(client: Client, message: ClientEventMessage): void {
+    const clean = sanitizeClientEvent(message?.type, message?.payload);
+    if (!clean) return; // not whitelisted / malformed → dropped
+    this.emitAchievement(client, clean.type, clean.payload, Date.now(), true);
+  }
+
+  /** C2b (Part 5): answer a journal snapshot request with masked achievement rows (best-effort). */
+  private async handleAchievementsRequest(client: Client): Promise<void> {
+    const rec = this.sessionCharacters.get(client.sessionId);
+    let rows: AchievementsSnapshotMessage["rows"] = [];
+    try {
+      rows = await buildAchievementsSnapshot({ accountId: rec?.accountId, characterId: rec?.characterId });
+    } catch (err) {
+      console.warn(
+        `[MapRoom ${this.roomId}] achievements snapshot error ${client.sessionId}: ` +
+          (err instanceof Error ? err.message : String(err)),
+      );
+    }
+    const msg: AchievementsSnapshotMessage = { rows };
+    client.send(MSG_ACHIEVEMENTS_SNAPSHOT, msg);
   }
 
   /**
@@ -1426,6 +1550,9 @@ export class MapRoom extends Room<MapRoomState> {
     client.send(MSG_ENHANCE_RESULT, ok);
     client.send(MSG_INVENTORY_STATE, result.snapshot);
     this.applyEquipmentStats(client.sessionId, result.snapshot.equipment);
+    // C2b: enhancement achievements (max_value plus / counter / streak). enhance.fail has NO live source in P2
+    //   (guaranteed +1, no RNG — a business reject like NO_REINFORCEMENT is not a fail outcome). Documented TODO.
+    this.emitAchievement(client, "enhance.success", { plus: result.newLevel }, Date.now());
   }
 
   /**
@@ -1538,6 +1665,10 @@ export class MapRoom extends Room<MapRoomState> {
     };
     client.send(MSG_SHOP_RESULT, ok);
     await this.sendInventorySnapshot(client, rec.characterId);
+    // C2b: shop achievements (counter shop.buy) + gold.balance (max_value from the authoritative post-buy total).
+    const buyNow = Date.now();
+    this.emitAchievement(client, "shop.buy", { itemId: result.itemId, qty: result.quantity }, buyNow);
+    this.emitAchievement(client, "gold.balance", { balance: Number(result.gold) }, buyNow);
     // C1 (§18.1 "ซื้อ/ขายครั้งแรก"): first shop transaction unlocks ms_shop_intro (one-time per account).
     void this.fireMilestonesForTrigger(client, { kind: "shop_transaction" });
   }
@@ -1592,6 +1723,12 @@ export class MapRoom extends Room<MapRoomState> {
     };
     client.send(MSG_SHOP_RESULT, ok);
     await this.sendInventorySnapshot(client, rec.characterId);
+    // C2b: shop achievements (counter shop.sell) + gold.balance (max_value). gold.earned (Σ toward 50k) from the
+    //   sell delta is NOT cheaply available here (result.gold is the post-tx balance, not the proceeds) → only
+    //   the kill-reward gold feeds gold.earned; documented (ach_gold_earn_50k accrues from combat gold).
+    const sellNow = Date.now();
+    this.emitAchievement(client, "shop.sell", { itemId: result.itemId, qty: result.quantity }, sellNow);
+    this.emitAchievement(client, "gold.balance", { balance: Number(result.gold) }, sellNow);
     // C1 (§18.1 "ซื้อ/ขายครั้งแรก"): first shop transaction unlocks ms_shop_intro (one-time per account).
     void this.fireMilestonesForTrigger(client, { kind: "shop_transaction" });
   }
@@ -1719,6 +1856,9 @@ export class MapRoom extends Room<MapRoomState> {
     client.send(MSG_STORAGE_RESULT, ok);
     client.send(MSG_STORAGE_STATE, result.storage);
     await this.sendInventorySnapshot(client, rec.characterId);
+    // C2b: storage.deposit achievement (counter, no filter → occurrence only; itemId/qty not cheap here → omit).
+    //   No delivery.send event: the Delivery Box is claim-only (system-granted), there is no player-send path.
+    if (op === "deposit") this.emitAchievement(client, "storage.deposit", {}, Date.now());
   }
 
   /**
@@ -1861,6 +2001,13 @@ export class MapRoom extends Room<MapRoomState> {
         lastSaveMs: Date.now(),
       });
       void updateLastPlayed(accountId, characterId);
+      // C2b: bind-time achievement events (needs the scope binding above). character.created = counter target-1
+      //   (fires every join but claimed-terminal makes it once). map.enter carries firstVisit:true so the
+      //   {mapId,firstVisit} filter (ach_leave_town) matches — target-1 + claimed keeps it once-only anyway. Each
+      //   map is its own room; onJoin fires map.enter per crossing, driving the map1→city-hub sequence (shared scope).
+      const joinNow = Date.now();
+      this.emitAchievement(client, "character.created", {}, joinNow);
+      this.emitAchievement(client, "map.enter", { mapId: this.state.mapId, firstVisit: true }, joinNow);
     }
 
     // P2-07 (Storage §22 · TA §7/§8): ส่ง inventory/equipment snapshot ตอน join + ตั้ง combat stats จากของที่สวม.
@@ -1931,6 +2078,7 @@ export class MapRoom extends Room<MapRoomState> {
     this.sessionEquipment.delete(sessionId);
     this.sessionCharacters.delete(sessionId);
     this.transitioningSessions.delete(sessionId);
+    forgetAchievementSession(sessionId); // C2b: drop the session's rate-limit buckets (progress is scope-keyed)
     console.log(`[MapRoom ${this.roomId}] remove ${sessionId} (${reason})`);
   }
 

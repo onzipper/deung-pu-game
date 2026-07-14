@@ -58,6 +58,15 @@ export function mobClassForMobType(mobType: string): "normal" | "elite" | "boss"
 }
 
 /**
+ * C2b (Achievement §10.1 identity): engine mobType → economy monsterId (mon_map1_slime / elite_map1_boar_rampage
+ * / boss_map1_boiling_boar). Achievement filters key on the monsterId, not the engine mobType — the mob.killed
+ * event must carry the mapped id. Unmapped / test mob → null.
+ */
+export function monsterIdForMobType(mobType: string): string | null {
+  return MONSTER_ID_BY_MOB_TYPE[mobType] ?? null;
+}
+
+/**
  * R8 loot guard (defence-in-depth): reinforcement ids must never leak into GENERIC loot. The Field Boss is the
  * one sanctioned exception (D-064) — it is the reinforcement-material source, so `upg_reinforcement` is an
  * allowed drop for it and is NOT in its excluded set. Every other monster keeps the full exclusion.

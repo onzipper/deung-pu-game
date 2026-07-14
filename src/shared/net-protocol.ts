@@ -524,6 +524,68 @@ export interface MilestoneGrantedMessage {
   exp: number;
 }
 
+// ── C2b achievements (server-authoritative tracking + auto-claim · Achievement spec §4.2/§6/§7/§13) ────────
+//
+// Progress/rewards are server-authoritative (mob.killed derived fields computed server-side, never trusted from
+// the client). Three additive message paths: unlock notify (server → client), a whitelisted client-reported
+// event channel (title/none rewards only — §13 trust tradeoff), and a journal snapshot request/response.
+
+/** message type: server → **client เดียว** — an achievement just auto-claimed → toast (C2b, spec §7.1). */
+export const MSG_ACHIEVEMENT_UNLOCKED = "achievement_unlocked";
+
+/**
+ * payload ของ MSG_ACHIEVEMENT_UNLOCKED (server → client เดียว, C2b). ยิงครั้งเดียวตอนปลดล็อก (auto-claim,
+ * one-time per scope). gold/titleId = reward ที่แจกรอบนี้ (0/omit = ไม่มี) — client โชว์ toast สั้น ๆ ตาม tier.
+ */
+export interface AchievementUnlockedMessage {
+  achievementId: string;
+  nameTh: string;
+  /** "COMMON"|"UNCOMMON"|"HARD"|"EXTREME"|"MYSTERY"|"MEME" — client เลือกสี toast ตาม tier. */
+  tier: string;
+  /** Gold ที่แจก (§10 reward discipline: MEME/hidden = ไม่มี gold) — omit = ไม่มี. */
+  gold?: number;
+  /** title ที่บันทึกไว้ (ยังไม่มีระบบ title — journal อ่านต่อ) — omit = ไม่มี. */
+  titleId?: string;
+}
+
+/**
+ * message type: client → server — client-reported event (C2b Part 4). server whitelist + sanitize + rate-limit
+ * (§13: cosmetic/meme achievements เท่านั้น — ห้ามมี gold/item). ชนิดที่รับ: npc.talk · ui.logo.click ·
+ * weather.changed · phase.changed · weather.rain.tick. ชนิดนอก whitelist = server ทิ้งเงียบ ๆ.
+ */
+export const MSG_CLIENT_EVENT = "client_event";
+
+/** payload ของ MSG_CLIENT_EVENT (client → server, C2b). server sanitize payload ตาม type (ไม่ trust ค่า). */
+export interface ClientEventMessage {
+  type: string;
+  payload: Record<string, unknown>;
+}
+
+/** message type: client → server — ขอ snapshot achievement ทั้งหมด (journal C3 consume ต่อ, C2b Part 5). */
+export const MSG_ACHIEVEMENTS_REQUEST = "achievements_request";
+
+/** message type: server → **client เดียว** — snapshot achievement rows (ตอบ MSG_ACHIEVEMENTS_REQUEST, C2b). */
+export const MSG_ACHIEVEMENTS_SNAPSHOT = "achievements_snapshot";
+
+/** 1 แถว achievement ใน snapshot (C2b Part 5). nameTh = "???" เมื่อ hidden + ยังไม่ claim (§8.4 ไม่ spoil). */
+export interface AchievementRow {
+  id: string;
+  nameTh: string;
+  tier: string;
+  category: string;
+  /** "locked"|"in_progress"|"completed"|"claimed" (§4.2). */
+  state: string;
+  currentValue: number;
+  target: number;
+  gold?: number;
+  titleId?: string;
+}
+
+/** payload ของ MSG_ACHIEVEMENTS_SNAPSHOT (server → client เดียว, C2b). rows = core shipping set (60 แถว). */
+export interface AchievementsSnapshotMessage {
+  rows: AchievementRow[];
+}
+
 /** message type: server → **client เดียว** — ผลการเสริมแกร่ง (สำเร็จ/ปฏิเสธ) (P2-10). */
 export const MSG_ENHANCE_RESULT = "enhance_result";
 

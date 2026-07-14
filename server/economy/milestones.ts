@@ -35,7 +35,7 @@ import type { ItemMeta } from "../../src/server/economy/kill-reward";
 // re-export the pure decision helper + types so MapRoom imports everything milestone-related from here.
 export { milestonesForTrigger };
 export type { MilestoneTrigger, MilestoneGrantOutcome };
-export { mobClassForMobType } from "./kill-rewards";
+export { mobClassForMobType, monsterIdForMobType } from "./kill-rewards";
 
 /** milestone Design Knobs (Economy §18.1 / D-053) as the structural subset the orchestrator reads. */
 const MILESTONES: readonly MilestoneRewardView[] = DEFAULT_ECONOMY_CONFIG.milestones.map((m) => ({
