@@ -856,10 +856,16 @@ exports[`engine config — value identity (DEFAULT_* consts) > DEFAULT_ENGINE_CO
       "shape": "box",
       "width": 20,
     },
-    "gridLineAlpha": 0.35,
+    "gridLineAlpha": 0,
     "gridLineColor": 10335596,
-    "groundTileAssetIdA": "grnd_map1_grass_a",
-    "groundTileAssetIdB": "grnd_map1_grass_b",
+    "groundTileAssetIds": [
+      "grnd_map1_grass_a",
+      "grnd_map1_grass_b",
+      "grnd_map1_grass_c",
+      "grnd_map1_grass_d",
+      "grnd_map1_grass_e",
+      "grnd_map1_grass_f",
+    ],
     "props": {
       "bush": {
         "assetId": "prop_map1_bush",
@@ -1295,10 +1301,16 @@ exports[`engine config — value identity (DEFAULT_* consts) > DEFAULT_SCENE_THE
     "shape": "box",
     "width": 20,
   },
-  "gridLineAlpha": 0.35,
+  "gridLineAlpha": 0,
   "gridLineColor": 10335596,
-  "groundTileAssetIdA": "grnd_map1_grass_a",
-  "groundTileAssetIdB": "grnd_map1_grass_b",
+  "groundTileAssetIds": [
+    "grnd_map1_grass_a",
+    "grnd_map1_grass_b",
+    "grnd_map1_grass_c",
+    "grnd_map1_grass_d",
+    "grnd_map1_grass_e",
+    "grnd_map1_grass_f",
+  ],
   "props": {
     "bush": {
       "assetId": "prop_map1_bush",
@@ -1975,10 +1987,16 @@ exports[`engine config — value identity (factory / pure functions) > createEng
       "shape": "box",
       "width": 20,
     },
-    "gridLineAlpha": 0.35,
+    "gridLineAlpha": 0,
     "gridLineColor": 10335596,
-    "groundTileAssetIdA": "grnd_map1_grass_a",
-    "groundTileAssetIdB": "grnd_map1_grass_b",
+    "groundTileAssetIds": [
+      "grnd_map1_grass_a",
+      "grnd_map1_grass_b",
+      "grnd_map1_grass_c",
+      "grnd_map1_grass_d",
+      "grnd_map1_grass_e",
+      "grnd_map1_grass_f",
+    ],
     "props": {
       "bush": {
         "assetId": "prop_map1_bush",
@@ -2645,10 +2663,16 @@ exports[`engine config — value identity (factory / pure functions) > createEng
       "shape": "box",
       "width": 20,
     },
-    "gridLineAlpha": 0.35,
+    "gridLineAlpha": 0,
     "gridLineColor": 10335596,
-    "groundTileAssetIdA": "grnd_map1_grass_a",
-    "groundTileAssetIdB": "grnd_map1_grass_b",
+    "groundTileAssetIds": [
+      "grnd_map1_grass_a",
+      "grnd_map1_grass_b",
+      "grnd_map1_grass_c",
+      "grnd_map1_grass_d",
+      "grnd_map1_grass_e",
+      "grnd_map1_grass_f",
+    ],
     "props": {
       "bush": {
         "assetId": "prop_map1_bush",

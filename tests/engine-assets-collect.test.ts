@@ -47,7 +47,7 @@ describe("collectMapAssetIds", () => {
     expect(ids).toEqual(["char_hero", "prop_tree", "prop_default"]);
   });
 
-  test("DEFAULT config (Phase 5 atlas เปิดใช้แล้ว) → เก็บเฉพาะ assetId ที่มีจริง, mushroom/defaultStyle/defaultProp ยังไม่มี assetId → กรองทิ้ง; ground tile F1 (grass a/b) ต่อท้าย", () => {
+  test("DEFAULT config (Phase 5 atlas เปิดใช้แล้ว) → เก็บเฉพาะ assetId ที่มีจริง, mushroom/defaultStyle/defaultProp ยังไม่มี assetId → กรองทิ้ง; ground tile F1 v2 (grass a..f) ต่อท้าย", () => {
     const map = mapWith(["slime", "mushroom"]);
     expect(collectMapAssetIds(map, DEFAULT_ENGINE_CONFIG)).toEqual([
       "chr_swordsman",
@@ -59,6 +59,10 @@ describe("collectMapAssetIds", () => {
       "prop_map1_stump",
       "grnd_map1_grass_a",
       "grnd_map1_grass_b",
+      "grnd_map1_grass_c",
+      "grnd_map1_grass_d",
+      "grnd_map1_grass_e",
+      "grnd_map1_grass_f",
     ]);
   });
 

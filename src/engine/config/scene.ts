@@ -58,15 +58,10 @@ export interface SceneTheme {
   defaultProp: PropStyle;
   /** style ต่อ propId */
   props: Record<string, PropStyle>;
-  /**
-   * F1 (ASSET_PRODUCTION_BIBLE §10.1): assetId ของ ground-tile atlas คู่ checker (A/B).
-   * undefined = ยังไม่มี art จริง → ใช้ tileColorA/B (Graphics fallback) เหมือนเดิม.
-   * ทั้งคู่ต้อง set พร้อมกันหรือไม่ set เลย.
-   * NOTE: theme เป็น global เดียว (EngineConfig.theme) ยังไม่ per-map — per-map override
-   * (เช่น พื้นหินสำหรับ city-hub) เป็น follow-up ในอนาคต, out of scope ที่นี่.
-   */
-  groundTileAssetIdA?: string;
-  groundTileAssetIdB?: string;
+  /** F1 (ASSET_PRODUCTION_BIBLE §10.1): ground-tile atlas variants (3–6/วัสดุ) — เลือกต่อ tile ด้วย
+   *  deterministic hash ของ (tx,ty) (ไม่ใช่ checker parity). ว่าง/ไม่ตั้ง = fallback สี tileColorA/B เดิม.
+   *  NOTE: theme เป็น global เดียว ยังไม่ per-map — per-map override เป็น follow-up. */
+  groundTileAssetIds?: string[];
 }
 
 /** พฤติกรรมกล้อง (fixed iso · no rotation · no zoom — P0). */
@@ -137,7 +132,9 @@ export const DEFAULT_SCENE_THEME: SceneTheme = {
   tileColorA: 0x3f6845, // Leaf
   tileColorB: 0x284536, // Deep Leaf
   gridLineColor: 0x9db56c, // Moss
-  gridLineAlpha: 0.35,
+  // F1 v2: ปิด grid เป็นค่าเริ่มต้น (owner review — ทับลายหญ้าจนดูเป็น checkerboard) knob ยังอยู่
+  // เปิดกลับได้ผ่าน config (debug/owner) โดยตั้งค่า > 0.
+  gridLineAlpha: 0,
   blockedColor: 0x171820, // Deep Ink (พื้นบล็อก/กำแพง = โทนเดียวกับพื้นหลัง Deep Ink)
   defaultProp: { color: 0x68483a, width: 20, height: 28, shape: "box" }, // Soil Brown
   props: {
@@ -147,9 +144,12 @@ export const DEFAULT_SCENE_THEME: SceneTheme = {
     signpost: { color: 0xb47e52, width: 12, height: 34, shape: "box", assetId: "prop_map1_signpost" }, // Warm Wood
     stump: { color: 0x8e6046, width: 20, height: 16, shape: "ellipse", assetId: "prop_map1_stump" }, // Clay
   },
-  // F1 (Bible §10.1): ground-tile atlas คู่ checker — คู่กับ tileColorA/B (Leaf / Deep Leaf) เป็น fallback.
-  groundTileAssetIdA: "grnd_map1_grass_a",
-  groundTileAssetIdB: "grnd_map1_grass_b",
+  // F1 v2 (Bible §10.1): 6 variants ฐาน Leaf สีเดียวกัน — กระจายด้วย hash ตำแหน่ง (ไม่ใช่ checker).
+  // tileColorA/B (Leaf / Deep Leaf) ยังเป็น fallback เมื่อ atlas ไม่พร้อม.
+  groundTileAssetIds: [
+    "grnd_map1_grass_a", "grnd_map1_grass_b", "grnd_map1_grass_c",
+    "grnd_map1_grass_d", "grnd_map1_grass_e", "grnd_map1_grass_f",
+  ],
 };
 
 export const DEFAULT_CAMERA_CONFIG: CameraConfig = {

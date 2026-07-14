@@ -1,0 +1,32 @@
+{
+  "assetId": "grnd_map1_grass_f",
+  "category": "environment",
+  "frameSize": [
+    64,
+    32
+  ],
+  "pivot": [
+    32,
+    0
+  ],
+  "mirrorSafe": true,
+  "drawnDirections": [
+    "S"
+  ],
+  "mirrorMap": {
+    "SW": "S",
+    "SE": "S",
+    "W": "S",
+    "E": "S",
+    "NW": "S",
+    "N": "S",
+    "NE": "S"
+  },
+  "animations": {
+    "idle": {
+      "fps": 1,
+      "loop": true,
+      "frameCount": 1
+    }
+  }
+}

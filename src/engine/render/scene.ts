@@ -13,6 +13,7 @@ import { Application, Container, Graphics, Sprite, Text } from "pixi.js";
 import type { EffectQuality, EngineConfig, ExitMarkerConfig, PropStyle, WeatherKind } from "@/engine/config";
 import { createWeatherOverlay, type WeatherOverlay } from "@/engine/runtime/weather-overlay";
 import type { AssetRegistry } from "@/engine/assets/registry";
+import type { LoadedEntityAtlas } from "@/engine/assets/atlas-loader";
 import type { DiamondPolygon } from "@/engine/render/exit-marker";
 import type { ScreenPoint, TilePoint } from "@/engine/iso/coords";
 import { tileToScreen } from "@/engine/iso/coords";
@@ -142,13 +143,16 @@ function buildPropDisplay(
 
 /**
  * วาด ground layer ทั้งใบ "ครั้งเดียว" (ไม่ depth sort — พื้นราบ coplanar ไม่ทับกัน):
- *   • F1 (Bible §10.1): ถ้า theme มี groundTileAssetIdA/B + atlas โหลดแล้ว → ปูด้วย ground-tile Sprite
- *     (anchor top-center จาก atlas, pivot [32,0]/frameSize [64,32] → (0.5,0) = ยอด diamond ตรงกับ
- *     screen point ของมุม tile บนสุด) ลง spriteLayer (ล่างสุด).
- *   • fail-soft: cell ที่ blocked หรือ atlas/frame ไม่พร้อม → Graphics fill (blockedColor / tileColorA/B)
- *     — pattern เดียวกับ buildPropDisplay (peek + null-check, ไม่ throw).
- *   • grid-line stroke วาด "ทุก cell" เสมอ (ทับ sprite ด้วย) บน overlay (บนสุด) — คงลุค grid เดิมเป๊ะ.
- * spriteLayer เพิ่มก่อน overlay → fallback fill + เส้น grid วาดทับ sprite (grid ต้องเห็นเหนือลายหญ้า).
+ *   • F1 v2 (Bible §10.1): ถ้า theme มี groundTileAssetIds (6 variants ฐานสีเดียวกัน) + atlas โหลดแล้ว
+ *     → ปูด้วย ground-tile Sprite (anchor top-center จาก atlas, pivot [32,0]/frameSize [64,32] →
+ *     (0.5,0) = ยอด diamond ตรงกับ screen point ของมุม tile บนสุด) ลง spriteLayer (ล่างสุด). variant
+ *     ต่อ cell เลือกด้วย deterministic spatial hash ของ (tx,ty) — **ไม่ใช่** checker parity (เดิมดู
+ *     เป็น checkerboard ชัดเกิน) และห้าม Math.random (ต้อง reproducible ทุกเครื่อง/ทุกครั้ง).
+ *   • fail-soft: cell ที่ blocked หรือ atlas/frame ไม่พร้อม → Graphics fill (blockedColor / tileColorA/B,
+ *     checker parity เดิม) — pattern เดียวกับ buildPropDisplay (peek + null-check, ไม่ throw).
+ *   • grid-line stroke: ข้ามทั้งหมดถ้า gridLineAlpha <= 0 (default ปิด, F1 v2) — ไม่งั้นวาด "ทุก cell"
+ *     (ทับ sprite ด้วย) บน overlay (บนสุด).
+ * spriteLayer เพิ่มก่อน overlay → fallback fill + เส้น grid (ถ้าเปิด) วาดทับ sprite.
  */
 function buildGround(
   map: MapConfig,
@@ -159,11 +163,13 @@ function buildGround(
   const { width, height } = map.bounds;
   const theme = config.theme;
 
-  const texA = theme.groundTileAssetIdA ? (registry?.peek(theme.groundTileAssetIdA) ?? null) : null;
-  const texB = theme.groundTileAssetIdB ? (registry?.peek(theme.groundTileAssetIdB) ?? null) : null;
+  const atlases: LoadedEntityAtlas[] = (theme.groundTileAssetIds ?? [])
+    .map((id) => registry?.peek(id) ?? null)
+    .filter((atlas): atlas is LoadedEntityAtlas => atlas !== null);
 
   const spriteLayer = new Container(); // grass sprites — bottom
-  const overlay = new Graphics();      // fallback fills (blocked / missing-texture cells) + grid-line strokes for EVERY cell — top
+  const overlay = new Graphics();      // fallback fills (blocked / missing-texture cells) + grid-line strokes (if enabled) — top
+  const drawGrid = theme.gridLineAlpha > 0;
 
   for (let ty = 0; ty < height; ty++) {
     for (let tx = 0; tx < width; tx++) {
@@ -174,8 +180,9 @@ function buildGround(
       const poly = [a.sx, a.sy, b.sx, b.sy, c.sx, c.sy, d.sx, d.sy];
 
       const blocked = isBlockedTile(map, tx, ty);
-      const useA = (tx + ty) % 2 === 0;
-      const atlas = !blocked ? (useA ? texA : texB) : null;
+      // deterministic ต่อ (tx,ty) — ผลเท่ากันทุกเครื่อง/ทุกครั้ง (ห้าม Math.random — depth/visual ต้อง reproducible)
+      const hash = ((tx * 73856093) ^ (ty * 19349663)) >>> 0;
+      const atlas = !blocked && atlases.length > 0 ? atlases[hash % atlases.length] : null;
       const frame = atlas?.textures.get("idle", "S")[0] ?? null;
 
       // frame truthy ⇒ atlas non-null เสมอ (frame มาจาก atlas?.…) — `&& atlas` เพื่อให้ TS narrow type.
@@ -185,6 +192,7 @@ function buildGround(
         sprite.position.set(a.sx, a.sy);
         spriteLayer.addChild(sprite);
       } else {
+        const useA = (tx + ty) % 2 === 0;
         const fillColor = blocked
           ? theme.blockedColor
           : useA
@@ -192,12 +200,13 @@ function buildGround(
             : theme.tileColorB;
         overlay.poly(poly).fill({ color: fillColor });
       }
-      // grid line ALWAYS drawn (over sprite tiles too) — unchanged visual behavior from before.
-      overlay.poly(poly).stroke({
-        color: theme.gridLineColor,
-        width: 1,
-        alpha: theme.gridLineAlpha,
-      });
+      if (drawGrid) {
+        overlay.poly(poly).stroke({
+          color: theme.gridLineColor,
+          width: 1,
+          alpha: theme.gridLineAlpha,
+        });
+      }
     }
   }
 
