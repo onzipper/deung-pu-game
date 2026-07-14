@@ -180,6 +180,13 @@ export interface HudState {
   weather: WeatherView | null;
   /** LW0: NPC bark dialogue ที่เปิดอยู่ (คลิก NPC ในโลก) — null = ไม่มี. ดู ActiveDialogueView. */
   activeDialogue: ActiveDialogueView | null;
+  /**
+   * C4 (§5.1): timestamp (ms, performance.now) ล่าสุดที่ผู้เล่นคลิกดึ๋งๆ companion ในโลก → ขอเปิด help panel
+   * ("ดึ๋งๆ ช่วยเหลือ"). engine ตั้งค่านี้ (requestHelpPanel) — HelpPanel effect subscribe แล้ว openPanel เมื่อ
+   * ค่าเปลี่ยน (ui.md contract: engine ไม่ import React/panel state; UI สั่งเปิดเอง — pattern เดียวกับ activeDialogue).
+   * null = ยังไม่เคยคลิกใน session นี้. ค่าเปลี่ยน = คลิกใหม่ → เปิดอีก.
+   */
+  helpPanelRequestedAt: number | null;
 }
 
 export const INITIAL_HUD_STATE: HudState = {
@@ -207,6 +214,7 @@ export const INITIAL_HUD_STATE: HudState = {
   worldPhase: null,
   weather: null,
   activeDialogue: null,
+  helpPanelRequestedAt: null,
 };
 
 /** store singleton ตัวเดียวทั้งแอป — engine publish เข้านี่, React component subscribe ผ่าน useGameStore */
@@ -431,6 +439,18 @@ export function setActiveDialogue(dialogue: ActiveDialogueView | null): void {
 
 /** typed selector — dialogue ที่เปิดอยู่ (LW0 NPC bark) */
 export const selectActiveDialogue = (state: HudState): ActiveDialogueView | null => state.activeDialogue;
+
+/**
+ * C4 (§5.1): engine เรียกทันทีที่ผู้เล่นคลิกโดนดึ๋งๆ companion ในโลก (app.ts onPointerDown) → stamp timestamp
+ * ให้ HelpPanel effect เปิด help panel. `nowMs` inject ได้ (เทสต์); default performance.now() ตอนเรียกจริง
+ * (client clock เดียวกับ effect deps). engine ไม่ import React → สั่งเปิดผ่าน store แทน (เหมือน setActiveDialogue).
+ */
+export function requestHelpPanel(nowMs: number = performance.now()): void {
+  gameStore.setState({ helpPanelRequestedAt: nowMs });
+}
+
+/** typed selector — timestamp ล่าสุดที่ขอเปิด help panel (C4 companion click) */
+export const selectHelpPanelRequestedAt = (state: HudState): number | null => state.helpPanelRequestedAt;
 
 export interface HudPublisher {
   /**

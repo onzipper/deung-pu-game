@@ -10,6 +10,7 @@ import {
   DEFAULT_COMBAT_BALANCE_CONFIG,
   DEFAULT_COMBAT_FEEL_CONFIG,
   DEFAULT_COMBAT_STUB_CONFIG,
+  DEFAULT_COMPANION_CONFIG,
   DEFAULT_DEBUG_OVERLAY_CONFIG,
   DEFAULT_ENGINE_CONFIG,
   DEFAULT_EXIT_MARKER_CONFIG,
@@ -38,6 +39,7 @@ import type {
   CombatBalanceConfig,
   CombatFeelConfig,
   CombatStubConfig,
+  CompanionConfig,
   DamageNumberPoolConfig,
   DamageNumberStyleConfig,
   DeathFeedbackConfig,
@@ -109,6 +111,7 @@ export type _ConfigTypeSurface =
   | CombatBalanceConfig
   | CombatFeelConfig
   | CombatStubConfig
+  | CompanionConfig
   | DamageNumberPoolConfig
   | DamageNumberStyleConfig
   | DeathFeedbackConfig
@@ -167,7 +170,7 @@ export type _ConfigTypeSurface =
   | WorldConfig
   | WorldPhase;
 
-// The 26 runtime value exports (22 DEFAULT_* consts + 4 functions). Types erase at runtime,
+// The 27 runtime value exports (23 DEFAULT_* consts + 4 functions). Types erase at runtime,
 // so Object.keys(module) returns exactly these — a dropped/renamed value export fails here.
 const EXPECTED_VALUE_EXPORTS = [
   "DEFAULT_AFK_CONFIG",
@@ -175,6 +178,7 @@ const EXPECTED_VALUE_EXPORTS = [
   "DEFAULT_COMBAT_BALANCE_CONFIG",
   "DEFAULT_COMBAT_FEEL_CONFIG",
   "DEFAULT_COMBAT_STUB_CONFIG",
+  "DEFAULT_COMPANION_CONFIG",
   "DEFAULT_DEBUG_OVERLAY_CONFIG",
   "DEFAULT_ENGINE_CONFIG",
   "DEFAULT_EXIT_MARKER_CONFIG",
@@ -201,7 +205,7 @@ const EXPECTED_VALUE_EXPORTS = [
 const MAP_ZONE_TYPES: MapZoneType[] = ["safe", "field"];
 
 describe("engine config — export-name identity", () => {
-  test("module exposes exactly the 26 runtime value exports", async () => {
+  test("module exposes exactly the 27 runtime value exports", async () => {
     const mod = await import("@/engine/config");
     expect(Object.keys(mod).sort()).toEqual(EXPECTED_VALUE_EXPORTS);
   });
@@ -213,6 +217,7 @@ describe("engine config — value identity (DEFAULT_* consts)", () => {
   test("DEFAULT_COMBAT_BALANCE_CONFIG", () => expect(DEFAULT_COMBAT_BALANCE_CONFIG).toMatchSnapshot());
   test("DEFAULT_COMBAT_FEEL_CONFIG", () => expect(DEFAULT_COMBAT_FEEL_CONFIG).toMatchSnapshot());
   test("DEFAULT_COMBAT_STUB_CONFIG", () => expect(DEFAULT_COMBAT_STUB_CONFIG).toMatchSnapshot());
+  test("DEFAULT_COMPANION_CONFIG", () => expect(DEFAULT_COMPANION_CONFIG).toMatchSnapshot());
   test("DEFAULT_DEBUG_OVERLAY_CONFIG", () => expect(DEFAULT_DEBUG_OVERLAY_CONFIG).toMatchSnapshot());
   test("DEFAULT_ENGINE_CONFIG", () => expect(DEFAULT_ENGINE_CONFIG).toMatchSnapshot());
   test("DEFAULT_EXIT_MARKER_CONFIG", () => expect(DEFAULT_EXIT_MARKER_CONFIG).toMatchSnapshot());

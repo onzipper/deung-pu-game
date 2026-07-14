@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" shape-rendering="crispEdges">
+  <!-- ดึ๋งๆ idle เฟรม 2 — ย่อตัวลงเล็กน้อย (บ๊องแบ๊ง) -->
+  <ellipse cx="32" cy="54" rx="15" ry="3" fill="#171820" opacity="0.35"/>
+  <path d="M32,26 Q48,26 48,42 Q48,52 32,52 Q16,52 16,42 Q16,26 32,26 Z" fill="#35C6B0"/>
+  <path d="M32,29 Q45,29 45,41 Q45,49 32,49 Q19,49 19,41 Q19,29 32,29 Z" fill="#7CE9D0"/>
+  <circle cx="32" cy="40" r="5" fill="#E8BF4F"/>
+  <circle cx="32" cy="40" r="2.5" fill="#FFF0C5"/>
+  <circle cx="26" cy="37" r="2.6" fill="#171820"/>
+  <circle cx="38" cy="37" r="2.6" fill="#171820"/>
+  <circle cx="26.8" cy="36.2" r="0.9" fill="#FFF0C5"/>
+  <circle cx="38.8" cy="36.2" r="0.9" fill="#FFF0C5"/>
+  <path d="M28,45 Q32,48 36,45" stroke="#167C78" stroke-width="2" fill="none"/>
+  <ellipse cx="24" cy="31" rx="4" ry="2.5" fill="#A4CCC0" transform="rotate(-25 24 31)"/>
+</svg>

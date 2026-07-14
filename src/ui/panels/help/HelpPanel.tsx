@@ -16,6 +16,7 @@ import { Button } from "@/ui/components";
 import {
   selectDebugInfo,
   selectGold,
+  selectHelpPanelRequestedAt,
   selectInventory,
   selectLastKillAtMs,
   selectPlayerLevel,
@@ -96,6 +97,7 @@ export function HelpPanel() {
   const lastKillAtMs = useGameStore(selectLastKillAtMs);
   const shopList = useGameStore(selectShopList);
   const debugInfo = useGameStore(selectDebugInfo);
+  const helpPanelRequestedAt = useGameStore(selectHelpPanelRequestedAt);
 
   const [activeTab, setActiveTab] = useState<HelpTab>("recommend");
   const [selectedArticleId, setSelectedArticleId] = useState<string | null>(null);
@@ -119,6 +121,16 @@ export function HelpPanel() {
     }, 0);
     return () => clearTimeout(timer);
   }, [focusedArticleId]);
+
+  // C4 (§5.1): คลิกดึ๋งๆ companion ในโลก → engine stamp helpPanelRequestedAt → เปิด help panel ("ดึ๋งๆ
+  // ช่วยเหลือ"). setState/openPanel เกิดใน setTimeout callback (deferred, ไม่ใช่ตรงใน effect body — pattern
+  // เดียวกับ DialoguePanel/context-help effect) จึงไม่ผิด react-hooks. ค่าเปลี่ยน = คลิกใหม่ → เปิดอีกครั้ง.
+  useEffect(() => {
+    if (helpPanelRequestedAt === null) return;
+    const timer = setTimeout(() => manager.openPanel(HELP_PANEL_ID), 0);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [helpPanelRequestedAt]);
 
   const mapId = debugInfo?.net.mapId ?? null;
   const shopAvailable = isShopAvailable(shopList);

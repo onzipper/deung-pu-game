@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" shape-rendering="crispEdges">
+  <!-- walk N เฟรม 0 — ลอยตัวยืด (หันหลัง) -->
+  <ellipse cx="32" cy="54" rx="9" ry="2" fill="#171820" opacity="0.25"/>
+  <path d="M32,10 Q45,12 45,32 Q45,44 32,44 Q19,44 19,32 Q19,12 32,10 Z" fill="#35C6B0"/>
+  <path d="M32,13 Q42,15 42,31 Q42,41 32,41 Q22,41 22,31 Q22,15 32,13 Z" fill="#167C78"/>
+  <circle cx="32" cy="30" r="4" fill="#E8BF4F" opacity="0.7"/>
+  <ellipse cx="39" cy="17" rx="4" ry="2.5" fill="#A4CCC0" transform="rotate(25 39 17)"/>
+</svg>

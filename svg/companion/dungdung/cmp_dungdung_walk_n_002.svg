@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" shape-rendering="crispEdges">
+  <!-- walk N เฟรม 2 — แปะพื้น (แบนกว้าง) -->
+  <ellipse cx="32" cy="54" rx="17" ry="3.5" fill="#171820" opacity="0.4"/>
+  <path d="M32,32 Q52,32 52,45 Q52,53 32,53 Q12,53 12,45 Q12,32 32,32 Z" fill="#35C6B0"/>
+  <path d="M32,35 Q48,35 48,44 Q48,50 32,50 Q16,50 16,44 Q16,35 32,35 Z" fill="#167C78"/>
+  <circle cx="32" cy="43" r="3.6" fill="#E8BF4F" opacity="0.7"/>
+  <ellipse cx="41" cy="37" rx="4.5" ry="2" fill="#A4CCC0" transform="rotate(15 41 37)"/>
+</svg>
