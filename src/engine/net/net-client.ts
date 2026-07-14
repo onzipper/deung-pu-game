@@ -63,7 +63,14 @@ import {
   MSG_STORAGE_STATE,
   MSG_STORAGE_WITHDRAW,
   MSG_UNEQUIP_ITEM,
+  MSG_ACHIEVEMENT_UNLOCKED,
+  MSG_CLIENT_EVENT,
+  MSG_ACHIEVEMENTS_REQUEST,
+  MSG_ACHIEVEMENTS_SNAPSHOT,
   WS_CLOSE_SESSION_TAKEN_OVER,
+  type AchievementUnlockedMessage,
+  type AchievementsSnapshotMessage,
+  type ClientEventMessage,
   type CastRejectedMessage,
   type CastSkillMessage,
   type DeliveryClaimMessage,
@@ -258,6 +265,16 @@ export interface NetClientHandlers {
    */
   onMilestoneGranted?(msg: MilestoneGrantedMessage): void;
   /**
+   * C2b: achievement ปลดล็อก (server → client เดียว, MSG_ACHIEVEMENT_UNLOCKED) — auto-claim ครั้งเดียวต่อ scope.
+   * caller push เข้า Zustand bridge → AchievementToast แสดง toast สั้น ๆ (สีตาม tier). optional.
+   */
+  onAchievementUnlocked?(msg: AchievementUnlockedMessage): void;
+  /**
+   * C2b (Part 5): snapshot achievement rows (ตอบ MSG_ACHIEVEMENTS_REQUEST) — journal C3 consume ต่อ. caller
+   * push เข้า Zustand bridge (game-store field). optional.
+   */
+  onAchievementsSnapshot?(msg: AchievementsSnapshotMessage): void;
+  /**
    * P2-17: snapshot คลังบัญชีล่าสุด (server → client เดียว, MSG_STORAGE_STATE) — ยิงตอบ MSG_STORAGE_OPEN
    * + หลังทุก deposit/withdraw สำเร็จ. `available: false` = map นี้ไม่มี storage NPC (HUD ปุ่ม "คลัง" อ่าน
    * ค่านี้ตัดสินว่าโชว์ปุ่มไหม, pattern เดียวกับ onShopList). caller push เข้า Zustand bridge ตรง ๆ
@@ -380,6 +397,10 @@ export interface NetClientHandle {
   sendStorageWithdraw(msg: StorageMoveMessage): void;
   /** P2-17: ขอรับของจาก delivery entry เข้ากระเป๋า (no-op ถ้ายังไม่ online). */
   sendDeliveryClaim(msg: DeliveryClaimMessage): void;
+  /** C2b (§13): ส่ง client-reported event (npc.talk/logo/weather/phase/rain — no-op ถ้ายังไม่ online). */
+  sendClientEvent(msg: ClientEventMessage): void;
+  /** C2b (Part 5): ขอ snapshot achievement ทั้งหมด (no-op ถ้ายังไม่ online). */
+  sendAchievementsRequest(): void;
   /** ออกจาก room + ปิด connection (idempotent) */
   disconnect(): void;
 }
@@ -647,6 +668,13 @@ export function createNetClient(
     joinedRoom.onMessage(MSG_MILESTONE_GRANTED, (msg: MilestoneGrantedMessage) => {
       handlers.onMilestoneGranted?.(msg);
     });
+    // C2b: achievement ปลดล็อก → AchievementToast + journal snapshot → game-store (caller push เข้า Zustand bridge)
+    joinedRoom.onMessage(MSG_ACHIEVEMENT_UNLOCKED, (msg: AchievementUnlockedMessage) => {
+      handlers.onAchievementUnlocked?.(msg);
+    });
+    joinedRoom.onMessage(MSG_ACHIEVEMENTS_SNAPSHOT, (msg: AchievementsSnapshotMessage) => {
+      handlers.onAchievementsSnapshot?.(msg);
+    });
     // P2-17: snapshot คลัง (ตอบ MSG_STORAGE_OPEN + หลัง deposit/withdraw สำเร็จ) + ผลฝาก/ถอน
     joinedRoom.onMessage(MSG_STORAGE_STATE, (state: StorageStateMessage) => {
       handlers.onStorageState?.(state);
@@ -868,6 +896,14 @@ export function createNetClient(
     sendDeliveryClaim(msg: DeliveryClaimMessage): void {
       if (!room || status.state !== "online") return;
       room.send(MSG_DELIVERY_CLAIM, msg);
+    },
+    sendClientEvent(msg: ClientEventMessage): void {
+      if (!room || status.state !== "online") return;
+      room.send(MSG_CLIENT_EVENT, msg);
+    },
+    sendAchievementsRequest(): void {
+      if (!room || status.state !== "online") return;
+      room.send(MSG_ACHIEVEMENTS_REQUEST);
     },
     disconnect(): void {
       if (disposed) return;

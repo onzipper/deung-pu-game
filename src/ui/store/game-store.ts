@@ -18,6 +18,9 @@ import {
   type InventoryOpRejectedMessage,
   type InventorySnapshot,
   type MilestoneGrantedMessage,
+  type AchievementUnlockedMessage,
+  type AchievementsSnapshotMessage,
+  type AchievementRow,
   type PlayerProgressMessage,
   type ShopListMessage,
   type ShopResultMessage,
@@ -162,6 +165,16 @@ export interface HudState {
    */
   milestoneNotice: { milestoneId: string; gold: number; exp: number; atMs: number } | null;
   /**
+   * C2b: achievement ล่าสุดที่เพิ่งปลดล็อก (จาก MSG_ACHIEVEMENT_UNLOCKED) — AchievementToast อ่าน `atMs` แสดง
+   * toast สั้น ๆ (pattern เดียวกับ milestoneNotice: ค่า atMs เปลี่ยน = achievement ใหม่ → แสดงอีก). null = ยังไม่มีใน session นี้.
+   */
+  achievementNotice: { achievementId: string; nameTh: string; tier: string; gold?: number; titleId?: string; atMs: number } | null;
+  /**
+   * C2b (Part 5): snapshot achievement rows ล่าสุด (ตอบ MSG_ACHIEVEMENTS_REQUEST) — journal (C3) consume ต่อ.
+   * null ก่อนเคยขอ snapshot ใน session นี้.
+   */
+  achievementsSnapshot: AchievementRow[] | null;
+  /**
    * A3 (P2 UI §8.3): skill hotbar slots (S1-S4). engine publish ตอน init / level-up (unlock) / cast (cooldown).
    * [] ก่อน engine publish ครั้งแรก. SkillBar อ่าน + animate radial เอง (RAF จาก cooldownReadyAtMs).
    */
@@ -209,6 +222,8 @@ export const INITIAL_HUD_STATE: HudState = {
   playerDead: false,
   deathAtMs: null,
   milestoneNotice: null,
+  achievementNotice: null,
+  achievementsSnapshot: null,
   skillSlots: [],
   blips: [],
   worldPhase: null,
@@ -398,6 +413,35 @@ export function setMilestoneNotice(msg: MilestoneGrantedMessage, nowMs: number =
 
 /** typed selector — milestone ล่าสุดที่ปลดล็อก (C1 milestone toast) */
 export const selectMilestoneNotice = (state: HudState): HudState["milestoneNotice"] => state.milestoneNotice;
+
+/**
+ * C2b: engine เรียกทันทีที่ MSG_ACHIEVEMENT_UNLOCKED มาถึง → stamp notice ให้ AchievementToast แสดง toast สั้น ๆ.
+ * `nowMs` inject ได้ (เทสต์) — default Date.now() ตอนเรียกจริงจาก engine glue.
+ */
+export function setAchievementUnlocked(msg: AchievementUnlockedMessage, nowMs: number = Date.now()): void {
+  gameStore.setState({
+    achievementNotice: {
+      achievementId: msg.achievementId,
+      nameTh: msg.nameTh,
+      tier: msg.tier,
+      gold: msg.gold,
+      titleId: msg.titleId,
+      atMs: nowMs,
+    },
+  });
+}
+
+/** typed selector — achievement ล่าสุดที่ปลดล็อก (C2b achievement toast) */
+export const selectAchievementNotice = (state: HudState): HudState["achievementNotice"] => state.achievementNotice;
+
+/** C2b (Part 5): engine เรียกเมื่อ MSG_ACHIEVEMENTS_SNAPSHOT มาถึง → เก็บ rows ให้ journal (C3) อ่านต่อ. */
+export function setAchievementsSnapshot(msg: AchievementsSnapshotMessage): void {
+  gameStore.setState({ achievementsSnapshot: msg.rows });
+}
+
+/** typed selector — snapshot achievement rows ล่าสุด (C2b, journal C3 consume) */
+export const selectAchievementsSnapshot = (state: HudState): HudState["achievementsSnapshot"] =>
+  state.achievementsSnapshot;
 
 /** typed selector — hp ของ local player (A1/A2) */
 export const selectPlayerHp = (state: HudState): number | null => state.playerHp;

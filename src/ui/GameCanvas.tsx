@@ -38,6 +38,7 @@ import { Minimap } from "@/ui/panels/minimap/Minimap";
 import { WorldStatusChip } from "@/ui/panels/world-status/WorldStatusChip";
 import { DeathToast } from "@/ui/panels/status/DeathToast";
 import { MilestoneToast } from "@/ui/panels/status/MilestoneToast";
+import { AchievementToast } from "@/ui/panels/status/AchievementToast";
 import { SkillBar } from "@/ui/panels/skillbar/SkillBar";
 import { MobileControls } from "@/ui/panels/mobile/MobileControls";
 import { MobileOsNotice } from "@/ui/panels/mobile/MobileOsNotice";
@@ -168,6 +169,8 @@ export function GameCanvas() {
           <DeathToast />
           {/* C1 (Economy §18): milestone reward toast สั้น ๆ ตอนปลดล็อก (แจก EXP/Gold ครั้งเดียวต่อบัญชี) */}
           <MilestoneToast />
+          {/* C2b (Achievement §7.1): achievement unlock toast สั้น ๆ ตอน auto-claim (ครั้งเดียวต่อ scope) */}
+          <AchievementToast />
           {/* A3 (P2 UI §8.3): แถบสกิล hotbar (S1-S4) — desktop (Digit1-4/คลิก) + มือถือ (แตะช่อง) */}
           <SkillBar getHandle={() => engineRef.current} />
           {/* P2-15: settings (effect quality/screen shake) + mobile controls + OS notice */}
