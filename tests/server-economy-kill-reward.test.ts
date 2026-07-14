@@ -137,6 +137,40 @@ describe("grantKillRewards — EXP + gold + audit on one kill", () => {
   });
 });
 
+describe("grantKillRewards — party members each get a distinct ledger key (G-lite §10.3 personal reward)", () => {
+  // currency_ledger.idempotency_key is GLOBAL unique → MapRoom generates a fresh killEventId per member so
+  // their `drop-gold:{id}` keys never collide (else the 2nd member's gold would be swallowed as a duplicate).
+  test("different killEventId per member → both gold applied (no cross-member duplicate)", async () => {
+    const led = mockLedger(); // shared ledger (global key set), like the real DB unique index
+    const a = await grantKillRewards(
+      baseDeps({ ledger: led.ledger, rng: scriptedRng([0.0, 0.99, 0.99, 0.99]) }),
+      { ...ctx, characterId: "charA", killEventId: "kill-A" },
+    );
+    const b = await grantKillRewards(
+      baseDeps({ ledger: led.ledger, rng: scriptedRng([0.0, 0.99, 0.99, 0.99]) }),
+      { ...ctx, characterId: "charB", killEventId: "kill-B" },
+    );
+    expect(a.goldStatus).toBe("applied");
+    expect(b.goldStatus).toBe("applied"); // distinct key → NOT a duplicate
+    expect(led.calls.map((c) => c.idempotencyKey)).toEqual(["drop-gold:kill-A", "drop-gold:kill-B"]);
+  });
+
+  test("a SHARED killEventId would collide on the global-unique key (2nd member loses gold)", async () => {
+    const led = mockLedger();
+    await grantKillRewards(baseDeps({ ledger: led.ledger, rng: scriptedRng([0.0, 0.99, 0.99, 0.99]) }), {
+      ...ctx,
+      characterId: "charA",
+      killEventId: "same",
+    });
+    const b = await grantKillRewards(baseDeps({ ledger: led.ledger, rng: scriptedRng([0.0, 0.99, 0.99, 0.99]) }), {
+      ...ctx,
+      characterId: "charB",
+      killEventId: "same",
+    });
+    expect(b.goldStatus).toBe("duplicate"); // proves MapRoom must NOT share a killEventId across members
+  });
+});
+
 describe("grantKillRewards — level-up crosses threshold", () => {
   test("a big base EXP rolls the player up a level and recomputes", async () => {
     const led = mockLedger();

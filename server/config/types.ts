@@ -61,6 +61,23 @@ export interface ExpCurveConfig {
   party: PartyExpConfig;
 }
 
+// ── party reward sharing (Economy §9.4 + §10.2/§10.3) ────────────────────────
+/**
+ * Damage-contribution eligibility + Reward Radius for shared/party kills (§10.2/§10.3). The share thresholds
+ * are verbatim from spec (§10.2 normalEligibility.minimumDamageContributionPercent = 15 · §10.3
+ * eliteBossEligibility.minimumDamageContributionPercent = 5). `rewardRadiusTiles` is NOT named numerically in
+ * the spec (§10.2 "Reward Radius" / §10.3 mustBeInEncounterRadius:true state the gate, not the value) — it is
+ * a Design Knob whose default (12) is provisional pending an owner lock.
+ */
+export interface PartyRewardConfig {
+  /** §10.2 normal-monster minimum damage-contribution percent to qualify (solo channel individual gate). */
+  normalMinSharePct: number;
+  /** §10.3 elite/boss minimum damage-contribution percent to qualify. */
+  eliteBossMinSharePct: number;
+  /** Reward/encounter radius (tiles) around the mob death position — value not spec-named (owner to lock). */
+  rewardRadiusTiles: number;
+}
+
 // ── player progression baseline (D-055 §2, Locked) ───────────────────────────
 /**
  * 1 แถวของ player combat baseline ต่อเลเวล (นักดาบ lv1–10, D-055 §2 production lock).
@@ -196,6 +213,8 @@ export interface EconomyConfig {
   enhancementCurve: EnhancementCurveConfig;
   /** starter NPC shop (Economy §8) — buy catalog + per-item sell prices. */
   shop: ShopConfig;
+  /** party reward sharing knobs (Economy §9.4 + §10.2/§10.3) — G-lite eligibility + Reward Radius. */
+  partyReward: PartyRewardConfig;
 }
 
 // ── reinforcement / fragment / pity (Reinforcement doc §3.5/§4) ──────────────

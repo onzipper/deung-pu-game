@@ -327,4 +327,12 @@ export const DEFAULT_ECONOMY_CONFIG: EconomyConfig = {
     scaledStats: ["attack", "defense", "maxHp", "breakPower"], // §16.3 (Crit/Move ไม่ scale)
   },
   shop: STARTER_SHOP,
+  // §10.2/§10.3 — reward-eligibility thresholds (verbatim: normal 15% · elite/boss 5%). rewardRadiusTiles is
+  // NOT spec-named (§10.2 "Reward Radius" / §10.3 mustBeInEncounterRadius states the gate, not the value) →
+  // provisional Design-Knob default pending an owner lock.
+  partyReward: {
+    normalMinSharePct: 15, // §10.2 normalEligibility.minimumDamageContributionPercent
+    eliteBossMinSharePct: 5, // §10.3 eliteBossEligibility.minimumDamageContributionPercent
+    rewardRadiusTiles: 12,
+  },
 };

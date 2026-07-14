@@ -53,6 +53,13 @@ describe("computeMonsterExp (§9.3 + §9.4)", () => {
     expect(computeMonsterExp({ baseExp: 30, monsterLevel: 4, playerLevel: 4, curve: CURVE, eligibleMembers: 2 })).toBe(18);
   });
 
+  test("party pool split 3/4/5 members (G-lite §9.4 — cap 1.60 bites at 4)", () => {
+    // base 30, matched level. mult = min(1 + 0.2×(n−1), 1.6); per = floor(30 × mult ÷ n).
+    expect(computeMonsterExp({ baseExp: 30, monsterLevel: 4, playerLevel: 4, curve: CURVE, eligibleMembers: 3 })).toBe(14); // 1.4 → 42/3
+    expect(computeMonsterExp({ baseExp: 30, monsterLevel: 4, playerLevel: 4, curve: CURVE, eligibleMembers: 4 })).toBe(12); // 1.6 cap → 48/4
+    expect(computeMonsterExp({ baseExp: 30, monsterLevel: 4, playerLevel: 4, curve: CURVE, eligibleMembers: 5 })).toBe(9); // 1.6 cap → 48/5 = 9.6 → 9
+  });
+
   test("party pool multiplier capped at 1.60", () => {
     // 10 members → 1 + 0.2×9 = 2.8 → capped 1.6; pool = 30×1.6 = 48; per = 4.8 → floor 4
     expect(computeMonsterExp({ baseExp: 30, monsterLevel: 4, playerLevel: 4, curve: CURVE, eligibleMembers: 10 })).toBe(4);
