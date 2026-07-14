@@ -211,6 +211,9 @@ const EQUIPMENT_DEFINITIONS: readonly ItemDefinition[] = [
 //    registry identity + `stackable: true` (Reinforcement §3.1/§3.5 stackSize 999) so grants merge into one bag
 //    stack and the 5→1 fragment exchange (B4) can spend 5 from a single stack — a non-catalog id would default
 //    to non-stackable and break both. rarity is display-only (no drop pool references these ids). ──
+/** ACCOUNT_BOUND sharing สำหรับ boss-material (MAPS_2_4 §4 note) — ฝากคลังได้ (§12.4 ห้ามเฉพาะ CHARACTER_BOUND). */
+const ACCOUNT_BOUND: ItemSharingPolicy = { bindType: "ACCOUNT_BOUND", storagePolicy: "ALLOWED", tradePolicy: "NONE" };
+
 const NON_EQUIPMENT_DEFINITIONS: readonly ItemDefinition[] = [
   { id: "con_small_potion", kind: "consumable", rarity: "common", reqLevel: 1, stackable: true },
   { id: "mat_slime_gel", kind: "material", rarity: "common", reqLevel: 1, stackable: true },
@@ -223,6 +226,26 @@ const NON_EQUIPMENT_DEFINITIONS: readonly ItemDefinition[] = [
   //   reinforcement config (upg_reinforcement / upg_reinforcement_fragment, R10). role/exchange = reinforcement系.
   { id: "upg_reinforcement", kind: "material", rarity: "rare", reqLevel: 1, stackable: true },
   { id: "upg_reinforcement_fragment", kind: "material", rarity: "uncommon", reqLevel: 1, stackable: true },
+
+  // ── Maps 2–4 materials (MAPS_2_4 spec §4) — 12 id ใหม่. rarity ตรง §4; Bind = UNBOUND (default) เว้น boss-material
+  //    = ACCOUNT_BOUND (§4 note, mirror Map 1 §7.1). reqLevel 1 = ไม่มี gate (เหมือน Map 1 material — materials
+  //    ไม่ถูกสวม). sellPrice อยู่ shop config (server/config/economy.ts STARTER_SHOP.sellPrices §4). stackable = true.
+  //    icon → src/game/item/icon-catalog.ts (reuse art เดิมเป็น placeholder จน L2 final-art). ──
+  // Map 2 — ถนนชายไร่
+  { id: "mat_startle_spore", kind: "material", rarity: "common", reqLevel: 1, stackable: true },
+  { id: "mat_resonant_straw", kind: "material", rarity: "common", reqLevel: 1, stackable: true },
+  { id: "mat_greenlight_whisker", kind: "material", rarity: "uncommon", reqLevel: 1, stackable: true },
+  { id: "mat_warden_talisman_ash", kind: "material", rarity: "uncommon", reqLevel: 1, stackable: true, sharing: ACCOUNT_BOUND }, // boss (ACCOUNT_BOUND)
+  // Map 3 — ทางป่าเก่า
+  { id: "mat_old_root_scrap", kind: "material", rarity: "common", reqLevel: 1, stackable: true },
+  { id: "mat_shadow_pelt", kind: "material", rarity: "common", reqLevel: 1, stackable: true },
+  { id: "mat_mossless_shard", kind: "material", rarity: "uncommon", reqLevel: 1, stackable: true },
+  { id: "mat_nameless_marker_stone", kind: "material", rarity: "uncommon", reqLevel: 1, stackable: true, sharing: ACCOUNT_BOUND }, // boss (ACCOUNT_BOUND)
+  // Map 4 — ป่าจันทร์เงา
+  { id: "mat_moonlight_residue", kind: "material", rarity: "common", reqLevel: 1, stackable: true },
+  { id: "mat_dream_cap", kind: "material", rarity: "common", reqLevel: 1, stackable: true },
+  { id: "mat_shadow_dew", kind: "material", rarity: "uncommon", reqLevel: 1, stackable: true },
+  { id: "mat_moondark_sap", kind: "material", rarity: "rare", reqLevel: 1, stackable: true, sharing: ACCOUNT_BOUND }, // boss (Rare, ACCOUNT_BOUND)
 ];
 
 /** full Map 1 item catalog (Economy §7) — spec-locked, keyed by item def id. */

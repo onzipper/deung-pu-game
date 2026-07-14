@@ -17,7 +17,7 @@
 - `src/engine/assets/` — runtime atlas loader/registry (engine-scope, fail-soft → placeholder)
 - `src/engine/config/render.ts` — pixelate knob (on/scale/nearest-filter/CSS)
 - `src/engine/render/` — depth registry, camera, scene graph, pool, screen shake, exit marker, afk-label, name-label, nameplate-layer (full-res world-label overlay, Thai glyphs crisp above D-065 0.5x pass) · `src/engine/audio/` SFX
-- `src/engine/map/` — MapConfig schema/loader/registry + map1/city-hub/p0-test-field configs
+- `src/engine/map/` — MapConfig schema/loader/registry + map1/map2/map3/map4/city-hub/p0-test-field configs (Batch 5: +maps 2-4)
 - `src/engine/input/` — keyboard (WASD+attack) + joystick→8-dir intent + target-assist (per-mode click radius, Combat Bible §3, P2-15)
 
 ## src/game (combat/entity logic on top of the engine)

@@ -15,8 +15,10 @@
 // • mobType "bird"/"boar"/"boar_elite": ยังไม่มี style/stat ใน config → fallback defaultStyle/defaultMob
 //     (placeholder เหมือน P0). art + stat จริงต่อ mob = production หลัง P1 (balance = owner, §48/§59.4).
 // • collision/props = placeholder โครงหลัก (กำแพงเมือง+ประตู, พุ่ม/หินโซนนก, ก้อนหิน secret) — art จริง = production.
+// • Batch 5: เพิ่ม exit ทาง SE → Map 2 (bible Map 2 "[NW] Exit Map 1"; Map 2 = ถนนชายไร่ อยู่ใต้/ชายไร่ของ Map 1).
+//     วางที่ขอบ SE (tx 30–33, ty 39) = พ้น pocket boar SW/elite/boss (tx 4–20) และ pocket นก E (ty 14–23).
 //
-// validate ด้วย loadMapConfig() + registry cross-ref เสมอ (เทสต์ยืนยัน map นี้ผ่าน).
+// validate ด้วย loadMapConfig() + registry cross-ref เสมอ (เทสต์ยืนยัน map นี้ผ่าน + exit สองทางกับ city-hub/map2).
 
 import type { MapConfigInput } from "@/engine/map/types";
 
@@ -124,6 +126,14 @@ export const MAP1: MapConfigInput = {
       area: { tx: 18, ty: 0, width: 5, height: 2 },
       targetMapId: "city-hub",
       targetSpawn: { x: 16.5, y: 27.5 },
+    },
+    {
+      // Batch 5: SE edge → Map 2 ถนนชายไร่ (bible Map 2 "[NW] Exit Map 1"). ขอบล่างฝั่งตะวันออก (tx 30–33, ty 38–39),
+      // พ้น pocket boar/elite/boss (tx 4–20) และ pocket นก E (ty 14–23). targetSpawn = map2 NW (นอก exit NW ของ map2).
+      exitId: "map1-se-to-map2",
+      area: { tx: 30, ty: 38, width: 4, height: 2 },
+      targetMapId: "map2",
+      targetSpawn: { x: 8.5, y: 4.5 },
     },
   ],
 };

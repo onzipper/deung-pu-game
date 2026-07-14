@@ -12,6 +12,9 @@ import { snapToTile } from "@/engine/iso/coords";
 import { loadMapConfig } from "@/engine/map/loader";
 import { P0_TEST_FIELD } from "@/engine/map/p0-test-field";
 import { MAP1 } from "@/engine/map/map1";
+import { MAP2 } from "@/engine/map/map2";
+import { MAP3 } from "@/engine/map/map3";
+import { MAP4 } from "@/engine/map/map4";
 import { CITY_HUB } from "@/engine/map/city-hub";
 import {
   isWalkableTile,
@@ -20,9 +23,10 @@ import {
 } from "@/engine/map/types";
 
 /**
- * raw map ทุกตัวใน launch registry (P1 = test field + Map 1 + City Hub). เพิ่ม Map 2+ ที่นี่เมื่อถึง phase.
+ * raw map ทุกตัวใน launch registry (test field + Map 1 + City Hub + Batch 5 Map 2–4). Map 2–4 = ถนนชายไร่/
+ * ทางป่าเก่า/ป่าจันทร์เงา (exit เชื่อมกันครบวง map1↔map2↔map3↔map4). validation cross-ref auto-run ตอน import.
  */
-const RAW_MAPS: readonly MapConfigInput[] = [P0_TEST_FIELD, MAP1, CITY_HUB];
+const RAW_MAPS: readonly MapConfigInput[] = [P0_TEST_FIELD, MAP1, MAP2, MAP3, MAP4, CITY_HUB];
 
 /** error ของ registry (cross-ref) — แยกจาก MapConfigError (intrinsic ของ loader). */
 export class MapRegistryError extends Error {
