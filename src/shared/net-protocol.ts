@@ -872,3 +872,173 @@ export interface ShopResultMessage {
   /** Economy §23 shop error code เมื่อ ok=false. */
   reason?: string;
 }
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Batch 7b — Bot (Hunter Assistant) protocol (P3 Bot UI spec §13). Message names are LOCKED by that spec.
+// Server = source of truth for tier caps / retention clip / the 9 mandatory stops; client reflects + pre-guards
+// (defense-in-depth) but never overrides. Bot runs server-side; the owner closing the tab does NOT stop it.
+// ══════════════════════════════════════════════════════════════════════════════
+
+/** The three bot tiers (D-063) — shared enum so both sides render gating consistently. */
+export type BotTierWire = "free" | "plus" | "pro";
+
+/** Tier caps mirrored to the client for gating (server is truth). */
+export interface BotTierCapsWire {
+  profiles: number;
+  rules: number;
+  reportRetentionDays: number;
+  notifications: boolean;
+  schedules: number;
+  analytics: boolean;
+}
+
+/** Rules v1 (P3 §4) — the declarative bot behaviour stored per profile. */
+export interface BotRulesWire {
+  skillSlots: number[];
+  potionThresholdPct?: number | null;
+  lootAll: boolean;
+}
+
+/** A profile as the client sees it (adds `readOnly` = excess-after-downgrade, D-063 §12.4). */
+export interface BotProfileWire {
+  id: string;
+  name: string;
+  mapId: string;
+  pocketId: string;
+  rules: BotRulesWire;
+  createdAt: number;
+  updatedAt: number;
+  readOnly: boolean;
+}
+
+// ── C→S ──────────────────────────────────────────────────────────────────────
+/** C→S: fetch all profiles (+ paid/paused state). No payload. */
+export const MSG_BOT_PROFILE_LIST = "bot:profileList";
+/** C→S: create a profile (server enforces tier caps + bot-safe pocket). */
+export const MSG_BOT_PROFILE_CREATE = "bot:profileCreate";
+export interface BotProfileCreateMessage {
+  name: string;
+  mapId: string;
+  pocketId: string;
+  rules: BotRulesWire;
+}
+/** C→S: update a profile (rejected if read-only excess). */
+export const MSG_BOT_PROFILE_UPDATE = "bot:profileUpdate";
+export interface BotProfileUpdateMessage {
+  id: string;
+  name?: string;
+  mapId?: string;
+  pocketId?: string;
+  rules?: BotRulesWire;
+}
+/** C→S: delete a profile. */
+export const MSG_BOT_PROFILE_DELETE = "bot:profileDelete";
+export interface BotProfileDeleteMessage {
+  id: string;
+}
+/** C→S: start a bot on a profile (validate tier/profile/pocket/capacity). */
+export const MSG_BOT_START = "bot:start";
+export interface BotStartMessage {
+  profileId: string;
+}
+/** C→S: stop a running bot (manual — §12.3). Omit profileId to stop the account's running session. */
+export const MSG_BOT_STOP = "bot:stop";
+export interface BotStopMessage {
+  profileId?: string;
+}
+/** C→S: MOCK pass purchase (D-061 — no real billing). Grants/extends per D-063 renew-append/cross-tier rules. */
+export const MSG_BOT_MOCK_PURCHASE = "bot:mockPurchase";
+export interface BotMockPurchaseMessage {
+  tier: BotTierWire;
+  days: number;
+}
+/** C→S: list reports within the tier retention window. No payload. */
+export const MSG_BOT_REPORT_LIST = "bot:reportList";
+/** C→S: fetch one report's detail. */
+export const MSG_BOT_REPORT_FETCH = "bot:reportFetch";
+export interface BotReportFetchMessage {
+  id: string;
+}
+
+// ── S→C ──────────────────────────────────────────────────────────────────────
+/** S→C: full profile list (reply to list/create/update/delete). */
+export const MSG_BOT_PROFILES = "bot:profiles";
+export interface BotProfilesMessage {
+  profiles: BotProfileWire[];
+}
+/** S→C: current tier state (§13 bot:tierState) — tier, expiry (ms|null), caps, paused (read-only) profile ids. */
+export const MSG_BOT_TIER_STATE = "bot:tierState";
+export interface BotTierStateMessage {
+  tier: BotTierWire;
+  passExpiresAt: number | null;
+  caps: BotTierCapsWire;
+  pausedProfileIds: string[];
+}
+/** S→C: live status stream (§13 bot:status) — pushed to the owner if connected in the host room. */
+export const MSG_BOT_STATUS = "bot:status";
+export interface BotStatusMessage {
+  profileId: string;
+  sessionId: string;
+  mapId: string;
+  pocketId: string;
+  /** current action label ("moving" | "attacking" | "searching"). */
+  action: string;
+  killCount: number;
+  goldEarned: number;
+  expEarned: number;
+  hpFraction: number;
+  uptimeMs: number;
+}
+/** S→C: the bot stopped (§13 bot:stopped) — carries the 1-of-9/manual/error reason + session totals. */
+export const MSG_BOT_STOPPED = "bot:stopped";
+export interface BotStoppedMessage {
+  profileId: string;
+  sessionId: string;
+  reason: string;
+  killCount: number;
+  goldEarned: number;
+  expEarned: number;
+}
+/** S→C: alert (§13 bot:alert) — rare/high-value found, captcha required, gold cap. The farmed loot is safe. */
+export const MSG_BOT_ALERT = "bot:alert";
+export interface BotAlertMessage {
+  profileId: string;
+  kind: "rare" | "captcha" | "gold_cap";
+  itemId?: string;
+  message: string;
+}
+/** S→C: report summaries within retention (reply to bot:reportList). */
+export const MSG_BOT_REPORTS = "bot:reports";
+export interface BotReportSummaryWire {
+  id: string;
+  mapId: string;
+  profileId: string;
+  startedAt: number;
+  stoppedAt: number | null;
+  stopReason: string | null;
+  killCount: number;
+  goldEarned: number;
+  expEarned: number;
+  durationMs: number;
+  goldPerHour: number;
+}
+export interface BotReportsMessage {
+  reports: BotReportSummaryWire[];
+}
+/** S→C: one report's detail (reply to bot:reportFetch) — null when clipped by retention. */
+export const MSG_BOT_REPORT = "bot:report";
+export interface BotReportDetailWire extends BotReportSummaryWire {
+  drops: Record<string, number>;
+}
+export interface BotReportMessage {
+  report: BotReportDetailWire | null;
+}
+/** S→C: generic ack for ops that can fail (create/update/delete/start/stop/mockPurchase). */
+export const MSG_BOT_OP_RESULT = "bot:opResult";
+export interface BotOpResultMessage {
+  op: string;
+  ok: boolean;
+  reason?: string;
+  /** optional reference (profileId / sessionId) for the client to correlate. */
+  refId?: string;
+}

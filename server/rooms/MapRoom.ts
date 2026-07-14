@@ -303,8 +303,29 @@ import {
   type HitTestTarget,
 } from "../../src/game/combat/hit-test";
 import { coerceDirection } from "../../src/engine/net/sync";
-import type { Direction } from "../../src/engine/movement/direction";
+import { resolveDirection, type Direction } from "../../src/engine/movement/direction";
 import { defaultRng } from "../../src/game/mob/rng";
+import { botManager } from "../bot/manager";
+import { nextStepToward, type AgentMob, type Vec2 } from "../bot/agent";
+import type { BotAttackOutcome, BotSpawnInput } from "../bot/runtime";
+import {
+  MSG_BOT_PROFILE_LIST,
+  MSG_BOT_PROFILE_CREATE,
+  MSG_BOT_PROFILE_UPDATE,
+  MSG_BOT_PROFILE_DELETE,
+  MSG_BOT_START,
+  MSG_BOT_STOP,
+  MSG_BOT_MOCK_PURCHASE,
+  MSG_BOT_REPORT_LIST,
+  MSG_BOT_REPORT_FETCH,
+  type BotProfileCreateMessage,
+  type BotProfileUpdateMessage,
+  type BotProfileDeleteMessage,
+  type BotStartMessage,
+  type BotStopMessage,
+  type BotMockPurchaseMessage,
+  type BotReportFetchMessage,
+} from "../../src/shared/net-protocol";
 
 /** onCreate options = merge ของ options ที่ define() ตั้ง (ว่างใน P1) + clientOptions ของคนแรกที่ join. */
 interface MapRoomCreateOptions {
@@ -324,6 +345,20 @@ interface KillGrant {
   poolMembers: number;
   /** eligible recipients (sessionId + the damage share they dealt) — each gets a personal reward. */
   members: { sessionId: string; sharePct: number }[];
+}
+
+/**
+ * Batch 7b (Bot): per-bot state kept alongside the shared session maps (trackers/cooldowns/effectiveStats/
+ * sessionProgress/sessionClassId are reused as-is). Identity = the owner's account/character (rewards land on
+ * them via the identical economy path); `skill` = the resolved basic-attack skill the bot casts each cadence.
+ */
+interface BotMemberState {
+  accountId: string;
+  characterId: string;
+  profileId: string;
+  classId: string;
+  skill: SkillDefinition;
+  pocketId: string;
 }
 
 /**
@@ -365,6 +400,8 @@ function accountIdOf(client: Client): string | null {
  * **ห้าม leak sessionId/characterId**. ค่าไทยกลาง ๆ (ไม่ผูก balance/spec content).
  */
 const GUEST_PLAYER_NAME = "ผู้เล่น";
+/** Batch 7b: nameplate for a bot (Hunter Assistant) entity so real players can tell it apart. */
+const BOT_PLAYER_NAME = "ผู้ช่วยนักล่า";
 
 /** P2-05: อ่าน characterId ที่ onAuth verify ownership แล้วผูกไว้ใน client.auth (null = anonymous/ไม่ผูกตัวละคร). */
 function characterIdOf(client: Client): string | null {
@@ -576,6 +613,13 @@ export class MapRoom extends Room<MapRoomState> {
    * จะ **ไม่** save ทับด้วยตำแหน่ง map เก่า. เคลียร์ตอน onLeave/removePlayer.
    */
   private readonly transitioningSessions = new Set<string>();
+  /**
+   * Batch 7b (Bot): virtual-player bot members hosted in this room (sessionId → identity + chosen skill). These
+   * sessionIds live in state.players (isBot=true, real players see them) + the shared session maps, but never in
+   * this.clients (no Colyseus client) → the real-player reward/achievement loops (this.clients.find) never touch
+   * them. Bots are driven by botManager.tickRoom() inside stepMobSim.
+   */
+  private readonly botMembers = new Map<string, BotMemberState>();
   /** P2-05: ระยะ throttle save (ms) = knob persistence.saveIntervalMs — set ตอน onCreate. */
   private saveIntervalMs = 30_000;
   /**
@@ -852,6 +896,39 @@ export class MapRoom extends Room<MapRoomState> {
       void this.handleAchievementsRequest(client);
     });
 
+    // Batch 7b (Bot/Hunter Assistant, P3 §13): per-account ops routed to the process-level botManager (server =
+    //   truth for tier caps / retention / the 9 mandatory stops). This room is the transport + (for bot:start)
+    //   the host candidate for the target map. bots require a DB → manager rejects "requires_db" with none.
+    this.onMessage(MSG_BOT_PROFILE_LIST, (client: Client) => {
+      void botManager.onProfileList(accountIdOf(client), (t, m) => client.send(t, m));
+    });
+    this.onMessage(MSG_BOT_PROFILE_CREATE, (client: Client, message: BotProfileCreateMessage) => {
+      void botManager.onProfileCreate(accountIdOf(client), (t, m) => client.send(t, m), message);
+    });
+    this.onMessage(MSG_BOT_PROFILE_UPDATE, (client: Client, message: BotProfileUpdateMessage) => {
+      void botManager.onProfileUpdate(accountIdOf(client), (t, m) => client.send(t, m), message);
+    });
+    this.onMessage(MSG_BOT_PROFILE_DELETE, (client: Client, message: BotProfileDeleteMessage) => {
+      void botManager.onProfileDelete(accountIdOf(client), (t, m) => client.send(t, m), message);
+    });
+    this.onMessage(MSG_BOT_START, (client: Client, message: BotStartMessage) => {
+      void botManager.onStart(this, accountIdOf(client), characterIdOf(client), (t, m) => client.send(t, m), message);
+    });
+    this.onMessage(MSG_BOT_STOP, (client: Client, message: BotStopMessage) => {
+      botManager.onStop(accountIdOf(client), (t, m) => client.send(t, m), message);
+    });
+    this.onMessage(MSG_BOT_MOCK_PURCHASE, (client: Client, message: BotMockPurchaseMessage) => {
+      void botManager.onMockPurchase(accountIdOf(client), (t, m) => client.send(t, m), message);
+    });
+    this.onMessage(MSG_BOT_REPORT_LIST, (client: Client) => {
+      void botManager.onReportList(accountIdOf(client), (t, m) => client.send(t, m));
+    });
+    this.onMessage(MSG_BOT_REPORT_FETCH, (client: Client, message: BotReportFetchMessage) => {
+      void botManager.onReportFetch(accountIdOf(client), (t, m) => client.send(t, m), message);
+    });
+    // register this room as a bot host (target for bot:start). Boot cleanup of orphaned sessions = server/index.ts.
+    botManager.registerRoom(this);
+
     this.onMessage(MSG_MOVE, (client: Client, message: MoveMessage) => {
       const player = this.state.players.get(client.sessionId);
       const tracker = this.trackers.get(client.sessionId);
@@ -972,6 +1049,9 @@ export class MapRoom extends Room<MapRoomState> {
     // A1: apply contact damage ก่อน sync (hp ที่ลด + respawn สะท้อนใน state broadcast รอบนี้ทันที)
     if (contacts.length > 0) this.applyMobContacts(contacts);
     this.syncMobsToState();
+    // Batch 7b (Bot): advance every bot this room hosts on the same sim cadence (no extra interval). Bots move
+    //   on the collision grid + attack through the room combat/economy seams inside their own tick.
+    if (this.botMembers.size > 0) botManager.tickRoom(this, deltaMs);
   }
 
   /**
@@ -1100,6 +1180,14 @@ export class MapRoom extends Room<MapRoomState> {
    * idempotent). ไม่แตะ inventory/ledger เลย.
    */
   private handlePlayerDeath(sessionId: string, killerMobId: string): void {
+    // Batch 7b (Bot): a bot dying = mandatory stop #3 (death). Broadcast the death (real players see it), then
+    //   hand off to the manager which finalizes the session + removes the member — do NOT auto-respawn a bot.
+    if (this.botMembers.has(sessionId)) {
+      const death: PlayerDeathMessage = { sessionId, mobId: killerMobId };
+      this.broadcast(MSG_PLAYER_DEATH, death);
+      botManager.onBotDied(sessionId);
+      return;
+    }
     const death: PlayerDeathMessage = { sessionId, mobId: killerMobId };
     this.broadcast(MSG_PLAYER_DEATH, death);
     // C2b: death achievements (counter first_death/death_100 · composite die-before-kill · sameCell death_spot).
@@ -2615,11 +2703,299 @@ export class MapRoom extends Room<MapRoomState> {
     }
   }
 
+  // ══════════════════════════════════════════════════════════════════════════
+  // Batch 7b (Bot/Hunter Assistant) — BotHost seam. A bot is a virtual player: its position/movement use the
+  // SAME collision grid + its attacks the SAME combat resolution (resolveSkillHits/computeSkillDamage/
+  // sim.damageMob/recordDamage) and the IDENTICAL economy entry (grantKillRewardsForMob) as a real player, so
+  // guardrails/audit apply. The real-player cast/reward paths (handleCast/grantKillReward) are UNTOUCHED — bots
+  // never enter this.clients, so those loops never see them. Driven by botManager.tickRoom() in stepMobSim.
+  // ══════════════════════════════════════════════════════════════════════════
+
+  /** BotHost.mapId — the map this room hosts (the bot manager keys hosts by it). */
+  get mapId(): string {
+    return this.state.mapId;
+  }
+
+  /** pick the bot's basic-attack skill: lowest allowed slot that deals damage; fallback = the class basic attack. */
+  private resolveBotSkill(classId: string, allowedSlots: number[]): SkillDefinition | null {
+    const skills = this.skillsByClass[classId] ?? this.skillsByClass.swordsman;
+    const arr = [...skills.values()];
+    const isDamage = (s: SkillDefinition | undefined): s is SkillDefinition =>
+      !!s && s.targetType === "enemy" && s.baseMultiplier > 0 && s.hitCount > 0;
+    for (const slot of [...allowedSlots].sort((a, b) => a - b)) {
+      if (isDamage(arr[slot])) return arr[slot];
+    }
+    return arr.find(isDamage) ?? null; // fallback = class basic attack
+  }
+
+  /** a walkable spawn inside a bot-safe pocket (center → safe camp fallback). null = no such pocket. */
+  private pocketSpawnPos(pocketId: string): Vec2 | null {
+    const pocket = this.map.mobPockets.find((p) => p.pocketId === pocketId);
+    if (!pocket) return null;
+    const center = { tx: pocket.area.tx + pocket.area.width / 2, ty: pocket.area.ty + pocket.area.height / 2 };
+    const spawn = resolveSpawnPosition(center, this.safeCamp, this.isWalkableAt);
+    return { tx: spawn.pos.tx, ty: spawn.pos.ty };
+  }
+
+  botSpawn(input: BotSpawnInput): boolean {
+    if (this.state.players.has(input.sessionId)) return false;
+    const skill = this.resolveBotSkill(input.classId, input.allowedSlots);
+    if (!skill) return false;
+    const spawn = this.pocketSpawnPos(input.pocketId);
+    if (!spawn) return false;
+
+    const player = new PlayerState();
+    player.tx = spawn.tx;
+    player.ty = spawn.ty;
+    player.direction = "S";
+    player.anim = "idle";
+    player.partyId = this.partyId;
+    player.classId = input.classId;
+    player.isBot = true;
+    player.name = BOT_PLAYER_NAME;
+    this.state.players.set(input.sessionId, player);
+    const now = Date.now();
+    this.trackers.set(input.sessionId, {
+      tx: spawn.tx,
+      ty: spawn.ty,
+      lastMoveTime: now,
+      lastCorrectionTime: 0,
+      lastExitId: null,
+      lastInputMs: now,
+      connectedAtMs: now,
+    });
+    this.cooldowns.set(input.sessionId, new Map());
+    this.sessionProgress.set(input.sessionId, { level: input.level, exp: input.exp });
+    this.sessionClassId.set(input.sessionId, input.classId);
+    this.recomputeEffectiveStats(input.sessionId);
+    player.maxHp = this.maxHpFor(input.sessionId);
+    player.hp = player.maxHp;
+    player.level = input.level;
+    this.syncPlayerExpSchema(input.sessionId);
+    this.botMembers.set(input.sessionId, {
+      accountId: input.accountId,
+      characterId: input.characterId,
+      profileId: input.profileId,
+      classId: input.classId,
+      skill,
+      pocketId: input.pocketId,
+    });
+    console.log(`[MapRoom ${this.roomId}] bot spawn ${input.sessionId} @pocket ${input.pocketId} lv${input.level}`);
+    return true;
+  }
+
+  botRemove(sessionId: string): void {
+    if (!this.botMembers.has(sessionId)) return;
+    this.botMembers.delete(sessionId);
+    this.removePlayer(sessionId, "bot_stop"); // clears trackers/cooldowns/effectiveStats/progress/classId + state
+  }
+
+  botMobs(): AgentMob[] {
+    const out: AgentMob[] = [];
+    this.sim.forEach((m) => {
+      out.push({ id: m.id, mobType: m.mobType, tx: m.pos.tx, ty: m.pos.ty, hp: m.hp, pocketId: m.pocketId });
+    });
+    return out;
+  }
+
+  botPos(sessionId: string): Vec2 | null {
+    const p = this.state.players.get(sessionId);
+    return p ? { tx: p.tx, ty: p.ty } : null;
+  }
+
+  botHpFraction(sessionId: string): number {
+    const p = this.state.players.get(sessionId);
+    if (!p || p.maxHp <= 0) return 0;
+    return p.hp / p.maxHp;
+  }
+
+  botAttackRange(sessionId: string): number {
+    return this.botMembers.get(sessionId)?.skill.range ?? 0;
+  }
+
+  botBaseCooldownSeconds(sessionId: string): number {
+    return this.botMembers.get(sessionId)?.skill.cooldown ?? 1;
+  }
+
+  botStepToward(sessionId: string, target: Vec2, dtMs: number): void {
+    const p = this.state.players.get(sessionId);
+    const tracker = this.trackers.get(sessionId);
+    if (!p || !tracker) return;
+    const step = DEFAULT_ENGINE_CONFIG.player.speed * (dtMs / 1000);
+    const next = nextStepToward({ tx: p.tx, ty: p.ty }, target, step);
+    if (!this.isWalkableAt(next.tx, next.ty)) return; // blocked → wait (stuck logic handles a persistent block)
+    p.direction = resolveDirection(
+      { tx: next.tx - p.tx, ty: next.ty - p.ty },
+      DEFAULT_ENGINE_CONFIG.tileSize,
+      p.direction as Direction,
+    );
+    p.tx = next.tx;
+    p.ty = next.ty;
+    p.anim = "walk";
+    tracker.tx = next.tx;
+    tracker.ty = next.ty;
+  }
+
+  async botAttack(sessionId: string, target: Vec2): Promise<BotAttackOutcome> {
+    const empty: BotAttackOutcome = { killed: 0, gold: 0, exp: 0, loot: [], overflow: [], leveledUp: false };
+    const member = this.botMembers.get(sessionId);
+    const player = this.state.players.get(sessionId);
+    if (!member || !player) return empty;
+    const def = member.skill;
+    const facing = resolveDirection(
+      { tx: target.tx - player.tx, ty: target.ty - player.ty },
+      DEFAULT_ENGINE_CONFIG.tileSize,
+      player.direction as Direction,
+    );
+    player.direction = facing;
+
+    const targets: HitTestTarget[] = [];
+    const mobTypeById = new Map<string, string>();
+    this.sim.forEach((m) => {
+      targets.push({ id: m.id, pos: { tx: m.pos.tx, ty: m.pos.ty } });
+      mobTypeById.set(m.id, m.mobType);
+    });
+    const casterPos = { tx: player.tx, ty: player.ty };
+    const hitIds = isGroundTargetCircle(def)
+      ? resolveGroundAoeHits(def, clampAimToRange(casterPos, target, def.range), targets, DEFAULT_ENGINE_CONFIG.tileSize)
+      : resolveSkillHits(def, casterPos, facing, targets, DEFAULT_ENGINE_CONFIG.tileSize, this.balance.hitTolerance);
+
+    const stats = this.effectiveStats.get(sessionId) ?? this.balance.player;
+    const hits: SkillHit[] = [];
+    const killedMobTypes: string[] = [];
+    for (const mobId of hitIds) {
+      const mobType = mobTypeById.get(mobId);
+      if (mobType === undefined) continue;
+      // defence-in-depth: a bot never damages a boss (it must already have stopped, §6.5).
+      if (mobClassForMobType(mobType) === "boss") continue;
+      const ms = this.balance.mobs[mobType] ?? this.balance.defaultMob;
+      const dmg = computeSkillDamage(
+        {
+          atk: stats.atk,
+          baseMultiplier: def.baseMultiplier,
+          targetDef: ms.def,
+          penetration: stats.penetration,
+          k: this.balance.k,
+          critRate: stats.critRate,
+          critDmg: stats.critDmg,
+          bossModifier: 1.0, // bots never fight bosses
+          pvpModifier: this.balance.pvpModifier,
+          tierReduction: ms.tierReduction,
+          damageTakenMultiplier: 1.0,
+        },
+        def.hitCount,
+        defaultRng,
+      );
+      const applied = this.sim.damageMob(mobId, dmg.damage);
+      if (!applied) continue;
+      recordDamage(this.damageContrib, mobId, sessionId, dmg.damage);
+      hits.push({ mobId, dmg: dmg.damage, crit: dmg.crit, killed: applied.killed });
+      if (applied.killed) killedMobTypes.push(mobType);
+    }
+    this.syncMobsToState();
+    const result: SkillResultMessage = { casterId: sessionId, skillId: def.skillId, hits };
+    this.broadcast(MSG_SKILL_RESULT, result); // real players see the bot attack
+
+    // reward each kill through the IDENTICAL economy entry (ledger/drop/audit/EXP) — the owner earns.
+    const outcome: BotAttackOutcome = { killed: 0, gold: 0, exp: 0, loot: [], overflow: [], leveledUp: false };
+    for (const mobType of killedMobTypes) {
+      const g = await this.botGrantForKill(sessionId, mobType);
+      if (!g) continue;
+      outcome.killed += 1;
+      outcome.gold += g.gold;
+      outcome.exp += g.exp;
+      outcome.loot.push(...g.loot);
+      outcome.overflow.push(...g.overflow);
+      outcome.leveledUp = outcome.leveledUp || g.leveledUp;
+    }
+    return outcome;
+  }
+
+  /**
+   * Grant one bot kill's rewards to the OWNER via grantKillRewardsForMob (identical economy path as a real
+   * player). EXP/level are applied to the bot's session state (so its stats scale) and level-ups are persisted;
+   * gold/items are persisted inside the economy call (ledger/inventory/delivery). Bot position is NOT persisted
+   * (the bot never overwrites the character's saved spot). Returns per-kill deltas for the report + stop checks.
+   */
+  private async botGrantForKill(
+    sessionId: string,
+    mobType: string,
+  ): Promise<{ gold: number; exp: number; loot: { itemId: string; quantity: number }[]; overflow: { itemId: string; quantity: number }[]; leveledUp: boolean } | null> {
+    const member = this.botMembers.get(sessionId);
+    const progress = this.sessionProgress.get(sessionId);
+    if (!member || !progress) return null;
+    const oldExp = progress.exp;
+    let outcome: Awaited<ReturnType<typeof grantKillRewardsForMob>>;
+    try {
+      outcome = await grantKillRewardsForMob(
+        {
+          mobType,
+          characterId: member.characterId,
+          accountId: member.accountId,
+          playerLevel: progress.level,
+          playerExp: progress.exp,
+          eligibleMembers: 1, // solo virtual player
+          killEventId: randomUUID(),
+          persist: true,
+        },
+        this.economy,
+      );
+    } catch (err) {
+      console.error(
+        `[MapRoom ${this.roomId}] bot kill-reward DB error ${sessionId} (${mobType}): ` +
+          (err instanceof Error ? err.message : String(err)),
+      );
+      return null;
+    }
+    if (!outcome) return null;
+    const prog2 = this.sessionProgress.get(sessionId);
+    if (prog2) {
+      prog2.level = outcome.exp.level;
+      prog2.exp = outcome.exp.exp;
+      const p = this.state.players.get(sessionId);
+      if (p) p.level = prog2.level;
+      this.syncPlayerExpSchema(sessionId);
+      this.recomputeEffectiveStats(sessionId);
+      this.refreshPlayerMaxHp(sessionId);
+    }
+    if (outcome.exp.leveledUp) void saveCharacterProgress(member.characterId, outcome.exp.level, outcome.exp.exp);
+    return {
+      gold: outcome.goldRolled,
+      exp: Math.max(0, outcome.exp.exp - oldExp),
+      loot: outcome.granted,
+      overflow: outcome.overflow,
+      leveledUp: outcome.exp.leveledUp,
+    };
+  }
+
+  /** send a message to the owner IF they are connected in THIS room (offline owner → false, no push, §13). */
+  botOwnerSend(accountId: string, type: string, msg: unknown): boolean {
+    let sent = false;
+    for (const c of this.clients) {
+      if (accountIdOf(c) === accountId) {
+        c.send(type, msg);
+        sent = true;
+      }
+    }
+    return sent;
+  }
+
+  /** true when a mobType is a boss (the bot must stop, §6.5). Event mobs aren't modeled yet (documented). */
+  isBossOrEventType(mobType: string): boolean {
+    return mobClassForMobType(mobType) === "boss";
+  }
+
+  /** true when a bot-safe pocket still exists on this map (map_unsafe guard). */
+  pocketExists(pocketId: string): boolean {
+    return this.map.mobPockets.some((p) => p.pocketId === pocketId);
+  }
+
   /**
    * P1-08: คืนเลข channel เข้า pool ตอน room ถูกทำลาย (ไม่มี client แล้ว) → เลข CH ถูก reuse
    * (ไม่พุ่งไม่รู้จบเมื่อ channel เกิด-ดับ). single-process (channelRegistry = module-level singleton).
    */
   onDispose(): void {
+    botManager.unregisterRoom(this); // Batch 7b: stop bots hosted here + drop this host from the registry
     channelRegistry.release(this.state.mapId, this.assignedChannelId);
     console.log(
       `[MapRoom ${this.roomId}] dispose ${this.state.mapId} ${this.assignedChannelId} — release channel`,
