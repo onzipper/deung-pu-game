@@ -77,6 +77,14 @@ export const SELECTED_CHARACTER_STORAGE_KEY = "deungpu.selectedCharacterId";
  */
 export const SELECTED_CHARACTER_MAP_STORAGE_KEY = "deungpu.selectedCharacterMapId";
 
+/**
+ * Batch 6 (ARCHER_CLASS_SPEC §6 note 4): key ของ sessionStorage คู่กับ {@link SELECTED_CHARACTER_STORAGE_KEY} —
+ * classId ("swordsman"/"archer") ของตัวละครที่เลือก. Game Hub เขียนตอน "เข้าเกม" (`CharacterView.classId`);
+ * /game boot อ่านเพื่อเลือกชุดสกิล client (hotbar/aim) ตั้งแต่ mount + แนบ joinOptions.classId (fallback ตอน
+ * ไม่มี DB). server เป็น authority สุดท้าย (Character.classId). ไม่มีค่า = fallback "swordsman".
+ */
+export const SELECTED_CHARACTER_CLASS_STORAGE_KEY = "deungpu.selectedCharacterClassId";
+
 /** message type: client → server ส่งตำแหน่ง/ทิศ/anim ปัจจุบัน (throttled ~10–15Hz, tech §6). */
 export const MSG_MOVE = "move";
 
@@ -344,6 +352,12 @@ export interface JoinOptions {
    * omit = anonymous (dev bypass ไม่มี account / เข้า /game ตรง ๆ) → spawn default, ไม่ persist. optional.
    */
   characterId?: string;
+  /**
+   * Batch 6 (ARCHER_CLASS_SPEC §6 note 4): classId ที่ client เลือก (จาก Game Hub sessionStorage). server ใช้เป็น
+   * **fallback เท่านั้น** เมื่อไม่มี DB-bound character class (dev/e2e/anonymous) — DB Character.classId เป็น
+   * authority เสมอเมื่อมี. validate กับ CLASS_IDS ก่อนใช้ (ค่ามั่ว → swordsman). omit = swordsman. optional.
+   */
+  classId?: string;
 }
 
 /**

@@ -11,6 +11,7 @@
 import {
   SELECTED_CHARACTER_STORAGE_KEY,
   SELECTED_CHARACTER_MAP_STORAGE_KEY,
+  SELECTED_CHARACTER_CLASS_STORAGE_KEY,
 } from "@/shared/net-protocol";
 
 /** อ่าน characterId ที่เลือก (จาก sessionStorage) — ไม่มี/no-window/error → undefined (anonymous). */
@@ -18,6 +19,22 @@ export function readSelectedCharacterId(): string | undefined {
   if (typeof window === "undefined") return undefined;
   try {
     const raw = window.sessionStorage.getItem(SELECTED_CHARACTER_STORAGE_KEY);
+    const trimmed = raw?.trim();
+    return trimmed && trimmed.length > 0 ? trimmed : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Batch 6 (ARCHER_CLASS_SPEC §6 note 4): อ่าน classId ที่เลือก (จาก sessionStorage, Game Hub เขียน) — client
+ * เลือกชุดสกิล/aim ตั้งแต่ mount + แนบ joinOptions.classId (fallback dev/no-DB). ไม่มี/no-window/error → undefined
+ * (caller fallback "swordsman"). server เป็น authority สุดท้าย (DB Character.classId).
+ */
+export function readSelectedCharacterClassId(): string | undefined {
+  if (typeof window === "undefined") return undefined;
+  try {
+    const raw = window.sessionStorage.getItem(SELECTED_CHARACTER_CLASS_STORAGE_KEY);
     const trimmed = raw?.trim();
     return trimmed && trimmed.length > 0 ? trimmed : undefined;
   } catch {

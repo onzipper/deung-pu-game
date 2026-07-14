@@ -142,7 +142,9 @@ function parseSkillDefinition(raw: unknown, path: string): SkillDefinition {
     range: reqNonNegative(o.range, `${path}.range`),
     radius: reqNullableNonNegative(o.radius, `${path}.radius`),
     angle: reqNullableNonNegative(o.angle, `${path}.angle`),
-    maxTargets: reqPositiveInt(o.maxTargets, `${path}.maxTargets`),
+    // maxTargets ≥ 0: ปกติ ≥ 1 (สกิลที่ target ศัตรู/AoE) แต่ self/utility ที่ไม่ target ใคร = 0
+    //   (ARCHER spec §3 S4 archer_swift_step: self-displacement ล้วน, maxTargets 0). ติดลบ = error.
+    maxTargets: reqNonNegativeInt(o.maxTargets, `${path}.maxTargets`),
     hitCount: reqNonNegativeInt(o.hitCount, `${path}.hitCount`),
     damageType: reqNullableString(o.damageType, `${path}.damageType`),
     baseMultiplier: reqNonNegative(o.baseMultiplier, `${path}.baseMultiplier`),

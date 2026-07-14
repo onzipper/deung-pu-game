@@ -43,6 +43,8 @@ import {
 } from "@/engine/input/target-assist";
 import type { EffectQuality } from "@/engine/config";
 import { WARRIOR_SKILLS_CLIENT } from "@/game/skill/data/warrior-skills-client";
+import { ARCHER_SKILLS_CLIENT } from "@/game/skill/data/archer-skills-client";
+import { screenAngleForDirection, tileUnitVectorForScreenAngle } from "@/game/combat/hit-test";
 import { createNetClient, type NetClientHandle } from "../net/net-client";
 import {
   clampDtMs,
@@ -61,6 +63,7 @@ import { DEFAULT_MAP_ID, type PlayerSnapshot } from "@/shared/net-protocol";
 import { partyIdFromLocation } from "../net/party";
 import {
   readSelectedCharacterId,
+  readSelectedCharacterClassId,
   readSelectedCharacterMapId,
   rememberSelectedCharacterMapId,
   pickBootMapId,
@@ -257,6 +260,12 @@ export async function createEngine(
   // undefined = anonymous (เข้า /game ตรง ๆ / dev) → server spawn default, ไม่ persist. คงที่ทั้ง session.
   const localCharacterId = readSelectedCharacterId();
 
+  // Batch 6 (ARCHER_CLASS_SPEC §6 note 4): classId ที่ Game Hub เขียนไว้ (sessionStorage) — เลือกชุดสกิล client
+  //   (hotbar/aim) ตั้งแต่ mount + แนบ joinOptions.classId (fallback dev/no-DB). server เป็น authority สุดท้าย
+  //   (Character.classId re-validate ที่ handleCast). ไม่รู้จัก/ไม่มี → "swordsman" (default นักดาบ, flow เดิม).
+  const localClassId = readSelectedCharacterClassId() ?? "swordsman";
+  const localSkills = localClassId === "archer" ? ARCHER_SKILLS_CLIENT : WARRIOR_SKILLS_CLIENT;
+
   // P1-07-fix (§59.1): per-tab reconnect token store (sessionStorage) — คงข้าม refresh/reopen เพื่อ
   // reconnect เข้า seat เดิม (token in-memory หายตอน reload). ตัวเดียวทั้ง session (ทุก world/map ใช้ key
   // เดียว — token ตามหลัง map ปัจจุบัน; transition = consented leave ล้าง token → world ใหม่ fresh join).
@@ -354,13 +363,15 @@ export async function createEngine(
       nameplateLayer,
     );
 
-    // --- combat (P1-05 server-authoritative): S1 นักดาบจาก client manifest ---
+    // --- combat (P1-05 server-authoritative): S1 จาก client manifest ของ **อาชีพ local** (Batch 6) ---
     // P1-11 (GS §14): ปิด combat ในโซน safe (เมือง) — disable ปุ่มโจมตี client (server ปฏิเสธ cast ซ้ำอีกชั้น).
     const combatAllowed = map.zoneType !== "safe";
-    const firstWarriorSkill = WARRIOR_SKILLS_CLIENT[0];
+    const firstSkill = localSkills[0]; // S1 basic ของอาชีพ (นักดาบ sword_basic_slash / นักธนู archer_basic_shot)
+    // FEATURE 2 (hold-to-walk) + Batch 6 (ground-circle aim): tile ใต้เคอร์เซอร์ล่าสุด — ประกาศก่อน castSlot ใช้.
+    let pointerTile: TilePoint | null = null;
     let net: NetClientHandle | null = null;
     const combat: CombatStubHandle = createCombatStub(scene, player, mobView, config, {
-      skill: firstWarriorSkill,
+      skill: firstSkill,
       castSkill: (msg) => net?.sendCast(msg),
       isOnline: () => net?.status.state === "online",
       combatEnabled: combatAllowed,
@@ -375,7 +386,7 @@ export async function createEngine(
     let hotbarPlayerLevel = 1; // จาก MSG_PLAYER_PROGRESS.level (default 1 ก่อนรู้ค่า → เฉพาะ S1 ปลด, S2-4 locked)
     const publishSkillSlots = (): void => {
       setSkillSlots(
-        WARRIOR_SKILLS_CLIENT.map((s, i) => ({
+        localSkills.map((s, i) => ({
           slot: i + 1,
           skillId: s.skillId,
           displayName: s.skillName,
@@ -388,9 +399,35 @@ export async function createEngine(
         })),
       );
     };
+    // Batch 6 (ARCHER_CLASS_SPEC §6 note 1 / IMPLEMENT #5): aim ของ cast — ground-target circle (นักธนู
+    //   moon_rain, targetShape "circle" + range>0) เล็ง **จุดพื้นใต้เคอร์เซอร์** clamp เข้าระยะ; อื่น = ตำแหน่ง caster.
+    //   server clamp/validate ซ้ำ (authority). mobile fallback (ไม่มี pointer) = จุดหน้า facing ระยะ min(range, มอนใกล้สุด).
+    const aimForSkill = (skill: (typeof localSkills)[number]): { tx: number; ty: number } => {
+      const isGroundCircle = skill.targetShape === "circle" && skill.range > 0;
+      if (!isGroundCircle) return { tx: player.position.tx, ty: player.position.ty };
+      const p = player.position;
+      if (pointerTile) {
+        const dtx = pointerTile.tx - p.tx;
+        const dty = pointerTile.ty - p.ty;
+        const dist = Math.hypot(dtx, dty);
+        if (dist > skill.range && dist > 1e-9) {
+          const s = skill.range / dist;
+          return { tx: p.tx + dtx * s, ty: p.ty + dty * s };
+        }
+        return { tx: pointerTile.tx, ty: pointerTile.ty };
+      }
+      // mobile/no-pointer fallback: จุดหน้า facing ระยะ min(range, ระยะมอนใกล้สุด)
+      let nearest = skill.range;
+      for (const t of mobView.getAliveTargets()) {
+        const d = Math.hypot(t.pos.tx - p.tx, t.pos.ty - p.ty);
+        if (d < nearest) nearest = d;
+      }
+      const fwd = tileUnitVectorForScreenAngle(screenAngleForDirection(player.facing), config.tileSize);
+      return { tx: p.tx + fwd.tx * nearest, ty: p.ty + fwd.ty * nearest };
+    };
     const castSlot = (slot: number): void => {
       if (!combatAllowed) return; // P1-11 safe zone (เมือง) → ไม่ cast (server ปฏิเสธซ้ำ)
-      const skill = WARRIOR_SKILLS_CLIENT[slot - 1];
+      const skill = localSkills[slot - 1];
       if (!skill) return;
       if (hotbarPlayerLevel < skill.unlockLevel) return; // ยังไม่ปลด (server re-validate → reject "locked")
       const now = performance.now();
@@ -399,11 +436,12 @@ export async function createEngine(
         player.requestAttack(); // S1 basic → auto-attack path เดิม (cooldown/aim/juice ของ basic)
         return;
       }
-      // S2-4: discrete cast — สกิลนักดาบ anchor ที่ caster (ไม่ ground-target) → aim = ตำแหน่ง+ทิศ caster ปัจจุบัน
+      // S2-4: discrete cast — aim ตาม shape (ground-circle = pointerTile clamp; อื่น = caster). direction = facing.
+      const aim = aimForSkill(skill);
       net?.sendCast({
         skillId: skill.skillId,
-        aimTx: player.position.tx,
-        aimTy: player.position.ty,
+        aimTx: aim.tx,
+        aimTy: aim.ty,
         direction: player.facing,
       });
       combat.playSkillVfx(skill.skillId); // F4: เล่น VFX สกิล client-side (juice — ไม่กระทบ authority)
@@ -458,7 +496,7 @@ export async function createEngine(
           graceSeconds: config.reconnect.graceSeconds,
           store: reconnectStore,
         },
-        { mapId: map.mapId, ...initial, partyId: localPartyId, characterId: localCharacterId },
+        { mapId: map.mapId, ...initial, partyId: localPartyId, characterId: localCharacterId, classId: localClassId },
         {
           onPlayerAdd: (id, snap) => remotes?.onPlayerAdd(id, snap),
           onPlayerChange: (id, snap) => remotes?.onPlayerChange(id, snap),
@@ -635,9 +673,8 @@ export async function createEngine(
       );
     };
 
-    let pointerTile: TilePoint | null = null;
-    // FEATURE 2: ค้างปุ่มซ้าย = เดินตามเมาส์ต่อเนื่อง. leftHeld = กำลังค้างอยู่,
-    // followTile = tile ปลายทางล่าสุดที่สั่งไป (throttle: re-issue moveTo เฉพาะตอน tile เปลี่ยน กัน spam server).
+    // FEATURE 2: ค้างปุ่มซ้าย = เดินตามเมาส์ต่อเนื่อง (pointerTile ประกาศไว้ด้านบนแล้ว — Batch 6 castSlot ใช้ร่วม).
+    // leftHeld = กำลังค้างอยู่, followTile = tile ปลายทางล่าสุดที่สั่งไป (throttle: re-issue moveTo เฉพาะตอน tile เปลี่ยน).
     let leftHeld = false;
     let followTile: TilePoint | null = null;
     const onPointerMove = (e: PointerEvent): void => {
@@ -664,7 +701,7 @@ export async function createEngine(
     app.canvas.addEventListener("pointercancel", onPointerUp);
 
     // --- click-to-move + touch (P1-09, TA §17.3 · L11) ---
-    const attackRange = firstWarriorSkill.range;
+    const attackRange = firstSkill.range;
     // P2-15: รัศมี pick มอนแยกตาม input mode (Combat Bible §3) — caller ส่ง radius ที่ resolve ตาม pointerType.
     // logic เลือก "มอนใกล้จุดสุดในรัศมี" เหมือนเดิมทุกอย่าง (never-downgrade: targeting เท่านั้น ไม่แตะ combat calc).
     const mobUnderClick = (

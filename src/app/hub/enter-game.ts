@@ -8,20 +8,31 @@
 import {
   SELECTED_CHARACTER_STORAGE_KEY,
   SELECTED_CHARACTER_MAP_STORAGE_KEY,
+  SELECTED_CHARACTER_CLASS_STORAGE_KEY,
 } from "@/shared/net-protocol";
 
 /**
- * จำ characterId + mapId ล่าสุดที่เลือกเข้าเกม (client-only, best-effort — sessionStorage ปิด/quota →
- * เงียบ, join anonymous/boot DEFAULT_MAP_ID). `lastMapId` = null (ตัวละครใหม่ยังไม่เคย save) → ลบ key
- * mapId ทิ้ง กันค่าเก่าจากตัวละครก่อนหน้าค้าง (เลือกตัวละครใหม่ที่ยังไม่เคยเข้าเกม แต่ key เก่ายังอยู่).
+ * จำ characterId + mapId + classId ล่าสุดที่เลือกเข้าเกม (client-only, best-effort — sessionStorage ปิด/quota →
+ * เงียบ, join anonymous/boot DEFAULT_MAP_ID). `lastMapId` = null (ตัวละครใหม่ยังไม่เคย save) → ลบ key mapId ทิ้ง
+ * กันค่าเก่าจากตัวละครก่อนหน้าค้าง. `classId` (Batch 6) = เลือกชุดสกิล client + joinOptions fallback; ไม่ระบุ = ลบ key
+ * (fallback swordsman ตอน boot).
  */
-export function rememberSelectedCharacter(characterId: string, lastMapId: string | null): void {
+export function rememberSelectedCharacter(
+  characterId: string,
+  lastMapId: string | null,
+  classId?: string,
+): void {
   try {
     window.sessionStorage.setItem(SELECTED_CHARACTER_STORAGE_KEY, characterId);
     if (lastMapId) {
       window.sessionStorage.setItem(SELECTED_CHARACTER_MAP_STORAGE_KEY, lastMapId);
     } else {
       window.sessionStorage.removeItem(SELECTED_CHARACTER_MAP_STORAGE_KEY);
+    }
+    if (classId) {
+      window.sessionStorage.setItem(SELECTED_CHARACTER_CLASS_STORAGE_KEY, classId);
+    } else {
+      window.sessionStorage.removeItem(SELECTED_CHARACTER_CLASS_STORAGE_KEY);
     }
   } catch {
     // sessionStorage ใช้ไม่ได้ (private mode/quota) — ปล่อยผ่าน (server จะ spawn default anonymous)

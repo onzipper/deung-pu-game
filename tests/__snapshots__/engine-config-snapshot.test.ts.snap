@@ -55,6 +55,18 @@ exports[`engine config — value identity (DEFAULT_* consts) > DEFAULT_COMBAT_BA
       },
     ],
   },
+  "classStatWeights": {
+    "archer": {
+      "atk": 1.15,
+      "def": 0.9,
+      "hp": 0.85,
+    },
+    "swordsman": {
+      "atk": 1,
+      "def": 1,
+      "hp": 1,
+    },
+  },
   "defaultMob": {
     "activeMs": 150,
     "anticipationMs": 350,
@@ -362,6 +374,16 @@ exports[`engine config — value identity (DEFAULT_* consts) > DEFAULT_COMBAT_BA
   "statusEffectDamageReduction": {
     "self_damage_reduction_30": 0.3,
   },
+  "statusEffectDamageTakenMultiplier": {
+    "mark_dmg_taken_15": {
+      "durationSeconds": 6,
+      "multiplier": 1.15,
+    },
+  },
+  "statusEffectMoveSpeedBonus": {
+    "swift_step_speed_20": 0.2,
+  },
+  "swiftStepDashTiles": 2.5,
 }
 `;
 
@@ -568,6 +590,18 @@ exports[`engine config — value identity (DEFAULT_* consts) > DEFAULT_ENGINE_CO
           "recoveryFactor": 0.9,
         },
       ],
+    },
+    "classStatWeights": {
+      "archer": {
+        "atk": 1.15,
+        "def": 0.9,
+        "hp": 0.85,
+      },
+      "swordsman": {
+        "atk": 1,
+        "def": 1,
+        "hp": 1,
+      },
     },
     "defaultMob": {
       "activeMs": 150,
@@ -876,6 +910,16 @@ exports[`engine config — value identity (DEFAULT_* consts) > DEFAULT_ENGINE_CO
     "statusEffectDamageReduction": {
       "self_damage_reduction_30": 0.3,
     },
+    "statusEffectDamageTakenMultiplier": {
+      "mark_dmg_taken_15": {
+        "durationSeconds": 6,
+        "multiplier": 1.15,
+      },
+    },
+    "statusEffectMoveSpeedBonus": {
+      "swift_step_speed_20": 0.2,
+    },
+    "swiftStepDashTiles": 2.5,
   },
   "combatFeel": {
     "damageNumber": {
@@ -2289,6 +2333,18 @@ exports[`engine config — value identity (factory / pure functions) > createEng
         },
       ],
     },
+    "classStatWeights": {
+      "archer": {
+        "atk": 1.15,
+        "def": 0.9,
+        "hp": 0.85,
+      },
+      "swordsman": {
+        "atk": 1,
+        "def": 1,
+        "hp": 1,
+      },
+    },
     "defaultMob": {
       "activeMs": 150,
       "anticipationMs": 350,
@@ -2596,6 +2652,16 @@ exports[`engine config — value identity (factory / pure functions) > createEng
     "statusEffectDamageReduction": {
       "self_damage_reduction_30": 0.3,
     },
+    "statusEffectDamageTakenMultiplier": {
+      "mark_dmg_taken_15": {
+        "durationSeconds": 6,
+        "multiplier": 1.15,
+      },
+    },
+    "statusEffectMoveSpeedBonus": {
+      "swift_step_speed_20": 0.2,
+    },
+    "swiftStepDashTiles": 2.5,
   },
   "combatFeel": {
     "damageNumber": {
@@ -3362,6 +3428,18 @@ exports[`engine config — value identity (factory / pure functions) > createEng
         },
       ],
     },
+    "classStatWeights": {
+      "archer": {
+        "atk": 1.15,
+        "def": 0.9,
+        "hp": 0.85,
+      },
+      "swordsman": {
+        "atk": 1,
+        "def": 1,
+        "hp": 1,
+      },
+    },
     "defaultMob": {
       "activeMs": 150,
       "anticipationMs": 350,
@@ -3669,6 +3747,16 @@ exports[`engine config — value identity (factory / pure functions) > createEng
     "statusEffectDamageReduction": {
       "self_damage_reduction_30": 0.3,
     },
+    "statusEffectDamageTakenMultiplier": {
+      "mark_dmg_taken_15": {
+        "durationSeconds": 6,
+        "multiplier": 1.15,
+      },
+    },
+    "statusEffectMoveSpeedBonus": {
+      "swift_step_speed_20": 0.2,
+    },
+    "swiftStepDashTiles": 2.5,
   },
   "combatFeel": {
     "damageNumber": {

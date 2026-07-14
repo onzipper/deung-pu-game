@@ -10,7 +10,7 @@
 //
 // CHOSEN (spec ไม่ระบุการปัดเศษ EXP): floor ต่อการ grant 1 ครั้ง (มาตรฐาน MMO, กัน EXP เฟ้อ). ดูรายงาน P2-09.
 
-import type { PlayerCombatStats } from "@/engine/config";
+import type { ClassStatWeights, PlayerCombatStats } from "@/engine/config";
 
 /** one EXP curve row (Economy §9.2). expToNext = 0 at the level cap. cumulative = total EXP to advance FROM this level. */
 export interface ExpLevelRow {
@@ -201,5 +201,23 @@ export function playerBaselineForLevel(
     critRate: secondary.critRate,
     critDmg: secondary.critDmg,
     penetration: secondary.penetration,
+  };
+}
+
+/**
+ * Batch 6 (ARCHER_CLASS_SPEC §2 — **never-downgrade zone**): apply class stat weights บน baseline (นักธนู
+ * ATK×1.15 / HP×0.85 / DEF×0.90) แล้ว **ปัด integer** (Math.round) ต่อ atk/hp/def. secondary (crit/critDmg/
+ * penetration) = level/class-invariant (§15.3 locked) → คงเดิม. นักดาบ weights 1.0 → ผลตรง baseline เป๊ะ.
+ * ปัดที่ baseline ก่อนบวก gear (weights คูณ curve ฐาน, §2 anchor table) — pure, deterministic.
+ */
+export function applyClassStatWeights(
+  base: PlayerCombatStats,
+  weights: ClassStatWeights,
+): PlayerCombatStats {
+  return {
+    ...base,
+    hp: Math.round(base.hp * weights.hp),
+    atk: Math.round(base.atk * weights.atk),
+    def: Math.round(base.def * weights.def),
   };
 }

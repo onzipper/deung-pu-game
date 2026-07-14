@@ -51,6 +51,7 @@ import { claimSession, releaseSession } from "../security/session-registry";
 import { acquireLease, releaseLease } from "../security/session-lease";
 import {
   fetchCharacterOwner,
+  loadCharacterClass,
   loadCharacterName,
   loadCharacterState,
   loadCharacterProgress,
@@ -58,6 +59,7 @@ import {
   saveCharacterProgress,
   updateLastPlayed,
 } from "../characters/character-state";
+import { isValidClassId } from "../../src/shared/character-class";
 import { carryKey, recallProgress, stashProgress } from "../characters/progress-carrier";
 import {
   decideOwnership,
@@ -247,7 +249,11 @@ import {
   type ShopSellResult,
 } from "../../src/server/economy/shop";
 import { appendEntry } from "../db/ledger";
-import { applyExpGain, playerBaselineForLevel } from "../../src/server/economy/exp";
+import {
+  applyClassStatWeights,
+  applyExpGain,
+  playerBaselineForLevel,
+} from "../../src/server/economy/exp";
 import {
   createMobSimulation,
   type BossView,
@@ -272,7 +278,12 @@ import {
 import type { SkillDefinition } from "../../src/game/skill/types";
 import { loadSkillDefinitions } from "../../src/game/skill/loader";
 import { WARRIOR_SKILLS_SERVER } from "../../src/game/skill/data/warrior-skills-server";
+import { ARCHER_SKILLS_SERVER } from "../../src/game/skill/data/archer-skills-server";
 import {
+  clampAimToRange,
+  clampDisplacementToWalkable,
+  isGroundTargetCircle,
+  resolveGroundAoeHits,
   resolveSkillHits,
   skillReadyAt,
   validateCast,
@@ -282,10 +293,17 @@ import {
   computeMobDamageToPlayer,
   computeSkillDamage,
   damageReductionFromStatus,
+  moveSpeedBonusFromStatus,
+  resolveDamageTakenDebuff,
   respawnPlayer,
 } from "../../src/game/combat/formula";
-import type { HitTestTarget } from "../../src/game/combat/hit-test";
+import {
+  screenAngleForDirection,
+  tileUnitVectorForScreenAngle,
+  type HitTestTarget,
+} from "../../src/game/combat/hit-test";
 import { coerceDirection } from "../../src/engine/net/sync";
+import type { Direction } from "../../src/engine/movement/direction";
 import { defaultRng } from "../../src/game/mob/rng";
 
 /** onCreate options = merge ของ options ที่ define() ตั้ง (ว่างใน P1) + clientOptions ของคนแรกที่ join. */
@@ -452,8 +470,29 @@ export class MapRoom extends Room<MapRoomState> {
   private readonly trackers = new Map<string, MoveTracker>();
   /** mob simulation ฝั่ง server (P1-03) — authoritative spawn/respawn/AI/LOD (pure core) */
   private sim!: MobSimulation;
-  /** skill definitions (P1-05) — full server view (37 field §50.1); key = skillId. โหลดใน onCreate. */
-  private skills!: Map<string, SkillDefinition>;
+  /**
+   * skill definitions ต่ออาชีพ (P1-05 + Batch 6) — full server view (37 field §50.1); key = classId → (skillId → def).
+   * โหลดทั้งชุดใน onCreate (swordsman + archer) → resolve ต่อ session ตาม classId ตอน cast (handleCast). fallback
+   * swordsman เมื่อ classId ไม่รู้จัก. **server-authoritative**: client ส่งแค่ skillId, server หา def จากอาชีพจริง.
+   */
+  private skillsByClass!: Record<string, Map<string, SkillDefinition>>;
+  /**
+   * Batch 6 (ARCHER_CLASS_SPEC §6 note 4): classId ต่อ session (จาก Character.classId / joinOptions fallback).
+   * ขับการเลือกชุดสกิล (skillsByClass) + class stat weights (§2). server-only; set ตอน join, ลบตอน leave.
+   */
+  private readonly sessionClassId = new Map<string, string>();
+  /**
+   * Batch 6 (ARCHER_CLASS_SPEC §3 S3 archer_target_mark): mark debuff ต่อ **mob** (mobId → multiplier + until ms).
+   * ปักตอน cast target_mark โดนเป้า → เป้ารับดาเมจ ×multiplier จน until. re-cast = overwrite (refresh ไม่สแต็ก).
+   * อ่านตอนคำนวณ damage ผู้เล่นตีเป้า (activeMarkMultiplier). ลบตอนมอนหาย/ตาย (syncMobsToState prune). server-only.
+   */
+  private readonly markDebuffs = new Map<string, { multiplier: number; until: number }>();
+  /**
+   * Batch 6 (ARCHER_CLASS_SPEC §3 S4 archer_swift_step): self moveSpeed buff ต่อ session (bonus fraction + until ms).
+   * ตั้งตอน cast swift_step → กว้าง allowance move validation (activeMoveSpeedBonus) กัน false-reject ตอนเดินเร็วขึ้น.
+   * หมดอายุ = ปล่อยค้าง (เช็ค until ตอนอ่าน) ลบตอน leave. server-only.
+   */
+  private readonly moveSpeedBonusUntil = new Map<string, { until: number; bonus: number }>();
   /** combat balance knob (P1-05) — k/player/mob stat (single source of truth, DEFAULT_ENGINE_CONFIG) */
   private balance!: CombatBalanceConfig;
   /** cooldown state ต่อ (sessionId → skillId → readyAtMs) — server clock authority (§16.3). ไม่ broadcast. */
@@ -668,7 +707,12 @@ export class MapRoom extends Room<MapRoomState> {
     // P1-05: combat balance + skill definitions (single source of truth = DEFAULT_ENGINE_CONFIG + proposal).
     // loadSkillDefinitions validate 37 field §50.1 (fail-loud ตอน boot ถ้า config เพี้ยน) → full server view.
     this.balance = DEFAULT_ENGINE_CONFIG.combatBalance;
-    this.skills = loadSkillDefinitions(WARRIOR_SKILLS_SERVER as unknown[]);
+    // Batch 6: โหลดชุดสกิลทั้ง 2 อาชีพครั้งเดียว (fail-loud validate 37 field ตอน boot) → resolve ต่อ session
+    //   ตาม classId ตอน cast. key = classId ตรง CLASS_IDS (character-class.ts).
+    this.skillsByClass = {
+      swordsman: loadSkillDefinitions(WARRIOR_SKILLS_SERVER as unknown[]),
+      archer: loadSkillDefinitions(ARCHER_SKILLS_SERVER as unknown[]),
+    };
 
     // ITEM 3 (config DB override): load this room's economy config ONCE (best-effort, non-blocking). Until it
     // resolves the room uses the DEFAULT bundle (field init); on resolve it swaps to the DB config (or keeps
@@ -821,11 +865,18 @@ export class MapRoom extends Room<MapRoomState> {
       //   ถัดไปถึง 1s ค่อยหาย — ผู้เล่นขยับแล้วป้ายควรหายทันตา). ใช้กับทั้ง move ที่ผ่าน/ถูกปฏิเสธ (ยังถือ active).
       this.markInput(client.sessionId, tracker, now);
 
+      // Batch 6 (ARCHER_CLASS_SPEC §3 S4 swift_step): moveSpeed buff active → กว้าง speed allowance ตาม bonus
+      //   (never-downgrade: อย่า reject การเดินที่ buff อนุญาตจริง). ไม่มี buff → moveParams เดิม (พฤติกรรมเดิม).
+      const speedBonus = this.activeMoveSpeedBonus(client.sessionId, now);
+      const moveParams =
+        speedBonus > 0
+          ? { ...this.moveParams, speed: this.moveParams.speed * (1 + speedBonus) }
+          : this.moveParams;
       const result = validateMove(
         { tx: tracker.tx, ty: tracker.ty },
         { tx: message.tx, ty: message.ty },
         elapsedMs,
-        this.moveParams,
+        moveParams,
         this.isWalkableAt,
       );
 
@@ -972,6 +1023,76 @@ export class MapRoom extends Room<MapRoomState> {
   }
 
   /**
+   * Batch 6 (ARCHER_CLASS_SPEC §3 S3 archer_target_mark): ตัวคูณดาเมจที่ mob รับ (จากตรา) ตอน nowMs — 1.0 ถ้าไม่มี
+   * ตรา/หมดอายุ (เช็ค until ทุกครั้ง; entry หมดอายุปล่อยค้าง ลบตอนมอนหาย). never-downgrade: อ่าน→คูณในสูตร damage.
+   */
+  private activeMarkMultiplier(mobId: string, nowMs: number): number {
+    const mark = this.markDebuffs.get(mobId);
+    if (!mark || nowMs >= mark.until) return 1.0;
+    return mark.multiplier;
+  }
+
+  /**
+   * Batch 6 (ARCHER_CLASS_SPEC §3 S4 archer_swift_step): moveSpeed bonus (fraction ≥ 0) ที่ active ของ session
+   * ตอน nowMs — 0 ถ้าไม่มี/หมดอายุ. ใช้กว้าง speed allowance ตอน validate move (กัน false-reject).
+   */
+  private activeMoveSpeedBonus(sessionId: string, nowMs: number): number {
+    const buff = this.moveSpeedBonusUntil.get(sessionId);
+    if (!buff || nowMs >= buff.until) return 0;
+    return buff.bonus;
+  }
+
+  /**
+   * Batch 6 (ARCHER_CLASS_SPEC §3 S4 · §6 note 2): เผ่นถอยหลัง swiftStepDashTiles ทิศตรงข้าม facing (server-
+   * authoritative displacement, ไม่มี i-frame). ทิศ tile-space จาก facing = reuse iso projection ของ hit-test
+   * (screenAngleForDirection → tileUnitVectorForScreenAngle) แล้ว negate. clamp walkable เดิม (ชนกำแพง = เผ่นเท่าที่
+   * เดินได้, min 0) → เขียน schema+tracker → moveSpeed buff window → แจ้ง client snap ผ่าน MSG_POSITION_CORRECTION
+   * (path เดียวกับ teleport-back). facing คงเดิม (เผ่นถอยแต่ยังหันเข้าเป้า).
+   */
+  private applySwiftStep(
+    client: Client,
+    player: PlayerState,
+    facing: Direction,
+    speedBonus: number,
+    activeTimeSeconds: number,
+    nowMs: number,
+  ): void {
+    const from = { tx: player.tx, ty: player.ty };
+    const forward = tileUnitVectorForScreenAngle(
+      screenAngleForDirection(facing),
+      DEFAULT_ENGINE_CONFIG.tileSize,
+    );
+    const backUnit = { tx: -forward.tx, ty: -forward.ty };
+    const dest = clampDisplacementToWalkable(
+      from,
+      backUnit,
+      this.balance.swiftStepDashTiles,
+      this.isWalkableAt,
+    );
+    player.tx = dest.tx;
+    player.ty = dest.ty;
+    const tracker = this.trackers.get(client.sessionId);
+    if (tracker) {
+      tracker.tx = dest.tx;
+      tracker.ty = dest.ty;
+    }
+    if (speedBonus > 0 && activeTimeSeconds > 0) {
+      this.moveSpeedBonusUntil.set(client.sessionId, {
+        until: nowMs + activeTimeSeconds * 1000,
+        bonus: speedBonus,
+      });
+    }
+    const correction: PositionCorrectionMessage = {
+      tx: dest.tx,
+      ty: dest.ty,
+      direction: player.direction as PositionCorrectionMessage["direction"],
+      anim: player.anim as PositionCorrectionMessage["anim"],
+      reason: "swift_step",
+    };
+    client.send(MSG_POSITION_CORRECTION, correction);
+  }
+
+  /**
    * A2 (COMBAT_BIBLE §10 Death & Recovery, locked baseline): player ตาย → broadcast death (client เล่น death
    * anim) → respawn ทันทีที่ safe camp เต็ม hp (server-authoritative). **ไม่มี item loss / gold / durability
    * penalty** (initial PvE baseline; penalty ที่หนักกว่าเป็น later decision, นอก scope). respawn เขียน
@@ -1114,6 +1235,7 @@ export class MapRoom extends Room<MapRoomState> {
     for (const id of stale) {
       this.state.mobs.delete(id);
       this.lastBossBroadcast.delete(id); // boss ตาย/despawn → รีเซ็ต delta tracker (respawn เริ่ม telegraph/phase ใหม่)
+      this.markDebuffs.delete(id); // Batch 6 (§3 S3): mob ตาย/despawn → เคลียร์ตรา (id monotonic ไม่ชนตอน respawn)
     }
     // G-lite: drop damage-contribution ledgers for mobs no longer alive (death/respawn/despawn/leash) — mob ids
     //   are monotonic so they never collide across respawns; this bounds memory to the live mob count.
@@ -1173,7 +1295,11 @@ export class MapRoom extends Room<MapRoomState> {
     this.markInput(sessionId, this.trackers.get(sessionId), Date.now());
 
     const skillId = typeof message.skillId === "string" ? message.skillId : "";
-    const skill = this.skills.get(skillId);
+    // Batch 6: resolve def จากชุดสกิลของ **อาชีพ session นี้** (server-authoritative — client ส่งแค่ skillId).
+    //   นักธนู cast archer_* / นักดาบ cast sword_* ; skillId ข้ามอาชีพ = undefined → validateCast reject "unknown_skill".
+    const classId = this.sessionClassId.get(sessionId) ?? "swordsman";
+    const skills = this.skillsByClass[classId] ?? this.skillsByClass.swordsman;
+    const skill = skills.get(skillId);
     const cds = this.cooldowns.get(sessionId);
     const now = Date.now();
     const casterPos = { tx: player.tx, ty: player.ty };
@@ -1220,20 +1346,28 @@ export class MapRoom extends Room<MapRoomState> {
       mobPre.set(m.id, { hp: m.hp, tx: m.pos.tx, ty: m.pos.ty });
     });
 
-    // TODO(ground-target skills): geometry ปัจจุบัน anchor ที่ caster+facing (arc/cone/line/self-circle
-    //   ของนักดาบ P1). ถ้ามี skill ground-target (AoE ตกที่จุดเล็ง เช่น mage_crystal_storm) ต้องใช้
-    //   aimPos เป็นศูนย์กลาง AoE (ไม่ใช่ caster) + validate range ของ aimPos จาก server position — ปรับ
-    //   resolveSkillHits ให้รับ origin แยกจาก caster ตาม targetShape.
     const facing = coerceDirection(message.direction);
-    // P1-05.1: hitTolerance (knob) ชดเชย interp lag ที่ทำให้ตีไม่โดนมอนติดตัว (ดู CombatBalanceConfig.hitTolerance)
-    const hitIds = resolveSkillHits(
-      def,
-      casterPos,
-      facing,
-      targets,
-      DEFAULT_ENGINE_CONFIG.tileSize,
-      this.balance.hitTolerance,
-    );
+    // Batch 6 (ARCHER_CLASS_SPEC §6 note 1 — never-downgrade): ground-target circle (archer_moon_rain, range>0)
+    //   resolve รอบ **จุด aim** (clamp เข้าระยะจริงก่อน) ไม่ใช่ caster. แยกจาก caster-centered geometry ของนักดาบ
+    //   (arc/cone/line/self-circle guard_domain range 0) ด้วย isGroundTargetCircle. validateCast ผ่าน range
+    //   (rangeToleranceFactor) แล้ว → clampAimToRange ลงขอบระยะ 6.0 → resolveGroundAoeHits (รัศมี 2.5 รอบจุด,
+    //   cap maxTargets ใกล้ aim สุด). tolerance ZERO = รัศมีตรง spec (ไม่ inflate ด้วย interp-lag padding melee).
+    const hitIds = isGroundTargetCircle(def)
+      ? resolveGroundAoeHits(
+          def,
+          clampAimToRange(casterPos, aimPos, def.range),
+          targets,
+          DEFAULT_ENGINE_CONFIG.tileSize,
+        )
+      : // P1-05.1: hitTolerance (knob) ชดเชย interp lag ที่ทำให้ตีไม่โดนมอนติดตัว (caster-centered melee/cone/line)
+        resolveSkillHits(
+          def,
+          casterPos,
+          facing,
+          targets,
+          DEFAULT_ENGINE_CONFIG.tileSize,
+          this.balance.hitTolerance,
+        );
 
     // สกิลที่ทำ damage: targetType enemy + baseMultiplier>0 + hitCount>0 (utility เช่น taunt = valid cast แต่ไม่ damage)
     const dealsDamage = def.targetType === "enemy" && def.baseMultiplier > 0 && def.hitCount > 0;
@@ -1246,6 +1380,12 @@ export class MapRoom extends Room<MapRoomState> {
       //   eligibility gate (§10.2/§10.3) + EXP pool split (§9.4). equipment breakPower ต่อ cast (§6.1).
       const isParty = this.partyId !== DEFAULT_PARTY_ID;
       const equipBreak = this.sessionBreakPower.get(sessionId) ?? 0;
+      // Batch 6 (ARCHER_CLASS_SPEC §3 S3 archer_target_mark): ถ้าสกิลนี้ปักตรา (statusEffects → config table) →
+      //   apply ลง mob ที่โดน **หลัง** ตีรอบนี้ (ตราไม่บูสต์ดาเมจของ cast ตัวเอง — ปักก่อนรุมเบิร์สต์). null = ไม่มีตรา.
+      const markDebuff = resolveDamageTakenDebuff(
+        def.statusEffects,
+        this.balance.statusEffectDamageTakenMultiplier,
+      );
       for (const mobId of hitIds) {
         const mobType = mobTypeById.get(mobId);
         if (mobType === undefined) continue;
@@ -1276,6 +1416,9 @@ export class MapRoom extends Room<MapRoomState> {
             bossModifier,
             pvpModifier: this.balance.pvpModifier,
             tierReduction: ms.tierReduction,
+            // Batch 6 (ARCHER_CLASS_SPEC §3 S3): เป้าที่ถูกปักตรา (mark_dmg_taken_15) รับดาเมจ ×1.15 — คูณในสูตร
+            //   (หลัง mitigation, ปัดครั้งเดียว, never-downgrade). 1.0 ถ้าไม่มีตรา/หมดอายุ.
+            damageTakenMultiplier: this.activeMarkMultiplier(mobId, now),
           },
           def.hitCount,
           defaultRng,
@@ -1285,6 +1428,14 @@ export class MapRoom extends Room<MapRoomState> {
         // G-lite: record this hit's damage → contribution tracker (never-downgrade: drives reward eligibility).
         recordDamage(this.damageContrib, mobId, sessionId, dmg.damage);
         hits.push({ mobId, dmg: dmg.damage, crit: dmg.crit, killed: applied.killed });
+        // Batch 6 (§3 S3): ปักตราลง mob ที่ยังไม่ตาย (re-cast = overwrite → refresh ไม่สแต็ก). ตายรอบนี้ = ข้าม
+        //   (จะถูก prune อยู่แล้ว). duration จาก config (durationSeconds → ms).
+        if (markDebuff && !applied.killed) {
+          this.markDebuffs.set(mobId, {
+            multiplier: markDebuff.multiplier,
+            until: now + markDebuff.durationSeconds * 1000,
+          });
+        }
         if (applied.killed) {
           // C2b + G-lite: mob.killed derived-field event per ELIGIBLE member (Economy §10.2/§10.3 personal
           //   reward). Mob-centric fields (hpFracBefore/overkill/gridCell) are shared across members; per-member
@@ -1365,6 +1516,14 @@ export class MapRoom extends Room<MapRoomState> {
       this.damageReductionUntil.set(sessionId, { until: now + def.activeTime * 1000, reduction });
     }
 
+    // Batch 6 (ARCHER_CLASS_SPEC §3 S4 archer_swift_step · §6 note 2): self mobility — discriminator = targetType
+    //   "self" + มี moveSpeed buff status (แยกจาก guard_domain ที่มี damage-reduction status ไม่มี moveSpeed). เผ่น
+    //   ถอยหลัง swiftStepDashTiles ทิศตรงข้าม facing + moveSpeed buff activeTime. server-authoritative displacement.
+    if (def.targetType === "self") {
+      const speedBonus = moveSpeedBonusFromStatus(def.statusEffects, this.balance.statusEffectMoveSpeedBonus);
+      if (speedBonus > 0) this.applySwiftStep(client, player, facing, speedBonus, def.activeTime, now);
+    }
+
     const result: SkillResultMessage = { casterId: sessionId, skillId, hits };
     this.broadcast(MSG_SKILL_RESULT, result);
 
@@ -1436,9 +1595,14 @@ export class MapRoom extends Room<MapRoomState> {
       critDmg: this.balance.player.critDmg,
       penetration: this.balance.player.penetration,
     });
+    // Batch 6 (ARCHER_CLASS_SPEC §2 — never-downgrade): คูณ class stat weights บน baseline ก่อนบวก gear
+    //   (นักธนู ATK×1.15/HP×0.85/DEF×0.90, ปัด integer). นักดาบ/classId ไม่รู้จัก → weights 1.0 (baseline เดิม).
+    const classId = this.sessionClassId.get(sessionId) ?? "swordsman";
+    const weights = this.balance.classStatWeights[classId] ?? this.balance.classStatWeights.swordsman;
+    const weighted = weights ? applyClassStatWeights(base, weights) : base;
     const equipped = this.sessionEquipment.get(sessionId) ?? [];
     const bonus = aggregateEquipmentBonus(equipped, ITEM_CATALOG, ENHANCEMENT_CURVE);
-    this.effectiveStats.set(sessionId, applyEquipmentBonus(base, bonus));
+    this.effectiveStats.set(sessionId, applyEquipmentBonus(weighted, bonus));
     // workstream B: equipment breakPower stat (§6.1) — dead ใน applyEquipmentBonus (ไม่มี combat field) แต่
     //   ป้อนเข้า boss break contribution ที่นี่ (§8 Break Power = build stat). normal play = 0.
     this.sessionBreakPower.set(sessionId, bonus.breakPower);
@@ -2194,7 +2358,15 @@ export class MapRoom extends Room<MapRoomState> {
     const progress = (characterId ? await loadCharacterProgress(characterId) : null) ??
       (carrierKey ? recallProgress(carrierKey) : null) ?? { level: 1, exp: 0 };
     this.sessionProgress.set(client.sessionId, { level: progress.level, exp: progress.exp });
-    // P2-07: combat stats เริ่มต้น = base ตามเลเวล — override ด้วย equipment bonus หลังโหลด inventory ด้านล่าง.
+    // Batch 6 (ARCHER_CLASS_SPEC §6 note 4): resolve classId ก่อน recomputeEffectiveStats (class stat weights §2).
+    //   authority = DB Character.classId; fallback = joinOptions.classId (validate CLASS_IDS, dev/no-DB); สุดท้าย
+    //   swordsman. set sessionClassId (ขับ skill set + stat weights) + PlayerState.classId (broadcast).
+    const dbClass = characterId ? await loadCharacterClass(characterId) : null;
+    const optClass = isValidClassId(options?.classId) ? options.classId : null;
+    const classId = (isValidClassId(dbClass) ? dbClass : null) ?? optClass ?? "swordsman";
+    this.sessionClassId.set(client.sessionId, classId);
+    player.classId = classId;
+    // P2-07: combat stats เริ่มต้น = base ตามเลเวล (+ class weights) — override ด้วย equipment bonus หลังโหลด inventory.
     this.recomputeEffectiveStats(client.sessionId);
 
     // P2-05 (Storage §7.2/§24): ผูก session กับตัวละคร → เปิด save cycle + ตั้ง lastPlayedCharacterId (Continue
@@ -2279,6 +2451,8 @@ export class MapRoom extends Room<MapRoomState> {
     this.effectiveStats.delete(sessionId);
     this.sessionBreakPower.delete(sessionId);
     this.damageReductionUntil.delete(sessionId); // A3: เคลียร์ S4 buff
+    this.moveSpeedBonusUntil.delete(sessionId); // Batch 6: เคลียร์ swift_step moveSpeed buff
+    this.sessionClassId.delete(sessionId); // Batch 6: เคลียร์ class binding
     this.sessionProgress.delete(sessionId);
     this.sessionEquipment.delete(sessionId);
     this.sessionCharacters.delete(sessionId);
