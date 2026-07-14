@@ -82,6 +82,7 @@ import {
   MSG_INVENTORY_STATE,
   MSG_INVENTORY_OP_REJECTED,
   MSG_PLAYER_PROGRESS,
+  MSG_MILESTONE_GRANTED,
   GOLD_UNKNOWN,
   MSG_EQUIP_ITEM,
   MSG_UNEQUIP_ITEM,
@@ -129,6 +130,7 @@ import {
   type InventoryOp,
   type InventoryOpRejectedMessage,
   type PlayerProgressMessage,
+  type MilestoneGrantedMessage,
   type ShopListRequestMessage,
   type ShopListMessage,
   type ShopBuyMessage,
@@ -206,6 +208,13 @@ import {
   PLAYER_BASELINE_TABLE,
   EXP_CURVE,
 } from "../economy/kill-rewards";
+import {
+  grantMilestoneWired,
+  milestonesForTrigger,
+  mobClassForMobType,
+  type MilestoneGrantOutcome,
+  type MilestoneTrigger,
+} from "../economy/milestones";
 import { SHOP_CONFIG, shopForMap, shopItemMeta } from "../economy/shop-state";
 import {
   buyShopItem,
@@ -214,7 +223,7 @@ import {
   type ShopSellResult,
 } from "../../src/server/economy/shop";
 import { appendEntry } from "../db/ledger";
-import { playerBaselineForLevel } from "../../src/server/economy/exp";
+import { applyExpGain, playerBaselineForLevel } from "../../src/server/economy/exp";
 import {
   createMobSimulation,
   type BossView,
@@ -1298,6 +1307,72 @@ export class MapRoom extends Room<MapRoomState> {
       lootOverflow: outcome.overflow,
     };
     client.send(MSG_PLAYER_PROGRESS, msg);
+
+    // C1 (Economy §18.1): a kill can unlock a milestone (first hunt / first elite). Fire-and-forget AFTER the
+    // kill reward is sent so it never delays/breaks the kill path; the grant is one-time per account (idempotent).
+    const mobClass = mobClassForMobType(mobType);
+    if (mobClass) void this.fireMilestonesForTrigger(client, { kind: "mob_kill", mobClass });
+  }
+
+  /**
+   * C1 (Economy §18): fire every milestone a trigger maps to (§18.1) — each grant is one-time per account
+   * (idempotent). Best-effort: the caller `void`s this, so it never delays/breaks the triggering action.
+   */
+  private async fireMilestonesForTrigger(client: Client, trigger: MilestoneTrigger): Promise<void> {
+    for (const milestoneId of milestonesForTrigger(trigger)) {
+      await this.fireMilestone(client, milestoneId);
+    }
+  }
+
+  /**
+   * C1 (Economy §18.2): grant one milestone (idempotent). A FRESH grant applies its EXP through the same
+   * session-progress path as a kill (level-up recompute + persist), then notifies the client
+   * (MSG_MILESTONE_GRANTED + a fresh MSG_INVENTORY_STATE when items landed). Duplicate / unknown / non-P2 = silent.
+   * Best-effort: a DB error is logged (money-loud) but never crashes the room (the marker/ledger stay strict inside).
+   */
+  private async fireMilestone(client: Client, milestoneId: string): Promise<void> {
+    const sessionId = client.sessionId;
+    const rec = this.sessionCharacters.get(sessionId);
+    let outcome: MilestoneGrantOutcome;
+    try {
+      outcome = await grantMilestoneWired({
+        accountId: rec?.accountId ?? "",
+        characterId: rec?.characterId ?? "",
+        milestoneId,
+        sessionId,
+      });
+    } catch (err) {
+      console.error(
+        `[MapRoom ${this.roomId}] milestone DB error ${sessionId} (${milestoneId}): ` +
+          (err instanceof Error ? err.message : String(err)),
+      );
+      return;
+    }
+    if (outcome.status !== "granted") return; // duplicate / no_op → nothing to notify
+
+    // apply milestone EXP through the session-progress path (mirror grantKillReward — EXP is source of truth).
+    const progress = this.sessionProgress.get(sessionId);
+    if (progress && outcome.exp > 0) {
+      const res = applyExpGain({ level: progress.level, exp: progress.exp, gained: outcome.exp, curve: EXP_CURVE });
+      progress.level = res.level;
+      progress.exp = res.exp;
+      const player = this.state.players.get(sessionId);
+      if (player) player.level = progress.level;
+      this.syncPlayerExpSchema(sessionId); // EXP bar + level badge update via schema listen
+      if (res.leveledUp) {
+        this.recomputeEffectiveStats(sessionId);
+        this.refreshPlayerMaxHp(sessionId);
+      }
+      if (rec) void saveCharacterProgress(rec.characterId, progress.level, progress.exp);
+    }
+
+    // notify (§18: the player sees the reward) + refresh the bag when items actually landed.
+    const msg: MilestoneGrantedMessage = { milestoneId, gold: outcome.gold, exp: outcome.exp };
+    client.send(MSG_MILESTONE_GRANTED, msg);
+    if (rec && outcome.granted.length > 0) {
+      const items = await loadCharacterItemsBestEffort(rec.characterId);
+      client.send(MSG_INVENTORY_STATE, buildSnapshot(items, INVENTORY_CAPACITY));
+    }
   }
 
   /**
@@ -1463,6 +1538,8 @@ export class MapRoom extends Room<MapRoomState> {
     };
     client.send(MSG_SHOP_RESULT, ok);
     await this.sendInventorySnapshot(client, rec.characterId);
+    // C1 (§18.1 "ซื้อ/ขายครั้งแรก"): first shop transaction unlocks ms_shop_intro (one-time per account).
+    void this.fireMilestonesForTrigger(client, { kind: "shop_transaction" });
   }
 
   /**
@@ -1515,6 +1592,8 @@ export class MapRoom extends Room<MapRoomState> {
     };
     client.send(MSG_SHOP_RESULT, ok);
     await this.sendInventorySnapshot(client, rec.characterId);
+    // C1 (§18.1 "ซื้อ/ขายครั้งแรก"): first shop transaction unlocks ms_shop_intro (one-time per account).
+    void this.fireMilestonesForTrigger(client, { kind: "shop_transaction" });
   }
 
   /** P2-11: send a fresh bag/equipment snapshot after a shop mutation (equipment unchanged → no stat recompute). */
@@ -1583,6 +1662,8 @@ export class MapRoom extends Room<MapRoomState> {
       const delivery = await buildDeliverySnapshot(this.deliveryServiceDeps(), rec.accountId, Date.now(), true);
       client.send(MSG_STORAGE_STATE, storage);
       client.send(MSG_DELIVERY_STATE, delivery);
+      // C1 (§18.1 "เปิดคลังครั้งแรก"): opening the storage NPC unlocks ms_storage_intro (one-time per account).
+      void this.fireMilestonesForTrigger(client, { kind: "storage_open" });
     } catch (err) {
       console.warn(
         `[MapRoom ${this.roomId}] storage open DB error ${client.sessionId}: ` +

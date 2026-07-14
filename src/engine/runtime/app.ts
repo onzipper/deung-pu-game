@@ -81,6 +81,7 @@ import {
   setGoldFromProgress,
   setInventoryRejection,
   setInventoryState,
+  setMilestoneNotice,
   setPlayerDead,
   setPlayerExp,
   setPlayerLevel,
@@ -539,6 +540,8 @@ export async function createEngine(
               publishSkillSlots();
             }
           },
+          // C1 (§18): milestone ปลดล็อก → stamp notice ให้ MilestoneToast แสดง toast สั้น ๆ
+          onMilestoneGranted: (msg) => setMilestoneNotice(msg),
           // P2-17: คลัง+กล่องส่งของ → Zustand bridge ตรง ๆ (event-driven, เหมือน onShopList/onShopResult)
           onStorageState: (state) => setStorageState(state),
           onStorageResult: (result) => setStorageResult(result),
