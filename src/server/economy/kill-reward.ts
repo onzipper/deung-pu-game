@@ -70,6 +70,18 @@ export interface DropAuditSeam {
   write(rows: readonly DropAuditRow[]): Promise<void>;
 }
 
+/**
+ * delivery-box fallback seam (§12.5 no-silent-loss → Delivery Box, mirror the milestone bag→delivery seam
+ * MilestoneDeliverySeam) — null = no DB → overflow reported (`overflow`), not persisted. When present, bag
+ * overflow is written to the account's Delivery Box and reported as `delivered` instead (never lost).
+ */
+export interface DropDeliverySeam {
+  createEntry(input: {
+    accountId: string;
+    items: readonly { itemId: string; quantity: number }[];
+  }): Promise<void>;
+}
+
 export interface KillRewardDeps {
   reward: MonsterRewardView;
   dropTable: DropTable;
@@ -85,6 +97,8 @@ export interface KillRewardDeps {
   ledger: LedgerSeam | null;
   inventory: InventorySeam | null;
   dropAudit: DropAuditSeam | null;
+  /** §12.5 bag→Delivery Box fallback — null = no DB → overflow reported, not persisted (legacy behavior). */
+  delivery: DropDeliverySeam | null;
 }
 
 export interface KillContext {
@@ -114,8 +128,13 @@ export interface KillRewardOutcome {
   /** ledger balance after the gold entry, or null when skipped. */
   goldBalance: bigint | null;
   granted: { itemId: string; quantity: number }[];
-  /** items that did not fit the bag (§12.5) — caller signals inventory_full (not persisted). */
+  /**
+   * items that did not fit the bag AND could not be persisted (no delivery seam / no DB) — §12.5 caller signals
+   * inventory_full (not persisted, legacy no-DB behavior). Empty when a delivery seam routed them to `delivered`.
+   */
   overflow: { itemId: string; quantity: number }[];
+  /** items that overflowed the bag but were persisted to the Delivery Box (§12.5 no-silent-loss). */
+  delivered: { itemId: string; quantity: number }[];
   /** audit rows produced (also written to the seam when present). */
   audits: DropAuditRecord[];
 }
@@ -158,12 +177,15 @@ export async function grantKillRewards(
     goldBalance = res.balance;
   }
 
-  // 3) DROPS — roll the table, then insert into the bag (overflow returned, not persisted).
+  // 3) DROPS — roll the table, insert into the bag; anything that does not fit falls back to the Delivery Box
+  //    (§12.5 no-silent-loss, same bag→delivery seam as milestone grants). No delivery seam / no DB → the
+  //    overflow is reported (`overflow`) not persisted (legacy behavior; the caller warns inventory_full).
   const roll = rollDropTable(deps.dropTable, deps.pools, deps.rng, {
     excludedItemIds: deps.excludedItemIds,
   });
   let granted: { itemId: string; quantity: number }[] = [];
   let overflow: { itemId: string; quantity: number }[] = [];
+  let delivered: { itemId: string; quantity: number }[] = [];
   if (deps.inventory && roll.grants.length > 0) {
     const outcome = await deps.inventory.grantItems({
       accountId: ctx.accountId,
@@ -180,7 +202,14 @@ export async function grantKillRewards(
       }),
     });
     granted = outcome.granted;
-    overflow = outcome.overflow;
+    if (outcome.overflow.length > 0) {
+      if (deps.delivery) {
+        await deps.delivery.createEntry({ accountId: ctx.accountId, items: outcome.overflow });
+        delivered = outcome.overflow; // persisted to the Delivery Box → not lost
+      } else {
+        overflow = outcome.overflow; // no delivery seam → reported, not persisted
+      }
+    }
   } else {
     overflow = roll.grants.map((g) => ({ itemId: g.itemId, quantity: g.quantity }));
   }
@@ -198,7 +227,7 @@ export async function grantKillRewards(
     );
   }
 
-  return { exp, expGained, goldRolled, goldStatus, goldBalance, granted, overflow, audits: roll.audits };
+  return { exp, expGained, goldRolled, goldStatus, goldBalance, granted, overflow, delivered, audits: roll.audits };
 }
 
 /** uniform integer gold in [min, max] inclusive from one rng draw (§12.2 "Server Roll Gold"). */

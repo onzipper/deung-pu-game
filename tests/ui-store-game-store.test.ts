@@ -208,6 +208,7 @@ const PROGRESS_A: PlayerProgressMessage = {
   leveledUp: false,
   loot: [],
   lootOverflow: [],
+  lootDelivered: [],
 };
 
 describe("selectShopList / selectShopResult / selectGold", () => {
