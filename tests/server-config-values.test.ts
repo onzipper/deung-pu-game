@@ -35,14 +35,20 @@ describe("enhancement curve (D-054 / Economy §16.3.1)", () => {
 describe("EXP curve (Economy §9)", () => {
   const exp = DEFAULT_ECONOMY_CONFIG.expCurve;
 
-  test("level cap = 10 (§9.1)", () => {
-    expect(exp.levelCap).toBe(10);
-    expect(exp.levels).toHaveLength(10);
+  test("level cap = 22 (§9.1 base 10 → Batch 5b: Maps 2–4 band lv8–22 LIVE)", () => {
+    expect(exp.levelCap).toBe(22);
+    expect(exp.levels).toHaveLength(22);
   });
 
-  test("expToNext + cumulative ตรง §9.2 ทุกแถว", () => {
-    expect(exp.levels.map((l) => l.expToNext)).toEqual([120, 220, 360, 520, 720, 950, 1200, 1500, 1850, 0]);
-    expect(exp.levels.map((l) => l.cumulative)).toEqual([120, 340, 700, 1220, 1940, 2890, 4090, 5590, 7440, 7440]);
+  test("expToNext + cumulative ตรง §9.2 (lv1–9 Map 1) + Maps 2–4 extension (lv10–22)", () => {
+    expect(exp.levels.map((l) => l.expToNext)).toEqual([
+      120, 220, 360, 520, 720, 950, 1200, 1500, 1850, // lv1–9 (Map 1 P2, §9.2 verbatim)
+      2280, 2800, 3440, 4230, 5200, 6400, 7870, 9680, 11910, 14650, 18020, 22160, 0, // lv10–22 (Maps 2–4, cap lv22)
+    ]);
+    expect(exp.levels.map((l) => l.cumulative)).toEqual([
+      120, 340, 700, 1220, 1940, 2890, 4090, 5590, 7440, // lv1–9
+      9720, 12520, 15960, 20190, 25390, 31790, 39660, 49340, 61250, 75900, 93920, 116080, 116080, // lv10–22
+    ]);
   });
 
   test("cumulative = running sum ของ expToNext (สอดคล้องกันเอง)", () => {

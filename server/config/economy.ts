@@ -99,28 +99,29 @@ const MONSTER_REWARDS: MonsterReward[] = [
   { monsterId: "boss_map1_boiling_boar", level: 6, exp: 300, goldMin: 120, goldMax: 200, respawnSeconds: 240, dropTableId: "drop_map1_field_boss_v1", phase: "P2" },
 
   // ── Maps 2–4 monster rewards (MAPS_2_4 spec §2 · EXP/Gold/Respawn verbatim) ────────────────────────────
-  // phase = **P2B** (config พร้อม, ยังไม่ grant live) — mirror pattern boss_map1_resonant_guardian: OB scope =
-  //   "Map 1 only" (current-state) + EXP curve lv11–22 (§7 Q1) / equipment master (§7 Q2) / boss reinforcement
-  //   (§7 Q3) = owner-gated. grantKillRewardsForMob() คืน null เมื่อ phase ≠ "P2" → มอนสู้ได้ (combat = engine)
-  //   แต่ยังไม่แจก reward จนกว่า owner promote → P2 + เคาะ Q1/Q2/Q3. boss respawn "Encounter" → 240s placeholder.
+  // phase = **P2** (LIVE — Batch 5b, owner re-sequence 2026-07-14: Open Beta comes AFTER the Expanded phase, so
+  //   Maps 2–4 = live playable content). grantKillRewardsForMob() แจก EXP/gold/drop ให้ทุก id เหล่านี้ตาม spec
+  //   value. delegated Design-Knob authority (§48). Story boss boss_map1_resonant_guardian คง P2B (instanced —
+  //   ไม่แตะ). boss reinforcement = §4.2 pity ladder เดียวกับ Field Boss Map 1 (kill-rewards.ts firing set).
+  //   boss respawn "Encounter" → 240s placeholder.
   // Map 2 — ถนนชายไร่
-  { monsterId: "mon_map2_mushroom_startle", level: 8, exp: 50, goldMin: 14, goldMax: 20, respawnSeconds: 25, dropTableId: "drop_map2_mushroom_startle_v1", phase: "P2B" },
-  { monsterId: "mon_map2_scarecrow_walker", level: 10, exp: 60, goldMin: 18, goldMax: 26, respawnSeconds: 30, dropTableId: "drop_map2_scarecrow_walker_v1", phase: "P2B" },
-  { monsterId: "mon_map2_greenlight_rat", level: 11, exp: 66, goldMin: 20, goldMax: 28, respawnSeconds: 25, dropTableId: "drop_map2_greenlight_rat_v1", phase: "P2B" },
-  { monsterId: "elite_map2_talisman_scarecrow", level: 13, exp: 680, goldMin: 120, goldMax: 180, respawnSeconds: 300, dropTableId: "drop_map2_elite_v1", phase: "P2B" },
-  { monsterId: "boss_map2_field_warden", level: 14, exp: 1000, goldMin: 320, goldMax: 460, respawnSeconds: 240, dropTableId: "drop_map2_boss_v1", phase: "P2B" },
+  { monsterId: "mon_map2_mushroom_startle", level: 8, exp: 50, goldMin: 14, goldMax: 20, respawnSeconds: 25, dropTableId: "drop_map2_mushroom_startle_v1", phase: "P2" },
+  { monsterId: "mon_map2_scarecrow_walker", level: 10, exp: 60, goldMin: 18, goldMax: 26, respawnSeconds: 30, dropTableId: "drop_map2_scarecrow_walker_v1", phase: "P2" },
+  { monsterId: "mon_map2_greenlight_rat", level: 11, exp: 66, goldMin: 20, goldMax: 28, respawnSeconds: 25, dropTableId: "drop_map2_greenlight_rat_v1", phase: "P2" },
+  { monsterId: "elite_map2_talisman_scarecrow", level: 13, exp: 680, goldMin: 120, goldMax: 180, respawnSeconds: 300, dropTableId: "drop_map2_elite_v1", phase: "P2" },
+  { monsterId: "boss_map2_field_warden", level: 14, exp: 1000, goldMin: 320, goldMax: 460, respawnSeconds: 240, dropTableId: "drop_map2_boss_v1", phase: "P2" },
   // Map 3 — ทางป่าเก่า
-  { monsterId: "mon_map3_gnawing_root", level: 12, exp: 72, goldMin: 22, goldMax: 32, respawnSeconds: 30, dropTableId: "drop_map3_gnawing_root_v1", phase: "P2B" },
-  { monsterId: "mon_map3_shadow_monkey", level: 14, exp: 82, goldMin: 26, goldMax: 36, respawnSeconds: 30, dropTableId: "drop_map3_shadow_monkey_v1", phase: "P2B" },
-  { monsterId: "mon_map3_walking_stone", level: 15, exp: 92, goldMin: 30, goldMax: 42, respawnSeconds: 35, dropTableId: "drop_map3_walking_stone_v1", phase: "P2B" },
-  { monsterId: "elite_map3_mossless_stone", level: 17, exp: 900, goldMin: 160, goldMax: 240, respawnSeconds: 390, dropTableId: "drop_map3_elite_v1", phase: "P2B" },
-  { monsterId: "boss_map3_nameless_warden", level: 18, exp: 1300, goldMin: 420, goldMax: 600, respawnSeconds: 240, dropTableId: "drop_map3_boss_v1", phase: "P2B" },
+  { monsterId: "mon_map3_gnawing_root", level: 12, exp: 72, goldMin: 22, goldMax: 32, respawnSeconds: 30, dropTableId: "drop_map3_gnawing_root_v1", phase: "P2" },
+  { monsterId: "mon_map3_shadow_monkey", level: 14, exp: 82, goldMin: 26, goldMax: 36, respawnSeconds: 30, dropTableId: "drop_map3_shadow_monkey_v1", phase: "P2" },
+  { monsterId: "mon_map3_walking_stone", level: 15, exp: 92, goldMin: 30, goldMax: 42, respawnSeconds: 35, dropTableId: "drop_map3_walking_stone_v1", phase: "P2" },
+  { monsterId: "elite_map3_mossless_stone", level: 17, exp: 900, goldMin: 160, goldMax: 240, respawnSeconds: 390, dropTableId: "drop_map3_elite_v1", phase: "P2" },
+  { monsterId: "boss_map3_nameless_warden", level: 18, exp: 1300, goldMin: 420, goldMax: 600, respawnSeconds: 240, dropTableId: "drop_map3_boss_v1", phase: "P2" },
   // Map 4 — ป่าจันทร์เงา
-  { monsterId: "mon_map4_moonlight_wisp", level: 16, exp: 92, goldMin: 30, goldMax: 42, respawnSeconds: 30, dropTableId: "drop_map4_moonlight_wisp_v1", phase: "P2B" },
-  { monsterId: "mon_map4_dream_mushroom", level: 17, exp: 96, goldMin: 32, goldMax: 44, respawnSeconds: 30, dropTableId: "drop_map4_dream_mushroom_v1", phase: "P2B" },
-  { monsterId: "mon_map4_shadow_deer", level: 19, exp: 108, goldMin: 38, goldMax: 52, respawnSeconds: 40, dropTableId: "drop_map4_shadow_deer_v1", phase: "P2B" },
-  { monsterId: "elite_map4_shattered_moon_deer", level: 21, exp: 1100, goldMin: 200, goldMax: 300, respawnSeconds: 420, dropTableId: "drop_map4_elite_v1", phase: "P2B" },
-  { monsterId: "boss_map4_moondark_dryad", level: 22, exp: 1600, goldMin: 520, goldMax: 740, respawnSeconds: 240, dropTableId: "drop_map4_boss_v1", phase: "P2B" },
+  { monsterId: "mon_map4_moonlight_wisp", level: 16, exp: 92, goldMin: 30, goldMax: 42, respawnSeconds: 30, dropTableId: "drop_map4_moonlight_wisp_v1", phase: "P2" },
+  { monsterId: "mon_map4_dream_mushroom", level: 17, exp: 96, goldMin: 32, goldMax: 44, respawnSeconds: 30, dropTableId: "drop_map4_dream_mushroom_v1", phase: "P2" },
+  { monsterId: "mon_map4_shadow_deer", level: 19, exp: 108, goldMin: 38, goldMax: 52, respawnSeconds: 40, dropTableId: "drop_map4_shadow_deer_v1", phase: "P2" },
+  { monsterId: "elite_map4_shattered_moon_deer", level: 21, exp: 1100, goldMin: 200, goldMax: 300, respawnSeconds: 420, dropTableId: "drop_map4_elite_v1", phase: "P2" },
+  { monsterId: "boss_map4_moondark_dryad", level: 22, exp: 1600, goldMin: 520, goldMax: 740, respawnSeconds: 240, dropTableId: "drop_map4_boss_v1", phase: "P2" },
 ];
 
 // ── drop tables (Economy §11) — Kraeng/upg_kraeng rows SUPERSEDED to 0% (Reinforcement §4) ────
@@ -211,15 +212,15 @@ const DROP_TABLES: DropTable[] = [
   },
 
   // ── Maps 2–4 drop tables (MAPS_2_4 spec §5 — mirror Map 1 §11 format) ───────────────────────────────────
-  // phase = **P2B** (config พร้อม, ไม่ roll live จนกว่า reward.phase → P2, §7 owner-gate). per-mob table (มอนปกติ
-  //   ต่างวัสดุ → 1:1 monsterId↔dropTable เหมือน Map 1; spec ตั้งชื่อ family "drop_mapN_normal" แต่ engine ผูก 1
-  //   table ต่อ 1 monsterId → split ต่อมอน). equipment pool = pool_mapN_*_gear (entries ว่างจน §7 Q2). potion =
-  //   con_small_potion (mid-tier potion = §7 Q6, owner-gated). **ไม่มี reinforcement/เศษ ในตารางไหน** — boss-only
-  //   ผ่าน pity path (§4.2/§3.5) + rate ของ boss Map 2–4 = owner-gated §7 Q3 (ยังไม่ wire, ดูรายงาน). R8 guard
+  // phase = **P2** (LIVE — Batch 5b, roll live). per-mob table (มอนปกติต่างวัสดุ → 1:1 monsterId↔dropTable เหมือน
+  //   Map 1; spec ตั้งชื่อ family "drop_mapN_normal" แต่ engine ผูก 1 table ต่อ 1 monsterId → split ต่อมอน). equipment
+  //   pool = pool_mapN_*_gear (entries ว่างจน item master ยัง mint — follow-up; empty pool = roll ปลอดภัย คืน null,
+  //   ไม่มี gear grant). potion = con_small_potion (mid-tier potion = follow-up). **ไม่มี reinforcement/เศษ ในตาราง
+  //   ไหน** — boss-only ผ่าน pity path (§4.2/§3.5, ladder เดียวทั้งเกม 8%+pity15) มิเรอร์ Field Boss Map 1. R8 guard
   //   กัน upg_reinforcement ออกจาก generic roll อยู่แล้ว (kill-rewards.ts).
   // Map 2 — ถนนชายไร่ (§5.1)
   {
-    dropTableId: "drop_map2_mushroom_startle_v1", monsterId: "mon_map2_mushroom_startle", phase: "P2B",
+    dropTableId: "drop_map2_mushroom_startle_v1", monsterId: "mon_map2_mushroom_startle", phase: "P2",
     guaranteed: [],
     rolls: [
       { rollId: "material", chancePercent: 70, itemId: "mat_startle_spore", poolId: null, quantity: { min: 1, max: 2 } },
@@ -228,7 +229,7 @@ const DROP_TABLES: DropTable[] = [
     ],
   },
   {
-    dropTableId: "drop_map2_scarecrow_walker_v1", monsterId: "mon_map2_scarecrow_walker", phase: "P2B",
+    dropTableId: "drop_map2_scarecrow_walker_v1", monsterId: "mon_map2_scarecrow_walker", phase: "P2",
     guaranteed: [],
     rolls: [
       { rollId: "material", chancePercent: 70, itemId: "mat_resonant_straw", poolId: null, quantity: { min: 1, max: 2 } },
@@ -238,7 +239,7 @@ const DROP_TABLES: DropTable[] = [
     ],
   },
   {
-    dropTableId: "drop_map2_greenlight_rat_v1", monsterId: "mon_map2_greenlight_rat", phase: "P2B",
+    dropTableId: "drop_map2_greenlight_rat_v1", monsterId: "mon_map2_greenlight_rat", phase: "P2",
     guaranteed: [],
     rolls: [
       { rollId: "main_material", chancePercent: 55, itemId: "mat_greenlight_whisker", poolId: null, quantity: { min: 1, max: 1 } },
@@ -249,7 +250,7 @@ const DROP_TABLES: DropTable[] = [
   },
   {
     // Elite หุ่นฟางพันยันต์ (§5.1 elite) — guaranteed material + rolls. respawn 5m, ไม่มี pity.
-    dropTableId: "drop_map2_elite_v1", monsterId: "elite_map2_talisman_scarecrow", phase: "P2B",
+    dropTableId: "drop_map2_elite_v1", monsterId: "elite_map2_talisman_scarecrow", phase: "P2",
     guaranteed: [
       { itemId: "mat_resonant_straw", poolId: null, quantity: { min: 2, max: 4 } },
       { itemId: "mat_greenlight_whisker", poolId: null, quantity: { min: 1, max: 2 } },
@@ -262,7 +263,7 @@ const DROP_TABLES: DropTable[] = [
   },
   {
     // Boss หุ่นฟางผู้เฝ้าไร่ (§5.1 boss) — guaranteed boss material (ACCOUNT_BOUND) + uncommon pool; potion 100% roll.
-    dropTableId: "drop_map2_boss_v1", monsterId: "boss_map2_field_warden", phase: "P2B",
+    dropTableId: "drop_map2_boss_v1", monsterId: "boss_map2_field_warden", phase: "P2",
     guaranteed: [
       { itemId: "mat_warden_talisman_ash", poolId: null, quantity: { min: 2, max: 4 } },
       { itemId: null, poolId: "pool_map2_uncommon_gear", quantity: { min: 1, max: 1 } },
@@ -274,7 +275,7 @@ const DROP_TABLES: DropTable[] = [
   },
   // Map 3 — ทางป่าเก่า (§5.2)
   {
-    dropTableId: "drop_map3_gnawing_root_v1", monsterId: "mon_map3_gnawing_root", phase: "P2B",
+    dropTableId: "drop_map3_gnawing_root_v1", monsterId: "mon_map3_gnawing_root", phase: "P2",
     guaranteed: [],
     rolls: [
       { rollId: "material", chancePercent: 70, itemId: "mat_old_root_scrap", poolId: null, quantity: { min: 1, max: 2 } },
@@ -283,7 +284,7 @@ const DROP_TABLES: DropTable[] = [
     ],
   },
   {
-    dropTableId: "drop_map3_shadow_monkey_v1", monsterId: "mon_map3_shadow_monkey", phase: "P2B",
+    dropTableId: "drop_map3_shadow_monkey_v1", monsterId: "mon_map3_shadow_monkey", phase: "P2",
     guaranteed: [],
     rolls: [
       { rollId: "material", chancePercent: 65, itemId: "mat_shadow_pelt", poolId: null, quantity: { min: 1, max: 2 } },
@@ -292,7 +293,7 @@ const DROP_TABLES: DropTable[] = [
     ],
   },
   {
-    dropTableId: "drop_map3_walking_stone_v1", monsterId: "mon_map3_walking_stone", phase: "P2B",
+    dropTableId: "drop_map3_walking_stone_v1", monsterId: "mon_map3_walking_stone", phase: "P2",
     guaranteed: [],
     rolls: [
       { rollId: "main_material", chancePercent: 55, itemId: "mat_mossless_shard", poolId: null, quantity: { min: 1, max: 1 } },
@@ -304,7 +305,7 @@ const DROP_TABLES: DropTable[] = [
   },
   {
     // Elite หินไร้ตะไคร่ (§5.2 elite, hidden) — respawn 6.5m.
-    dropTableId: "drop_map3_elite_v1", monsterId: "elite_map3_mossless_stone", phase: "P2B",
+    dropTableId: "drop_map3_elite_v1", monsterId: "elite_map3_mossless_stone", phase: "P2",
     guaranteed: [
       { itemId: "mat_mossless_shard", poolId: null, quantity: { min: 2, max: 4 } },
       { itemId: "mat_shadow_pelt", poolId: null, quantity: { min: 1, max: 2 } },
@@ -317,7 +318,7 @@ const DROP_TABLES: DropTable[] = [
   },
   {
     // Boss ผู้เฝ้าทางที่ไม่มีชื่อ (§5.2 boss).
-    dropTableId: "drop_map3_boss_v1", monsterId: "boss_map3_nameless_warden", phase: "P2B",
+    dropTableId: "drop_map3_boss_v1", monsterId: "boss_map3_nameless_warden", phase: "P2",
     guaranteed: [
       { itemId: "mat_nameless_marker_stone", poolId: null, quantity: { min: 2, max: 4 } },
       { itemId: null, poolId: "pool_map3_uncommon_gear", quantity: { min: 1, max: 1 } },
@@ -329,7 +330,7 @@ const DROP_TABLES: DropTable[] = [
   },
   // Map 4 — ป่าจันทร์เงา (§5.3)
   {
-    dropTableId: "drop_map4_moonlight_wisp_v1", monsterId: "mon_map4_moonlight_wisp", phase: "P2B",
+    dropTableId: "drop_map4_moonlight_wisp_v1", monsterId: "mon_map4_moonlight_wisp", phase: "P2",
     guaranteed: [],
     rolls: [
       { rollId: "material", chancePercent: 68, itemId: "mat_moonlight_residue", poolId: null, quantity: { min: 1, max: 2 } },
@@ -338,7 +339,7 @@ const DROP_TABLES: DropTable[] = [
     ],
   },
   {
-    dropTableId: "drop_map4_dream_mushroom_v1", monsterId: "mon_map4_dream_mushroom", phase: "P2B",
+    dropTableId: "drop_map4_dream_mushroom_v1", monsterId: "mon_map4_dream_mushroom", phase: "P2",
     guaranteed: [],
     rolls: [
       { rollId: "material", chancePercent: 70, itemId: "mat_dream_cap", poolId: null, quantity: { min: 1, max: 2 } },
@@ -347,7 +348,7 @@ const DROP_TABLES: DropTable[] = [
     ],
   },
   {
-    dropTableId: "drop_map4_shadow_deer_v1", monsterId: "mon_map4_shadow_deer", phase: "P2B",
+    dropTableId: "drop_map4_shadow_deer_v1", monsterId: "mon_map4_shadow_deer", phase: "P2",
     guaranteed: [],
     rolls: [
       { rollId: "main_material", chancePercent: 55, itemId: "mat_shadow_dew", poolId: null, quantity: { min: 1, max: 1 } },
@@ -359,7 +360,7 @@ const DROP_TABLES: DropTable[] = [
   },
   {
     // Elite กวางจันทร์แตก (§5.3 elite) — respawn 7m.
-    dropTableId: "drop_map4_elite_v1", monsterId: "elite_map4_shattered_moon_deer", phase: "P2B",
+    dropTableId: "drop_map4_elite_v1", monsterId: "elite_map4_shattered_moon_deer", phase: "P2",
     guaranteed: [
       { itemId: "mat_shadow_dew", poolId: null, quantity: { min: 2, max: 4 } },
       { itemId: "mat_dream_cap", poolId: null, quantity: { min: 1, max: 2 } },
@@ -372,7 +373,7 @@ const DROP_TABLES: DropTable[] = [
   },
   {
     // Boss นางไม้จันทร์ดับ (§5.3 boss, ปิดแบนด์ lv22) — guaranteed Rare boss material + rare pool; Epic ตัวแรก 6%.
-    dropTableId: "drop_map4_boss_v1", monsterId: "boss_map4_moondark_dryad", phase: "P2B",
+    dropTableId: "drop_map4_boss_v1", monsterId: "boss_map4_moondark_dryad", phase: "P2",
     guaranteed: [
       { itemId: "mat_moondark_sap", poolId: null, quantity: { min: 2, max: 4 } },
       { itemId: null, poolId: "pool_map4_rare_gear", quantity: { min: 1, max: 1 } },
@@ -487,9 +488,10 @@ const STARTER_SHOP: ShopConfig = {
     eq_talisman_sprout: 30,
     eq_talisman_firmness: 72,
     eq_talisman_moon_echo: 180,
-    // Maps 2–4 materials (MAPS_2_4 spec §4 "Sell" — Design Knob §48). ขายที่ร้าน city-hub เดียว (mirror Map 1);
-    //   Map 2 starter shop (§7 Q6) = owner-gated ยังไม่ทำ. boss-material (ash/marker/sap) ขายได้ปกติ (ACCOUNT_BOUND
-    //   ไม่ห้ามขาย; ต่างจากเสริมแกร่งที่ขายไม่ได้). ราคา additive → ไม่กระทบ Map 1 (ขายได้ต่อเมื่อ material ดรอปจริง = P2).
+    // Maps 2–4 materials (MAPS_2_4 spec §4 "Sell" — Design Knob §48). ขายที่ร้าน city-hub เดียว (mirror Map 1).
+    //   TODO(follow-up): Maps 2–4 safe villages ยังไม่มีร้าน/NPC ของตัวเอง — ผู้เล่นกลับ city-hub เพื่อขาย material
+    //   (Map 2–4 material ดรอป LIVE แล้ว แต่ shop.mapId = city-hub เดียว). boss-material (ash/marker/sap) ขายได้ปกติ
+    //   (ACCOUNT_BOUND ไม่ห้ามขาย; ต่างจากเสริมแกร่งที่ขายไม่ได้).
     mat_startle_spore: 6, // M2 mushroom_startle (Common)
     mat_resonant_straw: 8, // M2 scarecrow_walker (Common)
     mat_greenlight_whisker: 14, // M2 greenlight_rat (Uncommon)
@@ -510,8 +512,11 @@ export const DEFAULT_ECONOMY_CONFIG: EconomyConfig = {
   economyVersion: ECONOMY_VERSION,
   effectiveFrom: "2026-07-12", // §2.2
   expCurve: {
-    levelCap: 10, // §9.1
-    // §9.2 — expToNext / cumulative ต่อเลเวล; ที่ cap (lv10) expToNext = 0.
+    // §9.1 base cap 10 → 22 (Batch 5b — Maps 2–4 band lv8–22 = LIVE, owner re-sequence 2026-07-14; Design Knob
+    // §48, delegated authority). lv1–9 = Map 1 P2 (§9.2 verbatim); lv10–22 = Maps 2–4 extension (1.23 growth ต่อ
+    // lv8→9). POST_P2_EXP_CURVE_EXTENSION_LV10_22 (bottom) = the lv≥10 slice of THIS array (single source of truth).
+    levelCap: 22,
+    // §9.2 — expToNext / cumulative ต่อเลเวล; ที่ cap (lv22) expToNext = 0.
     levels: [
       { level: 1, expToNext: 120, cumulative: 120 },
       { level: 2, expToNext: 220, cumulative: 340 },
@@ -522,7 +527,19 @@ export const DEFAULT_ECONOMY_CONFIG: EconomyConfig = {
       { level: 7, expToNext: 1200, cumulative: 4090 },
       { level: 8, expToNext: 1500, cumulative: 5590 },
       { level: 9, expToNext: 1850, cumulative: 7440 },
-      { level: 10, expToNext: 0, cumulative: 7440 },
+      { level: 10, expToNext: 2280, cumulative: 9720 }, // un-cap (Maps 2–4 LIVE)
+      { level: 11, expToNext: 2800, cumulative: 12520 },
+      { level: 12, expToNext: 3440, cumulative: 15960 },
+      { level: 13, expToNext: 4230, cumulative: 20190 },
+      { level: 14, expToNext: 5200, cumulative: 25390 },
+      { level: 15, expToNext: 6400, cumulative: 31790 },
+      { level: 16, expToNext: 7870, cumulative: 39660 },
+      { level: 17, expToNext: 9680, cumulative: 49340 },
+      { level: 18, expToNext: 11910, cumulative: 61250 },
+      { level: 19, expToNext: 14650, cumulative: 75900 },
+      { level: 20, expToNext: 18020, cumulative: 93920 },
+      { level: 21, expToNext: 22160, cumulative: 116080 },
+      { level: 22, expToNext: 0, cumulative: 116080 }, // Map 4 exit / band cap (lv22)
     ],
     // §9.3
     levelDiffModifier: {
@@ -565,26 +582,10 @@ export const DEFAULT_ECONOMY_CONFIG: EconomyConfig = {
   },
 };
 
-// ── EXP curve extension lv10–22 (Maps 2–4 · MAPS_2_4 §1 band · §7 Q1 OWNER-GATED) ──────────────────────────
-// ⚠️ DORMANT + owner-gated (§7 Q1): DEFAULT_ECONOMY_CONFIG.expCurve คง levelCap 10 + 10 แถว (P2 cap §9.1, ยังไม่ยก).
-//   Maps 2–4 band lv8–22 ต้องมี curve ต่อ; ตารางนี้ = "ราง" (Design Knob §48) พร้อมให้ owner promote — **ยังไม่ wire**
-//   เข้า live curve (จึงไม่กระทบ progression OB / lv cap เดิม; server-config-values.test lock lv10 = ยังเขียว).
-//
-// EXTRAPOLATION RULE (ระบุตาม brief + §7 Q1 rec): expToNext[N+1] = round(expToNext[N] × 1.23, ปัด 10 ใกล้สุด),
-//   ต่อ ratio lv8→9 เดิม (1850/1500 = 1.233 ≈ §7 Q1 "~1.24"); lv22 = cap (expToNext 0). lv10 un-cap (0 → 2280).
-//   cumulative = running sum ต่อจาก lv9 (7440). ทุกค่าปรับได้ (owner เคาะ Q1 ตอน promote Map 2–4 → P2).
-export const POST_P2_EXP_CURVE_EXTENSION_LV10_22: readonly ExpLevelRow[] = [
-  { level: 10, expToNext: 2280, cumulative: 9720 }, // un-cap (live คง 0 จน promote)
-  { level: 11, expToNext: 2800, cumulative: 12520 },
-  { level: 12, expToNext: 3440, cumulative: 15960 },
-  { level: 13, expToNext: 4230, cumulative: 20190 },
-  { level: 14, expToNext: 5200, cumulative: 25390 },
-  { level: 15, expToNext: 6400, cumulative: 31790 },
-  { level: 16, expToNext: 7870, cumulative: 39660 },
-  { level: 17, expToNext: 9680, cumulative: 49340 },
-  { level: 18, expToNext: 11910, cumulative: 61250 },
-  { level: 19, expToNext: 14650, cumulative: 75900 },
-  { level: 20, expToNext: 18020, cumulative: 93920 },
-  { level: 21, expToNext: 22160, cumulative: 116080 },
-  { level: 22, expToNext: 0, cumulative: 116080 }, // Map 4 exit / band cap (lv22)
-];
+// ── EXP curve extension lv10–22 (Maps 2–4 · MAPS_2_4 §1 band) — now LIVE (Batch 5b) ─────────────────────────
+// Owner re-sequence (2026-07-14): Open Beta comes AFTER the Expanded phase → Maps 2–4 (band lv8–22) = live
+//   content, so the lv10–22 curve is wired into DEFAULT_ECONOMY_CONFIG.expCurve above (levelCap 22). This export
+//   is the lv≥10 SLICE of that live curve — a single source of truth (no duplicated literals), kept for callers/
+//   tests that reference the extension range specifically. ทุกค่าปรับได้ (Design Knob §48).
+export const POST_P2_EXP_CURVE_EXTENSION_LV10_22: readonly ExpLevelRow[] =
+  DEFAULT_ECONOMY_CONFIG.expCurve.levels.filter((l) => l.level >= 10);
