@@ -132,9 +132,8 @@ export interface MobHpBarConfig {
  * (src/game/mob/name-catalog.ts) เสมอ ไม่ผูกกับการโดนตี (ต่างจาก hpBar). สีต่อ rank (ไม่มี spec, ใช้ default
  * นี้เป็น knob): normal = ขาว, elite = ส้ม, boss = แดง+ใหญ่กว่า. วางเหนือ hpBar เสมอ (offsetY ติดลบกว่า hpBar.offsetY).
  *
- * Legibility pass (fix/nameplate-legibility): เพิ่ม bg chip (dark rounded rect หลังตัวอักษร) + drop shadow +
- * textResolution ให้อ่านออกชัดบน pixelate pipeline (renderResolution 0.5 + textureScaleMode "nearest",
- * src/engine/config/render.ts — ไม่แตะไฟล์นั้น). ทุกค่าใหม่เป็น Design Knob (§48), ไม่ hardcode inline.
+ * Legibility: bg chip + Thai typography render ผ่าน full-resolution nameplate overlay; world canvas ยังคง
+ * renderResolution 0.5 + nearest ตาม D-065. ทุกค่าเป็น Design Knob (§48), ไม่ hardcode inline.
  */
 export interface MobNameplateConfig {
   /** ระยะ (px) เหนือ foot ของมอน (ลบ = ขึ้นบน) — ต้องอยู่เหนือ hpBar.offsetY เสมอ (ติดลบกว่า) */
@@ -178,8 +177,7 @@ export interface MobNameplateConfig {
   /** รัศมีมุมโค้งของ chip (px) */
   cornerRadius: number;
   /**
-   * resolution ของ glyph texture ของ Text นี้โดยเฉพาะ (แยกจาก renderer resolution 0.5 ทั้งเกม) —
-   * ให้ตัวอักษรคมกว่าที่ pixelate pipeline ปกติจะให้ (Pixi v8 Text accepts `resolution` option).
+   * resolution ของ glyph texture ของ Text นี้โดยเฉพาะบน full-resolution nameplate overlay.
    */
   textResolution: number;
   /** รัศมีรอบผู้เล่น (tile) ที่อนุญาตให้แสดงป้ายชื่อมอนปกติ */
@@ -305,7 +303,7 @@ export const DEFAULT_MOB_CONFIG: MobConfig = {
     paddingX: 5,
     paddingY: 2,
     cornerRadius: 4,
-    textResolution: 3, // glyph texture คมกว่า renderer resolution 0.5 ทั้งเกม (src/engine/config/render.ts)
+    textResolution: 3, // high-resolution glyph texture บน nameplate overlay
     normalRevealRadiusTiles: 5,
     normalVisibleLimit: 6,
     normalMinProjectedSpacingTiles: 1.25,

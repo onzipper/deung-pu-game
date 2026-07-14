@@ -8,19 +8,9 @@
 //
 // วางเหนือ afk-label (offsetY ติดลบมากกว่าตาม nameplate.gapAboveAfk) ให้สองป้ายอ่านออกพร้อมกัน ไม่ทับ.
 //
-// Legibility pass (fix/nameplate-legibility): label เดิมเป็น bare Text (เบลอ/เล็ก/คอนทราสต์ต่ำบนพื้น pixelate
-// 0.5 res). เปลี่ยนเป็น Container ห่อ bg Graphics (dark rounded rect, sized ตาม text bounds + padding — คำนวณ
-// ใหม่เฉพาะตอน setNameLabelText เปลี่ยนข้อความจริง ไม่ใช่ทุก frame) + Text ที่ตั้ง resolution สูงกว่า renderer
-// resolution ทั้งเกม (0.5) ให้ glyph texture คมขึ้น.
-//
-// Pixi v8 caveat (ตรวจด้วย prototype introspection จริง ไม่ใช่เดา): `Text`/`AbstractText` ใน pixi.js@8.19
-// **ไม่มี** public `.texture` accessor (ต่างจาก v7 ที่ Text extends Sprite มี .texture) — ข้อความ/รูปภาพ
-// glyph เก็บเป็น private `_gpuData` ผูกกับ renderer, อัปโหลดตอน render จริง ไม่ใช่ตอน construct. ดังนั้น
-// "ตั้ง label.texture.source.scaleMode = 'linear' เฉพาะ label นี้" ตามที่ brief แนะนำ **ทำไม่ได้** ด้วย public
-// API — lever เดียวที่มีคือ global `TextureSource.defaultOptions.scaleMode` (ตัวเดียวกับที่ app.ts ตั้ง
-// "nearest" ทั้งเกมสำหรับ pixel-art sprite, D-065) ซึ่งถ้า toggle จะกระทบ sprite อื่นด้วย + ผิด scope brief
-// ("ไม่แตะ render.ts ทั้งเกม"). ใช้ resolution (Design Knob ด้านล่าง) เป็น lever หลักแทนสำหรับความคมของ
-// glyph — ดู report ของ fix/nameplate-legibility สำหรับรายละเอียด.
+// Legibility: chip + Thai-friendly Text remain reusable in both render paths. Normal runtime mounts labels on
+// `nameplate-layer.ts`, a native-resolution transparent canvas. The sprite-child path remains a fallback for
+// isolated callers, but cannot retain full Thai glyph detail after the D-065 0.5x final world render pass.
 //
 // caller เก็บ reference เป็น Container (แทน Text เดิม) — addChild/scale.x(counter-flip)/destroy ใช้ pattern
 // เดียวกับ Text (Container รองรับทั้งหมดนี้). state ภายใน (text/bg ref สำหรับ resize เมื่อ setNameLabelText)

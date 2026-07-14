@@ -16,7 +16,7 @@
 - `src/engine/animation/` — animation manifest (5-dir+mirror), sprite animator, placeholder textures, texture-set (non-owning handles)
 - `src/engine/assets/` — runtime atlas loader/registry (engine-scope, fail-soft → placeholder)
 - `src/engine/config/render.ts` — pixelate knob (on/scale/nearest-filter/CSS)
-- `src/engine/render/` — depth registry, camera, scene graph, pool, screen shake, exit marker, afk-label, name-label (player over-head name) · `src/engine/audio/` SFX
+- `src/engine/render/` — depth registry, camera, scene graph, pool, screen shake, exit marker, afk-label, name-label, nameplate-layer (full-res world-label overlay, keeps Thai glyphs crisp above the D-065 0.5x world pass) · `src/engine/audio/` SFX
 - `src/engine/map/` — MapConfig schema/loader/registry + map1/city-hub/p0-test-field configs
 - `src/engine/input/` — keyboard (WASD+attack) + joystick→8-dir intent + target-assist (per-mode click radius, Combat Bible §3, P2-15)
 

@@ -12,7 +12,7 @@
 //   dynamic obstacle ขวางกลางทาง → replan A* ไป goal เดิม (config.replanOnBlock) หรือหยุด.
 //   walk-to-attack: faceToward(tile) + requestAttack() ให้ caller (app.ts) ใช้ตอนแตะมอน (เท่ากับกด Space).
 
-import { Graphics, type Renderer } from "pixi.js";
+import { Container, Graphics, type Renderer } from "pixi.js";
 import type { EngineConfig } from "@/engine/config";
 import type { TilePoint } from "@/engine/iso/coords";
 import { isWalkableTile, type MapConfig } from "@/engine/map/types";
@@ -45,6 +45,7 @@ import {
   setNameLabelText,
   updateNameLabel,
 } from "@/engine/render/name-label";
+import type { NameplateLayerHandle } from "@/engine/render/nameplate-layer";
 
 /** anim ที่ player ต้องมีครบใน atlas ก่อนใช้แทน placeholder (attack ล็อกทับ walk/idle ตอนโจมตี). */
 const PLAYER_REQUIRED_ANIMS = ["idle", "walk", "attack"] as const;
@@ -152,6 +153,7 @@ export function createLocalPlayer(
   config: EngineConfig,
   renderer: Renderer,
   registry?: AssetRegistry,
+  nameplates?: NameplateLayerHandle,
   target?: EventTarget,
 ): LocalPlayerHandle {
   const { tileSize, player, pathfinding, input } = config;
@@ -191,17 +193,22 @@ export function createLocalPlayer(
   scene.addEntity(LOCAL_PLAYER_ID, animator.view, pos);
   scene.setCameraTarget(pos, true); // กล้องเริ่มที่ player (ไม่กวาดจาก origin)
 
-  // P2-13 (D-056): ป้าย "AFK" ของตัวเอง (child ของ sprite view) — server ตั้ง isAfk, caller toggle ผ่าน setAfk.
+  // P2-13 (D-056): ป้าย "AFK" ของตัวเอง — full-res nameplate layer เมื่อมี, sprite child เป็น fallback.
   const afkOffsetY = afkLabelOffsetY(player.animation.style.bodyHeight, player.animation.style.walkBob);
   const afkLabel = createAfkLabel(player.animation.style.bodyHeight, player.animation.style.walkBob);
-  animator.view.addChild(afkLabel);
   let afk = false;
 
-  // NAMEPLATES: ป้ายชื่อตัวละครของตัวเอง (child ของ sprite view เหมือน afkLabel — flip ตามหัว, ต้อง counter-flip;
-  // destroy พร้อม view ตอน scene.removeEntity). ชื่อมาทีหลังผ่าน setName (self PlayerState.name sync) — ซ่อนจน
-  // ชื่อมา. วางเหนือ afkLabel (gapAboveAfk) กัน 2 ป้ายทับกัน.
+  // NAMEPLATES: overlay แยกคง glyph ไทยไว้เต็ม resolution; fallback เดิมยังรองรับ caller ที่ไม่ส่ง layer.
   const nameLabel = createNameLabel(afkOffsetY, player.nameplate);
-  animator.view.addChild(nameLabel);
+  if (nameplates) {
+    const labelGroup = new Container();
+    labelGroup.addChild(afkLabel);
+    labelGroup.addChild(nameLabel);
+    nameplates.addEntity(LOCAL_PLAYER_ID, labelGroup, pos);
+  } else {
+    animator.view.addChild(afkLabel);
+    animator.view.addChild(nameLabel);
+  }
 
   const keyboard = attachKeyboard(target);
   const isWalkable = (tx: number, ty: number): boolean =>
@@ -256,6 +263,7 @@ export function createLocalPlayer(
     pos.tx = next.tx;
     pos.ty = next.ty;
     scene.moveEntity(LOCAL_PLAYER_ID, pos);
+    nameplates?.moveEntity(LOCAL_PLAYER_ID, pos);
     scene.setCameraTarget(pos); // follow (lerp ใน scene.update)
     return true;
   };
@@ -356,6 +364,7 @@ export function createLocalPlayer(
       pos.tx = tx;
       pos.ty = ty;
       scene.moveEntity(LOCAL_PLAYER_ID, pos);
+      nameplates?.moveEntity(LOCAL_PLAYER_ID, pos);
       scene.setCameraTarget(pos, true); // snap กล้องตาม (ไม่ lerp ไปหาตำแหน่งใหม่)
       // Prod fix 2026-07-12: correction แล้ว **ไม่ทิ้ง goal** — ถ้ากำลังเดินตาม path (click-to-move /
       // walk-to-attack chase) → replan A* จากตำแหน่งใหม่ไป goal เดิม → เดินต่อ (แก้ "กระตุกแล้วหยุด ไม่
@@ -413,9 +422,13 @@ export function createLocalPlayer(
       animator.setState(animation, facing);
       animator.update(dtSeconds);
       // P2-13 (D-056): toggle ป้าย AFK + counter-flip กัน mirror (หลัง setState — view.scale.x อาจเพิ่ง flip)
-      updateAfkLabel(afkLabel, animator.view, afk);
-      // NAMEPLATES: counter-flip ป้ายชื่อกัน mirror (visible คุมด้วย setName แล้ว)
-      updateNameLabel(nameLabel, animator.view);
+      if (nameplates) {
+        afkLabel.visible = afk;
+      } else {
+        updateAfkLabel(afkLabel, animator.view, afk);
+        // NAMEPLATES: counter-flip ป้ายชื่อกัน mirror (visible คุมด้วย setName แล้ว)
+        updateNameLabel(nameLabel, animator.view);
+      }
 
       // marker fade (cosmetic) — fade อิสระจาก path (โชว์จุดที่คลิกล่าสุดชั่วครู่)
       if (marker) {
@@ -433,6 +446,7 @@ export function createLocalPlayer(
     destroy(): void {
       keyboard.detach();
       removeMarker();
+      nameplates?.removeEntity(LOCAL_PLAYER_ID);
       scene.removeEntity(LOCAL_PLAYER_ID); // destroy sprite view
       animator.destroy(); // ปล่อย texture ที่ generate
     },
