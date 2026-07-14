@@ -145,12 +145,35 @@ describe("Maps 2–4 drop tables (§5 well-formed)", () => {
     expect(epic).toMatchObject({ poolId: "pool_map4_epic_gear", chancePercent: 6 });
   });
 
-  test("Maps 2–4 equipment pools = ประกาศครบ แต่ entries ว่าง (owner-gated §7 Q2 — item master ยังไม่ mint)", () => {
+  test("Maps 2–4 equipment pools = mint แล้ว (Batch 5c — Item Master Addendum §4, Q2 RESOLVED)", () => {
+    const byId = new Map(DEFAULT_ECONOMY_CONFIG.equipmentPools.map((p) => [p.poolId, p]));
     const map24Pools = DEFAULT_ECONOMY_CONFIG.equipmentPools.filter((p) => /^pool_map[234]_/.test(p.poolId));
     expect(map24Pools).toHaveLength(10); // common/uncommon/rare ต่อแมพ (9) + pool_map4_epic_gear
-    for (const p of map24Pools) expect(p.entries, `${p.poolId} ต้องว่างจน Q2`).toHaveLength(0);
+    // ทุก pool มี ≥2 ชิ้น ยกเว้น epic (capstone ชิ้นเดียว) — addendum §4
+    for (const p of map24Pools) {
+      const min = p.poolId === "pool_map4_epic_gear" ? 1 : 2;
+      expect(p.entries.length, `${p.poolId} ต้องมี ≥${min} ชิ้น`).toBeGreaterThanOrEqual(min);
+    }
+    // ทุก itemId ใน pool มีจริงใน catalog (referential integrity) + เป็น equipment (kind + valid slot)
+    for (const p of map24Pools) {
+      for (const e of p.entries) {
+        expect(e.weight, `${p.poolId}/${e.itemId} weight`).toBeGreaterThan(0);
+        const def = DEFAULT_ITEM_CATALOG.get(e.itemId);
+        expect(def, `${p.poolId} อ้าง item "${e.itemId}" ไม่มีใน catalog`).toBeDefined();
+        expect(def!.kind, e.itemId).toBe("equipment");
+      }
+    }
+    // spot: addendum §4 composition + weight (Map 2 common 3 ชิ้น · epic capstone ชิ้นเดียว)
+    expect(byId.get("pool_map2_common_gear")!.entries).toEqual([
+      { itemId: "eq_weapon_field_scythe", weight: 22 },
+      { itemId: "eq_head_straw_hood", weight: 20 },
+      { itemId: "eq_body_field_hand_vest", weight: 18 },
+    ]);
+    expect(byId.get("pool_map4_epic_gear")!.entries).toEqual([
+      { itemId: "eq_weapon_moondark_crescent", weight: 20 },
+    ]);
     // Map 1 pool ยังมี weight (ไม่ถูกกระทบ)
-    const slime = DEFAULT_ECONOMY_CONFIG.equipmentPools.find((p) => p.poolId === "common_slime_gear")!;
+    const slime = byId.get("common_slime_gear")!;
     expect(slime.entries.reduce((s, e) => s + e.weight, 0)).toBe(100);
   });
 });
@@ -251,14 +274,16 @@ describe("Maps 2–4 rewards grant LIVE (grantKillRewards §9–§12 · values p
     expect(granted.map((g) => g.itemId)).toContain("mat_moondark_sap");
   });
 
-  test("empty gear pool rolls safely — no throw, no gear granted (item master ยังไม่ mint = follow-up)", () => {
-    // scarecrow_walker table refs pool_map2_common_gear (20%) + pool_map2_uncommon_gear (6%), both entries[].
+  test("filled gear pool now yields gear (Batch 5c — item master minted)", () => {
+    // scarecrow_walker table refs pool_map2_common_gear (20%) + pool_map2_uncommon_gear (6%), now populated.
     const table = tables.get("drop_map2_scarecrow_walker_v1")! as DropTable;
-    const roll = rollDropTable(table, DEFAULT_ECONOMY_CONFIG.equipmentPools, () => 0); // all rolls hit
-    expect(roll.grants.some((g) => g.itemId.startsWith("eq_"))).toBe(false); // empty pool → no gear
-    expect(roll.grants.map((g) => g.itemId)).toContain("mat_resonant_straw"); // material still lands
+    const roll = rollDropTable(table, DEFAULT_ECONOMY_CONFIG.equipmentPools, () => 0); // all rolls hit; pool pick .0 → first entry
+    const ids = roll.grants.map((g) => g.itemId);
+    expect(ids).toContain("mat_resonant_straw"); // material still lands
+    expect(ids).toContain("eq_weapon_field_scythe"); // pool_map2_common_gear first entry (weight 22)
+    expect(ids).toContain("eq_accessory_rat_tail_charm"); // pool_map2_uncommon_gear first entry
     const gearAudit = roll.audits.find((a) => a.rollId === "common_equipment");
-    expect(gearAudit?.resultItemId).toBeNull(); // roll hit but empty pool → suppressed, no grant
+    expect(gearAudit?.resultItemId).toBe("eq_weapon_field_scythe"); // roll hit → pool resolved to a real item
   });
 });
 

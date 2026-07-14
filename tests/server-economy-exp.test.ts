@@ -153,7 +153,7 @@ describe("playerBaselineForLevel (D-055 §2)", () => {
   });
 
   test("out-of-range level clamps to nearest table row", () => {
-    expect(playerBaselineForLevel(99, table, secondary)).toMatchObject({ hp: 280, atk: 40 }); // → lv10
+    expect(playerBaselineForLevel(99, table, secondary)).toMatchObject({ hp: 520, atk: 76 }); // → lv22 (band cap)
     expect(playerBaselineForLevel(0, table, secondary)).toMatchObject({ hp: 100, atk: 12 }); // → lv1
   });
 });

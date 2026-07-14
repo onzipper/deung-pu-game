@@ -97,17 +97,34 @@ describe("party reward sharing (Economy §10.2/§10.3 — G-lite)", () => {
   });
 });
 
-describe("player baseline lv1–10 (D-055 §2, production lock)", () => {
+describe("player baseline lv1–22 (D-055 §2 lv1–10 Locked + Maps 2-4 TTK model lv11–22)", () => {
   const byLevel = new Map(DEFAULT_ECONOMY_CONFIG.playerBaseline.map((b) => [b.level, b]));
 
-  test("10 แถวครบ lv1–10", () => {
-    expect(DEFAULT_ECONOMY_CONFIG.playerBaseline).toHaveLength(10);
+  test("22 แถวครบ lv1–22 (Batch 5c — baseline ต่อเส้นจน band cap)", () => {
+    expect(DEFAULT_ECONOMY_CONFIG.playerBaseline).toHaveLength(22);
+    expect(byLevel.get(22)!.level).toBe(22);
   });
 
-  test("ค่าจริงตรง D-055 §2 (lv1=100/12/8, lv5=180/24/14, lv10=280/40/22)", () => {
+  test("lv1–10 = D-055 §2 (lv1=100/12/8, lv5=180/24/14, lv10=280/40/22)", () => {
     expect(byLevel.get(1)).toEqual({ level: 1, hp: 100, atk: 12, def: 8 });
     expect(byLevel.get(5)).toEqual({ level: 5, hp: 180, atk: 24, def: 14 });
     expect(byLevel.get(10)).toEqual({ level: 10, hp: 280, atk: 40, def: 22 });
+  });
+
+  test("lv11–22 = anchor locked lv10 + rate HP+20/ATK+3/DEF+1.5 (owner-delegated 2026-07-14)", () => {
+    // HP = 280+20·(lv−10) · ATK = 40+3·(lv−10) · DEF = round(22+1.5·(lv−10))
+    expect(byLevel.get(11)).toEqual({ level: 11, hp: 300, atk: 43, def: 24 });
+    expect(byLevel.get(14)).toEqual({ level: 14, hp: 360, atk: 52, def: 28 });
+    expect(byLevel.get(18)).toEqual({ level: 18, hp: 440, atk: 64, def: 34 });
+    expect(byLevel.get(22)).toEqual({ level: 22, hp: 520, atk: 76, def: 40 });
+    // smooth continuity across the D-055 → extension seam (lv10 40/22 → lv11 43/24, no frozen level).
+    for (let lv = 11; lv <= 22; lv++) {
+      const cur = byLevel.get(lv)!;
+      const prev = byLevel.get(lv - 1)!;
+      expect(cur.hp - prev.hp, `hp Δ lv${lv}`).toBe(20);
+      expect(cur.atk - prev.atk, `atk Δ lv${lv}`).toBe(3);
+      expect(cur.def, `def lv${lv}`).toBe(Math.round(22 + 1.5 * (lv - 10)));
+    }
   });
 
   test("lv1 primary ตรงกับ engine lv1 baseline (คู่กันตาม D-055)", () => {
