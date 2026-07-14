@@ -21,6 +21,7 @@ import { Server } from "colyseus";
 import { WebSocketTransport } from "@colyseus/ws-transport";
 import { MapRoom } from "./rooms/MapRoom";
 import { MAP_ROOM_NAME } from "../src/shared/net-protocol";
+import { botManager } from "./bot/manager";
 
 const port = Number(process.env.PORT) || 2567;
 
@@ -44,9 +45,12 @@ gameServer.define(MAP_ROOM_NAME, MapRoom).filterBy(["mapId", "partyId"]);
 
 gameServer
   .listen(port)
-  .then(() => {
+  .then(async () => {
     console.log(`[server] Colyseus listening on port ${port}`);
     console.log(`[server] room "${MAP_ROOM_NAME}" registered`);
+    // Batch 7b (Bot): close any bot_sessions left open by a previous process (server_restart, NOT auto-resumed).
+    //   Runs before any client can start a new bot → the markOpenAsRestart sweep never touches a fresh session.
+    await botManager.onBoot();
   })
   .catch((err: unknown) => {
     console.error("[server] listen failed:", err);

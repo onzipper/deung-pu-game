@@ -9,7 +9,7 @@ _Last updated: 2026-07-13 · Status board only — history & detail: `docs/histo
 - **SVG-01** merged (PR #15); rasterizer = `@resvg/resvg-js`.
 - **Live:** server `https://deung-pu-game.onrender.com` (Render free tier + UptimeRobot, `/healthz`, D-058) · client `https://deung-pu.softrock.space/game` (Hostinger). Guest login + realtime connect verified 2026-07-13.
 - **Spec:** game v15.3 / tech v1.5.2 + Production Bible Set v1. Reinforcement → D-048..D-055. P2B value-loop rulings → D-063/064/065 (bot pricing, merchant dual-sink, event calendar, boss tiers, Arc1 Ch1, audio, art; Open Beta = full systems + Map 1 only). Amendment 0.0.4 done. Field Boss Map 1 id = `boss_map1_boiling_boar` (pity/fragment rebound in config).
-- **DB:** Hostinger MariaDB is production (D-057), migrations `0001_init`+`0002` applied.
+- **DB:** Hostinger MariaDB production (D-057); 0001-0002 applied · 0003/0004_bot hand-authored, unapplied.
 
 ## Task board — P2 wave 3 (code-complete)
 

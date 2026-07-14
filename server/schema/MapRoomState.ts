@@ -34,6 +34,12 @@ export class PlayerState extends Schema {
    */
   @type("boolean") isAfk = false;
   /**
+   * Batch 7b (Bot/Hunter Assistant): true = this entity is a server-side bot (virtual player), NOT a connected
+   * client. Colyseus auto-sync → other real players SEE the bot in the room + client can render a bot marker.
+   * server-authoritative (a real client can never set this). additive field — not a skill/DB schema field.
+   */
+  @type("boolean") isBot = false;
+  /**
    * A1/A2 (COMBAT_BIBLE §2/§10) — server-authoritative hp/maxHp. Colyseus auto-sync ให้ทุก client (แถบ HP =
    * E3, death overlay = E4). onJoin ตั้ง hp = maxHp (เกิดเต็ม); มอนตี → server หัก hp (clamp 0) → ตาย → respawn
    * safe camp เต็ม hp. maxHp = effective max HP ต่อเลเวล+gear (recompute ตอน equip/level-up). ค่า 0 = ก่อน init.
