@@ -70,21 +70,54 @@ const EQUIPMENT_POOLS: EquipmentPool[] = [
       { itemId: "eq_talisman_moon_echo", weight: 20 },
     ],
   },
-  // ── Maps 2–4 equipment pools (MAPS_2_4 spec §4) — ⚠️ ENTRIES ว่างไว้ก่อน (owner-gated §7 Q2) ──────────────
-  // เอกสาร §4 อ้าง pool_mapN_*_gear ในตารางดรอป (§5) แต่ **ยังไม่ mint Equipment Item Master ของ Map 2–4** (item
-  // id/stat จริง = extension แยก, mirror Map 1 §7.2–§7.6 — รอ owner เคาะ §7 Q2). ประกาศ pool ครบเพื่อให้ตารางดรอป
-  // well-formed (drop table อ้าง poolId ได้จริง); entries ว่าง → rollDropTable/pickFromPool คืน null = ไม่ดรอป gear
-  // จน Q2 mint item + ใส่ weight. ไม่ hardcode weight เดา (ห้ามตัดสิน balance เอง). ทุกค่า = Design Knob §48.
-  { poolId: "pool_map2_common_gear", entries: [] },
-  { poolId: "pool_map2_uncommon_gear", entries: [] },
-  { poolId: "pool_map2_rare_gear", entries: [] },
-  { poolId: "pool_map3_common_gear", entries: [] },
-  { poolId: "pool_map3_uncommon_gear", entries: [] },
-  { poolId: "pool_map3_rare_gear", entries: [] },
-  { poolId: "pool_map4_common_gear", entries: [] },
-  { poolId: "pool_map4_uncommon_gear", entries: [] },
-  { poolId: "pool_map4_rare_gear", entries: [] },
-  { poolId: "pool_map4_epic_gear", entries: [] }, // Epic ตัวแรกในเนื้อหา (Map 4 boss 6%, §5.3)
+  // ── Maps 2–4 equipment pools (MAPS_2_4 Item Master Addendum §4 — Q2 RESOLVED, LOCKED for impl 2026-07-14) ──
+  // item id + weight = addendum §1–§4 verbatim (weight สัมพัทธ์ ~18–22/ชิ้น mirror Map 1 §11.2–§11.5, weapon นำ
+  //   เล็กน้อยใน common pool). แต่ละ pool มี ≥2 ชิ้น ยกเว้น pool_map4_epic_gear (capstone ชิ้นเดียว). ทุกค่า =
+  //   Design Knob §48. drop-table hook (§5) ไม่แก้ที่นี่ (chancePercent อยู่ DROP_TABLES).
+  { poolId: "pool_map2_common_gear", entries: [
+    { itemId: "eq_weapon_field_scythe", weight: 22 },
+    { itemId: "eq_head_straw_hood", weight: 20 },
+    { itemId: "eq_body_field_hand_vest", weight: 18 },
+  ] },
+  { poolId: "pool_map2_uncommon_gear", entries: [
+    { itemId: "eq_accessory_rat_tail_charm", weight: 20 },
+    { itemId: "eq_weapon_talisman_pike", weight: 20 },
+  ] },
+  { poolId: "pool_map2_rare_gear", entries: [
+    { itemId: "eq_body_warden_straw_plate", weight: 20 },
+    { itemId: "eq_talisman_warden_seal", weight: 20 },
+  ] },
+  { poolId: "pool_map3_common_gear", entries: [
+    { itemId: "eq_weapon_gnaw_root_club", weight: 22 },
+    { itemId: "eq_head_stone_brow_guard", weight: 20 },
+    { itemId: "eq_body_monkey_hide_jerkin", weight: 18 },
+  ] },
+  { poolId: "pool_map3_uncommon_gear", entries: [
+    { itemId: "eq_accessory_shadow_tail_band", weight: 20 },
+    { itemId: "eq_head_mossless_helm", weight: 20 },
+  ] },
+  { poolId: "pool_map3_rare_gear", entries: [
+    { itemId: "eq_weapon_warden_stoneblade", weight: 20 },
+    { itemId: "eq_talisman_nameless_marker", weight: 20 },
+  ] },
+  { poolId: "pool_map4_common_gear", entries: [
+    { itemId: "eq_weapon_wisp_edge", weight: 22 },
+    { itemId: "eq_head_moonlit_circlet", weight: 20 },
+    { itemId: "eq_body_deerhide_coat", weight: 18 },
+  ] },
+  { poolId: "pool_map4_uncommon_gear", entries: [
+    { itemId: "eq_accessory_dream_bead", weight: 20 },
+    { itemId: "eq_talisman_moonshard_charm", weight: 20 },
+  ] },
+  { poolId: "pool_map4_rare_gear", entries: [
+    { itemId: "eq_weapon_dryad_moonglaive", weight: 20 },
+    { itemId: "eq_body_moondark_veil", weight: 20 },
+  ] },
+  // Epic ตัวแรกในเนื้อหา (Map 4 boss 6%, §5.3) — capstone ชิ้นเดียว. eq_weapon_moondark_crescent ลง catalog ด้วย
+  //   rarity:"rare" ชั่วคราว (addendum §6 Q-C) แต่ pool แยกไว้ต่างหาก (drop = Epic tag) → เผื่อเพิ่มชิ้นที่ 2 (Q-D).
+  { poolId: "pool_map4_epic_gear", entries: [
+    { itemId: "eq_weapon_moondark_crescent", weight: 20 },
+  ] },
 ];
 
 // ── monster rewards (Economy §10.1 / D-055 §9.1 identity) ─────────────────────
@@ -421,9 +454,22 @@ const ENHANCEMENT_MULTIPLIERS = [
   2.8, // +15
 ];
 
-// ── player combat baseline lv1–10 (D-055 §2, Locked · production) ─────────────
-// verbatim จาก D-055 §2 "Player baseline นักดาบ lv1–10" (HP/ATK/DEF; Speed=100 คงที่ = ไม่ใช่ combat stat).
-// lv1 = 100/12/8 ตรงกับ engine lv1 baseline (src/engine/config/combat.ts player) — คู่กันตาม D-055.
+// ── player combat baseline lv1–22 (Design Knob §48) ───────────────────────────
+// lv1–10 = verbatim จาก D-055 §2 "Player baseline นักดาบ lv1–10" (Locked · production; HP/ATK/DEF, Speed=100
+//   คงที่ = ไม่ใช่ combat stat). lv1 = 100/12/8 ตรงกับ engine lv1 baseline (src/engine/config/combat.ts player).
+//
+// D-055 ครอบ lv1-10 (Locked); lv11-22 = ต่อเส้นตาม Maps 2-4 spec TTK model (owner-delegated 2026-07-14) — Design Knob.
+//   levelCap ขยับเป็น 22 (Batch 5b) แต่ baseline เดิมจบ lv10 → lv11+ clamp เป็น lv10 (progression แช่แข็ง). ต่อเส้น:
+//   • anchor = LOCKED lv10 row (280/40/22) — ไม่ใช่ค่า formula (spec §0 extrapolate ได้ 39/21 ที่ lv10 = ต่างจาก
+//     locked 40/22; continuity beats literal table → ยึด locked lv10 ตาม brief).
+//   • growth/lv (Maps 2-4 spec §0 rate, ตรงเทรนด์ lv7→10): HP +20 · ATK +3 · DEF +1.5 (DEF = Math.round ปัดขึ้นครึ่ง).
+//   • ⇒ HP = 280+20·(lv−10) · ATK = 40+3·(lv−10) · DEF = round(22+1.5·(lv−10)).
+//   TTK cross-check (basic-attack model, formula.ts · sword_basic_slash cd 0.6/mult 1.0 · k 50 · crit 1.025):
+//     Map2 boss field_warden (HP6000/def34/tier0.65): lv11 ~211s · lv14 matched ~175s  ∈ [150,240] ✓
+//     Map3 boss nameless_warden (HP6800/def44/tier0.62): lv15 ~219s · lv18 matched ~189s ∈ [150,240] ✓
+//     Map4 boss moondark_dryad (HP7800/def54/tier0.60): lv19 ~236s · lv22 matched ~208s ∈ [150,240] ✓
+//   (สเกล +1 ATK เทียบ spec §0 ตาม anchor locked lv10 → TTK เร็วกว่า published ~2% แต่ยังในแบนด์). ดู
+//   tests/server-combat-maps-2-4-boss-ttk.test.ts. ทุกค่าปรับได้ผ่าน config (§48).
 const PLAYER_BASELINE: PlayerBaselineRow[] = [
   { level: 1, hp: 100, atk: 12, def: 8 },
   { level: 2, hp: 120, atk: 15, def: 9 },
@@ -434,7 +480,20 @@ const PLAYER_BASELINE: PlayerBaselineRow[] = [
   { level: 7, hp: 220, atk: 30, def: 17 },
   { level: 8, hp: 240, atk: 33, def: 18 },
   { level: 9, hp: 260, atk: 36, def: 20 },
-  { level: 10, hp: 280, atk: 40, def: 22 },
+  { level: 10, hp: 280, atk: 40, def: 22 }, // ── lv1–10 = D-055 §2 Locked ──
+  // ── lv11–22 = Maps 2-4 spec TTK model (owner-delegated 2026-07-14) ──
+  { level: 11, hp: 300, atk: 43, def: 24 },
+  { level: 12, hp: 320, atk: 46, def: 25 },
+  { level: 13, hp: 340, atk: 49, def: 27 },
+  { level: 14, hp: 360, atk: 52, def: 28 },
+  { level: 15, hp: 380, atk: 55, def: 30 },
+  { level: 16, hp: 400, atk: 58, def: 31 },
+  { level: 17, hp: 420, atk: 61, def: 33 },
+  { level: 18, hp: 440, atk: 64, def: 34 },
+  { level: 19, hp: 460, atk: 67, def: 36 },
+  { level: 20, hp: 480, atk: 70, def: 37 },
+  { level: 21, hp: 500, atk: 73, def: 39 },
+  { level: 22, hp: 520, atk: 76, def: 40 }, // band cap (lv22)
 ];
 
 // ── starter NPC shop (Economy §8, LOCKED) ────────────────────────────────────
@@ -504,6 +563,34 @@ const STARTER_SHOP: ShopConfig = {
     mat_dream_cap: 13, // M4 dream_mushroom (Common)
     mat_shadow_dew: 22, // M4 shadow_deer (Uncommon)
     mat_moondark_sap: 40, // M4 boss (Rare, ACCOUNT_BOUND)
+    // Maps 2–4 equipment sell (MAPS_2_4 Item Master Addendum §1–§3 "sellPrice" verbatim — Design Knob §48).
+    //   ⚠️ economy-gated (Gold source §53, addendum §6 Q-A): ค่า = "Map 1 sell × primary-stat ratio" → คง
+    //   สัดส่วน $/พลังเท่า Map 1 (ไม่เปิด Gold-faucet ใหม่); ปรับลงทีหลังผ่าน config ได้. ขายที่ร้าน city-hub เดียว.
+    // Map 2
+    eq_weapon_field_scythe: 65,
+    eq_head_straw_hood: 50,
+    eq_body_field_hand_vest: 70,
+    eq_accessory_rat_tail_charm: 120,
+    eq_weapon_talisman_pike: 125,
+    eq_body_warden_straw_plate: 300,
+    eq_talisman_warden_seal: 270,
+    // Map 3
+    eq_weapon_gnaw_root_club: 90,
+    eq_head_stone_brow_guard: 60,
+    eq_body_monkey_hide_jerkin: 100,
+    eq_accessory_shadow_tail_band: 150,
+    eq_head_mossless_helm: 125,
+    eq_weapon_warden_stoneblade: 330,
+    eq_talisman_nameless_marker: 315,
+    // Map 4 (รวม epic capstone 600)
+    eq_weapon_wisp_edge: 115,
+    eq_head_moonlit_circlet: 80,
+    eq_body_deerhide_coat: 120,
+    eq_accessory_dream_bead: 180,
+    eq_talisman_moonshard_charm: 175,
+    eq_weapon_dryad_moonglaive: 400,
+    eq_body_moondark_veil: 445,
+    eq_weapon_moondark_crescent: 600, // epic capstone (rarity:"rare" ชั่วคราว, addendum §6 Q-C)
   },
 };
 
