@@ -76,6 +76,20 @@ export type WorldPhaseView = "dawn" | "day" | "dusk" | "night";
 export type WeatherView = "clear" | "rain";
 
 /**
+ * Auto Pilot (Batch 7a, D-037): เหตุผลที่ auto-walk หยุด — structural twin ของ engine `AutoPilotStopReason`
+ * (src/engine/player/auto-pilot.ts) ประกาศซ้ำที่นี่กัน UI import engine ตรง ๆ (ui.md contract, pattern
+ * เดียวกับ MinimapBlip/WorldPhaseView). AutoPilotChip map เป็นข้อความไทย (ถึงแล้ว/หยุดเอง/...).
+ */
+export type AutoPilotStopReasonView =
+  | "arrived"
+  | "manual"
+  | "combat"
+  | "tabHidden"
+  | "noPath"
+  | "transition"
+  | "disconnect";
+
+/**
  * LW0 (Living World Bible §3/§4 placeholder NPC): dialogue ที่กำลังเปิดอยู่ — engine ตั้งตอนคลิกโดน NPC ใน
  * โลก (src/engine/runtime/app.ts onPointerDown), null = ไม่มี dialogue ค้าง. one-shot bark ชุดเดียว (ไม่ใช่
  * §5.2 full NPC routine/dialogueSetId system — ดู src/game/npc/npc-data.ts TODO LW1).
@@ -212,6 +226,20 @@ export interface HudState {
    * null = ยังไม่เคยคลิกใน session นี้. ค่าเปลี่ยน = คลิกใหม่ → เปิดอีก.
    */
   helpPanelRequestedAt: number | null;
+  /**
+   * Auto Pilot (Batch 7a, D-037): กำลัง auto-walk อยู่ไหม (engine publish จาก AutoPilotStateChange). true =
+   * แสดง HUD chip "กำลังเดินอัตโนมัติ… ✖หยุด" + gold dot บน minimap. false = ไม่เดิน.
+   */
+  autoPilotActive: boolean;
+  /** Auto Pilot: integer cell จุดหมายที่กำลังเดินไป — null เมื่อไม่ active. minimap วาด gold dot ที่นี่. */
+  autoPilotDestination: { tx: number; ty: number } | null;
+  /**
+   * Auto Pilot: เหตุผลที่หยุดล่าสุด (null ระหว่าง active) — AutoPilotChip โชว์สั้น ๆ (ถึงแล้ว/หยุดเอง/
+   * เข้าสู่การต่อสู้/สลับแท็บ/ไม่มีเส้นทาง/...). คู่กับ autoPilotStopAtMs (timestamp) แบบ deathAtMs/toast.
+   */
+  autoPilotStopReason: AutoPilotStopReasonView | null;
+  /** Auto Pilot: timestamp (performance.now ms) ตอนหยุดล่าสุด — AutoPilotChip auto-dismiss หลัง n วิ. */
+  autoPilotStopAtMs: number | null;
 }
 
 export const INITIAL_HUD_STATE: HudState = {
@@ -244,6 +272,10 @@ export const INITIAL_HUD_STATE: HudState = {
   weather: null,
   activeDialogue: null,
   helpPanelRequestedAt: null,
+  autoPilotActive: false,
+  autoPilotDestination: null,
+  autoPilotStopReason: null,
+  autoPilotStopAtMs: null,
 };
 
 /** store singleton ตัวเดียวทั้งแอป — engine publish เข้านี่, React component subscribe ผ่าน useGameStore */
@@ -524,6 +556,41 @@ export function requestHelpPanel(nowMs: number = performance.now()): void {
 
 /** typed selector — timestamp ล่าสุดที่ขอเปิด help panel (C4 companion click) */
 export const selectHelpPanelRequestedAt = (state: HudState): number | null => state.helpPanelRequestedAt;
+
+/**
+ * Auto Pilot (Batch 7a, D-037): engine เรียกจาก AutoPilotStateChange callback (app.ts) — event-driven, ไม่
+ * throttle (state เปลี่ยนไม่บ่อย ผู้เล่นต้องเห็น chip ทันที). stamp `autoPilotStopAtMs` เมื่อ stopReason ≠ null
+ * (chip auto-dismiss จากค่านี้ เหมือน deathAtMs). `nowMs` inject ได้ (เทสต์); default performance.now().
+ */
+export function setAutoPilotState(
+  change: {
+    active: boolean;
+    destination: { tx: number; ty: number } | null;
+    stopReason: AutoPilotStopReasonView | null;
+  },
+  nowMs: number = performance.now(),
+): void {
+  gameStore.setState({
+    autoPilotActive: change.active,
+    autoPilotDestination: change.destination,
+    autoPilotStopReason: change.stopReason,
+    autoPilotStopAtMs: change.stopReason !== null ? nowMs : null,
+  });
+}
+
+/** typed selector — Auto Pilot กำลังเดินอยู่ไหม (D-037) */
+export const selectAutoPilotActive = (state: HudState): boolean => state.autoPilotActive;
+
+/** typed selector — Auto Pilot จุดหมายปัจจุบัน (minimap gold dot, D-037) */
+export const selectAutoPilotDestination = (state: HudState): { tx: number; ty: number } | null =>
+  state.autoPilotDestination;
+
+/** typed selector — Auto Pilot เหตุผลหยุดล่าสุด (AutoPilotChip, D-037) */
+export const selectAutoPilotStopReason = (state: HudState): AutoPilotStopReasonView | null =>
+  state.autoPilotStopReason;
+
+/** typed selector — Auto Pilot timestamp หยุดล่าสุด (chip auto-dismiss, D-037) */
+export const selectAutoPilotStopAtMs = (state: HudState): number | null => state.autoPilotStopAtMs;
 
 export interface HudPublisher {
   /**
