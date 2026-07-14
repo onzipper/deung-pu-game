@@ -5,6 +5,7 @@
 // article ใหม่ (ต่างจาก ContextHelpButton ที่ focus บทความเฉพาะจอ) — เปิดจากตรงนี้ = ทางเข้าทั่วไป.
 
 import { usePanelManager, useIsMobilePanel } from "@/ui/panels";
+import { hudIconUrl } from "@/ui/panels/hud-icon-catalog";
 import { HELP_PANEL_ID } from "./help-view";
 import { useHelpFocus } from "./help-focus-context";
 
@@ -38,7 +39,8 @@ export function HelpHudButton() {
       className={className}
       style={style}
     >
-      ?
+      {/* eslint-disable-next-line @next/next/no-img-element -- decorative HUD glyph, closed icon set (hud-icon-catalog.ts) */}
+      <img src={hudIconUrl("help")} alt="" aria-hidden className="h-5 w-5" />
     </button>
   );
 }

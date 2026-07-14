@@ -1,0 +1,38 @@
+{
+  "assetId": "prop_city_gate",
+  "category": "environment",
+  "frameSize": [
+    192,
+    140
+  ],
+  "pivot": [
+    96,
+    132
+  ],
+  "mirrorSafe": true,
+  "drawnDirections": [
+    "S"
+  ],
+  "mirrorMap": {
+    "SW": "S",
+    "SE": "S",
+    "W": "S",
+    "E": "S",
+    "NW": "S",
+    "N": "S",
+    "NE": "S"
+  },
+  "animations": {
+    "idle": {
+      "frames": [
+        0
+      ],
+      "frameDuration": 1000,
+      "loop": true,
+      "fps": 1,
+      "directions": [
+        "s"
+      ]
+    }
+  }
+}

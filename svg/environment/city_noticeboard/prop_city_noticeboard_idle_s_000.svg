@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 72 72" width="72" height="72" shape-rendering="crispEdges">
+  <!-- จุดประกาศข่าวนักล่า — บอร์ดไม้ติดประกาศ -->
+  <ellipse cx="36" cy="66" rx="20" ry="4" fill="#4A332E"/>
+  <rect x="12" y="60" width="6" height="6" fill="#4A332E"/>
+  <rect x="54" y="60" width="6" height="6" fill="#4A332E"/>
+  <rect x="14" y="24" width="4" height="40" fill="#68483A"/>
+  <rect x="54" y="24" width="4" height="40" fill="#68483A"/>
+  <rect x="10" y="18" width="52" height="34" fill="#8E6046"/>
+  <rect x="13" y="21" width="46" height="28" fill="#B47E52"/>
+  <path d="M10,18 L36,8 L62,18 Z" fill="#4A332E"/>
+  <rect x="17" y="25" width="12" height="16" fill="#F2D6A0"/>
+  <rect x="33" y="25" width="14" height="10" fill="#FFF0C5"/>
+  <rect x="33" y="38" width="10" height="9" fill="#F2D6A0"/>
+  <rect x="50" y="25" width="7" height="20" fill="#D8AE70"/>
+  <rect x="19" y="28" width="8" height="1.5" fill="#68483A"/>
+  <rect x="19" y="31" width="8" height="1.5" fill="#68483A"/>
+  <rect x="35" y="28" width="10" height="1.5" fill="#68483A"/>
+  <circle cx="23" cy="26" r="1.2" fill="#D84848"/>
+  <circle cx="40" cy="26" r="1.2" fill="#D84848"/>
+</svg>

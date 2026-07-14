@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 140" width="192" height="140" shape-rendering="crispEdges">
+  <!-- ประตูเมืองใต้ — หอคอยคู่ + ซุ้มโค้งเปิดตรงกลาง (ช่องเดินทะลุได้ ไม่วาดปิด) -->
+  <rect x="12" y="44" width="40" height="84" fill="#68483A"/>
+  <path d="M12,44 L12,128 L4,124 L4,48 Z" fill="#4A332E"/>
+  <rect x="140" y="44" width="40" height="84" fill="#68483A"/>
+  <path d="M180,44 L180,128 L188,124 L188,48 Z" fill="#4A332E"/>
+  <rect x="8" y="32" width="48" height="16" fill="#8E6046"/>
+  <rect x="136" y="32" width="48" height="16" fill="#8E6046"/>
+  <path d="M8,32 L32,18 L56,32 Z" fill="#2B2230"/>
+  <path d="M136,32 L160,18 L184,32 Z" fill="#2B2230"/>
+  <rect x="52" y="52" width="88" height="14" fill="#8E6046"/>
+  <rect x="52" y="66" width="88" height="8" fill="#68483A"/>
+  <path d="M52,52 L96,40 L140,52 Z" fill="#B47E52"/>
+  <rect x="82" y="42" width="28" height="14" fill="#F2D6A0"/>
+  <circle cx="96" cy="49" r="5" fill="#167C78"/>
+  <circle cx="96" cy="49" r="3" fill="#35C6B0"/>
+  <rect x="20" y="56" width="10" height="14" fill="#294B5A"/>
+  <rect x="148" y="56" width="10" height="14" fill="#294B5A"/>
+  <rect x="20" y="84" width="10" height="14" fill="#294B5A"/>
+  <rect x="148" y="84" width="10" height="14" fill="#294B5A"/>
+  <path d="M30,18 L34,10 L38,18 Z" fill="#D84848"/>
+  <path d="M158,18 L162,10 L166,18 Z" fill="#D84848"/>
+</svg>

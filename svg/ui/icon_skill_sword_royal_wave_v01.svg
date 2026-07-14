@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" shape-rendering="crispEdges">
+  <path d="M10,44 Q22,20 32,32 Q42,44 54,20 L54,30 Q42,52 32,40 Q22,28 10,52 Z" fill="#7786C8"/>
+  <path d="M12,38 Q23,18 32,28 Q41,38 52,16 L52,22 Q41,42 32,34 Q23,26 12,44 Z" fill="#B0B9EC"/>
+  <path d="M46,12 L49,9 L52,12 L49,15 Z" fill="#FFF0C5"/>
+</svg>

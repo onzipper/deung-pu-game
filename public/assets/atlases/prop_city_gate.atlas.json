@@ -1,0 +1,19 @@
+{
+  "image": "prop_city_gate.png",
+  "rasterized": true,
+  "width": 192,
+  "height": 140,
+  "frameSize": [
+    192,
+    140
+  ],
+  "frames": [
+    {
+      "key": "idle_s_0",
+      "x": 0,
+      "y": 0,
+      "w": 192,
+      "h": 140
+    }
+  ]
+}

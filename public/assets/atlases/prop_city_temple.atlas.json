@@ -1,0 +1,19 @@
+{
+  "image": "prop_city_temple.png",
+  "rasterized": true,
+  "width": 224,
+  "height": 160,
+  "frameSize": [
+    224,
+    160
+  ],
+  "frames": [
+    {
+      "key": "idle_s_0",
+      "x": 0,
+      "y": 0,
+      "w": 224,
+      "h": 160
+    }
+  ]
+}
