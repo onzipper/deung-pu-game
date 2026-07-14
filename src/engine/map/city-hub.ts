@@ -10,8 +10,10 @@
 //     นครอรุณผนึก") → city ประตูใต้ ↔ Map 1 ประตูเหนือ.
 //
 // ── P1 scope (โครงพอเห็นภาพ — NPC/ร้านค้า/event เมือง = P2+) ────────────────────
-// • เอาแค่ presence + เดินเจอกัน. landmark เป็น **props placeholder** (ชื่อจริงใน comment) ตาม "เขตในเมือง"
-//     GS §3.3 (§179–191): ลานกลางเมือง · วิหารผนึก · ถนนร้านตีเหล็ก · กิลด์นักล่า · จุดประกาศข่าวนักล่า.
+// • เอาแค่ presence + เดินเจอกัน. landmark = **real atlas art** (F2, 6 จุด) ตาม "เขตในเมือง" GS §3.3
+//     (§179–191): ลานกลางเมือง(น้ำพุ) · วิหารผนึก · ถนนร้านตีเหล็ก · กิลด์นักล่า · ประตูเมืองใต้ ·
+//     จุดประกาศข่าวนักล่า. foot ของแต่ละ prop วางที่ขอบใต้ footprint (blockedRects) ให้ sprite
+//     คลุม footprint + depth-sort หน้า/หลังผู้เล่นถูกต้องตามเท้า (ไม่ใช้ zLayer override).
 // • **ไม่มี mobPockets เลย** (ไม่มี combat ในเมือง). **ไม่มี NPC/ระบบร้านค้า** (P2+, §3.3 NPC list).
 // • collision = แนวอาคาร/กำแพงเมือง placeholder (art จริง = production). tile dimension เป๊ะ + ผังละเอียด
 //     (03-main-city-sheet, 8 โซน, NPC 9 ตัว) = production หลัง P1 (owner).
@@ -46,18 +48,23 @@ export const CITY_HUB: MapConfigInput = {
       { tx: 4, ty: 13, width: 4, height: 5 },
       // กิลด์นักล่า (GS §3.3) — อาคารฝั่งตะวันออก.
       { tx: 24, ty: 13, width: 4, height: 5 },
+      // น้ำพุลานกลาง (F2, GS §3.3 "ลานกลางเมือง") — กันเดินทะลุน้ำพุ; อยู่เหนือ spawn (16.5,18.5).
+      { tx: 15, ty: 14, width: 3, height: 2 },
       // กำแพงเมืองด้านใต้ เว้นช่อง "ประตูเมือง" กลาง (tx 14–17) เป็นทางออกไป Map 1.
       { tx: 2, ty: 30, width: 12, height: 1 }, // กำแพงใต้ซ้าย (tx 2–13)
       { tx: 18, ty: 30, width: 12, height: 1 }, // กำแพงใต้ขวา (tx 18–29)
     ],
   },
 
-  // props placeholder = landmark เมือง (reuse style เดิม — ยังไม่มี art จริง; ชื่อจริงใน comment).
+  // F2: landmark เมืองจริง (real atlas art) — foot ที่ขอบใต้ของ footprint (blockedRects ด้านบน)
+  // ให้ sprite คลุมอาคาร + depth-sort หน้า/หลังผู้เล่นถูกต้องตามเท้า (natural depth, ไม่ใช้ zLayer).
   props: [
-    { propId: "signpost", tile: { tx: 16.5, ty: 8.5 }, zLayer: 1 }, // หน้าวิหารผนึก (temple)
-    { propId: "signpost", tile: { tx: 6.5, ty: 18.5 } }, // หน้าถนนร้านตีเหล็ก (blacksmith)
-    { propId: "signpost", tile: { tx: 25.5, ty: 18.5 } }, // หน้ากิลด์นักล่า (hunter guild)
-    { propId: "signpost", tile: { tx: 16.5, ty: 25.5 }, zLayer: 1 }, // จุดประกาศข่าวนักล่า (notice board) ใกล้ประตูใต้
+    { propId: "city_temple", tile: { tx: 16, ty: 8.2 } }, // วิหารผนึก (N) — เท้าขอบใต้ rect {13,4,6,4}
+    { propId: "city_blacksmith", tile: { tx: 6, ty: 18.2 } }, // ถนนร้านตีเหล็ก (W) — เท้าขอบใต้ rect {4,13,4,5}
+    { propId: "city_guild", tile: { tx: 26, ty: 18.2 } }, // กิลด์นักล่า (E) — เท้าขอบใต้ rect {24,13,4,5}
+    { propId: "city_gate", tile: { tx: 16, ty: 31.2 } }, // ประตูเมืองใต้ — คร่อมช่องประตู tx14-17 แถว 30
+    { propId: "city_noticeboard", tile: { tx: 20.5, ty: 25.5 } }, // จุดประกาศข่าวนักล่า — ใกล้ประตูใต้ ฝั่งตะวันออกของทางเดิน
+    { propId: "city_fountain", tile: { tx: 16.5, ty: 15.5 } }, // น้ำพุลานกลางเมือง — เหนือ spawn (16.5,18.5)
     { propId: "tree", tile: { tx: 10.5, ty: 22.5 } }, // ต้นไม้ประดับลานกลางเมือง
     { propId: "tree", tile: { tx: 22.5, ty: 22.5 } }, // ต้นไม้ประดับลานกลางเมือง
   ],

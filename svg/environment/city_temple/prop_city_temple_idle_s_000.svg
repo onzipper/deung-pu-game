@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 224 160" width="224" height="160" shape-rendering="crispEdges">
+  <!-- วิหารผนึก — อาคารใหญ่เหนือลานกลาง: ฐานยก, เสาไม้, หลังคาซ้อน, ตราผนึก resonance -->
+  <path d="M112,142 L206,120 L112,98 L18,120 Z" fill="#4A332E"/>
+  <path d="M112,136 L196,118 L112,100 L28,118 Z" fill="#68483A"/>
+  <rect x="40" y="70" width="144" height="48" fill="#F2D6A0"/>
+  <path d="M40,70 L40,118 L28,118 Z" fill="#D8AE70"/>
+  <path d="M184,70 L184,118 L196,118 Z" fill="#D8AE70"/>
+  <rect x="48" y="78" width="10" height="40" fill="#B47E52"/>
+  <rect x="76" y="78" width="10" height="40" fill="#B47E52"/>
+  <rect x="138" y="78" width="10" height="40" fill="#B47E52"/>
+  <rect x="166" y="78" width="10" height="40" fill="#B47E52"/>
+  <rect x="96" y="86" width="32" height="32" fill="#2B2230"/>
+  <path d="M96,86 L112,74 L128,86 Z" fill="#2B2230"/>
+  <path d="M20,74 L112,30 L204,74 L194,80 L112,40 L30,80 Z" fill="#2B2230"/>
+  <path d="M30,80 L112,40 L194,80 L112,64 Z" fill="#4A332E"/>
+  <path d="M60,52 L112,26 L164,52 L112,72 Z" fill="#2B2230"/>
+  <path d="M104,10 L120,10 L118,30 L106,30 Z" fill="#E8BF4F"/>
+  <circle cx="112" cy="12" r="7" fill="#E8BF4F"/>
+  <circle cx="112" cy="56" r="12" fill="#167C78"/>
+  <circle cx="112" cy="56" r="8" fill="#35C6B0"/>
+  <circle cx="112" cy="56" r="4" fill="#7CE9D0"/>
+  <rect x="104" y="118" width="16" height="4" fill="#D8AE70"/>
+  <rect x="100" y="122" width="24" height="4" fill="#B47E52"/>
+  <rect x="96" y="126" width="32" height="4" fill="#8E6046"/>
+</svg>

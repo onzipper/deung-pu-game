@@ -1,0 +1,32 @@
+{
+  "assetId": "prop_city_guild",
+  "category": "environment",
+  "frameSize": [
+    144,
+    120
+  ],
+  "pivot": [
+    72,
+    112
+  ],
+  "mirrorSafe": true,
+  "drawnDirections": [
+    "S"
+  ],
+  "mirrorMap": {
+    "SW": "S",
+    "SE": "S",
+    "W": "S",
+    "E": "S",
+    "NW": "S",
+    "N": "S",
+    "NE": "S"
+  },
+  "animations": {
+    "idle": {
+      "fps": 1,
+      "loop": true,
+      "frameCount": 1
+    }
+  }
+}
