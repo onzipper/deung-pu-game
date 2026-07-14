@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" width="96" height="96" shape-rendering="crispEdges">
+  <!-- ฟันพื้นฐาน เฟรม 1 — arc เต็มวง กวาดหน้า caster -->
+  <path d="M78,24 Q92,52 70,76 L60,68 Q76,50 66,30 Z" fill="#FFF0C5"/>
+  <path d="M72,28 Q84,50 66,70 L60,64 Q72,48 62,32 Z" fill="#F2D6A0"/>
+  <path d="M66,34 Q74,48 62,62 L58,58 Q66,47 58,36 Z" fill="#D8AE70"/>
+  <path d="M26,40 L34,44 L28,50 Z" fill="#FFF0C5"/>
+</svg>

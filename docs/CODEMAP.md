@@ -29,6 +29,7 @@
 - `src/game/skill/` — SkillDefinition (37 fields, GS §50.1) loader + server/client view split (TA §16.1)
 - `src/game/skill/data/warrior-skills-server.ts` (+ client sibling) — **SERVER-ONLY vs CLIENT-SAFE split**: server literals must never reach the client bundle
 - `src/game/combat/` — hit-test, cast-validation, damage-number/hit-stop/screen-shake juice, combat-stub, target-engage
+- `src/game/combat/skill-vfx.ts` — F4 skill VFX playback (client-only)
 - `src/game/combat/formula.ts` — **PURE + SERVER-ONLY** damage formula (§15.2/§50.1.1) — never in the client bundle
 
 ## src/ui + src/app (React overlay + Next.js shell)
@@ -43,7 +44,7 @@
 - `src/ui/theme/rarity.ts` — rarity color tokens (D-043)
 - `src/ui/components/` — token-driven presentational kit (P2 UI spec §4): PanelFrame, Button, TextInput, ItemSlot, Tooltip, ConfirmDialog(+hold-to-confirm), Toast
 - `src/ui/panels/` — shared panel framework (desktop float / mobile sheet, z-order, keydown block; DG §13) + hud-layout/hud-icon-catalog.ts (P2-15/F5). Provider in `src/ui/GameCanvas.tsx`
-- `src/ui/panels/` subdirs (inventory/enhancement/shop/storage/help/mobile/settings/skillbar/status/minimap/world-status/dialogue) — per-feature: bag/equip · reinforcement · shop · storage+delivery · help · mobile/settings · skillbar (§8.3+icons) · status (§8.2) · minimap (§8.4) · world-status LW0 chip (§18) · dialogue LW0 bark
+- `src/ui/panels/` subdirs (inventory/enhancement/shop/storage/help/mobile/settings/skillbar/status/minimap/world-status/dialogue) — skillbar §8.3, status §8.2, minimap §8.4, world-status §18 (LW0), dialogue = LW0 bark
 
 ## server (Colyseus realtime process, separate from Next — L4)
 

@@ -346,6 +346,7 @@ export async function createEngine(
       castSkill: (msg) => net?.sendCast(msg),
       isOnline: () => net?.status.state === "online",
       combatEnabled: combatAllowed,
+      registry, // F4: skill VFX atlas lookup (ไม่มี = VFX no-op เงียบ)
     });
 
     // --- A3 skill hotbar (P2 UI §8.3 · P1_BALANCE §3.1): cast S2/S3/S4 (+S1 basic) จาก slot 1-4 (Digit1-4/มือถือ) ---
@@ -387,6 +388,7 @@ export async function createEngine(
         aimTy: player.position.ty,
         direction: player.facing,
       });
+      combat.playSkillVfx(skill.skillId); // F4: เล่น VFX สกิล client-side (juice — ไม่กระทบ authority)
       skillCooldownReadyAt.set(skill.skillId, now + skill.cooldown * 1000);
       publishSkillSlots();
     };

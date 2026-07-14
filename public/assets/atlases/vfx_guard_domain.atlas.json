@@ -1,0 +1,33 @@
+{
+  "image": "vfx_guard_domain.png",
+  "rasterized": true,
+  "width": 256,
+  "height": 192,
+  "frameSize": [
+    128,
+    96
+  ],
+  "frames": [
+    {
+      "key": "play_s_0",
+      "x": 0,
+      "y": 0,
+      "w": 128,
+      "h": 96
+    },
+    {
+      "key": "play_s_1",
+      "x": 128,
+      "y": 0,
+      "w": 128,
+      "h": 96
+    },
+    {
+      "key": "play_s_2",
+      "x": 0,
+      "y": 96,
+      "w": 128,
+      "h": 96
+    }
+  ]
+}

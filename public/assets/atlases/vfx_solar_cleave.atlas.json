@@ -1,0 +1,33 @@
+{
+  "image": "vfx_solar_cleave.png",
+  "rasterized": true,
+  "width": 224,
+  "height": 224,
+  "frameSize": [
+    112,
+    112
+  ],
+  "frames": [
+    {
+      "key": "play_s_0",
+      "x": 0,
+      "y": 0,
+      "w": 112,
+      "h": 112
+    },
+    {
+      "key": "play_s_1",
+      "x": 112,
+      "y": 0,
+      "w": 112,
+      "h": 112
+    },
+    {
+      "key": "play_s_2",
+      "x": 0,
+      "y": 112,
+      "w": 112,
+      "h": 112
+    }
+  ]
+}
