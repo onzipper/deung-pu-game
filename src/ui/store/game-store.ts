@@ -17,6 +17,7 @@ import {
   type EnhanceResultMessage,
   type InventoryOpRejectedMessage,
   type InventorySnapshot,
+  type MilestoneGrantedMessage,
   type PlayerProgressMessage,
   type ShopListMessage,
   type ShopResultMessage,
@@ -156,6 +157,11 @@ export interface HudState {
    */
   deathAtMs: number | null;
   /**
+   * C1 (Economy §18): milestone ล่าสุดที่เพิ่งปลดล็อก (จาก MSG_MILESTONE_GRANTED) — MilestoneToast อ่าน `atMs`
+   * แสดง toast สั้น ๆ (pattern เดียวกับ deathAtMs: ค่า atMs เปลี่ยน = milestone ใหม่ → แสดงอีก). null = ยังไม่เคยปลดล็อกใน session นี้.
+   */
+  milestoneNotice: { milestoneId: string; gold: number; exp: number; atMs: number } | null;
+  /**
    * A3 (P2 UI §8.3): skill hotbar slots (S1-S4). engine publish ตอน init / level-up (unlock) / cast (cooldown).
    * [] ก่อน engine publish ครั้งแรก. SkillBar อ่าน + animate radial เอง (RAF จาก cooldownReadyAtMs).
    */
@@ -195,6 +201,7 @@ export const INITIAL_HUD_STATE: HudState = {
   playerMaxHp: null,
   playerDead: false,
   deathAtMs: null,
+  milestoneNotice: null,
   skillSlots: [],
   blips: [],
   worldPhase: null,
@@ -370,6 +377,19 @@ export function setDeathNotice(nowMs: number = performance.now()): void {
 
 /** typed selector — timestamp ตายล่าสุด (E4 death toast) */
 export const selectDeathAtMs = (state: HudState): number | null => state.deathAtMs;
+
+/**
+ * C1 (Economy §18): engine เรียกทันทีที่ MSG_MILESTONE_GRANTED มาถึง → stamp notice ให้ MilestoneToast แสดง
+ * toast สั้น ๆ. `nowMs` inject ได้ (เทสต์) — default Date.now() ตอนเรียกจริงจาก engine glue.
+ */
+export function setMilestoneNotice(msg: MilestoneGrantedMessage, nowMs: number = Date.now()): void {
+  gameStore.setState({
+    milestoneNotice: { milestoneId: msg.milestoneId, gold: msg.gold, exp: msg.exp, atMs: nowMs },
+  });
+}
+
+/** typed selector — milestone ล่าสุดที่ปลดล็อก (C1 milestone toast) */
+export const selectMilestoneNotice = (state: HudState): HudState["milestoneNotice"] => state.milestoneNotice;
 
 /** typed selector — hp ของ local player (A1/A2) */
 export const selectPlayerHp = (state: HudState): number | null => state.playerHp;

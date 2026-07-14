@@ -369,3 +369,57 @@ model GameEvent {
   @@index([occurredAt]) // รองรับ retention prune/partition by date
   @@map("game_events")
 }
+
+// ── progression: milestone / achievement / reinforcement pity (0003_progression) ─────────────────────────
+// ⛔ never-downgrade zone (economy grants). standalone tables (no FK — เหมือน Account.lastPlayedCharacterId
+//    pointer): referential integrity คุมที่ app layer, กัน circular relation. ค่า reward ทุกตัวอยู่ config.
+
+/// C1 (Economy §18.2): one-time milestone grant marker — 1 แถวต่อ (account, milestone) กันแจกซ้ำ (idempotent).
+/// เป็น "at-most-once" gate ของ grantMilestone: มีแถวแล้ว = เคยแจก → no-op. reward จริง (gold/exp/item) แยกไป
+/// currency_ledger (quest_reward) / item_instances / delivery_box_entries. characterId = ตัวที่ trigger (audit).
+model MilestoneGrant {
+  id          String   @id @default(cuid())
+  accountId   String   @map("account_id") @db.Char(36)
+  characterId String   @map("character_id") @db.Char(36) // ตัวละครที่ทำ milestone สำเร็จ (audit เท่านั้น)
+  milestoneId String   @map("milestone_id")
+  grantedAt   DateTime @default(now()) @map("granted_at")
+
+  @@unique([accountId, milestoneId]) // §18.2 one-time per account
+  @@index([accountId])
+  @@map("milestone_grants")
+}
+
+/// C2 (ACHIEVEMENT spec §4.2): per-achievement progress — schema พร้อมล่วงหน้า, engine (C2) ตามทีหลัง.
+/// scopeKey = accountId หรือ characterId ตาม scope ของ definition (§4.2). state = locked|in_progress|completed|
+/// claimed. distinctKeys = set ของ key สำหรับ distinct-count achievement; streakValue = ตัวนับ streak; idempotencyKey
+/// กัน replay ตอน claim reward.
+model AchievementProgress {
+  id             String    @id @default(cuid())
+  scopeKey       String    @map("scope_key") // accountId | characterId (ตาม definition scope §4.2)
+  achievementId  String    @map("achievement_id")
+  state          String    @default("locked") // locked | in_progress | completed | claimed
+  currentValue   Int       @default(0) @map("current_value")
+  distinctKeys   Json?     @map("distinct_keys") // key set สำหรับ distinct-count achievement (null = ไม่ใช้)
+  streakValue    Int       @default(0) @map("streak_value")
+  idempotencyKey String?   @map("idempotency_key") // กัน replay ตอน claim (null = ยังไม่ claim)
+  claimedAt      DateTime? @map("claimed_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  @@unique([scopeKey, achievementId])
+  @@index([scopeKey])
+  @@map("achievement_progress")
+}
+
+/// B4 (D-064 · Reinforcement §4.2): account-per-boss pity + fragment counters — schema พร้อม, engine (P2B) ตามทีหลัง.
+/// pityCount = จำนวน clear สะสมนับ bad-luck protection; fragmentCount = เศษเสริมแกร่งสะสม (แลก 5→1). reset เมื่อได้ของ.
+model ReinforcementPity {
+  id            String   @id @default(cuid())
+  accountId     String   @map("account_id") @db.Char(36)
+  bossId        String   @map("boss_id")
+  pityCount     Int      @default(0) @map("pity_count")
+  fragmentCount Int      @default(0) @map("fragment_count")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  @@unique([accountId, bossId]) // §4.2 pity scope = account-per-boss
+  @@map("reinforcement_pity")
+}
