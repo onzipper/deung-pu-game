@@ -77,6 +77,20 @@ describe("EXP curve (Economy §9)", () => {
   });
 });
 
+describe("party reward sharing (Economy §10.2/§10.3 — G-lite)", () => {
+  const pr = DEFAULT_ECONOMY_CONFIG.partyReward;
+
+  test("share thresholds ตรง spec (§10.2 15% · §10.3 5%)", () => {
+    expect(pr.normalMinSharePct).toBe(15); // §10.2 normalEligibility.minimumDamageContributionPercent
+    expect(pr.eliteBossMinSharePct).toBe(5); // §10.3 eliteBossEligibility.minimumDamageContributionPercent
+  });
+
+  test("rewardRadiusTiles = provisional knob (spec ไม่ระบุค่า — owner ล็อกภายหลัง)", () => {
+    expect(pr.rewardRadiusTiles).toBeGreaterThan(0);
+    expect(pr.rewardRadiusTiles).toBe(12);
+  });
+});
+
 describe("player baseline lv1–10 (D-055 §2, production lock)", () => {
   const byLevel = new Map(DEFAULT_ECONOMY_CONFIG.playerBaseline.map((b) => [b.level, b]));
 

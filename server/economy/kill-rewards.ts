@@ -96,6 +96,8 @@ const DROP_TABLE_BY_ID = new Map(DEFAULT_ECONOMY_CONFIG.dropTables.map((t) => [t
 export const PLAYER_BASELINE_TABLE = DEFAULT_ECONOMY_CONFIG.playerBaseline;
 /** the EXP curve (Economy §9) — exposed for the client progress message (level floor/ceil). */
 export const EXP_CURVE = DEFAULT_ECONOMY_CONFIG.expCurve;
+/** G-lite party reward knobs (Economy §9.4 + §10.2/§10.3) — MapRoom reads eligibility thresholds + radius. */
+export const PARTY_REWARD_CONFIG = DEFAULT_ECONOMY_CONFIG.partyReward;
 
 function itemMeta(itemId: string): ItemMeta {
   const def = ITEM_CATALOG.get(itemId);

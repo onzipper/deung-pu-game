@@ -4,7 +4,7 @@
 
 ## src/engine (foundation layer — TA §17, plain TS + PixiJS, no React/Next.js)
 
-- `src/engine/config.ts` — barrel — Design Knobs/types (EngineConfig, DEFAULT_ENGINE_CONFIG); domain modules under `src/engine/config/` (scene, player, companion, input, mob, combat, combat-feel, net, engine, world), re-exported
+- `src/engine/config.ts` — barrel — Design Knobs/types (EngineConfig, DEFAULT_ENGINE_CONFIG); domain modules under `src/engine/config/` (scene/player/companion/input/mob/combat/combat-feel/net/engine/world)
 - `src/engine/runtime/` — engine lifecycle: transition (map fade), resize, assets, debug-info · LW0: world-clock (§3) + weather-overlay (§4)
 - `src/engine/runtime/app.ts` — createEngine(): per-map world (player+mobs+combat+net+input), master tick, F3/F4, pressAttack/effect-quality knobs (P2-15)
 - `src/engine/iso/` — iso projection + depth-sort math (**never-downgrade zone**)
@@ -16,13 +16,13 @@
 - `src/engine/animation/` — animation manifest (5-dir+mirror), sprite animator, placeholder textures, texture-set (non-owning handles)
 - `src/engine/assets/` — runtime atlas loader/registry (engine-scope, fail-soft → placeholder)
 - `src/engine/config/render.ts` — pixelate knob (on/scale/nearest-filter/CSS)
-- `src/engine/render/` — depth registry, camera, scene graph, pool, screen shake, exit marker, afk-label, name-label, nameplate-layer (full-res world-label overlay, keeps Thai glyphs crisp above the D-065 0.5x world pass) · `src/engine/audio/` SFX
+- `src/engine/render/` — depth registry, camera, scene graph, pool, screen shake, exit marker, afk-label, name-label, nameplate-layer (full-res world-label overlay, Thai glyphs crisp above D-065 0.5x pass) · `src/engine/audio/` SFX
 - `src/engine/map/` — MapConfig schema/loader/registry + map1/city-hub/p0-test-field configs
 - `src/engine/input/` — keyboard (WASD+attack) + joystick→8-dir intent + target-assist (per-mode click radius, Combat Bible §3, P2-15)
 
 ## src/game (combat/entity logic on top of the engine)
 
-- `src/game/mob/` — mob sim, AI, views, and nameplate LOD/fade
+- `src/game/mob/` — mob sim, AI, views, nameplate LOD/fade · damage-contribution.ts = pure reward-eligibility tracker (§10.2/§10.3) + boss-break party size
 - `src/game/mob/name-catalog.ts` — mobType → Thai nameplate name + rank (undefined = no nameplate)
 - `src/game/npc/` — LW0 static NPC bark: catalog + nearest-click test + view manager (placeholder+label)
 - `src/game/item/icon-catalog.ts` — itemId → icon URL map (null = show raw id)
@@ -43,7 +43,7 @@
 - `src/ui/theme/rarity.ts` — rarity color tokens (D-043)
 - `src/ui/components/` — token kit §4: PanelFrame, Button, TextInput, ItemSlot, Tooltip, ConfirmDialog(+hold-to-confirm), Toast
 - `src/ui/panels/` — panel framework (float/sheet, z-order, keydown; DG §13) + hud-layout/hud-icon-catalog.ts, provider in `src/ui/GameCanvas.tsx`
-- `src/ui/panels/` subdirs — inventory/enhancement/shop/storage/help/mobile/settings · skillbar §8.3 · status §8.2 · minimap §8.4 · world-status §18 · dialogue = LW0 bark · journal (C3) = adventurer log, Achievement tab real
+- `src/ui/panels/` subdirs — inventory/enhancement/shop/storage/help/mobile/settings · skillbar §8.3 · status §8.2 · minimap §8.4 · world-status §18 · dialogue = LW0 bark · journal (C3) = adventurer log + Achievement tab
 
 ## server (Colyseus realtime process, separate from Next — L4)
 
@@ -53,11 +53,11 @@
 - `server/schema/` — @colyseus/schema state (PlayerState/MobState/MapRoomState)
 - `server/matchmaking/` — pure channel-number allocator (§59.3 auto-assign)
 - `server/security/` — WS handshake (JWT+origin+rate limit), session takeover/lease (Bible 5.2)
-- `server/characters/` — persistence-decision (pure) + character-state load/upsert (best-effort, no DB = in-memory) + `server/characters/progress-carrier.ts` (cross-room + refresh/takeover level/exp carrier)
-- `server/inventory/` — inventory best-effort DB glue for MapRoom (snapshot on join; capacity + item catalog; mutations strict) + P2-10 reinforcement knobs
-- `server/economy/` — kill-reward wiring: mobType→monsterId map + Prisma seams (ledger/inventory/drop-audit); EXP always, gold/drops/audit only with DB + shop-state (P2-11) + milestones (C1 §18 wiring) + achievements (C2b: Prisma progress-store/ledger seams + emit/snapshot + client-event whitelist)
+- `server/characters/` — persistence-decision (pure) + character-state load/upsert (best-effort, no DB = in-memory) + progress-carrier.ts (cross-room + refresh/takeover level/exp carrier)
+- `server/inventory/` — best-effort DB glue for MapRoom (snapshot on join; capacity + item catalog; mutations strict) + P2-10 reinforcement knobs
+- `server/economy/` — kill-reward wiring: mobType→monsterId + Prisma seams (ledger/inventory/drop-audit); EXP always, gold/drops/audit only with DB · shop-state (P2-11) · milestones (C1 §18) · achievements (C2b: progress-store/ledger seams + emit/snapshot + client-event whitelist)
 - `server/db/` — Prisma client singleton (server-only) + ledger contract (getBalance/appendEntry)
-- `server/config/` — P2-09 Design Knobs: economy (drop/EXP/Gold/enhancement) + reinforcement (pity/fragment/NO_REINFORCEMENT) + loader + storage (P2-17) + achievements.ts (C2a, 65 rows)
+- `server/config/` — Design Knobs: economy (drop/EXP/Gold/enh/partyReward) + reinforcement (pity/fragment/NO_REINFORCEMENT) + loader + storage (P2-17) + achievements.ts (C2a, 65 rows)
 - `prisma/migrations/` — 0001_init (13 tables) · 0002_shop_ledger_reasons (LedgerReason += shop_buy/shop_sell)
 
 ## src/shared + src/server (client↔server contracts + Next server-only)
@@ -66,8 +66,8 @@
 - `src/server/db.ts` — Prisma client singleton on the Next API side (**server-only**, must never enter the client bundle)
 - `src/server/auth/` — token/session-cookie, password hash/policy, email normalize, auth service/upgrade state machine
 - `src/server/characters/` — repository (memory/prisma) + service (slot cap, cross-account guard)
-- `src/server/inventory/` — item catalog (server-authoritative Design Knob: slot + stat bonus) + equipment-stats (pure combat aggregation, folds enhancement +N curve §16.3.1) + repository (memory/prisma: FOR UPDATE + optimistic `version`, `commitEnhancement`/`grantItems` loot→bag) + service (equip/unequip/move/swap/snapshot) + enhancement-service (P2-10) + storage-service (P2-17)
-- `src/server/economy/` — pure P2-09 resolvers: exp (level-diff/party/level-up/baseline D-055) · drop-roll (weighted pools + guaranteed + audit + reinforcement guard) · kill-reward (injected seams, no DB) · shop (P2-11) · milestone (C1 §18 grant, idempotent) · achievement-engine (C2b: pure rule evaluator all 7 types + DI service, auto-claim idempotent)
+- `src/server/inventory/` — item catalog (Design Knob: slot + stat bonus) + equipment-stats (combat aggregation, folds +N curve §16.3.1) + repository (memory/prisma: FOR UPDATE + optimistic `version`, commitEnhancement/grantItems loot→bag) + service (equip/unequip/move/swap/snapshot) + enhancement-service (P2-10) + storage-service (P2-17)
+- `src/server/economy/` — pure P2-09 resolvers: exp (level-diff/party/level-up/baseline D-055) · drop-roll (pools+guaranteed+audit+reinforcement guard) · kill-reward (injected seams, no DB) · shop · milestone (C1 §18, idempotent) · achievement-engine (C2b: rule evaluator all 7 types + DI, auto-claim idempotent)
 
 ## scripts + tests
 

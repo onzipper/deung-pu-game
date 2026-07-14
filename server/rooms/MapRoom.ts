@@ -213,6 +213,7 @@ import {
   grantKillRewardsForMob,
   PLAYER_BASELINE_TABLE,
   EXP_CURVE,
+  PARTY_REWARD_CONFIG,
 } from "../economy/kill-rewards";
 import {
   grantMilestoneWired,
@@ -250,6 +251,14 @@ import {
   bossDamageModifier,
   shouldEmitBossTelegraph,
 } from "../../src/game/mob/boss";
+import {
+  createDamageContributionState,
+  recordDamage,
+  retainMobs,
+  eligibleFor,
+  contributorCountAtLeast,
+  type MobRewardRank,
+} from "../../src/game/mob/damage-contribution";
 import type { SkillDefinition } from "../../src/game/skill/types";
 import { loadSkillDefinitions } from "../../src/game/skill/loader";
 import { WARRIOR_SKILLS_SERVER } from "../../src/game/skill/data/warrior-skills-server";
@@ -274,6 +283,19 @@ interface MapRoomCreateOptions {
   mapId?: string;
   /** P1-08: partyId ของคนแรกที่ทำให้ room นี้เกิด (filter dimension) — "" = solo channel. */
   partyId?: string;
+}
+
+/**
+ * G-lite: one mob killed this cast + who shares its reward (§10.2/§10.3). Captured synchronously in handleCast
+ * (before the tracker is pruned) and drained by the deferred async reward loop.
+ */
+interface KillGrant {
+  /** engine mobType → economy reward lookup (grantKillRewardsForMob). */
+  mobType: string;
+  /** §9.4 EXP pool size for the split: solo channel = 1 · party channel = eligible member count. */
+  poolMembers: number;
+  /** eligible recipients (sessionId + the damage share they dealt) — each gets a personal reward. */
+  members: { sessionId: string; sharePct: number }[];
 }
 
 /**
@@ -437,6 +459,15 @@ export class MapRoom extends Room<MapRoomState> {
    * effectiveStats. ป้อนเข้า boss break contribution (§8) ตอน cast โดนบอส. ไม่อยู่ใน schema (server-only).
    */
   private readonly sessionBreakPower = new Map<string, number>();
+  /**
+   * G-lite (Economy §10.2/§10.3): per-mob damage-contribution ledger (mobId → sessionId → damage). Recorded on
+   * every hit that reduces mob hp; read at kill time to pick eligible reward recipients (§10.2/§10.3) + the boss
+   * break party size (§2.4). Pruned by mob id in syncMobsToState (dead/despawned mobs) — a leaver's damage stays
+   * (it still counts toward others' share denominator; the leaver is dropped by the presence filter, not here).
+   */
+  private readonly damageContrib = createDamageContributionState();
+  /** G-lite: reward-eligibility knobs (§10.2/§10.3 share thresholds + Reward Radius). Design Knob (§48). */
+  private partyReward = PARTY_REWARD_CONFIG;
   /**
    * workstream B: last-broadcast boss delta ต่อ mobId (telegraphSeq/phaseIndex) — กัน re-broadcast telegraph/phase
    * ซ้ำทุก sync. เคลียร์ตอน mob หายจาก sim (syncMobsToState stale prune).
@@ -1036,6 +1067,9 @@ export class MapRoom extends Room<MapRoomState> {
       this.state.mobs.delete(id);
       this.lastBossBroadcast.delete(id); // boss ตาย/despawn → รีเซ็ต delta tracker (respawn เริ่ม telegraph/phase ใหม่)
     }
+    // G-lite: drop damage-contribution ledgers for mobs no longer alive (death/respawn/despawn/leash) — mob ids
+    //   are monotonic so they never collide across respawns; this bounds memory to the live mob count.
+    retainMobs(this.damageContrib, seen);
   }
 
   /**
@@ -1156,11 +1190,13 @@ export class MapRoom extends Room<MapRoomState> {
     // สกิลที่ทำ damage: targetType enemy + baseMultiplier>0 + hitCount>0 (utility เช่น taunt = valid cast แต่ไม่ damage)
     const dealsDamage = def.targetType === "enemy" && def.baseMultiplier > 0 && def.hitCount > 0;
     const hits: SkillHit[] = [];
-    const killedMobTypes: string[] = []; // P2-09: mobType ต่อ mob ที่ตายรอบนี้ → reward ให้ caster
+    // G-lite: one entry per mob killed this cast, carrying the eligible recipients captured SYNCHRONOUSLY
+    //   (before syncMobsToState prunes the tracker) — the async reward grant loop below reads it.
+    const killGrants: KillGrant[] = [];
     if (dealsDamage) {
-      // workstream B: party break window (§2.4) — party combat ยังไม่ wired → solo (partySize 1). โตขึ้นเมื่อ
-      //   party system มา (P2B): partySize = eligibleMembers ในระยะ. equipment breakPower ต่อ cast (§6.1).
-      const bp = bossBreakParams(this.balance.boss.break, 1);
+      // G-lite: party channel (filterBy → whole room = one party) vs solo channel (partyId="") drives the
+      //   eligibility gate (§10.2/§10.3) + EXP pool split (§9.4). equipment breakPower ต่อ cast (§6.1).
+      const isParty = this.partyId !== DEFAULT_PARTY_ID;
       const equipBreak = this.sessionBreakPower.get(sessionId) ?? 0;
       for (const mobId of hitIds) {
         const mobType = mobTypeById.get(mobId);
@@ -1171,6 +1207,12 @@ export class MapRoom extends Room<MapRoomState> {
         // workstream B: boss? (breakPower>0). staggered ก่อนตี = golden window → คูณ damage (§2.4). bossModifier
         //   = def.bossModifier ต่อสกิลเมื่อเป็นบอส (แทน hardcoded 1.0; §50.1/§15.5 AoE royal_wave 0.5 vs solar 1.2).
         const bossBefore = this.sim.bossView(mobId);
+        // G-lite: boss break window (§2.4) scales with party size = distinct damage contributors ≥ elite/boss
+        //   threshold on THIS boss (from the tracker, pre-current-hit) clamped ≥ 1 (very first hit = solo).
+        const breakPartySize = bossBefore
+          ? Math.max(1, contributorCountAtLeast(this.damageContrib, mobId, this.partyReward.eliteBossMinSharePct))
+          : 1;
+        const bp = bossBreakParams(this.balance.boss.break, breakPartySize);
         const bossModifier = bossBefore
           ? bossDamageModifier(def.bossModifier, bossBefore.staggered, bp.damageMultiplier)
           : 1.0;
@@ -1192,33 +1234,57 @@ export class MapRoom extends Room<MapRoomState> {
         );
         const applied = this.sim.damageMob(mobId, dmg.damage);
         if (!applied) continue;
+        // G-lite: record this hit's damage → contribution tracker (never-downgrade: drives reward eligibility).
+        recordDamage(this.damageContrib, mobId, sessionId, dmg.damage);
         hits.push({ mobId, dmg: dmg.damage, crit: dmg.crit, killed: applied.killed });
         if (applied.killed) {
-          killedMobTypes.push(mobType);
-          // C2b: mob.killed derived-field event (achievement combat rows). All fields derived from data already
-          //   at this site — pre-damage mob state (mobPre) + killer state (player). partySize/damageShare are
-          //   hardcoded solo (party G-lite ต่อทีหลัง). monsterId = economy id (not engine mobType).
+          // C2b + G-lite: mob.killed derived-field event per ELIGIBLE member (Economy §10.2/§10.3 personal
+          //   reward). Mob-centric fields (hpFracBefore/overkill/gridCell) are shared across members; per-member
+          //   fields (playerHpFrac / lastHitByPlayer / damageSharePct) come from each recipient's own state.
           const pre = mobPre.get(mobId);
           const maxHp = ms.hp > 0 ? ms.hp : 1;
           const hpBefore = pre ? pre.hp : maxHp;
-          const selfMaxHp = player.maxHp > 0 ? player.maxHp : 1;
-          this.emitAchievement(
-            client,
-            "mob.killed",
-            {
-              monsterId: monsterIdForMobType(mobType) ?? mobType,
-              rank: mobClassForMobType(mobType) ?? "normal",
-              hpFracBefore: hpBefore / maxHp,
-              overkillPct: ((dmg.damage - hpBefore) / maxHp) * 100,
-              playerHpFrac: player.hp / selfMaxHp,
-              lastHitByPlayer: true,
-              partySize: 1,
-              damageSharePct: 100,
-              mapId: this.state.mapId,
-              gridCell: `${Math.floor(pre ? pre.tx : 0)},${Math.floor(pre ? pre.ty : 0)}`,
-            },
-            now,
-          );
+          const deathTx = pre ? pre.tx : 0;
+          const deathTy = pre ? pre.ty : 0;
+          const rank: MobRewardRank = mobClassForMobType(mobType) ?? "normal";
+          const monsterId = monsterIdForMobType(mobType) ?? mobType;
+          const overkillPct = ((dmg.damage - hpBefore) / maxHp) * 100;
+          const gridCell = `${Math.floor(deathTx)},${Math.floor(deathTy)}`;
+          // eligible recipients: contribution ≥ threshold (solo) / party-combined (party) AND present
+          //   (connected + Reward Radius + in-scene). Captured NOW before syncMobsToState prunes the ledger.
+          const eligible = eligibleFor(this.damageContrib, mobId, {
+            rank,
+            isParty,
+            normalMinSharePct: this.partyReward.normalMinSharePct,
+            eliteBossMinSharePct: this.partyReward.eliteBossMinSharePct,
+            isPresent: (sid) => this.isRewardPresence(sid, deathTx, deathTy, this.partyReward.rewardRadiusTiles),
+          });
+          // §9.4 pool size: solo channel = 1 (each individual gets a solo pool); party channel = eligible count.
+          const poolMembers = isParty ? Math.max(1, eligible.length) : 1;
+          for (const e of eligible) {
+            const memberClient = this.clients.find((c) => c.sessionId === e.sessionId);
+            if (!memberClient) continue; // dropped between hit-resolve and here → skip (defensive)
+            const memberPlayer = this.state.players.get(e.sessionId);
+            const memberMaxHp = memberPlayer && memberPlayer.maxHp > 0 ? memberPlayer.maxHp : 1;
+            this.emitAchievement(
+              memberClient,
+              "mob.killed",
+              {
+                monsterId,
+                rank,
+                hpFracBefore: hpBefore / maxHp,
+                overkillPct,
+                playerHpFrac: (memberPlayer?.hp ?? 0) / memberMaxHp,
+                lastHitByPlayer: e.sessionId === sessionId, // no reward privilege — stats flag only (§10.2)
+                partySize: poolMembers,
+                damageSharePct: e.sharePct,
+                mapId: this.state.mapId,
+                gridCell,
+              },
+              now,
+            );
+          }
+          killGrants.push({ mobType, poolMembers, members: eligible });
         }
         // workstream B: ทุบ guard ด้วย break contribution (แยกจาก damage; single-target > AoE, §8) — guard แตก
         //   → BREAK broadcast + golden window. ทำหลัง damage (ถ้ายังไม่ตาย). ไม่ทุบถ้ากำลัง staggered อยู่.
@@ -1254,18 +1320,43 @@ export class MapRoom extends Room<MapRoomState> {
     const result: SkillResultMessage = { casterId: sessionId, skillId, hits };
     this.broadcast(MSG_SKILL_RESULT, result);
 
-    // P2-09: มอนตาย → reward (EXP/gold/drop/audit) ให้ caster ผู้ฆ่า. best-effort (async, ไม่ block broadcast).
-    //   damageMob คืน killed=true ครั้งเดียวต่อมอน (ถูกลบจาก sim) → grant ครั้งเดียว (idempotent ที่ระดับ sim).
-    // ⚠️ ต้อง **sequential** (await ทีละตัว): grantKillReward อ่าน+เขียน progress.exp คร่อม await — ถ้ายิงพร้อมกัน
-    //   (AoE ฆ่าหลายตัวรอบเดียว เช่น S2 คลื่นดาบ) ทุก call อ่าน exp เดิมค่าเดียวกัน → เขียนทับ = EXP หาย (ได้แค่ตัวเดียว).
-    //   fire-and-forget wrapper (void) ไม่บล็อก broadcast; ข้างใน await เรียงตัว → แต่ละตัวเห็น exp อัปเดตแล้ว = ได้ครบ.
-    if (killedMobTypes.length > 0) {
+    // P2-09 + G-lite: มอนตาย → reward (EXP/gold/drop/audit) ให้ผู้เล่นที่มีสิทธิ์ **ทุกคน** (§10.2/§10.3 personal
+    //   reward — ไม่แย่งกัน). best-effort (async, ไม่ block broadcast). damageMob คืน killed=true ครั้งเดียวต่อมอน
+    //   → grant ชุดเดียวต่อมอน. **killEventId ต่อสมาชิก** (randomUUID ใน grantKillReward) = ledger idempotency key
+    //   แยกกัน — currency_ledger.idempotency_key เป็น GLOBAL unique (ดู db/ledger §5): ห้าม share key ข้ามสมาชิก
+    //   ไม่งั้นคนที่สองได้ status=duplicate = ทองหายเงียบ.
+    // ⚠️ ต้อง **sequential** (await ทีละ grant): grantKillReward อ่าน+เขียน progress.exp คร่อม await — สมาชิกคนเดิม
+    //   ที่มีสิทธิ์หลายมอนใน cast เดียว (AoE) ต้อง grant เรียงกัน ไม่งั้นอ่าน exp เดิมค่าเดียว → เขียนทับ = EXP หาย.
+    if (killGrants.length > 0) {
       void (async () => {
-        for (const mobType of killedMobTypes) {
-          await this.grantKillReward(client, mobType);
+        for (const kg of killGrants) {
+          for (const m of kg.members) {
+            const memberClient = this.clients.find((c) => c.sessionId === m.sessionId);
+            if (!memberClient) continue; // left before the grant ran → skip (in-scene required at kill, §10.2)
+            await this.grantKillReward(memberClient, kg.mobType, kg.poolMembers);
+          }
         }
       })();
     }
+  }
+
+  /**
+   * G-lite (§10.2/§10.3): a session is a valid reward recipient when it is still connected (has a live Client),
+   * in-scene (present in room state), AND within the Reward Radius of the mob's death position. A session in
+   * reconnect grace has no Client → not present (its recorded damage still counts toward others' denominator).
+   */
+  private isRewardPresence(
+    sessionId: string,
+    deathTx: number,
+    deathTy: number,
+    radiusTiles: number,
+  ): boolean {
+    const p = this.state.players.get(sessionId);
+    if (!p) return false; // left the scene / removed
+    if (!this.clients.some((c) => c.sessionId === sessionId)) return false; // disconnected (grace)
+    const dx = p.tx - deathTx;
+    const dy = p.ty - deathTy;
+    return dx * dx + dy * dy <= radiusTiles * radiusTiles;
   }
 
   /**
@@ -1311,8 +1402,18 @@ export class MapRoom extends Room<MapRoomState> {
    * with a DB. Best-effort at this boundary: a DB error is logged (money-loud) but never crashes the room —
    * the ledger stays strict inside (no faked success). Sends MSG_PLAYER_PROGRESS + a fresh MSG_INVENTORY_STATE
    * when the bag changed. mobType unmapped / boss (P2B) → no-op.
+   *
+   * `client` = the member being rewarded (the killer OR a fellow party contributor). `eligibleMembers` = the
+   * §9.4 pool size for the EXP split (solo channel = 1 · party channel = eligible member count). Every session
+   * grant reads/writes its OWN sessionProgress/sessionCharacters, and generates its OWN killEventId → the
+   * ledger idempotency key (`drop-gold:{uuid}`) is distinct per member (global-unique key = no cross-member
+   * collision), and the milestone/achievement hooks fire under this member's own account/character scope.
    */
-  private async grantKillReward(client: Client, mobType: string): Promise<void> {
+  private async grantKillReward(
+    client: Client,
+    mobType: string,
+    eligibleMembers: number,
+  ): Promise<void> {
     const sessionId = client.sessionId;
     const progress = this.sessionProgress.get(sessionId);
     if (!progress) return;
@@ -1326,7 +1427,7 @@ export class MapRoom extends Room<MapRoomState> {
         accountId: rec?.accountId ?? "",
         playerLevel: progress.level,
         playerExp: progress.exp,
-        eligibleMembers: 1, // §9.4 party split not wired yet (single killer — see P2-09 report)
+        eligibleMembers, // §9.4 pool split (G-lite): solo=1 · party=eligible count in the reward group
         killEventId: randomUUID(),
         persist: !!rec,
       });
@@ -2079,6 +2180,9 @@ export class MapRoom extends Room<MapRoomState> {
     this.sessionCharacters.delete(sessionId);
     this.transitioningSessions.delete(sessionId);
     forgetAchievementSession(sessionId); // C2b: drop the session's rate-limit buckets (progress is scope-keyed)
+    // G-lite: intentionally NOT clearing this session's damageContrib entries — a leaver's dealt damage stays
+    //   attributed so it still counts toward the OTHER members' share denominator; the leaver is excluded from
+    //   reward by the presence filter at kill time (isRewardPresence). Ledgers are pruned per-mob on death.
     console.log(`[MapRoom ${this.roomId}] remove ${sessionId} (${reason})`);
   }
 
