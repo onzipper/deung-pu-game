@@ -34,6 +34,7 @@ import type {
   HitboxDebugConfig,
   TileSize,
 } from "@/engine/config";
+import type { AssetRegistry } from "@/engine/assets/registry";
 import type { TilePoint } from "@/engine/iso/coords";
 import { tileToScreen } from "@/engine/iso/coords";
 import type { Direction } from "@/engine/movement/direction";
@@ -68,6 +69,7 @@ import {
   type HitStopState,
 } from "@/game/combat/hit-stop";
 import { resolveJuiceLevel } from "@/game/combat/juice-level";
+import { createSkillVfxManager, type SkillVfxManagerHandle } from "@/game/combat/skill-vfx";
 import { getSoundManager } from "@/engine/audio/sound-manager";
 
 /** zLayer ของ hitbox debug wedge — เหนือ entity ปกติ (0); damage number ไม่ใช้ scene zLayer อีกต่อไป
@@ -94,6 +96,12 @@ export interface CombatStubDeps {
   combatEnabled?: boolean;
   /** RNG inject (offline dummy damage เท่านั้น; default Math.random). */
   rng?: RngFn;
+  /**
+   * F4 (ASSET_PRODUCTION_BIBLE §14 skill VFX): atlas registry เดียวกับที่ mob/player/prop peek —
+   * ส่งเข้ามาให้ skill-vfx manager หาเอฟเฟกต์ของสกิลที่ cast. ไม่ส่ง (undefined) = VFX เงียบ ไม่ spawn
+   * อะไรเลย (fail-soft, ไม่ throw — เกมเล่นได้ปกติแค่ไม่เห็นเอฟเฟกต์).
+   */
+  registry?: AssetRegistry;
 }
 
 export interface CombatStubHandle {
@@ -114,7 +122,13 @@ export interface CombatStubHandle {
    * glue, dev hotkey เท่านั้น) รับผิดชอบไม่เรียกใน production path.
    */
   spawnSyntheticDamageNumber(tile: TilePoint, amount: number, crit: boolean): void;
-  /** ลบ hitbox debug + damage number ที่ค้างอยู่ทั้งหมดออกจาก scene */
+  /**
+   * F4: เล่น VFX ของสกิล skillId ที่ตำแหน่ง/ทิศ player ปัจจุบัน — S1 เรียกเองข้างในที่ update() (ดู cast site),
+   * ส่วน S2-4 (discrete cast, hotbar A3) อยู่นอกไฟล์นี้ที่ app.ts `castSlot` → caller (app.ts) เรียก method
+   * นี้เองหลัง sendCast (ดู F4 brief report สำหรับ hook line ที่ต้องเติม).
+   */
+  playSkillVfx(skillId: string): void;
+  /** ลบ hitbox debug + damage number + skill VFX ที่ค้างอยู่ทั้งหมดออกจาก scene */
   destroy(): void;
 }
 
@@ -171,6 +185,13 @@ export function createCombatStub(
     combatFeel.effectQuality,
     tileSize,
   );
+  // F4 (ASSET_PRODUCTION_BIBLE §14): skill VFX manager — deps.registry อาจ undefined (fail-soft, spawn() no-op)
+  const skillVfx: SkillVfxManagerHandle = createSkillVfxManager(scene, config, deps.registry);
+  /** เล่น VFX ของ skillId ที่ตำแหน่ง/ทิศ player ปัจจุบัน — ใช้ทั้ง S1 cast site (ด้านล่าง) และ playSkillVfx()
+   *  (handle method ที่ caller ภายนอกเรียกสำหรับ S2-4, ดู CombatStubHandle doc). */
+  const triggerSkillVfx = (skillId: string): void => {
+    skillVfx.spawn(skillId, player.position, player.facing);
+  };
 
   // P1-06 juice state (per combat-stub instance = per local player) — ดู module header
   const hitStopState: HitStopState = createHitStopState();
@@ -227,6 +248,7 @@ export function createCombatStub(
         cooldownRemainingMs = cooldownMs; // client-side predictive gate (server = authority จริง)
         player.triggerAttack(); // anticipation ทันที — ไม่รอ server (TA §6)
         getSoundManager().playSfx("swing"); // Wave 2 SFX (D-065): ทุก local swing ได้ยินเสมอ (own action)
+        triggerSkillVfx(skill.skillId); // F4: VFX ของ S1 เล่นทันทีพร้อม anticipation (ไม่รอ online/offline branch)
 
         // aim = จุดหน้า player ตามทิศ facing ที่ระยะสกิล (server ใช้ตรวจ range + ศูนย์กลาง AoE)
         const facingAngle = screenAngleForDirection(player.facing);
@@ -281,6 +303,7 @@ export function createCombatStub(
       }
 
       damageNumbers.update(juiceDtSeconds);
+      skillVfx.update(juiceDtSeconds * 1000); // F4: ผูก tick เดียวกับ damage number/hitbox fade (hit-stop scaled)
 
       // P1-06 screen shake (GS §17.5): decay real-time (ไม่ผูกกับ hit-stop scale) → ดัน offset เข้า
       // scene ทุก frame ก่อน app.ts เรียก scene.update() (ลำดับ tick เดียวกัน, ดู runtime/app.ts).
@@ -348,9 +371,14 @@ export function createCombatStub(
       damageNumbers.spawn(tile, amount, { crit, targetId: "stress" });
     },
 
+    playSkillVfx(skillId: string): void {
+      triggerSkillVfx(skillId);
+    },
+
     destroy(): void {
       clearHitboxDebug();
       damageNumbers.destroy();
+      skillVfx.destroy();
       scene.setCameraShakeOffset({ sx: 0, sy: 0 });
     },
   };

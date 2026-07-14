@@ -1,0 +1,32 @@
+{
+  "assetId": "vfx_slash_arc",
+  "category": "vfx",
+  "frameSize": [
+    96,
+    96
+  ],
+  "pivot": [
+    48,
+    80
+  ],
+  "mirrorSafe": true,
+  "drawnDirections": [
+    "S"
+  ],
+  "mirrorMap": {
+    "SW": "S",
+    "SE": "S",
+    "W": "S",
+    "E": "S",
+    "NW": "S",
+    "N": "S",
+    "NE": "S"
+  },
+  "animations": {
+    "play": {
+      "fps": 15,
+      "loop": false,
+      "frameCount": 3
+    }
+  }
+}

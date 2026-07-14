@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" width="96" height="96" shape-rendering="crispEdges">
+  <!-- ฟันพื้นฐาน เฟรม 0 — เริ่มกวาดจากขวาบน -->
+  <path d="M74,26 Q84,44 78,62 L70,58 Q74,45 66,32 Z" fill="#FFF0C5"/>
+  <path d="M70,30 Q77,44 73,56 L69,54 Q71,44 65,34 Z" fill="#F2D6A0"/>
+</svg>

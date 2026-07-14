@@ -1,0 +1,32 @@
+{
+  "assetId": "vfx_solar_cleave",
+  "category": "vfx",
+  "frameSize": [
+    112,
+    112
+  ],
+  "pivot": [
+    56,
+    92
+  ],
+  "mirrorSafe": true,
+  "drawnDirections": [
+    "S"
+  ],
+  "mirrorMap": {
+    "SW": "S",
+    "SE": "S",
+    "W": "S",
+    "E": "S",
+    "NW": "S",
+    "N": "S",
+    "NE": "S"
+  },
+  "animations": {
+    "play": {
+      "fps": 15,
+      "loop": false,
+      "frameCount": 3
+    }
+  }
+}

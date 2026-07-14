@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 96" width="128" height="96" shape-rendering="crispEdges">
+  <!-- คลื่นราชัน เฟรม 0 — คลื่นก่อตัวหน้า caster -->
+  <path d="M40,64 Q64,48 88,64 L84,72 Q64,58 44,72 Z" fill="#B0B9EC"/>
+  <path d="M46,66 Q64,54 82,66 L80,70 Q64,60 48,70 Z" fill="#7786C8"/>
+</svg>

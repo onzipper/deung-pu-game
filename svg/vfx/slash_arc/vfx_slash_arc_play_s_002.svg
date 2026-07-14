@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" width="96" height="96" shape-rendering="crispEdges">
+  <!-- ฟันพื้นฐาน เฟรม 2 — จางหาย เหลือปลาย arc -->
+  <path d="M64,60 Q56,72 40,76 L38,70 Q52,66 58,56 Z" fill="#F2D6A0" opacity="0.6"/>
+  <path d="M34,72 L40,74 L36,78 Z" fill="#D8AE70" opacity="0.5"/>
+</svg>
