@@ -20,9 +20,10 @@ import type {
   BotContinuityOperationalStateWire,
   BotContinuitySnapshotWire,
 } from "../../src/shared/bot-continuity";
-import type { BotConfig, BotStopReason } from "../config/bot";
+import type { BotConfig, BotStopReason, BotTier } from "../config/bot";
 import {
   pickTarget,
+  pocketsWithAliveMobs,
   stopForForbiddenTargetInRange,
   stopForInventoryOverflow,
   stopForLowHp,
@@ -33,6 +34,7 @@ import {
   type AgentMob,
   type Vec2,
 } from "./agent";
+import { planRecovery, type RecoveryPhase, type RecoverySnapshot } from "./recovery";
 import type { SessionRepo } from "./store";
 import type { BotRulesV1, BotSessionCounters } from "./types";
 import {
@@ -66,6 +68,13 @@ export interface BotPotionOutcome {
   /** current per-actor consumable gate (0 if unknown). */
   cooldownUntilMs: number;
 }
+
+/**
+ * Per-waypoint arrival tolerance (tiles) when walking a planned return route: advance to the next node once the
+ * real actor is within this radius. A navigation epsilon, not a balance knob — the pocket arrival radius that
+ * ends the whole return (config.recovery.pocketArriveRadiusTiles) is the design-tuned value the planner owns.
+ */
+const RETURN_WAYPOINT_ARRIVE_TILES = 0.5;
 
 /** Verified request to hand an already-materialized character actor to automation. */
 export interface BotAuthorityInput {
@@ -148,6 +157,10 @@ export interface BotRuntimeDeps {
   mapId: string;
   pocketId: string;
   rules: BotRulesV1;
+  /** effective tier resolved at start. Free runs the PR4 baseline verbatim; paid tiers unlock the recovery loop. */
+  tier: BotTier;
+  /** live re-resolve of the effective tier — a pass may expire mid-run (periodic recheck stops the run safely). */
+  resolveTier: () => Promise<BotTier>;
   /** base attack cooldown (seconds) of the chosen skill — throttled by efficiency. */
   baseCooldownSeconds: number;
   startedAtMs: number;
@@ -184,12 +197,31 @@ export class BotRuntime {
   /** Serialize periodic/final report patches so an older flush can never land after the checkpoint close. */
   private persistenceTail: Promise<void> = Promise.resolve();
 
+  // ── PR5 recovery state (paid tiers only; Free never touches any of this) ──────────────────────────────
+  /** The pocket currently farmed — equals the assigned pocket for Free forever; a paid fallback may swap it. */
+  private activePocketId: string;
+  /** The effective tier this tick — reconfirmed periodically so a lapsed pass stops the run (expired_readonly). */
+  private currentTier: BotTier;
+  private recoveryPhase: RecoveryPhase = { kind: "none" };
+  private deathRecoveryCount = 0;
+  private sinceTierCheckMs = 0;
+  private tierCheckInFlight = false;
+  /** Log a flaky tier-recheck DB error at most once per runtime — it must never kill an otherwise healthy run. */
+  private tierWarned = false;
+  private lastRouteReplanMs = 0;
+  /** Lazily built for paid tiers only (config allowed pockets ∩ existing) — never computed for Free. */
+  private allowedPocketsCache: readonly string[] | null = null;
+  /** Static-per-map anchor cache (built on first paid need over the allowed pockets) — never built for Free. */
+  private pocketAnchorsCache: Map<string, Vec2> | null = null;
+
   constructor(deps: BotRuntimeDeps) {
     this.d = deps;
     this.throttleMs = throttledAttackCooldownMs(deps.baseCooldownSeconds, deps.config.botEfficiencyTarget);
     this.continuity = deps.initialContinuity
       ? { ...deps.initialContinuity }
       : createBotContinuity(deps.startedAtMs);
+    this.activePocketId = deps.pocketId;
+    this.currentTier = deps.tier;
   }
 
   get actorId(): string {
@@ -226,15 +258,35 @@ export class BotRuntime {
   /** advance one host sim tick; may stop the bot. */
   tick(dtMs: number): void {
     if (this.stopped || !canIssueAutomationCommand(this.continuity)) return;
-    const { host, config, pocketId } = this.d;
+
+    // Free tier is byte-identical to PR4: the farm loop verbatim, no recovery planner, no tier recheck, no new
+    // host calls. `activePocketId` never leaves the assigned pocket for Free, and the inline low-hp stop stays.
+    if (this.currentTier === "free") {
+      this.runFarmBody(dtMs, false);
+      return;
+    }
+
+    this.tickPaid(dtMs);
+  }
+
+  /**
+   * The PR4 farm loop (pos/pocket guard → low-hp → boss → target → travel/combat/attack → stuck → flush/status),
+   * targeting `activePocketId`. Free runs it with `skipInlineLowHp === false` (identical to PR4); a paid baseline
+   * runs it with the inline low-hp stop skipped because the recovery planner owns the low-hp floor.
+   */
+  private runFarmBody(dtMs: number, skipInlineLowHp: boolean): void {
+    const { host, config } = this.d;
+    const pocketId = this.activePocketId;
 
     const pos = host.botPos(this.d.actorId);
     if (!pos) return void this.stop("map_unsafe"); // member vanished
     if (!host.pocketExists(pocketId)) return void this.stop("map_unsafe");
 
-    // #2 low hp (potion-exhausted substitution). death arrives via the host contact path (onBotDied).
-    const hpStop = stopForLowHp(host.botHpFraction(this.d.actorId), config.lowHpStopFraction);
-    if (hpStop) return void this.stop(hpStop);
+    // #2 low hp (potion-exhausted substitution). death arrives via the host contact path (onActorDied).
+    if (!skipInlineLowHp) {
+      const hpStop = stopForLowHp(host.botHpFraction(this.d.actorId), config.lowHpStopFraction);
+      if (hpStop) return void this.stop(hpStop);
+    }
 
     const mobs = host.botMobs();
     // #7 boss/event in range.
@@ -297,6 +349,244 @@ export class BotRuntime {
       this.sinceStatusMs = 0;
       this.pushStatus();
     }
+  }
+
+  /**
+   * Paid-tier tick: a periodic entitlement recheck, then one pure recovery decision (potion / respawn-return /
+   * pocket-fallback / stop) applied around the same farm loop. The planner only reads; every phase transition and
+   * host side effect lives here, state-before-side-effect and revision-fenced like PR4.
+   */
+  private tickPaid(dtMs: number): void {
+    const { host, config } = this.d;
+
+    // (a) periodic tier recheck — a lapsed pass stops the run safely (expired_readonly → wait_for_owner).
+    this.sinceTierCheckMs += dtMs;
+    if (this.sinceTierCheckMs >= config.recovery.tierRecheckIntervalMs && !this.tierCheckInFlight) {
+      this.recheckTier();
+    }
+
+    // (b) one deterministic recovery decision for this tick.
+    const snapshot: RecoverySnapshot = {
+      nowMs: this.d.now(),
+      tier: this.currentTier,
+      hpFraction: host.botHpFraction(this.d.actorId),
+      position: host.botPos(this.d.actorId),
+      assignedPocketId: this.d.pocketId,
+      activePocketId: this.activePocketId,
+      allowedPockets: this.allowedPockets(),
+      pocketsWithAliveMobs: pocketsWithAliveMobs(host.botMobs()),
+      pocketAnchors: this.pocketAnchors(),
+      potionThresholdFraction: this.potionThresholdFraction(),
+      lowHpStopFraction: config.lowHpStopFraction,
+      idleDecisions: this.idleDecisions,
+      deathRecoveryCount: this.deathRecoveryCount,
+      phase: this.recoveryPhase,
+    };
+    const decision = planRecovery(snapshot, config.recovery);
+
+    // (c) apply the single decision (state transition before side effect, revision-fenced).
+    switch (decision.kind) {
+      case "baseline":
+        this.runFarmBody(dtMs, true);
+        return;
+      case "hold":
+        return;
+      case "use_potion":
+        this.dispatchUsePotion();
+        return;
+      case "plan_return":
+        this.dispatchPlanReturn(decision.targetPocketId);
+        return;
+      case "follow_route":
+        this.dispatchFollowRoute(dtMs);
+        return;
+      case "arrived":
+        this.dispatchArrived();
+        return;
+      case "fallback_pocket":
+        this.dispatchFallbackPocket(decision.targetPocketId);
+        return;
+      case "stop":
+        this.stop(decision.reason);
+        return;
+    }
+  }
+
+  /**
+   * Host reports the real actor died. Free stops immediately (`death`, PR4 behavior). A paid tier enters death
+   * recovery — but only while under the per-session cap; once the cap is hit it settles as `death` like Free. The
+   * gate lives HERE (the planner never re-gates on the count, so the two owners cannot disagree).
+   */
+  onActorDied(): void {
+    if (this.stopped) return;
+    if (this.currentTier === "free") return void this.stop("death");
+    if (this.deathRecoveryCount >= this.d.config.recovery.maxDeathRecoveriesPerSession) {
+      return void this.stop("death");
+    }
+    // State before side effect: enter RECOVERING first; a lost fence (takeover raced) falls back to a safe stop.
+    if (!this.advanceContinuity("RECOVERING", "death_await_respawn")) return void this.stop("death");
+    this.recoveryPhase = { kind: "awaiting_respawn", diedAtMs: this.d.now() };
+    this.deathRecoveryCount += 1;
+  }
+
+  /** fire-and-forget entitlement recheck: a paid→Free drop stops the run; a DB error keeps the last tier. */
+  private recheckTier(): void {
+    this.tierCheckInFlight = true;
+    void this.d
+      .resolveTier()
+      .then((tier) => {
+        if (tier === "free") {
+          if (this.currentTier !== "free" && !this.stopped) this.stop("expired_readonly");
+        } else {
+          this.currentTier = tier;
+        }
+      })
+      .catch((e: unknown) => {
+        // A flaky DB read must never kill an otherwise healthy paid run — keep the last known tier, warn once.
+        if (!this.tierWarned) {
+          this.tierWarned = true;
+          console.warn(
+            `[bot ${this.d.sessionRowId}] tier recheck failed, keeping ${this.currentTier}: ` +
+              `${e instanceof Error ? e.message : String(e)}`,
+          );
+        }
+      })
+      .finally(() => {
+        this.tierCheckInFlight = false;
+        this.sinceTierCheckMs = 0;
+      });
+  }
+
+  /** Auto-potion drink (opt-in): enter RECOVERING, drink through the shared consumable seam, settle on resolve. */
+  private dispatchUsePotion(): void {
+    // The planner already returns hold while a drink is pending; assert that guard so we never double-drink.
+    if (this.recoveryPhase.kind === "potion_pending") return;
+    if (this.continuity.state !== "RECOVERING" && !this.advanceContinuity("RECOVERING", "low_hp_potion")) {
+      return; // fence lost (e.g. takeover raced) — treat as a no-op tick.
+    }
+    this.recoveryPhase = { kind: "potion_pending" };
+    const lease = this.acquireLease("potion");
+    void this.d.host
+      .botUsePotion(this.d.actorId, this.d.config.recovery.potionItemId)
+      .then((outcome) => {
+        if (!this.stopped) this.applyPotionOutcome(outcome);
+        this.releaseLease(lease); // release LAST — a committed heal always drains into the report on stop.
+      })
+      .catch((e: unknown) => {
+        console.error(
+          `[bot ${this.d.sessionRowId}] potion error: ${e instanceof Error ? e.message : String(e)}`,
+        );
+        // Fail closed to backoff so a rejected drink never wedges the run in potion_pending.
+        if (!this.stopped) this.applyPotionOutcome({ status: "unavailable", hpFraction: 0, cooldownUntilMs: 0 });
+        this.releaseLease(lease);
+      });
+  }
+
+  /** Settle a resolved drink: healed/not_needed resumes work; anything else backs off (planner's floor still stops). */
+  private applyPotionOutcome(outcome: BotPotionOutcome): void {
+    if (outcome.status === "healed" || outcome.status === "not_needed") {
+      this.recoveryPhase = { kind: "none" };
+      this.advanceContinuity("WORKING", "potion_heal_applied");
+    } else {
+      this.recoveryPhase = {
+        kind: "potion_backoff",
+        retryAtMs: this.d.now() + this.d.config.recovery.potionRetryIntervalMs,
+      };
+      this.advanceContinuity("WORKING", "potion_unavailable");
+    }
+  }
+
+  /** Post-respawn: enter RETURNING_TO_WORK and plan an A* route back to the assigned pocket's anchor. */
+  private dispatchPlanReturn(targetPocketId: string): void {
+    if (!this.advanceContinuity("RETURNING_TO_WORK", "respawn_return_to_pocket")) return; // fence lost.
+    const anchor = this.pocketAnchors().get(targetPocketId) ?? this.d.host.botPocketAnchor(targetPocketId);
+    if (!anchor) return void this.stop("stuck"); // no walkable anchor — cannot route back.
+    const route = this.d.host.botPlanPath(this.d.actorId, anchor);
+    if (route === null) return void this.stop("stuck"); // unreachable — a factual obstacle for the owner.
+    this.recoveryPhase = { kind: "returning", targetPocketId, waypoints: route, nextIndex: 0 };
+  }
+
+  /** Walk one node of the planned return route; a blocked step counts idle, may replan, and can settle as stuck. */
+  private dispatchFollowRoute(dtMs: number): void {
+    const phase = this.recoveryPhase;
+    if (phase.kind !== "returning") return; // the planner only asks to follow while returning.
+    const waypoint = phase.waypoints[phase.nextIndex];
+    if (!waypoint) return; // consumed — the planner settles it as `arrived` next tick.
+
+    this.decisionTimer += dtMs;
+    const progressed = this.d.host.botStepToward(this.d.actorId, waypoint, dtMs);
+    if (progressed) {
+      this.idleDecisions = 0;
+      const pos = this.d.host.botPos(this.d.actorId);
+      if (pos && withinRange(pos, waypoint, RETURN_WAYPOINT_ARRIVE_TILES)) {
+        phase.nextIndex += 1;
+        this.decisionTimer = 0;
+      }
+      return;
+    }
+    // Blocked step: sample on the same throttled cadence as the farm loop, maybe replan, let the stuck limit settle.
+    if (this.decisionTimer >= this.throttleMs) {
+      this.decisionTimer = 0;
+      this.idleDecisions += 1;
+      this.maybeReplanRoute(phase);
+      const stuck = stopForStuck(this.idleDecisions, this.d.config.stuckTickLimit);
+      if (stuck) return void this.stop("stuck");
+    }
+  }
+
+  /** Re-plan the return route from the current tile, at most once per routeReplanCooldownMs. */
+  private maybeReplanRoute(phase: Extract<RecoveryPhase, { kind: "returning" }>): void {
+    const now = this.d.now();
+    if (now - this.lastRouteReplanMs < this.d.config.recovery.routeReplanCooldownMs) return;
+    this.lastRouteReplanMs = now;
+    const anchor = this.pocketAnchors().get(phase.targetPocketId) ?? this.d.host.botPocketAnchor(phase.targetPocketId);
+    if (!anchor) return; // keep counting; the stuck limit is the terminal guard.
+    const route = this.d.host.botPlanPath(this.d.actorId, anchor);
+    if (route === null) return; // keep counting.
+    phase.waypoints = route;
+    phase.nextIndex = 0;
+  }
+
+  /** Reached the pocket: clear recovery and resume the farm loop. */
+  private dispatchArrived(): void {
+    this.recoveryPhase = { kind: "none" };
+    this.idleDecisions = 0;
+    this.advanceContinuity("WORKING", "pocket_reentered");
+  }
+
+  /** Hand the active pocket off to another allowed pocket that still has mobs (or back to the assigned one). */
+  private dispatchFallbackPocket(targetPocketId: string): void {
+    if (!this.advanceContinuity("TRAVELING", "pocket_fallback")) return; // fence lost.
+    this.activePocketId = targetPocketId;
+    this.idleDecisions = 0;
+  }
+
+  /** The bot's low-hp drink threshold as a fraction, or null when the profile has no potion rule (opt-in). */
+  private potionThresholdFraction(): number | null {
+    const pct = this.d.rules.potionThresholdPct;
+    if (pct == null) return null;
+    return Math.max(0, Math.min(100, pct)) / 100;
+  }
+
+  /** Allowed pockets for this map (config ∩ existing), lazily cached; falls back to the assigned pocket if empty. */
+  private allowedPockets(): readonly string[] {
+    if (this.allowedPocketsCache) return this.allowedPocketsCache;
+    const configured = this.d.config.botAllowedPockets[this.d.mapId] ?? [];
+    const existing = configured.filter((p) => this.d.host.pocketExists(p));
+    this.allowedPocketsCache = existing.length > 0 ? existing : [this.d.pocketId];
+    return this.allowedPocketsCache;
+  }
+
+  /** Anchor tile per allowed pocket, built once on first paid need (anchors are static per map). */
+  private pocketAnchors(): ReadonlyMap<string, Vec2> {
+    if (this.pocketAnchorsCache) return this.pocketAnchorsCache;
+    const anchors = new Map<string, Vec2>();
+    for (const p of this.allowedPockets()) {
+      const anchor = this.d.host.botPocketAnchor(p);
+      if (anchor) anchors.set(p, anchor);
+    }
+    this.pocketAnchorsCache = anchors;
+    return this.pocketAnchorsCache;
   }
 
   /** True while an attack+grant lease is still in flight — preserves the at-most-one-attack reentrancy guard. */
@@ -450,7 +740,7 @@ export class BotRuntime {
       profileId: this.d.profileId,
       sessionId: this.d.sessionRowId,
       mapId: this.d.mapId,
-      pocketId: this.d.pocketId,
+      pocketId: this.activePocketId,
       continuity: toBotContinuityWire(this.continuity),
       action: pos ? legacyBotActionForContinuity(this.continuity.state) : "searching",
       killCount: this.counters.killCount,

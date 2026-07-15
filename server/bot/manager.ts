@@ -150,11 +150,11 @@ export class BotManager {
     }
   }
 
-  /** Host reports actor death; current safe-stop remains until PR4/PR5 add tier-specific handling. */
+  /** Host reports actor death; the running runtime settles it per tier (Free stops, paid may recover — PR5). */
   onBotDied(actorId: string): void {
     const accountId = this.actorToAccount.get(actorId);
     if (accountId) {
-      this.bots.get(accountId)?.stop("death");
+      this.bots.get(accountId)?.onActorDied();
       return;
     }
     for (const [startingAccountId, presence] of this.startingActors) {
@@ -596,6 +596,8 @@ export class BotManager {
       mapId: profile.mapId,
       pocketId: profile.pocketId,
       rules: profile.rules,
+      tier,
+      resolveTier: () => this.resolveTierFor(accountId),
       baseCooldownSeconds: requestHost.botBaseCooldownSeconds(actorId),
       startedAtMs: now,
       initialContinuity: continuity,

@@ -92,6 +92,8 @@ function createRuntimeHarness(options: RuntimeHarnessOptions = {}) {
     mapId: "map1",
     pocketId: "pocket",
     rules: { skillSlots: [0], potionThresholdPct: null, lootAll: true },
+    tier: "free",
+    resolveTier: async () => "free",
     baseCooldownSeconds: 1,
     startedAtMs: now,
     now: () => ++now,
