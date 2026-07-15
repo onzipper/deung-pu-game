@@ -56,7 +56,7 @@
 - `server/characters/` — stable actor ownership/controller mode (`server/characters/authority.ts`) + state/progress persistence
 - `server/inventory/` — best-effort DB glue for MapRoom (snapshot on join; capacity + item catalog; mutations strict) + P2-10 reinforcement knobs
 - `server/economy/` — kill-reward wiring: mobType→monsterId + Prisma seams (ledger/inventory/drop-audit); EXP always, gold/drops/audit w/ DB · shop-state · milestones (C1) · achievements (C2b) · reinforcement-pity (B4 §4.2/§3.5)
-- `server/bot/` — real-actor controller; `server/bot/continuity.ts` = PR3 reducer/revision fence; `server/bot/policy.ts` + runtime = PR4 Free one-area/one-goal safe-stop settlement into WAITING_FOR_OWNER/COMPLETED/FAILED. PR5–7 recovery/workflow/UX pending
+- `server/bot/` — real-actor controller; `server/bot/continuity.ts` = PR3 reducer/revision fence; `server/bot/policy.ts` + runtime = PR4 Free one-area/one-goal safe-stop settlement into WAITING_FOR_OWNER/COMPLETED/FAILED; `server/bot/recovery.ts` = PR5 pure recovery planner (auto-potion/death-respawn/pocket-fallback decision, runtime integration pending). PR5–7 recovery/workflow/UX pending
 - `server/db/` — Prisma client singleton (server-only) + ledger contract (getBalance/appendEntry)
 - `server/config/` — Design Knobs: economy + reinforcement + loader + storage + achievements + bot (7b: caps/prices/pockets/efficiency)
 - `prisma/migrations/` — 0001_init (13 tables) · 0002_shop_ledger_reasons · 0003_progression · 0004_bot (tier_state/profiles/sessions)

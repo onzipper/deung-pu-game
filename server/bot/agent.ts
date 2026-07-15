@@ -52,6 +52,25 @@ export function withinRange(from: Vec2, target: Vec2, range: number): boolean {
   return dx * dx + dy * dy <= range * range;
 }
 
+/** Squared Euclidean distance in tiles (no sqrt) — for nearest-of ordering (e.g. closest pocket anchor). */
+export function squaredDistance(a: Vec2, b: Vec2): number {
+  const dx = a.tx - b.tx;
+  const dy = a.ty - b.ty;
+  return dx * dx + dy * dy;
+}
+
+/**
+ * The set of pocketIds that hold at least one alive mob (same alive semantics as pickTarget: hp > 0). Drives PR5
+ * pocket fallback — a dry active pocket may hand off to another allowed pocket that still has mobs.
+ */
+export function pocketsWithAliveMobs(mobs: readonly AgentMob[]): Set<string> {
+  const pockets = new Set<string>();
+  for (const m of mobs) {
+    if (m.hp > 0) pockets.add(m.pocketId);
+  }
+  return pockets;
+}
+
 /**
  * One movement step (≤ stepTiles) from `from` toward `to`. Normal movement speed (efficiency throttles ONLY the
  * attack cadence, not movement — §6.2). The caller checks the result against the collision grid and only applies
