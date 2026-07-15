@@ -1,14 +1,13 @@
 # Current state
 
-_Updated 2026-07-15 · History: `docs/history/` · archive: `docs/history/2026-07-13-current-state-archive.md`_
+_Updated 2026-07-16 · History: `docs/history/`_
 
 ## Now
 
-- **OB:** PR #21-23 + title splash merged. B4 = post-OB (D-064). Next: minimap/D.
+- **OB:** PR #21-23 + title splash merged. B4 post-OB (D-064).
 - **Phase:** P2 wave 3 **code-complete**. P2-16 handoff remains (rename reinforcement ID, wipe test data, verify migrations).
-- **SVG-01** merged; rasterizer = `@resvg/resvg-js`.
 - **Live:** server `https://deung-pu-game.onrender.com` (Render free tier + UptimeRobot, `/healthz`, D-058) · client `https://deung-pu.softrock.space/game` (Hostinger). Guest login + realtime connect verified 2026-07-13.
-- **Spec:** v15.5 / tech v1.5.3; D-063–066, D-067, D-068 locked. **PR1–4 aligned:** one stable real actor + atomic takeover/checkpoint; server-owned continuity runs the Free one-area/one-goal safe baseline and settles detected obstacles into WAITING_FOR_OWNER, explicit owner stop into COMPLETED, and invalid/forbidden world state into FAILED before reporting. Bag pressure includes Delivery Box fallback; proactive already-full preflight remains with PR5 inventory recovery. **PR5–10 pending:** Plus recovery, Pro workflows/restart resume, Bot UX, follower removal, searchable Help, and contextual Dung; recovery/town/workflow states remain contract-only and current Dung/Help remains noncanonical.
+- **Spec:** v15.5 / tech v1.5.3; D-063–070 locked (D-067 autonomy, D-068 Dung, D-069 town warp, D-070 town policy). **PR1–5 aligned:** one real actor + takeover/checkpoint; Free one-area/one-goal safe baseline (obstacle → WAITING_FOR_OWNER, owner stop → COMPLETED, invalid/forbidden → FAILED). PR5 live: Plus same-map recovery (opt-in potion via shared MSG_USE_ITEM, death revive-return, pocket fallback), live tier recheck (expired_readonly), server-owned town warp — Plus/Pro วาป city-hub ขาย/ฝาก/ซื้อคืน (D-070) แล้ววาปกลับ (finish-and-return takeover; bag preflight; town_trip_failed → รอเจ้าของ). **PR6–10 pending:** Pro workflows/restart resume, Bot UX, follower removal, searchable Help, contextual Dung; goal-chain/schedule states contract-only; Dung/Help noncanonical.
 - **DB:** Hostinger MariaDB production (D-057); 0001-0002 applied · 0003/0004_bot hand-authored, unapplied.
 
 ## Task board — P2 wave 3 (code-complete)
@@ -27,7 +26,7 @@ _Updated 2026-07-15 · History: `docs/history/` · archive: `docs/history/2026-0
 
 ## Follow-up (P2B, not blocking PR merge)
 
-Ground-loot entity (full inventory → lootOverflow reported, not persisted) · party share (§10.2, waits for party system) · starter loadout §7.7 not yet granted · shop unlockCondition tutorial not enforced · config loader DB override not wired into MapRoom (uses DEFAULT) · Field Boss `boss_map1_boiling_boar`: E3 stats + boss loot rebinding = P2B prep (D-064).
+Ground-loot entity (lootOverflow reported, not persisted) · party share (§10.2, waits for party system) · starter loadout §7.7 not yet granted · shop unlockCondition tutorial not enforced · config loader DB override not wired into MapRoom (uses DEFAULT) · Field Boss `boss_map1_boiling_boar`: E3 stats + boss loot rebinding = P2B prep (D-064).
 
 ## Open with owner (not blocking structure)
 
