@@ -63,3 +63,5 @@ Superseded -> archived in `docs/history/`: D-002->D-012 · D-007/D-010->D-011 ·
 | D-066 | 2026-07-13 | Rift Violet family, palette 35 | Locked | `docs/decisions/D-066-rift-violet-palette.md` |
 | D-067 | 2026-07-15 | Bot = real-character autonomy; tiers = continuity/recovery/workflow | Locked | `docs/decisions/D-067-character-autonomy.md` |
 | D-068 | 2026-07-15 | Dung-Dung contextual guide; Help is separate static KB | Locked | `docs/decisions/D-068-dungdung-contextual-guide.md` |
+| D-069 | 2026-07-16 | Bot town warp: Plus/Pro วาปเข้าเมือง-กลับ (PR5) | Proposed | `docs/decisions/D-069-bot-town-warp.md` |
+| D-070 | 2026-07-16 | Bot town service policy: ขาย/ฝาก/ซื้อคืน | Proposed | `docs/decisions/D-070-bot-town-service-policy.md` |
