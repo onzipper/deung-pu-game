@@ -1,9 +1,9 @@
-# ดึ๋งปุ๊ — Project Checkpoint v15.4 P0 Scope Lock Ready
+# ดึ๋งปุ๊ — Project Checkpoint v15.5 P0 Scope Lock Ready
 
-> สถานะเอกสาร: **P0 Scope Lock Ready / Current Source of Truth v15.4**
+> สถานะเอกสาร: **P0 Scope Lock Ready / Current Source of Truth v15.5**
 > จุดประสงค์: ปิดงานการขึ้นโปรเจกต์รอบแรกให้ครบ ไม่มีงานค้างจากเฟส design setup  
 > ใช้ต่อจาก: `deungpu_project_checkpoint_v8.md`  
-> สถานะงาน: **Design Phase 1 + Phase 2 + Combat Juice Layer + Audio Direction + Tech Handoff Readiness + Map Scale/Spawn Density + Engine Foundation Decisions + Runtime/Bot/Channel/Schema Ownership + P0 Scope Lock + v15.1–v15.4 Amendments ปิดครบแล้ว**
+> สถานะงาน: **Design Phase 1 + Phase 2 + Combat Juice Layer + Audio Direction + Tech Handoff Readiness + Map Scale/Spawn Density + Engine Foundation Decisions + Runtime/Bot/Channel/Schema Ownership + P0 Scope Lock + v15.1–v15.5 Amendments ปิดครบแล้ว**
 
 ---
 
@@ -75,6 +75,16 @@ Delta:
 4. **§59.3** — **AMENDED**: actor ที่ระบบควบคุมต้องนับ channel capacity และ automation population ต่อ farming pocket; reconnect กลับ actor/state/position ล่าสุดของตัวละครเดิม
 5. **§0.0.4 ข้อ 2 เฉพาะ “Mandatory Stop 9 ข้อยังบังคับทุก tier”** — **SUPERSEDED**: ใช้ global safety stops + tier recovery + plan-selected actions ตาม D-067
 6. **ดึ๋งๆ/Help** — ใช้ D-068 และ Companion spec amendment 2026-07-15: ดึ๋งๆ ไม่เป็น persistent follower ไม่ควบคุม Bot และไม่ใช่ Help database; Help เป็น searchable static knowledge base แยกต่างหาก
+
+## 0.0.6 Amendment Log — v15.5 (2026-07-15) — Continuity State Machine Foundation (D-067)
+
+Owner แบ่ง implementation Character Autonomy เป็นหลาย PR และกำหนด PR3 ให้ล็อก continuity state machine ก่อน Free/Plus/Pro policy. Amendment นี้เพิ่ม vocabulary/authority invariant ใน §4.2 โดยไม่เปิด recovery, town service, goal chain, map transition หรือ restart resume ล่วงหน้า.
+
+Delta:
+
+1. **§4.2 ใหม่** — ล็อก state 14 ค่าและ transition authority ฝั่ง server; state machine ชุดเดียวใช้ทุก tier และไม่แตะ combat/reward ceiling
+2. manual takeover ต้องเข้า `PAUSED` ก่อนคืน authority; checkpoint เก็บ state ที่ถูกขัดจังหวะเพื่อวินิจฉัย แต่ resume ต้องอ่าน HP/inventory/position จริงและ replan ที่ `WORKING` ห้าม replay movement/target/cast เก่า
+3. obstacle→`WAITING_FOR_OWNER`/`FAILED`, recovery/service ordering, `LOOTING` duration, goal completion และ durable restart hydration ยังเป็น scope PR4–PR6; ห้ามเดาจากชื่อ state
 
 ---
 
@@ -375,6 +385,33 @@ No Power Promise:
 
 - Bot เป็น control system; ดึ๋งๆ เป็น contextual presentation layer ที่เล่า factual status/result/stop reason เท่านั้น ไม่ start/stop/resume/edit plan หรือควบคุม actor
 - Help เป็น searchable static knowledge base แยกจากดึ๋งๆ; Report เป็น canonical output ที่ดึ๋งๆ นำเสนอได้โดยไม่เป็นเจ้าของ automation
+
+## 4.2 Amendment (v15.5, 2026-07-15) — Continuity State Machine Foundation
+
+continuity เป็น state ของ **แผนที่ควบคุมตัวละครจริง** ไม่ใช่ entity ใหม่และไม่ใช่ tier power. Server เป็นผู้เขียน state เพียงฝ่ายเดียว; client/UI อ่านเพื่อแสดงผลเท่านั้น. ทุก tier ใช้ vocabulary, transition topology และ combat/reward path ชุดเดียวกัน:
+
+```txt
+WORKING
+TRAVELING
+COMBAT
+LOOTING
+RECOVERING
+RETURNING_TO_TOWN
+SELLING
+DEPOSITING
+RESTOCKING
+RETURNING_TO_WORK
+PAUSED
+WAITING_FOR_OWNER
+COMPLETED
+FAILED
+```
+
+- state change ต้องเกิดก่อนออก movement/combat command และมี revision เพิ่มแบบ monotonic เพื่อ reject async transition เก่าหลัง takeover
+- `PAUSED`/`WAITING_FOR_OWNER` ห้ามออก world command; `COMPLETED`/`FAILED` เป็น terminal ภายใน run เดิม
+- manual takeover เข้า `PAUSED` ก่อน release authority. checkpoint ระบุ state ที่ถูกขัดจังหวะได้ แต่เป็น diagnostic เท่านั้น; in-process resume เริ่ม run ใหม่ที่ `WORKING` แล้วประเมิน actor/ทรัพยากรจริงใหม่ ห้าม replay command เก่า
+- PR3 ต่อ runtime เฉพาะ `WORKING`, `TRAVELING`, `COMBAT`, `PAUSED` ที่มี execution seam จริง. State อื่นเป็น contract สำหรับ PR4–PR6 และต้องไม่ถูกทำให้ดูเหมือนทำงานแล้ว
+- PR4 เป็นเจ้าของ Free obstacle/wait/completion policy; PR5 เป็นเจ้าของ recovery/town/service/return flow; PR6 เป็นเจ้าของ Pro workflow, cross-map, durable checkpoint และ validated restart resume
 
 ---
 

@@ -1,5 +1,5 @@
 // Batch 7b-server — Bot agent decision core (PURE, no I/O). Everything the runtime needs to decide a tick, and
-// every mandatory-stop predicate (§6.5), lives here so it is fully unit-testable without a room/sim/DB.
+// legacy v1 stop predicates live here so they remain unit-testable until PR4-PR6 attach D-067 tier policy.
 //
 // Efficiency model (§6.2): the bot's attack cadence is skill.cooldown ÷ botEfficiencyTarget (slower than
 // optimal). Movement stays normal speed. A manual expert therefore always out-DPS's the bot (no power sold).
@@ -78,9 +78,8 @@ export function throttledAttackCooldownMs(baseCooldownSeconds: number, efficienc
   return Math.max(50, base / eff);
 }
 
-// ── the 9 Mandatory Stops (§6.5) — every tier, non-disable ───────────────────
-// Priority order the runtime evaluates: death > boss/event > rare drop > inventory full > low hp > stuck.
-// (death is handled by the room contact path; the rest are predicates here.)
+// ── legacy v1 stop predicates (policy superseded by D-067; PR4-PR6 replace routing) ─────────────────────
+// Current evaluation order: death > boss/event > rare drop > inventory full > low hp > stuck.
 
 /** #1 inventory full — a kill produced bag overflow (the grant returned overflow) → stop. */
 export function stopForInventoryOverflow(overflowCount: number): BotStopReason | null {
@@ -88,7 +87,7 @@ export function stopForInventoryOverflow(overflowCount: number): BotStopReason |
 }
 
 /**
- * #2 potion exhausted → SUBSTITUTED by low-hp until a potion-use system exists (documented, §6.5). Stops when
+ * Legacy low-HP proxy until potion/recovery exists. Stops when
  * the bot's hp fraction is at/below the config floor. hp = 0 is `death` (separate path), so this fires just above.
  */
 export function stopForLowHp(hpFraction: number, lowHpFraction: number): BotStopReason | null {
@@ -119,7 +118,7 @@ export function rarityAtLeast(rarity: string, min: "uncommon" | "rare"): boolean
 
 /**
  * #7 boss/event encounter — a boss/event entity is within `radius` tiles of the bot → stop (bots never fight
- * bosses; boss/event is human-only, §6.5). `isBossOrEvent(mobType)` is injected (config/prefix driven).
+ * bosses; boss/event remains human-only under D-067). `isBossOrEvent(mobType)` is injected.
  */
 export function stopForBossInRange(
   botPos: Vec2,

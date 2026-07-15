@@ -1001,7 +1001,7 @@ export class MapRoom extends Room<MapRoomState> {
     });
 
     // Batch 7b (Bot/Hunter Assistant, P3 §13): per-account ops routed to the process-level botManager (server =
-    //   truth for tier caps / retention / the 9 mandatory stops). This room is the transport + (for bot:start)
+    //   truth for tier caps / continuity / D-067 policy). This room is the transport + (for bot:start)
     //   the host candidate for the target map. bots require a DB → manager rejects "requires_db" with none.
     this.onMessage(MSG_BOT_PROFILE_LIST, (client: Client) => {
       void botManager.onProfileList(accountIdOf(client), (t, m) => client.send(t, m));
@@ -3137,7 +3137,7 @@ export class MapRoom extends Room<MapRoomState> {
     for (const mobId of hitIds) {
       const mobType = mobTypeById.get(mobId);
       if (mobType === undefined) continue;
-      // defence-in-depth: a bot never damages a boss (it must already have stopped, §6.5).
+      // defence-in-depth: Character Autonomy never damages a boss (D-067 global forbidden target).
       if (mobClassForMobType(mobType) === "boss") continue;
       const ms = this.balance.mobs[mobType] ?? this.balance.defaultMob;
       const dmg = computeSkillDamage(
@@ -3259,7 +3259,7 @@ export class MapRoom extends Room<MapRoomState> {
     return sent;
   }
 
-  /** true when a mobType is a boss (the bot must stop, §6.5). Event mobs aren't modeled yet (documented). */
+  /** true when a mobType is a boss (D-067 forbids automation combat). Event mobs are not modeled yet. */
   isBossOrEventType(mobType: string): boolean {
     return mobClassForMobType(mobType) === "boss";
   }

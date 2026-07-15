@@ -8,7 +8,7 @@ _Updated 2026-07-15 · History: `docs/history/` · archive: `docs/history/2026-0
 - **Phase:** P2 wave 3 **code-complete**. P2-16 handoff remains (rename reinforcement ID, wipe test data, verify migrations).
 - **SVG-01** merged; rasterizer = `@resvg/resvg-js`.
 - **Live:** server `https://deung-pu-game.onrender.com` (Render free tier + UptimeRobot, `/healthz`, D-058) · client `https://deung-pu.softrock.space/game` (Hostinger). Guest login + realtime connect verified 2026-07-13.
-- **Spec:** v15.4 / tech v1.5.3; D-063–066, D-067, D-068 locked. **PR1–2 aligned:** automation controls one stable real character (no clone/worker); manual move/skill fences it, saves a checkpoint, returns authority, and offers safe in-process resume using actual HP/inventory/position. **PR3–10 unimplemented/not aligned:** continuity/recovery/workflows, Bot UX, follower removal, searchable Help, contextual Dung. Current Dung follower/Help remains noncanonical.
+- **Spec:** v15.5 / tech v1.5.3; D-063–066, D-067, D-068 locked. **PR1–3 aligned:** one stable real actor + atomic takeover/checkpoint; server-owned 14-state continuity contract with revision fence is wired for WORKING/TRAVELING/COMBAT/PAUSED. **PR4–10 pending:** Free/Plus/Pro policy, recovery/workflows, Bot UX, follower removal, searchable Help, contextual Dung; inactive continuity states are contract-only and current Dung/Help remains noncanonical.
 - **DB:** Hostinger MariaDB production (D-057); 0001-0002 applied · 0003/0004_bot hand-authored, unapplied.
 
 ## Task board — P2 wave 3 (code-complete)

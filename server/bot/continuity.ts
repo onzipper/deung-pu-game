@@ -1,0 +1,212 @@
+// PR3 continuity state machine for Character Autonomy.
+//
+// This reducer owns topology only: no tier, HP, inventory, route, DB, timer, or side effect. PR4-PR6 policy
+// decides which command to request. `expectedRevision` fences stale async callbacks after takeover/pause.
+
+import {
+  isBotContinuityOperationalState,
+  type BotContinuityOperationalStateWire,
+  type BotContinuitySnapshotWire,
+  type BotContinuityStateWire,
+} from "../../src/shared/bot-continuity";
+
+const MAX_REASON_CODE_LENGTH = 80;
+
+export interface BotContinuitySnapshot extends BotContinuitySnapshotWire {
+  previousState: BotContinuityStateWire | null;
+  /** Audit/debug metadata only. Never use this as player copy or policy input. */
+  reasonCode: string;
+}
+
+interface TransitionMeta {
+  expectedRevision: number;
+  at: number;
+  reasonCode: string;
+}
+
+export type BotContinuityCommand =
+  | ({ kind: "advance"; to: BotContinuityOperationalStateWire } & TransitionMeta)
+  | ({ kind: "pause" } & TransitionMeta);
+
+export type BotContinuityTransitionError =
+  | "revision_conflict"
+  | "invalid_transition"
+  | "terminal_state"
+  | "invalid_time"
+  | "reason_required";
+
+export type BotContinuityTransitionResult =
+  | {
+      ok: true;
+      changed: boolean;
+      clockClamped: boolean;
+      snapshot: BotContinuitySnapshot;
+    }
+  | {
+      ok: false;
+      error: BotContinuityTransitionError;
+      snapshot: BotContinuitySnapshot;
+    };
+
+/**
+ * PR3 topology only. PR4-PR6 must add edges alongside their authoritative behavior/spec; empty rows deliberately
+ * avoid pre-deciding recovery, town-service, loot, or workflow ordering from state names alone.
+ */
+export const BOT_CONTINUITY_ADVANCE_GRAPH: Readonly<
+  Record<BotContinuityOperationalStateWire, readonly BotContinuityOperationalStateWire[]>
+> = {
+  WORKING: ["TRAVELING", "COMBAT"],
+  TRAVELING: ["WORKING", "COMBAT"],
+  COMBAT: ["WORKING", "TRAVELING"],
+  LOOTING: [],
+  RECOVERING: [],
+  RETURNING_TO_TOWN: [],
+  SELLING: [],
+  DEPOSITING: [],
+  RESTOCKING: [],
+  RETURNING_TO_WORK: [],
+};
+
+export function createBotContinuity(startedAt: number, reasonCode = "plan_started"): BotContinuitySnapshot {
+  if (!isServerTime(startedAt)) throw new RangeError("invalid continuity start time");
+  const reason = normalizeReason(reasonCode);
+  if (!reason) throw new RangeError("continuity start reason is required");
+  return {
+    state: "WORKING",
+    revision: 0,
+    enteredAt: startedAt,
+    interruptedState: null,
+    previousState: null,
+    reasonCode: reason,
+  };
+}
+
+export function applyBotContinuityTransition(
+  current: BotContinuitySnapshot,
+  command: BotContinuityCommand,
+): BotContinuityTransitionResult {
+  if (command.expectedRevision !== current.revision) return rejected("revision_conflict", current);
+  if (!isServerTime(command.at)) return rejected("invalid_time", current);
+  const reasonCode = normalizeReason(command.reasonCode);
+  if (!reasonCode) return rejected("reason_required", current);
+  if (isTerminal(current.state)) return rejected("terminal_state", current);
+
+  const target = targetFor(command);
+  if (!isCommandAllowed(current.state, command, target)) return rejected("invalid_transition", current);
+  if (target === current.state) {
+    return { ok: true, changed: false, clockClamped: false, snapshot: current };
+  }
+
+  const clockClamped = command.at < current.enteredAt;
+  const interruptedState =
+    target === "PAUSED" && isBotContinuityOperationalState(current.state)
+      ? current.state
+      : null;
+
+  return {
+    ok: true,
+    changed: true,
+    clockClamped,
+    snapshot: {
+      state: target,
+      revision: current.revision + 1,
+      enteredAt: Math.max(command.at, current.enteredAt),
+      interruptedState,
+      previousState: current.state,
+      reasonCode,
+    },
+  };
+}
+
+export function canIssueAutomationCommand(snapshot: BotContinuitySnapshot): boolean {
+  return isBotContinuityOperationalState(snapshot.state);
+}
+
+export function toBotContinuityWire(snapshot: BotContinuitySnapshot): BotContinuitySnapshotWire {
+  return {
+    state: snapshot.state,
+    revision: snapshot.revision,
+    enteredAt: snapshot.enteredAt,
+    interruptedState: snapshot.interruptedState,
+  };
+}
+
+/** Compatibility field for the existing pre-PR7 Bot UI; canonical authority remains `continuity.state`. */
+export function legacyBotActionForContinuity(state: BotContinuityStateWire): string {
+  switch (state) {
+    case "WORKING":
+      return "searching";
+    case "TRAVELING":
+      return "moving";
+    case "COMBAT":
+      return "attacking";
+    case "LOOTING":
+      return "looting";
+    case "RECOVERING":
+      return "recovering";
+    case "RETURNING_TO_TOWN":
+      return "returning_to_town";
+    case "SELLING":
+      return "selling";
+    case "DEPOSITING":
+      return "depositing";
+    case "RESTOCKING":
+      return "restocking";
+    case "RETURNING_TO_WORK":
+      return "returning_to_work";
+    case "PAUSED":
+      return "paused";
+    case "WAITING_FOR_OWNER":
+      return "waiting_for_owner";
+    case "COMPLETED":
+      return "completed";
+    case "FAILED":
+      return "failed";
+  }
+}
+
+function isCommandAllowed(
+  current: BotContinuityStateWire,
+  command: BotContinuityCommand,
+  target: BotContinuityStateWire,
+): boolean {
+  switch (command.kind) {
+    case "advance":
+      return (
+        isBotContinuityOperationalState(current) &&
+        (current === target || BOT_CONTINUITY_ADVANCE_GRAPH[current].includes(command.to))
+      );
+    case "pause":
+      return isBotContinuityOperationalState(current) || current === "PAUSED";
+  }
+}
+
+function targetFor(command: BotContinuityCommand): BotContinuityStateWire {
+  switch (command.kind) {
+    case "advance":
+      return command.to;
+    case "pause":
+      return "PAUSED";
+  }
+}
+
+function isTerminal(state: BotContinuityStateWire): boolean {
+  return state === "COMPLETED" || state === "FAILED";
+}
+
+function normalizeReason(reasonCode: string): string | null {
+  if (typeof reasonCode !== "string") return null;
+  const reason = reasonCode.trim();
+  return reason.length > 0 && reason.length <= MAX_REASON_CODE_LENGTH ? reason : null;
+}
+
+function isServerTime(value: number): boolean {
+  return Number.isSafeInteger(value) && value >= 0;
+}
+
+function rejected(
+  error: BotContinuityTransitionError,
+  snapshot: BotContinuitySnapshot,
+): BotContinuityTransitionResult {
+  return { ok: false, error, snapshot };
+}

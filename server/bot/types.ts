@@ -14,7 +14,7 @@ import type { BotTier, BotStopReason } from "../config/bot";
  *     the lowest-slot DAMAGE skill it is allowed (basic attack). The rich AoE/ultimate intent lives in each
  *     skill's `botUsageRule` (v15 §50, free-text) — machine-parsing it is P3+ (documented TODO).
  *   • `potionThresholdPct` — placeholder for the potion-use system (not built) — carried but inert.
- *   • `lootAll` — keep everything (v1); the rare/high-value stop is mandatory and cannot be turned off (§6.5).
+ *   • `lootAll` — keep everything (v1); PR4 adds D-067 ordinary-rare plan actions.
  * Each set toggle/condition counts as ONE rule toward the tier cap (P3 §16 Q3/Q4: nábรวม).
  */
 export interface BotRulesV1 {
@@ -22,7 +22,7 @@ export interface BotRulesV1 {
   skillSlots: number[];
   /** placeholder — potion-use system TODO (P3 §4). null/undefined = no potion rule. */
   potionThresholdPct?: number | null;
-  /** keep all loot (v1). rare/high-value is a mandatory stop regardless. */
+  /** keep all loot (v1); ordinary-rare policy is deferred to PR4. */
   lootAll: boolean;
 }
 
