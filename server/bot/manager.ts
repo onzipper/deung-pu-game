@@ -45,7 +45,8 @@ import {
   type ProfileRepo,
 } from "./profiles";
 import { fetchReport, listReports } from "./reports";
-import { BotRuntime, type BotHost } from "./runtime";
+import { BotRuntime, type BotBagItemView, type BotHost } from "./runtime";
+import { DEFAULT_INVENTORY_CAPACITY } from "../../src/server/inventory/item-catalog";
 import {
   botPersistenceAvailable,
   prismaProfileRepo,
@@ -63,6 +64,17 @@ import {
 } from "./continuity";
 
 type Send = (type: string, msg: unknown) => void;
+
+/**
+ * Free bag slots for the proactive town-trip preflight = capacity − occupied (non-equipped) bag instances.
+ * Mirrors the trip controller's route-home success math (town-trip.ts: capacity − bag.filter(!equipped).length)
+ * so the proactive preflight and the trip's own resume criterion agree on what "full" means. Pure — unit-tested.
+ */
+export function freeBagSlots(bag: readonly BotBagItemView[], capacity: number): number {
+  let occupied = 0;
+  for (const item of bag) if (!item.equipped) occupied += 1;
+  return capacity - occupied;
+}
 
 interface StoredCheckpoint extends BotCheckpointWire {
   accountId: string;
@@ -587,6 +599,24 @@ export class BotManager {
       pocketId: profile.pocketId,
       continuity,
     });
+
+    // PR5 Phase C (D-069/D-070) proactive bag preflight — paid tiers only, never Free. Read the actor's live bag
+    // through the SAME best-effort seam the trip controller uses (botBagItems → [] on any load failure) and, if
+    // free bag slots already sit below the town-trip resume threshold, open the run with a town trip before it
+    // farms a single mob (never farm with a full bag → loot leaks). Best-effort: a load failure/[] yields a full
+    // slot count → no preflight, so it never blocks a start. Placed before the cancelled re-check so a cancel
+    // during the read is caught below (which releases authority). Free reads nothing at all.
+    let initialTownTrip = false;
+    if (tier !== "free" && this.d.config.townTrip.enabledTiers.includes(tier)) {
+      try {
+        const bag = await requestHost.botBagItems(actorId);
+        initialTownTrip =
+          freeBagSlots(bag, DEFAULT_INVENTORY_CAPACITY) < this.d.config.townTrip.resumeMinFreeSlots;
+      } catch {
+        initialTownTrip = false; // never block a start on a bag-read failure.
+      }
+    }
+
     if (this.cancelledStarts.has(accountId)) {
       this.startingActors.delete(accountId);
       requestHost.botReleaseAuthority(actorId);
@@ -659,6 +689,9 @@ export class BotManager {
       // across every registered host (the owner's transport can sit in a sibling room after a warp).
       acquireHostForMap: (mapId) => this.acquireHostForMap(mapId),
       ownerSend: (acc, type, message) => this.ownerSend(acc, type, message),
+      // PR5 Phase C (D-069/D-070): a paid start whose bag is already at/over town pressure opens with a town trip
+      // before farming (the first paid tick warps to town). Always false for Free (no bag read above).
+      initialTownTrip,
     });
     this.bots.set(accountId, runtime);
     this.actorToAccount.set(actorId, accountId);

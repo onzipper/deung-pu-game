@@ -320,6 +320,14 @@ export interface BotRuntimeDeps {
    * fall back to the current host's own `botOwnerSend` (identical to the pre-trip behavior).
    */
   ownerSend?: (accountId: string, type: string, message: unknown) => boolean;
+  /**
+   * PR5 Phase C (D-069/D-070): the manager's proactive bag preflight found the bag already at/over the town
+   * pressure threshold at start (free slots < townTrip.resumeMinFreeSlots). On the FIRST paid tick the runtime
+   * opens a town trip BEFORE farming a single mob (never farm with a full bag → loot leaks). A refusal (cooldown
+   * / no warp dep / tier not enabled) clears the flag and farms normally; the bag-full divert then catches the
+   * next real overflow. Absent/false = the ordinary farm start. Free never sets this (no bag read at all).
+   */
+  initialTownTrip?: boolean;
 }
 
 export class BotRuntime {
@@ -376,6 +384,8 @@ export class BotRuntime {
   private townTripRetryUntil = 0;
   /** Per-runtime trip sequence — fixes the idempotency-key namespace so a retried transaction reuses its key. */
   private tripSeq = 0;
+  /** One-shot proactive preflight: the first paid tick opens a town trip before farming (D-069/D-070). */
+  private initialTownTripPending = false;
 
   constructor(deps: BotRuntimeDeps) {
     this.d = deps;
@@ -386,6 +396,7 @@ export class BotRuntime {
       : createBotContinuity(deps.startedAtMs);
     this.activePocketId = deps.pocketId;
     this.currentTier = deps.tier;
+    this.initialTownTripPending = deps.initialTownTrip === true;
   }
 
   get actorId(): string {
@@ -532,9 +543,23 @@ export class BotRuntime {
       this.recheckTier();
     }
 
+    // (a2) one-shot proactive preflight: the manager found the bag already at/over the town pressure threshold at
+    //      start, so open a town trip BEFORE farming a single mob (never farm with a full bag → loot leaks). A
+    //      refusal (cooldown / no warp dep / tier not enabled) clears the flag and farms normally; the bag-full
+    //      divert catches the next real overflow. One-shot: cleared on the first attempt regardless of outcome.
+    if (this.initialTownTripPending) {
+      this.initialTownTripPending = false;
+      this.beginTownTrip("preflight");
+    }
+
     // (b) an active town trip owns the whole tick — no recovery planner, no farm loop, no pocket/map_unsafe check
     //     (the trip states are not farm states). canIssueAutomationCommand (tick's outer gate) still fences it.
     if (this.tripController) {
+      // Never run the synchronous warp export while an attack grant is still in flight: the committed grant must
+      // drain into the report before authority moves rooms. By construction the bag-full divert sets the
+      // controller only inside the attack continuation (the lease releases in that same microtask, before any
+      // later tick), so this defers at most nothing in practice — it makes the invariant explicit + refactor-safe.
+      if (this.hasPendingAttack()) return;
       this.tripController.tickTrip();
       return;
     }
@@ -837,9 +862,16 @@ export class BotRuntime {
       };
       this.ownerSendMessage(MSG_BOT_ALERT, alert);
     }
-    // Free has one area + one goal: bag overflow is an obstacle, so it stops safely and reports.
+    // Bag overflow is the town-trip trigger (D-069/D-070). Free stays byte-identical to PR4 — one area, one goal
+    // → stop safely and report. A paid tier diverts to a town trip instead; beginTownTrip refuses on cooldown /
+    // active trip / stopped / no warp dep, and the fallback stop keeps every refusal honest (farming on with a
+    // full bag leaks loot — never acceptable). This runs in the attack continuation with the attack lease still
+    // held; beginTownTrip only advances continuity + constructs the controller here — the trip's warp export runs
+    // on a later tick, after releaseLease has drained this committed grant into the report.
     const bag = stopForInventoryOverflow(o.bagOverflowed ? 1 : 0);
-    if (bag) return void this.stop(bag);
+    if (bag) {
+      if (this.currentTier === "free" || !this.beginTownTrip("bag_full")) this.stop(bag);
+    }
   }
 
   /** stop the bot for a reason (mandatory / manual / death / restart). Idempotent. */

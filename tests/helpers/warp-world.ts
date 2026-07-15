@@ -43,6 +43,10 @@ export interface FakeHostSpec {
   reserveFails?: boolean;
   attachFails?: boolean;
   exportReturnsNull?: boolean;
+  /** scriptable farm mobs this host reports (drives the bag-full divert farm loop). */
+  mobs?: () => AgentMob[];
+  /** scriptable attack outcome (the bag-full divert path drives an overflow through here). */
+  attack?: (target: Vec2) => Promise<BotAttackOutcome>;
 }
 
 /** Per-host recorded seam calls (which host actually handled a transaction — the rebind proof). */
@@ -52,6 +56,8 @@ interface HostCalls {
   export: number;
   attach: number;
   persist: number;
+  step: number;
+  attack: number;
   sell: string[];
   deposit: string[];
   buy: string[];
@@ -70,8 +76,10 @@ export class FakeHost implements BotHost {
   readonly players = new Set<string>();
   /** pending warp-seat reservations, actor-keyed (mirrors MapRoom.pendingActorSeats). */
   private readonly pending = new Map<string, number>();
-  readonly calls: HostCalls = { reserve: 0, release: 0, export: 0, attach: 0, persist: 0, sell: [], deposit: [], buy: [] };
+  readonly calls: HostCalls = { reserve: 0, release: 0, export: 0, attach: 0, persist: 0, step: 0, attack: 0, sell: [], deposit: [], buy: [] };
   private pos: Vec2 = { tx: 0, ty: 0 };
+  private readonly scriptMobs: () => AgentMob[];
+  private readonly scriptAttack: (target: Vec2) => Promise<BotAttackOutcome>;
 
   constructor(
     spec: FakeHostSpec,
@@ -85,6 +93,8 @@ export class FakeHost implements BotHost {
     this.reserveFails = spec.reserveFails ?? false;
     this.attachFails = spec.attachFails ?? false;
     this.exportReturnsNull = spec.exportReturnsNull ?? false;
+    this.scriptMobs = spec.mobs ?? (() => []);
+    this.scriptAttack = spec.attack ?? (async () => EMPTY_OUTCOME);
   }
 
   private pendingSum(): number {
@@ -166,7 +176,7 @@ export class FakeHost implements BotHost {
   }
   botReleaseAuthority(): void {}
   botMobs(): AgentMob[] {
-    return [];
+    return this.scriptMobs();
   }
   botPos(actorId: string): Vec2 | null {
     return this.players.has(actorId) ? { tx: this.pos.tx, ty: this.pos.ty } : null;
@@ -181,10 +191,12 @@ export class FakeHost implements BotHost {
     return 1;
   }
   botStepToward(): boolean {
+    this.calls.step += 1;
     return false;
   }
-  async botAttack(): Promise<BotAttackOutcome> {
-    return EMPTY_OUTCOME;
+  async botAttack(_actorId: string, target: Vec2): Promise<BotAttackOutcome> {
+    this.calls.attack += 1;
+    return this.scriptAttack(target);
   }
   botOwnerSend(_accountId: string, type: string, message: unknown): boolean {
     this.world.messages.push({ type, message });
@@ -355,6 +367,8 @@ export interface WarpHarnessOptions {
   config?: BotConfig;
   rules?: BotRulesV1;
   resolveTier?: () => Promise<BotTier>;
+  /** proactive preflight: open a town trip on the first paid tick before farming (D-069/D-070). */
+  initialTownTrip?: boolean;
 }
 
 const NO_POTION_RULES: BotRulesV1 = { skillSlots: [0], potionThresholdPct: null, lootAll: true };
@@ -396,6 +410,7 @@ export function createWarpHarness(options: WarpHarnessOptions) {
     onTakeoverSettled: () => undefined,
     acquireHostForMap: world.acquireHostForMap,
     ownerSend: world.ownerSend,
+    initialTownTrip: options.initialTownTrip,
   });
 
   const flush = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
