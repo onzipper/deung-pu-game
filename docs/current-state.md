@@ -4,11 +4,11 @@ _Updated 2026-07-15 · History: `docs/history/` · archive: `docs/history/2026-0
 
 ## Now
 
-- **OB push:** PR #21-23 merged → develop (combat two-way + boss depth + UI foundation + A3 hotbar + E3 HP/EXP/level cluster + E4 death toast). **Title splash** (§6 → /hub, แทน Next default) = `feat/title-screen`→develop. B4 = post-OB (D-064). Next: minimap/D.
-- **Phase:** P2 wave 3 **code-complete** (P2-07..17 ✅, merged). Post-merge todo: **P2-16** handoff (rename `upg_kraeng`→`upg_reinforcement`, wipe test data, verify migrations).
-- **SVG-01** merged (PR #15); rasterizer = `@resvg/resvg-js`.
+- **OB:** PR #21-23 + title splash merged. B4 = post-OB (D-064). Next: minimap/D.
+- **Phase:** P2 wave 3 **code-complete**. P2-16 handoff remains (rename reinforcement ID, wipe test data, verify migrations).
+- **SVG-01** merged; rasterizer = `@resvg/resvg-js`.
 - **Live:** server `https://deung-pu-game.onrender.com` (Render free tier + UptimeRobot, `/healthz`, D-058) · client `https://deung-pu.softrock.space/game` (Hostinger). Guest login + realtime connect verified 2026-07-13.
-- **Spec:** game v15.4 / tech v1.5.3 + Bibles; D-063–066, D-067, D-068 locked. **PR1 aligned:** automation controls one stable server-owned real character—no clone/worker; reattach keeps its actual HP/inventory/position. **PR2–10 unimplemented and not aligned:** takeover/checkpoints, continuity/recovery/workflows, Bot UX, follower removal, searchable Help, contextual Dung. Current Dung follower/Help remains noncanonical.
+- **Spec:** v15.4 / tech v1.5.3; D-063–066, D-067, D-068 locked. **PR1–2 aligned:** automation controls one stable real character (no clone/worker); manual move/skill fences it, saves a checkpoint, returns authority, and offers safe in-process resume using actual HP/inventory/position. **PR3–10 unimplemented/not aligned:** continuity/recovery/workflows, Bot UX, follower removal, searchable Help, contextual Dung. Current Dung follower/Help remains noncanonical.
 - **DB:** Hostinger MariaDB production (D-057); 0001-0002 applied · 0003/0004_bot hand-authored, unapplied.
 
 ## Task board — P2 wave 3 (code-complete)

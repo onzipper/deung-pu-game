@@ -29,6 +29,8 @@ import {
   selectBotReports,
   selectBotStatus,
   selectBotTierState,
+  selectBotCheckpoint,
+  selectBotAuthorityActive,
 } from "@/ui/store/game-store";
 import { useGameStore } from "@/ui/store/use-game-store";
 import {
@@ -111,6 +113,8 @@ export function BotPanel({ getHandle }: BotPanelProps) {
   const reports = useGameStore(selectBotReports);
   const reportDetail = useGameStore(selectBotReportDetail);
   const opResult = useGameStore(selectBotOpResult);
+  const checkpoint = useGameStore(selectBotCheckpoint);
+  const authorityActive = useGameStore(selectBotAuthorityActive);
 
   const [tab, setTab] = useState<BotTab>("status");
   const [phase, setPhase] = useState<BotOpPhase>({ kind: "idle" });
@@ -259,12 +263,41 @@ export function BotPanel({ getHandle }: BotPanelProps) {
               </div>
             )}
 
+            {authorityActive && !status && (
+              <div className="flex flex-col gap-2 rounded-(--dp-radius-sm) border border-(--dp-soil-brown) bg-(--dp-warm-ink) px-3 py-2">
+                <span className="text-(--dp-resonance-light)">ตัวละครกำลังทำตามแผน — กำลังเชื่อมสถานะล่าสุด</span>
+                <div className="flex gap-2">
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    disabled={busy}
+                    onClick={() =>
+                      send("takeover", (net) =>
+                        net.sendBotTakeover({ requestId: `takeover:cta:${Date.now()}`, source: "cta" }),
+                      )
+                    }
+                  >
+                    รับช่วงต่อ
+                  </Button>
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    disabled={busy}
+                    onClick={() => send("stop", (net) => net.sendBotStop({}))}
+                  >
+                    หยุดแผน
+                  </Button>
+                </div>
+              </div>
+            )}
+
             {!profiles || profiles.length === 0 ? (
               <div className="text-(--dp-sand)">ยังไม่มีโปรไฟล์ — ไปที่แท็บ “โปรไฟล์” เพื่อสร้างงานแรก</div>
             ) : (
               <div className="flex flex-col gap-2">
                 {profiles.map((p) => {
-                  const running = status?.profileId === p.id;
+                  const running = authorityActive && status?.profileId === p.id;
+                  const interrupted = checkpoint?.profileId === p.id ? checkpoint : null;
                   return (
                     <div
                       key={p.id}
@@ -286,20 +319,58 @@ export function BotPanel({ getHandle }: BotPanelProps) {
                             ฆ่า {status.killCount} · gold {status.goldEarned} · exp {status.expEarned} · HP{" "}
                             {formatHpPercent(status.hpFraction)} · เวลา {formatDurationShort(status.uptimeMs)}
                           </div>
+                          <div className="flex gap-2">
+                            <Button
+                              variant="primary"
+                              size="sm"
+                              disabled={busy}
+                              onClick={() =>
+                                send("takeover", (net) =>
+                                  net.sendBotTakeover({ requestId: `takeover:cta:${Date.now()}`, source: "cta" }),
+                                )
+                              }
+                            >
+                              รับช่วงต่อ
+                            </Button>
+                            <Button
+                              variant="destructive"
+                              size="sm"
+                              disabled={busy}
+                              onClick={() => send("stop", (net) => net.sendBotStop({ profileId: p.id }))}
+                            >
+                              หยุดแผน
+                            </Button>
+                          </div>
+                        </>
+                      ) : interrupted ? (
+                        <>
+                          <div className="text-(--dp-resonance-light)">
+                            {interrupted.state === "saving"
+                              ? "กำลังบันทึกจุดทำงาน…"
+                              : interrupted.state === "ready"
+                                ? "บันทึกจุดทำงานแล้ว — พร้อมทำต่อ"
+                                : "บันทึกจุดทำงานไม่สำเร็จ"}
+                          </div>
                           <Button
-                            variant="destructive"
+                            variant="primary"
                             size="sm"
-                            disabled={busy}
-                            onClick={() => send("stop", (net) => net.sendBotStop({ profileId: p.id }))}
+                            disabled={busy || interrupted.state === "saving" || p.readOnly}
+                            onClick={() => {
+                              if (interrupted.state === "ready") {
+                                send("resume", (net) => net.sendBotResume({ checkpointId: interrupted.id }));
+                              } else if (interrupted.state === "failed") {
+                                send("start", (net) => net.sendBotStart({ profileId: p.id }));
+                              }
+                            }}
                           >
-                            หยุดเดี๋ยวนี้
+                            {interrupted.state === "failed" ? "เริ่มแผนใหม่" : "ทำต่อ"}
                           </Button>
                         </>
                       ) : (
                         <Button
                           variant="primary"
                           size="sm"
-                          disabled={busy || p.readOnly || status !== null}
+                          disabled={busy || p.readOnly || authorityActive || status !== null || checkpoint?.state === "saving"}
                           onClick={() => send("start", (net) => net.sendBotStart({ profileId: p.id }))}
                         >
                           เริ่ม

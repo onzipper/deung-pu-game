@@ -17,6 +17,8 @@ import {
   selectShopResult,
   selectStorageResult,
   selectStorageState,
+  selectBotCheckpoint,
+  selectBotAuthorityActive,
   setActiveDialogue,
   setDeliveryResult,
   setDeliveryState,
@@ -27,6 +29,8 @@ import {
   setShopResult,
   setStorageResult,
   setStorageState,
+  setBotCheckpoint,
+  setBotAuthorityActive,
   type HudState,
 } from "@/ui/store/game-store";
 import { IDLE_NET_DEBUG_INFO, type EngineDebugInfo } from "@/engine/runtime/debug-info";
@@ -40,6 +44,8 @@ import type {
   ShopResultMessage,
   StorageResultMessage,
   StorageStateMessage,
+  BotCheckpointMessage,
+  BotStatusMessage,
 } from "@/shared/net-protocol";
 
 // P2-01: Zustand bridge — game loop (engine) → publish (throttled) → store → React subscribe (docs/context/ui.md).
@@ -121,6 +127,66 @@ describe("gameStore singleton — default writer เขียนจริง", (
     expect(gameStore.getState().debugInfo).toEqual(INFO_A);
     resetHudState();
     expect(gameStore.getState()).toEqual(INITIAL_HUD_STATE);
+  });
+});
+
+describe("manual-takeover checkpoint bridge", () => {
+  test("checkpoint clears stale live status and null consumes the resumable checkpoint", () => {
+    resetHudState();
+    const status: BotStatusMessage = {
+      profileId: "profile-1",
+      sessionId: "run-1",
+      mapId: "map1",
+      pocketId: "map1-slime-center",
+      action: "attacking",
+      killCount: 1,
+      goldEarned: 2,
+      expEarned: 3,
+      hpFraction: 1,
+      uptimeMs: 100,
+    };
+    gameStore.setState({ botStatus: status });
+    const ready: BotCheckpointMessage = {
+      checkpoint: {
+        id: "checkpoint-1",
+        profileId: "profile-1",
+        sourceSessionId: "run-1",
+        mapId: "map1",
+        pocketId: "map1-slime-center",
+        savedAt: 123,
+        state: "ready",
+      },
+    };
+
+    setBotCheckpoint(ready);
+    expect(selectBotCheckpoint(gameStore.getState())).toEqual(ready.checkpoint);
+    expect(gameStore.getState().botStatus).toBeNull();
+
+    setBotCheckpoint({ checkpoint: null });
+    expect(selectBotCheckpoint(gameStore.getState())).toBeNull();
+    resetHudState();
+  });
+
+  test("schema authority bit is independent from throttled status and clears it on release", () => {
+    resetHudState();
+    setBotAuthorityActive(true);
+    expect(selectBotAuthorityActive(gameStore.getState())).toBe(true);
+    gameStore.setState({ botStatus: {
+      profileId: "profile-1",
+      sessionId: "run-1",
+      mapId: "map1",
+      pocketId: "pocket",
+      action: "moving",
+      killCount: 0,
+      goldEarned: 0,
+      expEarned: 0,
+      hpFraction: 1,
+      uptimeMs: 1,
+    } });
+    setBotAuthorityActive(false);
+    expect(selectBotAuthorityActive(gameStore.getState())).toBe(false);
+    expect(gameStore.getState().botStatus).toBeNull();
+    resetHudState();
   });
 });
 

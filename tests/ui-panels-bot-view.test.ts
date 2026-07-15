@@ -178,6 +178,8 @@ describe("botOpRejectionLabel", () => {
     expect(botOpRejectionLabel("profiles_at_cap")).toContain("เพดาน");
     expect(botOpRejectionLabel("already_running")).toContain("ทำงานอยู่แล้ว");
     expect(botOpRejectionLabel("requires_db")).toContain("ไม่พร้อมใช้งาน");
+    expect(botOpRejectionLabel("checkpoint_saving")).toContain("บันทึกจุดทำงาน");
+    expect(botOpRejectionLabel("checkpoint_failed")).toContain("เริ่มแผนใหม่");
   });
   test("undefined/ไม่รู้จัก → fallback", () => {
     expect(botOpRejectionLabel(undefined)).toBe("ตั้งค่ากฎไม่ถูกต้อง");

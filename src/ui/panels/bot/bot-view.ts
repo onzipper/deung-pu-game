@@ -229,6 +229,15 @@ export function botOpRejectionLabel(reason: string | undefined): string {
       return "เริ่มบอทไม่สำเร็จ ลองใหม่อีกครั้ง";
     case "not_running":
       return "ไม่มีบอทกำลังทำงานอยู่";
+    case "checkpoint_saving":
+      return "กำลังบันทึกจุดทำงาน กรุณารอสักครู่";
+    case "checkpoint_not_found":
+      return "ไม่พบจุดทำงานนี้ หรือถูกใช้ไปแล้ว";
+    case "checkpoint_failed":
+      return "บันทึกจุดทำงานไม่สำเร็จ กรุณาเริ่มแผนใหม่";
+    case "checkpoint_character_mismatch":
+    case "actor_mismatch":
+      return "จุดทำงานนี้ไม่ใช่ของตัวละครที่กำลังเล่น";
     case "free_not_purchasable":
       return "แพ็กเกจ Free ใช้ได้ฟรีอยู่แล้ว ไม่ต้องซื้อ";
     case "unknown_tier":

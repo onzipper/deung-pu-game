@@ -39,6 +39,8 @@ import {
   type BotReportMessage,
   type BotReportDetailWire,
   type BotOpResultMessage,
+  type BotCheckpointMessage,
+  type BotCheckpointWire,
 } from "@/shared/net-protocol";
 
 /**
@@ -273,6 +275,10 @@ export interface HudState {
   botReportDetail: BotReportDetailWire | null;
   /** Batch 7b-UI: ผล op ล่าสุด (create/update/delete/start/stop/mockPurchase) — panel ใช้ correlate กับ local phase ด้วย `op`. */
   botOpResult: BotOpResultMessage | null;
+  /** PR2: latest manual-takeover checkpoint; ready is resumable, saving/failed are display-only. */
+  botCheckpoint: BotCheckpointWire | null;
+  /** Live schema authority bit for the local real actor; independent of the throttled Bot status stream. */
+  botAuthorityActive: boolean;
 }
 
 export const INITIAL_HUD_STATE: HudState = {
@@ -317,6 +323,8 @@ export const INITIAL_HUD_STATE: HudState = {
   botReports: null,
   botReportDetail: null,
   botOpResult: null,
+  botCheckpoint: null,
+  botAuthorityActive: false,
 };
 
 /** store singleton ตัวเดียวทั้งแอป — engine publish เข้านี่, React component subscribe ผ่าน useGameStore */
@@ -661,7 +669,7 @@ export const selectBotStatus = (state: HudState): BotStatusMessage | null => sta
 
 /** engine เรียกทันทีที่ MSG_BOT_STOPPED มาถึง — เคลียร์ botStatus ไปด้วย (ไม่มีบอทกำลังรันแล้ว). */
 export function setBotStopped(msg: BotStoppedMessage): void {
-  gameStore.setState({ botLastStopped: msg, botStatus: null });
+  gameStore.setState({ botLastStopped: msg, botStatus: null, botAuthorityActive: false });
 }
 
 /** typed selector — ผลหยุดล่าสุด (Batch 7b-UI, "last stop reason") */
@@ -703,6 +711,19 @@ export function setBotOpResult(msg: BotOpResultMessage): void {
 
 /** typed selector — ผล op ล่าสุด (Batch 7b-UI) */
 export const selectBotOpResult = (state: HudState): BotOpResultMessage | null => state.botOpResult;
+
+/** A non-null checkpoint means authority already returned to the player, so stale live status is cleared. */
+export function setBotCheckpoint(msg: BotCheckpointMessage): void {
+  gameStore.setState(msg.checkpoint ? { botCheckpoint: msg.checkpoint, botStatus: null } : { botCheckpoint: null });
+}
+
+export const selectBotCheckpoint = (state: HudState): BotCheckpointWire | null => state.botCheckpoint;
+
+export function setBotAuthorityActive(active: boolean): void {
+  gameStore.setState(active ? { botAuthorityActive: true } : { botAuthorityActive: false, botStatus: null });
+}
+
+export const selectBotAuthorityActive = (state: HudState): boolean => state.botAuthorityActive;
 
 export interface HudPublisher {
   /**

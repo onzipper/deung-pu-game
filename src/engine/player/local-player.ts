@@ -66,6 +66,11 @@ const INITIAL_FACING: Direction = "S";
 /** intent ที่สั้นกว่านี้ (²) ถือว่า "ไม่เดิน" → idle. */
 const MOVE_EPS = 1e-9;
 
+export type ManualTakeoverIntent =
+  | { kind: "move" }
+  | { kind: "attack" }
+  | { kind: "skill"; slot: number };
+
 export interface LocalPlayerHandle {
   /** ตำแหน่ง foot ปัจจุบัน (read-only view) */
   readonly position: Readonly<TilePoint>;
@@ -88,6 +93,8 @@ export interface LocalPlayerHandle {
    * same actor. Unlocking does not synthesize input; a later player action may control the actor normally.
    */
   setAuthorityLocked(locked: boolean): void;
+  /** Consume the first human intent while authority is locked so app.ts can request an atomic takeover. */
+  consumeManualTakeoverIntent(): ManualTakeoverIntent | null;
   /**
    * consume การกด ATTACK_KEY (Space) หรือ requestAttack() ตั้งแต่ครั้งก่อนหน้า — edge-triggered
    * (กันกดค้างสแปม). P1-09: รวม programmatic attack (tap mob) เข้าช่องเดียวกับ Space → cooldown gate เดียว.
@@ -337,6 +344,20 @@ export function createLocalPlayer(
       clearPath();
     },
 
+    consumeManualTakeoverIntent(): ManualTakeoverIntent | null {
+      if (!authorityLocked) return null;
+      const slot = keyboard.consumeSlotPressed();
+      if (slot !== null) return { kind: "skill", slot };
+      const attack = keyboard.consumeAttackPressed() || clickAttackPending;
+      clickAttackPending = false;
+      if (attack) return { kind: "attack" };
+      const kb = keyboard.getIntent();
+      const joy = moveVector
+        ? joystickIntent(moveVector.dx, moveVector.dy, input.joystick.deadzone)
+        : { tx: 0, ty: 0 };
+      return (kb.tx + joy.tx) ** 2 + (kb.ty + joy.ty) ** 2 >= MOVE_EPS ? { kind: "move" } : null;
+    },
+
     consumeAttackPressed() {
       const kb = keyboard.consumeAttackPressed();
       const click = clickAttackPending;
@@ -350,7 +371,6 @@ export function createLocalPlayer(
     },
 
     requestAttack(): void {
-      if (authorityLocked) return;
       clickAttackPending = true;
     },
 
@@ -364,7 +384,9 @@ export function createLocalPlayer(
     },
 
     setMoveVector(vec: { dx: number; dy: number } | null): void {
-      moveVector = authorityLocked ? null : vec; // อ่าน+แปลงเป็น intent ใน update() (พร้อม keyboard) — ทิศเดียวกับ WASD
+      // Keep the live touch vector while locked so it can request takeover; movement still cannot run until the
+      // authoritative `isBot=false` handoff arrives.
+      moveVector = vec;
     },
 
     moveTo(goal: TilePoint): boolean {

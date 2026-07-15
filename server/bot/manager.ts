@@ -7,11 +7,14 @@
 
 import { randomUUID } from "node:crypto";
 import {
+  MSG_BOT_CHECKPOINT,
   MSG_BOT_OP_RESULT,
   MSG_BOT_PROFILES,
   MSG_BOT_REPORT,
   MSG_BOT_REPORTS,
   MSG_BOT_TIER_STATE,
+  type BotCheckpointMessage,
+  type BotCheckpointWire,
   type BotMockPurchaseMessage,
   type BotOpResultMessage,
   type BotProfileCreateMessage,
@@ -21,8 +24,10 @@ import {
   type BotReportFetchMessage,
   type BotReportMessage,
   type BotReportsMessage,
+  type BotResumeMessage,
   type BotStartMessage,
   type BotStopMessage,
+  type BotTakeoverMessage,
   type BotTierStateMessage,
   type BotTierWire,
 } from "../../src/shared/net-protocol";
@@ -51,6 +56,12 @@ import { applyMockPurchase, capsFor, resolveTier } from "./tier";
 
 type Send = (type: string, msg: unknown) => void;
 
+interface StoredCheckpoint extends BotCheckpointWire {
+  accountId: string;
+  characterId: string;
+  host: BotHost;
+}
+
 export interface BotManagerDeps {
   config: BotConfig;
   tierRepo: TierRepo;
@@ -68,6 +79,10 @@ export class BotManager {
   private readonly d: BotManagerDeps;
   private readonly roomsByMap = new Map<string, Set<BotHost>>();
   private readonly bots = new Map<string, BotRuntime>(); // accountId → runtime (one running bot per account)
+  /** Accounts whose accepted reward/report close is still draining after manual takeover. */
+  private readonly drainingAccounts = new Set<string>();
+  /** In-process only in PR2; durable restart resume remains explicitly owned by PR6. */
+  private readonly checkpoints = new Map<string, StoredCheckpoint>();
   private readonly actorToAccount = new Map<string, string>(); // stable character actorId → accountId
   /** Synchronous reservation closes the async start TOCTOU before tier/profile/DB awaits. */
   private readonly startingAccounts = new Set<string>();
@@ -133,11 +148,35 @@ export class BotManager {
     }
   }
 
-  /** called by a runtime when it stops (any reason) → drop it. */
-  private dropRuntime(accountId: string): void {
+  /** called by a runtime when it stops (any reason) → drop only that generation. */
+  private dropRuntime(accountId: string, sessionRowId: string): void {
     const rt = this.bots.get(accountId);
-    if (rt) this.actorToAccount.delete(rt.actorId);
+    if (!rt || rt.sessionRowId !== sessionRowId) return;
+    this.actorToAccount.delete(rt.actorId);
     this.bots.delete(accountId);
+  }
+
+  private checkpointMessage(checkpoint: StoredCheckpoint | null): BotCheckpointMessage {
+    if (!checkpoint) return { checkpoint: null };
+    const { id, profileId, sourceSessionId, mapId, pocketId, savedAt, state } = checkpoint;
+    return { checkpoint: { id, profileId, sourceSessionId, mapId, pocketId, savedAt, state } };
+  }
+
+  private settleTakeoverCheckpoint(accountId: string, checkpointId: string, saved: boolean): void {
+    this.drainingAccounts.delete(accountId);
+    const checkpoint = this.checkpoints.get(accountId);
+    if (!checkpoint || checkpoint.id !== checkpointId) return;
+    checkpoint.state = saved ? "ready" : "failed";
+    checkpoint.host.botOwnerSend(accountId, MSG_BOT_CHECKPOINT, this.checkpointMessage(checkpoint));
+  }
+
+  private clearCheckpoint(accountId: string, send: Send): void {
+    if (!this.checkpoints.delete(accountId)) return;
+    send(MSG_BOT_CHECKPOINT, this.checkpointMessage(null));
+  }
+
+  private sendCheckpoint(accountId: string, send: Send): void {
+    send(MSG_BOT_CHECKPOINT, this.checkpointMessage(this.checkpoints.get(accountId) ?? null));
   }
 
   /** Authenticated reconnect routing. Never returns another account's actor. */
@@ -148,7 +187,7 @@ export class BotManager {
     host: BotHost;
   } | null {
     const rt = this.bots.get(accountId);
-    if (rt) {
+    if (rt && !rt.isStopped) {
       return { actorId: rt.actorId, characterId: rt.characterId, roomId: rt.host.roomId, host: rt.host };
     }
     return this.startingActors.get(accountId) ?? null;
@@ -235,6 +274,7 @@ export class BotManager {
     if (!accountId || !this.guardDb(send, "profileList")) return;
     await this.sendTierState(accountId, send);
     await this.sendProfiles(accountId, send);
+    this.sendCheckpoint(accountId, send);
   }
 
   async onProfileCreate(accountId: string | null, send: Send, m: BotProfileCreateMessage): Promise<void> {
@@ -302,18 +342,64 @@ export class BotManager {
     send: Send,
     m: BotStartMessage,
   ): Promise<void> {
-    if (!accountId || !this.guardDb(send, "start")) return;
-    if (!characterId) return this.reject(send, "start", "no_character");
-    if (this.bots.has(accountId) || this.startingAccounts.has(accountId)) {
-      return this.reject(send, "start", "already_running");
+    await this.start(requestHost, controllerSessionId, accountId, characterId, send, m, "start");
+  }
+
+  async onResume(
+    requestHost: BotHost,
+    controllerSessionId: string,
+    accountId: string | null,
+    characterId: string | null,
+    send: Send,
+    m: BotResumeMessage,
+  ): Promise<void> {
+    if (!accountId || !this.guardDb(send, "resume")) return;
+    if (!characterId) return this.reject(send, "resume", "no_character");
+    const checkpoint = this.checkpoints.get(accountId);
+    if (!checkpoint || checkpoint.id !== m?.checkpointId) {
+      return this.reject(send, "resume", "checkpoint_not_found", m?.checkpointId);
+    }
+    if (checkpoint.state === "saving") {
+      return this.reject(send, "resume", "checkpoint_saving", checkpoint.id);
+    }
+    if (checkpoint.state === "failed") {
+      return this.reject(send, "resume", "checkpoint_failed", checkpoint.id);
+    }
+    if (checkpoint.characterId !== characterId) {
+      return this.reject(send, "resume", "checkpoint_character_mismatch", checkpoint.id);
+    }
+    await this.start(
+      requestHost,
+      controllerSessionId,
+      accountId,
+      characterId,
+      send,
+      { profileId: checkpoint.profileId },
+      "resume",
+    );
+  }
+
+  private async start(
+    requestHost: BotHost,
+    controllerSessionId: string,
+    accountId: string | null,
+    characterId: string | null,
+    send: Send,
+    m: BotStartMessage,
+    op: "start" | "resume",
+  ): Promise<void> {
+    if (!accountId || !this.guardDb(send, op)) return;
+    if (!characterId) return this.reject(send, op, "no_character");
+    if (this.bots.has(accountId) || this.startingAccounts.has(accountId) || this.drainingAccounts.has(accountId)) {
+      return this.reject(send, op, this.drainingAccounts.has(accountId) ? "checkpoint_saving" : "already_running");
     }
     if (this.bots.size + this.startingAccounts.size >= this.d.config.maxConcurrentBots) {
-      return this.reject(send, "start", "at_capacity");
+      return this.reject(send, op, "at_capacity");
     }
     this.startingAccounts.add(accountId);
 
     try {
-      await this.startReserved(requestHost, controllerSessionId, accountId, characterId, send, m);
+      await this.startReserved(requestHost, controllerSessionId, accountId, characterId, send, m, op);
     } finally {
       this.startingAccounts.delete(accountId);
       this.startingActors.delete(accountId);
@@ -328,27 +414,28 @@ export class BotManager {
     characterId: string,
     send: Send,
     m: BotStartMessage,
+    op: "start" | "resume",
   ): Promise<void> {
 
     const tier = await this.resolveTierFor(accountId);
-    if (this.cancelledStarts.has(accountId)) return this.reject(send, "start", "cancelled", m?.profileId);
+    if (this.cancelledStarts.has(accountId)) return this.reject(send, op, "cancelled", m?.profileId);
     const profile = await this.d.profileRepo.getById(accountId, m?.profileId);
-    if (!profile) return this.reject(send, "start", "not_found", m?.profileId);
+    if (!profile) return this.reject(send, op, "not_found", m?.profileId);
 
     const all = await this.d.profileRepo.listByAccount(accountId);
-    if (this.cancelledStarts.has(accountId)) return this.reject(send, "start", "cancelled", profile.id);
+    if (this.cancelledStarts.has(accountId)) return this.reject(send, op, "cancelled", profile.id);
     const view = markReadOnlyExcess(all, tier, this.d.config).find((v) => v.id === profile.id);
-    if (view?.readOnly) return this.reject(send, "start", "profile_readonly", profile.id);
+    if (view?.readOnly) return this.reject(send, op, "profile_readonly", profile.id);
     if (!isBotAllowedPocket(profile.mapId, profile.pocketId, this.d.config)) {
-      return this.reject(send, "start", "pocket_not_allowed", profile.id);
+      return this.reject(send, op, "pocket_not_allowed", profile.id);
     }
 
     // Character Autonomy controls the actor where it actually stands. A profile can never teleport it into a
     // different room/map or choose an unrelated host.
     if (profile.mapId !== requestHost.mapId) {
-      return this.reject(send, "start", "character_not_in_profile_map", profile.id);
+      return this.reject(send, op, "character_not_in_profile_map", profile.id);
     }
-    if (this.cancelledStarts.has(accountId)) return this.reject(send, "start", "cancelled", profile.id);
+    if (this.cancelledStarts.has(accountId)) return this.reject(send, op, "cancelled", profile.id);
 
     const actorId = requestHost.botClaimAuthority({
       controllerSessionId,
@@ -358,7 +445,7 @@ export class BotManager {
       allowedSlots: profile.rules.skillSlots,
       pocketId: profile.pocketId,
     });
-    if (!actorId) return this.reject(send, "start", "actor_not_available", profile.id);
+    if (!actorId) return this.reject(send, op, "actor_not_available", profile.id);
     this.startingActors.set(accountId, {
       actorId,
       characterId,
@@ -368,7 +455,7 @@ export class BotManager {
     if (this.cancelledStarts.has(accountId)) {
       this.startingActors.delete(accountId);
       requestHost.botReleaseAuthority(actorId);
-      return this.reject(send, "start", "cancelled", profile.id);
+      return this.reject(send, op, "cancelled", profile.id);
     }
 
     const now = this.d.now();
@@ -392,7 +479,7 @@ export class BotManager {
       });
     } catch {
       if (this.startingActors.delete(accountId)) requestHost.botReleaseAuthority(actorId);
-      return this.reject(send, "start", "db_error", profile.id);
+      return this.reject(send, op, "db_error", profile.id);
     }
 
     const cancelledReason = this.cancelledStarts.get(accountId);
@@ -407,7 +494,7 @@ export class BotManager {
       } catch {
         // The session row exists; boot cleanup remains a final safety net if this best-effort close fails.
       }
-      return this.reject(send, "start", "cancelled", profile.id);
+      return this.reject(send, op, "cancelled", profile.id);
     }
 
     const runtime = new BotRuntime({
@@ -425,12 +512,65 @@ export class BotManager {
       rules: profile.rules,
       baseCooldownSeconds: requestHost.botBaseCooldownSeconds(actorId),
       startedAtMs: now,
-      onStopped: (acc) => this.dropRuntime(acc),
+      onStopped: (acc, stoppedSessionRowId) => this.dropRuntime(acc, stoppedSessionRowId),
+      onTakeoverSettled: (acc, checkpointId, saved) => this.settleTakeoverCheckpoint(acc, checkpointId, saved),
     });
     this.bots.set(accountId, runtime);
     this.actorToAccount.set(actorId, accountId);
     this.startingActors.delete(accountId);
-    this.ack(send, "start", profile.id);
+    this.clearCheckpoint(accountId, send);
+    this.ack(send, op, profile.id);
+  }
+
+  /**
+   * Synchronous authority transition used by both the explicit CTA and the first manual move/skill. Returning
+   * true means automation is fenced and `botReleaseAuthority` has completed, so MapRoom may apply that input.
+   */
+  onTakeover(
+    accountId: string | null,
+    actorId: string | null,
+    send: Send,
+    m: BotTakeoverMessage,
+  ): boolean {
+    if (!accountId || !actorId) return false;
+    const runtime = this.bots.get(accountId);
+    if (!runtime) {
+      const pending = this.startingActors.get(accountId);
+      if (pending?.actorId === actorId && this.cancelPendingStart(accountId, "manual")) {
+        this.ack(send, "takeover", m?.requestId);
+        return true;
+      }
+      this.reject(send, "takeover", "not_running", m?.requestId);
+      return false;
+    }
+    if (runtime.actorId !== actorId || runtime.isStopped) {
+      this.reject(send, "takeover", runtime.isStopped ? "checkpoint_saving" : "actor_mismatch", m?.requestId);
+      return false;
+    }
+
+    const checkpoint: StoredCheckpoint = {
+      id: randomUUID(),
+      accountId,
+      characterId: runtime.characterId,
+      host: runtime.host,
+      profileId: runtime.profileId,
+      sourceSessionId: runtime.sessionRowId,
+      mapId: runtime.mapId,
+      pocketId: runtime.pocketId,
+      savedAt: this.d.now(),
+      state: "saving",
+    };
+    this.checkpoints.set(accountId, checkpoint);
+    this.drainingAccounts.add(accountId);
+    if (!runtime.takeover(checkpoint.id, checkpoint.savedAt)) {
+      this.checkpoints.delete(accountId);
+      this.drainingAccounts.delete(accountId);
+      this.reject(send, "takeover", "checkpoint_saving", m?.requestId);
+      return false;
+    }
+    send(MSG_BOT_CHECKPOINT, this.checkpointMessage(checkpoint));
+    this.ack(send, "takeover", m?.requestId);
+    return true;
   }
 
   onStop(accountId: string | null, send: Send, _m: BotStopMessage): void {

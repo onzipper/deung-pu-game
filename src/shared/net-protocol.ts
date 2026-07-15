@@ -954,6 +954,19 @@ export const MSG_BOT_STOP = "bot:stop";
 export interface BotStopMessage {
   profileId?: string;
 }
+/** C→S: return the real character to manual authority and checkpoint the interrupted plan. */
+export const MSG_BOT_TAKEOVER = "bot:takeover";
+export type BotTakeoverSourceWire = "move" | "skill" | "pointer" | "touch" | "cta";
+export interface BotTakeoverMessage {
+  /** Client correlation only; the server derives account/character/actor from the authenticated controller. */
+  requestId: string;
+  source: BotTakeoverSourceWire;
+}
+/** C→S: resume a ready in-process checkpoint on the same real character. */
+export const MSG_BOT_RESUME = "bot:resume";
+export interface BotResumeMessage {
+  checkpointId: string;
+}
 /** C→S: MOCK pass purchase (D-061 — no real billing). Grants/extends per D-063 renew-append/cross-tier rules. */
 export const MSG_BOT_MOCK_PURCHASE = "bot:mockPurchase";
 export interface BotMockPurchaseMessage {
@@ -1006,6 +1019,22 @@ export interface BotStoppedMessage {
   killCount: number;
   goldEarned: number;
   expEarned: number;
+}
+/** A takeover checkpoint is saving until the accepted in-flight reward and report close have drained. */
+export type BotCheckpointStateWire = "saving" | "ready" | "failed";
+export interface BotCheckpointWire {
+  id: string;
+  profileId: string;
+  sourceSessionId: string;
+  mapId: string;
+  pocketId: string;
+  savedAt: number;
+  state: BotCheckpointStateWire;
+}
+/** S→C: current manual-takeover checkpoint; null means consumed/cleared by a successful start or resume. */
+export const MSG_BOT_CHECKPOINT = "bot:checkpoint";
+export interface BotCheckpointMessage {
+  checkpoint: BotCheckpointWire | null;
 }
 /** S→C: alert (§13 bot:alert) — rare/high-value found, captcha required, gold cap. The farmed loot is safe. */
 export const MSG_BOT_ALERT = "bot:alert";

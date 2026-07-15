@@ -320,6 +320,8 @@ import {
   MSG_BOT_PROFILE_DELETE,
   MSG_BOT_START,
   MSG_BOT_STOP,
+  MSG_BOT_TAKEOVER,
+  MSG_BOT_RESUME,
   MSG_BOT_MOCK_PURCHASE,
   MSG_BOT_REPORT_LIST,
   MSG_BOT_REPORT_FETCH,
@@ -328,6 +330,8 @@ import {
   type BotProfileDeleteMessage,
   type BotStartMessage,
   type BotStopMessage,
+  type BotTakeoverMessage,
+  type BotResumeMessage,
   type BotMockPurchaseMessage,
   type BotReportFetchMessage,
 } from "../../src/shared/net-protocol";
@@ -733,6 +737,21 @@ export class MapRoom extends Room<MapRoomState> {
     return actorId !== null && this.botMembers.has(actorId);
   }
 
+  /**
+   * Atomically fence Character Autonomy before accepting the same manual move/skill. The manager verifies the
+   * authenticated account + stable actor; success guarantees `botReleaseAuthority` already ran synchronously.
+   */
+  private takeManualAuthority(client: Client, source: "move" | "skill"): boolean {
+    const actorId = this.actorIdOf(client);
+    if (!actorId || !this.botMembers.has(actorId)) return true;
+    return botManager.onTakeover(
+      accountIdOf(client),
+      actorId,
+      (type, message) => client.send(type, message),
+      { requestId: `input:${client.sessionId}:${Date.now()}`, source },
+    );
+  }
+
   private characterRecordOf(client: Client): { accountId: string; characterId: string; lastSaveMs: number } | undefined {
     const actorId = this.actorIdOf(client);
     return actorId ? this.sessionCharacters.get(actorId) : undefined;
@@ -1009,6 +1028,24 @@ export class MapRoom extends Room<MapRoomState> {
     this.onMessage(MSG_BOT_STOP, (client: Client, message: BotStopMessage) => {
       botManager.onStop(accountIdOf(client), (t, m) => client.send(t, m), message);
     });
+    this.onMessage(MSG_BOT_TAKEOVER, (client: Client, message: BotTakeoverMessage) => {
+      botManager.onTakeover(
+        accountIdOf(client),
+        this.actorIdOf(client),
+        (t, m) => client.send(t, m),
+        message,
+      );
+    });
+    this.onMessage(MSG_BOT_RESUME, (client: Client, message: BotResumeMessage) => {
+      void botManager.onResume(
+        this,
+        client.sessionId,
+        accountIdOf(client),
+        characterIdOf(client),
+        (t, m) => client.send(t, m),
+        message,
+      );
+    });
     this.onMessage(MSG_BOT_MOCK_PURCHASE, (client: Client, message: BotMockPurchaseMessage) => {
       void botManager.onMockPurchase(accountIdOf(client), (t, m) => client.send(t, m), message);
     });
@@ -1028,9 +1065,9 @@ export class MapRoom extends Room<MapRoomState> {
       const tracker = this.trackers.get(actorId);
       if (!player || !tracker) return;
 
-      // PR1 authority fence: while automation owns the actor, manual intents cannot race it. PR2 replaces this
-      // temporary rejection with atomic manual takeover + checkpoint before accepting the input.
-      if (this.botMembers.has(actorId)) {
+      // PR2 manual takeover: fence commands + capture checkpoint + release authority before applying this exact
+      // move. A failed/mismatched takeover remains fail-closed and receives an authoritative correction.
+      if (this.botMembers.has(actorId) && !this.takeManualAuthority(client, "move")) {
         const correction: PositionCorrectionMessage = {
           tx: player.tx,
           ty: player.ty,
@@ -1486,7 +1523,7 @@ export class MapRoom extends Room<MapRoomState> {
     if (!sessionId) return;
     const player = this.state.players.get(sessionId);
     if (!player || !message) return;
-    if (this.botMembers.has(sessionId)) {
+    if (this.botMembers.has(sessionId) && !this.takeManualAuthority(client, "skill")) {
       const rejected: CastRejectedMessage = {
         skillId: typeof message.skillId === "string" ? message.skillId : "",
         reason: "character_autonomy_active",
@@ -3132,8 +3169,11 @@ export class MapRoom extends Room<MapRoomState> {
 
     // reward each kill through the IDENTICAL economy entry (ledger/drop/audit/EXP) — the owner earns.
     const outcome: BotAttackOutcome = { killed: 0, gold: 0, exp: 0, loot: [], overflow: [], leveledUp: false };
+    // `member` is the command lease captured before damage. Manual takeover may remove botMembers while an
+    // accepted reward is awaiting DB I/O; every kill from this already-fenced cast must still be paid exactly
+    // once, while no later automation command may start.
     for (const mobType of killedMobTypes) {
-      const g = await this.botGrantForKill(sessionId, mobType);
+      const g = await this.botGrantForKill(sessionId, mobType, member);
       if (!g) continue;
       outcome.killed += 1;
       outcome.gold += g.gold;
@@ -3154,10 +3194,10 @@ export class MapRoom extends Room<MapRoomState> {
   private async botGrantForKill(
     sessionId: string,
     mobType: string,
+    member: BotMemberState,
   ): Promise<{ gold: number; exp: number; loot: { itemId: string; quantity: number }[]; overflow: { itemId: string; quantity: number }[]; leveledUp: boolean } | null> {
-    const member = this.botMembers.get(sessionId);
     const progress = this.sessionProgress.get(sessionId);
-    if (!member || !progress) return null;
+    if (!progress) return null;
     const oldExp = progress.exp;
     let outcome: Awaited<ReturnType<typeof grantKillRewardsForMob>>;
     try {
