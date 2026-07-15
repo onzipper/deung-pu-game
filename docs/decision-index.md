@@ -1,6 +1,6 @@
 # Decision index โ€” locked decisions. Do not re-propose. Rationale: docs/decisions/ (Thai).
 
-Superseded -> archived in `docs/history/`: D-002->D-012 · D-007/D-010->D-011 · D-016/D-031->D-058 · D-017->D-030->D-056 · D-049->D-055 · D-060->D-063
+Superseded -> archived in `docs/history/`: D-002->D-012 · D-007/D-010->D-011 · D-016/D-031->D-058 · D-017->D-030->D-056 · D-049->D-055 · D-060->D-063. Partial: D-034->D-068 · D-063->D-067.
 
 | ID | Date | Decision | Status | TH |
 |---|---|---|---|---|
@@ -61,3 +61,5 @@ Superseded -> archived in `docs/history/`: D-002->D-012 · D-007/D-010->D-011 ·
 | D-064 | 2026-07-13 | Event calendar + boss tiers + Arc1 | Locked | `docs/decisions/D-064-content-liveops.md` |
 | D-065 | 2026-07-13 | Audio JS + art path + OB=Map1 | Locked | `docs/decisions/D-065-production-path.md` |
 | D-066 | 2026-07-13 | Rift Violet family, palette 35 | Locked | `docs/decisions/D-066-rift-violet-palette.md` |
+| D-067 | 2026-07-15 | Bot = real-character autonomy; tiers = continuity/recovery/workflow | Locked | `docs/decisions/D-067-character-autonomy.md` |
+| D-068 | 2026-07-15 | Dung-Dung contextual guide; Help is separate static KB | Locked | `docs/decisions/D-068-dungdung-contextual-guide.md` |
