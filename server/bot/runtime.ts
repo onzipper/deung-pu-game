@@ -145,7 +145,12 @@ export class BotRuntime {
   private sinceFlushMs = 0;
   private sinceStatusMs = 0;
   private stopped = false;
-  private attacking = false; // an async attack+grant is in flight → don't start another
+  /**
+   * Async automation ops in flight (attack+grant today; potion/path/service arrive in PR5). Each dispatch takes a
+   * lease; the resolution continuation drops it. A nonempty registry defers finalizeStop so an already-committed
+   * economy grant always drains into the report before authority release.
+   */
+  private readonly pendingLeases = new Map<symbol, "attack" | "potion">();
   private pendingStop: { reason: BotStopReason; requestedAt: number } | null = null;
   private stopFinalized = false;
   private authorityReleased = false;
@@ -236,7 +241,7 @@ export class BotRuntime {
       } else if (!this.advanceContinuity("COMBAT", "target_in_range")) {
         return;
       }
-      if (this.decisionTimer >= this.throttleMs && !this.attacking) {
+      if (this.decisionTimer >= this.throttleMs && !this.hasPendingAttack()) {
         const p2 = host.botPos(this.d.actorId) ?? pos;
         if (withinRange(p2, target, range)) {
           this.decisionTimer = 0;
@@ -268,26 +273,42 @@ export class BotRuntime {
     }
   }
 
+  /** True while an attack+grant lease is still in flight — preserves the at-most-one-attack reentrancy guard. */
+  private hasPendingAttack(): boolean {
+    for (const kind of this.pendingLeases.values()) if (kind === "attack") return true;
+    return false;
+  }
+
+  private acquireLease(kind: "attack" | "potion"): symbol {
+    const token = Symbol(kind);
+    this.pendingLeases.set(token, kind);
+    return token;
+  }
+
+  private releaseLease(token: symbol): void {
+    this.pendingLeases.delete(token);
+    if (this.pendingStop && this.pendingLeases.size === 0) this.finalizeStop();
+  }
+
   /** fire an attack (async grant) without blocking the sim tick; apply the outcome when it resolves. */
   private runAttack(target: Vec2): void {
-    this.attacking = true;
+    const lease = this.acquireLease("attack");
     void this.d.host
       .botAttack(this.d.actorId, target)
       .then((o) => {
-        this.attacking = false;
         if (this.stopped) {
           // The authoritative economy call already committed against the real character. Include that result in
           // the report, then release authority; never dematerialize while an in-flight grant still owns state.
           this.recordAttack(o);
-          this.finalizeStop();
         } else {
           this.applyAttack(o);
         }
+        // Drop the lease AFTER the outcome is recorded/applied; releaseLease drains a pending stop into the report.
+        this.releaseLease(lease);
       })
       .catch((e: unknown) => {
-        this.attacking = false;
         console.error(`[bot ${this.d.sessionRowId}] attack error: ${e instanceof Error ? e.message : String(e)}`);
-        if (this.stopped) this.finalizeStop();
+        this.releaseLease(lease);
       });
   }
 
@@ -342,7 +363,7 @@ export class BotRuntime {
     }
     this.stopped = true;
     this.pendingStop = { reason, requestedAt: this.d.now() };
-    if (!this.attacking) this.finalizeStop();
+    if (this.pendingLeases.size === 0) this.finalizeStop();
   }
 
   /**
@@ -364,7 +385,7 @@ export class BotRuntime {
     this.pendingStop = { reason: "manual", requestedAt };
     this.takeoverCheckpointId = checkpointId;
     this.releaseAuthorityOnce();
-    if (!this.attacking) this.finalizeStop();
+    if (this.pendingLeases.size === 0) this.finalizeStop();
     return toBotContinuityWire(this.continuity);
   }
 
@@ -375,7 +396,7 @@ export class BotRuntime {
   }
 
   private finalizeStop(): void {
-    if (this.stopFinalized || !this.pendingStop || this.attacking) return;
+    if (this.stopFinalized || !this.pendingStop || this.pendingLeases.size > 0) return;
     this.stopFinalized = true;
     const { reason, requestedAt } = this.pendingStop;
     const persisted = this.flush({ stoppedAt: requestedAt, stopReason: reason });
