@@ -4,10 +4,11 @@ import {
   enhancementLabel,
   findItemByInstanceId,
   INVENTORY_PANEL_ID,
+  itemUseResultLabel,
   rejectionReasonLabel,
   resolveInventoryAction,
 } from "@/ui/panels/inventory/inventory-view";
-import type { InventoryItemView, InventorySnapshot } from "@/shared/net-protocol";
+import type { InventoryItemView, InventorySnapshot, UseItemResultMessage } from "@/shared/net-protocol";
 
 const bagItem = (over: Partial<InventoryItemView> = {}): InventoryItemView => ({
   instanceId: "i1",
@@ -69,12 +70,18 @@ describe("enhancementLabel", () => {
 });
 
 describe("resolveInventoryAction", () => {
-  test("อยู่ในกระเป๋า → equip", () => {
-    expect(resolveInventoryAction("CHARACTER_INVENTORY")).toBe("equip");
+  test("อยู่ในกระเป๋า (ไม่ใช่ consumable ที่รู้จัก) → equip", () => {
+    expect(resolveInventoryAction(bagItem())).toBe("equip");
   });
 
-  test("สวมอยู่ → unequip", () => {
-    expect(resolveInventoryAction("CHARACTER_EQUIPMENT")).toBe("unequip");
+  test("สวมอยู่ → unequip (แม้ itemId จะเป็น consumable ก็ตาม — location มาก่อน)", () => {
+    expect(
+      resolveInventoryAction(bagItem({ location: "CHARACTER_EQUIPMENT", itemId: "con_small_potion" })),
+    ).toBe("unequip");
+  });
+
+  test("PR5: potion อยู่ในกระเป๋า → use", () => {
+    expect(resolveInventoryAction(bagItem({ itemId: "con_small_potion" }))).toBe("use");
   });
 });
 
@@ -114,5 +121,33 @@ describe("rejectionReasonLabel", () => {
 
   test("reason แปลกที่ไม่รู้จัก → fallback", () => {
     expect(rejectionReasonLabel("something_new")).toBe("ทำรายการไม่สำเร็จ");
+  });
+});
+
+describe("itemUseResultLabel (PR5)", () => {
+  const buildUseItemResult = (over: Partial<UseItemResultMessage> = {}): UseItemResultMessage => ({
+    ok: false,
+    ...over,
+  });
+
+  test("ok:true → ข้อความสำเร็จ", () => {
+    expect(
+      itemUseResultLabel(buildUseItemResult({ ok: true, itemId: "con_small_potion", hp: 80 })),
+    ).not.toBeNull();
+  });
+
+  test("ครบทุก reason ที่ protocol กำหนด (UseConsumableReject, ดู net-protocol.ts) ยกเว้น version_conflict", () => {
+    const reasons = ["unknown_item", "no_effect", "on_cooldown", "hp_already_full", "no_stock"];
+    for (const reason of reasons) {
+      expect(itemUseResultLabel(buildUseItemResult({ reason }))).not.toBeNull();
+    }
+  });
+
+  test("version_conflict → null (เงียบ ๆ, resync มาเองจาก server)", () => {
+    expect(itemUseResultLabel(buildUseItemResult({ reason: "version_conflict" }))).toBeNull();
+  });
+
+  test("reason แปลกที่ไม่รู้จัก → fallback (ไม่ใช่ null)", () => {
+    expect(itemUseResultLabel(buildUseItemResult({ reason: "something_new" }))).toBe("ทำรายการไม่สำเร็จ");
   });
 });

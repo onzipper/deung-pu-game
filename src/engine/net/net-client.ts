@@ -65,6 +65,8 @@ import {
   MSG_STORAGE_STATE,
   MSG_STORAGE_WITHDRAW,
   MSG_UNEQUIP_ITEM,
+  MSG_USE_ITEM,
+  MSG_USE_ITEM_RESULT,
   MSG_ACHIEVEMENT_UNLOCKED,
   MSG_CLIENT_EVENT,
   MSG_ACHIEVEMENTS_REQUEST,
@@ -126,6 +128,8 @@ import {
   type StorageMoveMessage,
   type StorageResultMessage,
   type StorageStateMessage,
+  type UseItemMessage,
+  type UseItemResultMessage,
   type BotProfileCreateMessage,
   type BotProfileUpdateMessage,
   type BotProfileDeleteMessage,
@@ -296,6 +300,13 @@ export interface NetClientHandlers {
    * ITEM_LOCKED, §2.4). caller push เข้า Zustand bridge ตรง ๆ (event-driven เหมือน onInventoryOpRejected). optional.
    */
   onEnhanceResult?(result: EnhanceResultMessage): void;
+  /**
+   * PR5: ผลใช้ consumable (server → client เดียว, MSG_USE_ITEM_RESULT) — ok=true มากับ itemId/hp/
+   * cooldownUntilMs (HP จริง sync ทาง PlayerState schema แยก, message นี้ = ack feedback ทันที), ok=false
+   * มี reason (UseConsumableReject: unknown_item/no_effect/on_cooldown/hp_already_full/no_stock/
+   * version_conflict). caller push เข้า Zustand bridge ตรง ๆ (event-driven เหมือน onEnhanceResult). optional.
+   */
+  onUseItemResult?(result: UseItemResultMessage): void;
   /**
    * B4: ผลการแลกเศษเสริมแกร่ง 5→1 (server → client เดียว, MSG_FRAGMENT_EXCHANGE_RESULT) — ok=true มากับ
    * MSG_INVENTORY_STATE snapshot ใหม่แยกต่างหาก (server ส่งสองข้อความ), ok=false มี reason (NO_DB/
@@ -472,6 +483,8 @@ export interface NetClientHandle {
   sendUnequipItem(msg: EquipItemMessage): void;
   /** P2-07: ขอย้าย item ในกระเป๋าไปช่องอื่น (bag↔bag เท่านั้น, no-op ถ้ายังไม่ online). */
   sendMoveItem(msg: MoveItemMessage): void;
+  /** PR5: ขอใช้ consumable 1 ชิ้นจากกระเป๋า (no-op ถ้ายังไม่ online) — server ตัดสินทั้งหมด (cooldown/heal). */
+  sendUseItem(msg: UseItemMessage): void;
   /** P2-10: ขอเสริมแกร่ง equipment ที่ถืออยู่ +1 (no-op ถ้ายังไม่ online) — server ตัดสินทั้งหมด (§2.3). */
   sendEnhanceItem(msg: EnhanceItemMessage): void;
   /** B4: ขอแลกเศษเสริมแกร่ง 5 → เสริมแกร่ง 1 (no-op ถ้ายังไม่ online) — server ตัดสินทั้งหมด (§3.5). */
@@ -792,6 +805,10 @@ export function createNetClient(
     joinedRoom.onMessage(MSG_ENHANCE_RESULT, (result: EnhanceResultMessage) => {
       handlers.onEnhanceResult?.(result);
     });
+    // PR5: ผลใช้ consumable (ok/reject) — HP จริง sync ทาง PlayerState schema แยก (message นี้ = ack feedback)
+    joinedRoom.onMessage(MSG_USE_ITEM_RESULT, (result: UseItemResultMessage) => {
+      handlers.onUseItemResult?.(result);
+    });
     // B4: ผลแลกเศษ 5→1 (ok/reject) — สำเร็จมากับ MSG_INVENTORY_STATE snapshot ใหม่แยกอีกข้อความ (ด้านบน)
     joinedRoom.onMessage(MSG_FRAGMENT_EXCHANGE_RESULT, (result: FragmentExchangeResultMessage) => {
       handlers.onFragmentExchangeResult?.(result);
@@ -1046,6 +1063,10 @@ export function createNetClient(
     sendMoveItem(msg: MoveItemMessage): void {
       if (!room || status.state !== "online") return;
       room.send(MSG_MOVE_ITEM, msg);
+    },
+    sendUseItem(msg: UseItemMessage): void {
+      if (!room || status.state !== "online") return;
+      room.send(MSG_USE_ITEM, msg);
     },
     sendEnhanceItem(msg: EnhanceItemMessage): void {
       if (!room || status.state !== "online") return;

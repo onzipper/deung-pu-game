@@ -115,6 +115,7 @@ import {
   setSkillSlots,
   setStorageResult,
   setStorageState,
+  setUseItemResult,
 } from "@/ui/store/game-store";
 import { getSoundManager } from "@/engine/audio/sound-manager";
 
@@ -708,6 +709,9 @@ export async function createEngine(
           onInventoryOpRejected: (rejected) => setInventoryRejection(rejected),
           // P2-10: ผลเสริมแกร่ง → Zustand bridge ตรง ๆ (event-driven, ดู comment ที่ game-store.ts setEnhanceResult)
           onEnhanceResult: (result) => setEnhanceResult(result),
+          // PR5: ผลใช้ consumable → Zustand bridge ตรง ๆ (event-driven, เหมือน onEnhanceResult — HP จริง sync
+          // ทาง PlayerState schema แยก, message นี้แค่ ack feedback + cooldown)
+          onUseItemResult: (result) => setUseItemResult(result),
           // B4: ผลแลกเศษ 5→1 → Zustand bridge ตรง ๆ (event-driven, เหมือน onEnhanceResult)
           onFragmentExchangeResult: (result) => setFragmentExchangeResult(result),
           // P2-11: catalog ร้าน + ผลซื้อ/ขาย → Zustand bridge ตรง ๆ (event-driven, เหมือน onEnhanceResult)

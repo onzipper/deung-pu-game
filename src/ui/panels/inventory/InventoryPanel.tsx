@@ -13,12 +13,21 @@
 
 import { useEffect, useState, type ReactNode } from "react";
 import type { EngineHandle } from "@/engine/runtime/app";
-import type { InventoryItemView, InventoryOpRejectedMessage } from "@/shared/net-protocol";
+import type {
+  InventoryItemView,
+  InventoryOpRejectedMessage,
+  UseItemResultMessage,
+} from "@/shared/net-protocol";
 import { Panel, usePanelManager } from "@/ui/panels";
 import { ENHANCEMENT_PANEL_ID } from "@/ui/panels/enhancement/enhancement-view";
 import { useEnhancementTarget } from "@/ui/panels/enhancement/enhancement-target-context";
 import { ContextHelpButton } from "@/ui/panels/help/ContextHelpButton";
-import { selectInventory, selectInventoryRejection } from "@/ui/store/game-store";
+import {
+  selectInventory,
+  selectInventoryRejection,
+  selectPotionCooldownUntilMs,
+  selectUseItemResult,
+} from "@/ui/store/game-store";
 import { useGameStore } from "@/ui/store/use-game-store";
 import { Button, ItemSlot, Tooltip } from "@/ui/components";
 import { itemIconUrl } from "@/game/item/icon-catalog";
@@ -27,6 +36,7 @@ import {
   enhancementLabel,
   findItemByInstanceId,
   INVENTORY_PANEL_ID,
+  itemUseResultLabel,
   rejectionReasonLabel,
   resolveInventoryAction,
 } from "./inventory-view";
@@ -63,6 +73,8 @@ function ItemTooltip({ item, children }: { item: InventoryItemView; children: Re
 export function InventoryPanel({ getHandle }: InventoryPanelProps) {
   const inventory = useGameStore(selectInventory);
   const rejection = useGameStore(selectInventoryRejection);
+  const itemUseResult = useGameStore(selectUseItemResult);
+  const potionCooldownUntilMs = useGameStore(selectPotionCooldownUntilMs);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const panelManager = usePanelManager();
   const enhancementTarget = useEnhancementTarget();
@@ -70,6 +82,12 @@ export function InventoryPanel({ getHandle }: InventoryPanelProps) {
   // cascading render). `dismissed` เก็บ reference ของ rejection ล่าสุดที่หมดเวลาแสดงแล้วเท่านั้น — setState
   // เกิดขึ้นใน setTimeout callback (deferred, ไม่ใช่ตรงใน effect body) จึงไม่ผิด lint rule.
   const [dismissed, setDismissed] = useState<InventoryOpRejectedMessage | null>(null);
+  // PR5: dismiss timer แยกต่างหากสำหรับ toast ใช้ potion (pattern เดียวกับ dismissed ด้านบน)
+  const [dismissedItemUseResult, setDismissedItemUseResult] = useState<UseItemResultMessage | null>(null);
+  // PR5: ปุ่ม "ใช้" disable ระหว่างติดคูลดาวน์ — react-hooks/purity ห้ามเรียก Date.now() ตรงใน render body
+  // (เหมือน BotPanel.tsx nowMs comment) จึงคำนวณใน effect แล้วเก็บผลเป็น state, ตั้ง one-shot timer ให้ปลด
+  // เองพอดีตอนหมดคูลดาวน์ (ไม่ใช่ interval loop — ยิงครั้งเดียวต่อรอบคูลดาวน์).
+  const [potionOnCooldown, setPotionOnCooldown] = useState(false);
 
   // rejection เป็น object ใหม่ทุกครั้งที่ server ปฏิเสธ (แม้ reason ซ้ำ) → effect รันจริงทุกครั้ง (reference เปลี่ยน)
   useEffect(() => {
@@ -78,7 +96,29 @@ export function InventoryPanel({ getHandle }: InventoryPanelProps) {
     return () => clearTimeout(timer);
   }, [rejection]);
 
+  // PR5: เหมือน effect ด้านบนทุกประการ — itemUseResult เป็น object ใหม่ทุกครั้งที่ server ตอบ MSG_USE_ITEM_RESULT
+  useEffect(() => {
+    if (!itemUseResult) return;
+    const timer = setTimeout(() => setDismissedItemUseResult(itemUseResult), TOAST_DURATION_MS);
+    return () => clearTimeout(timer);
+  }, [itemUseResult]);
+
+  // PR5: potionCooldownUntilMs เปลี่ยนเฉพาะตอนใช้ potion สำเร็จ (setUseItemResult, game-store.ts) — schedule
+  // ปลด cooldown ให้พอดีเวลา แทนที่จะ poll ทุก frame. setState ทั้งคู่ deferred ผ่าน setTimeout callback
+  // (ไม่ตรงใน effect body) ตาม pattern เดียวกับ dismissed/dismissedItemUseResult ด้านบน (react-hooks/set-state-in-effect).
+  useEffect(() => {
+    const remaining = potionCooldownUntilMs - Date.now();
+    const initialTimer = setTimeout(() => setPotionOnCooldown(remaining > 0), 0);
+    const expireTimer = remaining > 0 ? setTimeout(() => setPotionOnCooldown(false), remaining) : null;
+    return () => {
+      clearTimeout(initialTimer);
+      if (expireTimer) clearTimeout(expireTimer);
+    };
+  }, [potionCooldownUntilMs]);
+
   const toast = rejection && rejection !== dismissed ? rejectionReasonLabel(rejection.reason) : null;
+  const itemUseToast =
+    itemUseResult && itemUseResult !== dismissedItemUseResult ? itemUseResultLabel(itemUseResult) : null;
 
   if (!inventory) {
     return (
@@ -93,22 +133,25 @@ export function InventoryPanel({ getHandle }: InventoryPanelProps) {
 
   const grid = buildBagGrid(inventory);
   const selected = selectedId ? findItemByInstanceId(inventory, selectedId) : null;
+  const selectedAction = selected ? resolveInventoryAction(selected) : null;
 
   const onSelect = (item: InventoryItemView | null): void => {
     setSelectedId(item ? item.instanceId : null);
   };
 
   const onAction = (): void => {
-    if (!selected) return;
+    if (!selected || !selectedAction) return;
     const net = getHandle()?.net;
     if (!net) return;
     const msg = { instanceId: selected.instanceId, expectedVersion: selected.version };
-    if (resolveInventoryAction(selected.location) === "equip") {
+    if (selectedAction === "use") {
+      net.sendUseItem(msg);
+    } else if (selectedAction === "equip") {
       net.sendEquipItem(msg);
     } else {
       net.sendUnequipItem(msg);
     }
-    setSelectedId(null); // resync มาจาก MSG_INVENTORY_STATE ล่าสุด ไม่ optimistic update ที่นี่
+    setSelectedId(null); // resync มาจาก MSG_INVENTORY_STATE/MSG_USE_ITEM_RESULT ล่าสุด ไม่ optimistic update ที่นี่
   };
 
   return (
@@ -121,6 +164,17 @@ export function InventoryPanel({ getHandle }: InventoryPanelProps) {
         {toast && (
           <div className="dp-text-body-sm rounded-(--dp-radius-sm) border border-(--dp-danger-red) bg-(--dp-deep-ink) px-3 py-2 text-(--dp-danger-red)">
             {toast}
+          </div>
+        )}
+        {itemUseToast && (
+          <div
+            className={
+              itemUseResult?.ok
+                ? "dp-text-body-sm rounded-(--dp-radius-sm) border border-(--dp-leaf) bg-(--dp-deep-ink) px-3 py-2 text-(--dp-pale-moss)"
+                : "dp-text-body-sm rounded-(--dp-radius-sm) border border-(--dp-danger-red) bg-(--dp-deep-ink) px-3 py-2 text-(--dp-danger-red)"
+            }
+          >
+            {itemUseToast}
           </div>
         )}
 
@@ -178,7 +232,7 @@ export function InventoryPanel({ getHandle }: InventoryPanelProps) {
           <div className="flex items-center justify-between gap-2 rounded-(--dp-radius-sm) border border-(--dp-soil-brown) bg-(--dp-warm-ink) px-3 py-2">
             <span className="dp-text-body-sm truncate text-(--dp-parchment)">{selected.itemId}</span>
             <div className="flex shrink-0 gap-2">
-              {canOfferEnhance(selected) && (
+              {selectedAction !== "use" && canOfferEnhance(selected) && (
                 <Button
                   variant="secondary"
                   size="sm"
@@ -190,8 +244,13 @@ export function InventoryPanel({ getHandle }: InventoryPanelProps) {
                   เสริมแกร่ง
                 </Button>
               )}
-              <Button variant="primary" size="sm" onClick={onAction}>
-                {resolveInventoryAction(selected.location) === "equip" ? "สวมใส่" : "ถอด"}
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={onAction}
+                disabled={selectedAction === "use" && potionOnCooldown}
+              >
+                {selectedAction === "use" ? "ใช้" : selectedAction === "unequip" ? "ถอด" : "สวมใส่"}
               </Button>
             </div>
           </div>
