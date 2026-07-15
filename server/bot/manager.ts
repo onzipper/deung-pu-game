@@ -80,6 +80,13 @@ interface StoredCheckpoint extends BotCheckpointWire {
   accountId: string;
   characterId: string;
   host: BotHost;
+  /**
+   * The live runtime whose actor this checkpoint captured (a running-bot takeover only; absent for a pending-start
+   * takeover, which never moved the actor). Read at settle time to reconcile `mapId` with where the actor really
+   * paused: a mid-trip takeover whose return warp failed lands PAUSED in place at the city-hub, so the checkpoint
+   * must tell the truth about the current host rather than the profile's farm map (D-069).
+   */
+  runtime?: BotRuntime;
 }
 
 interface StartingActorPresence {
@@ -197,6 +204,11 @@ export class BotManager {
     this.drainingAccounts.delete(accountId);
     const checkpoint = this.checkpoints.get(accountId);
     if (!checkpoint || checkpoint.id !== checkpointId) return;
+    // Reconcile the checkpoint's map with where the actor actually paused (D-069). The profile's farm map was
+    // stamped at takeover time; a mid-trip takeover whose return warp failed pauses in place at the city-hub, so
+    // read the runtime's CURRENT host and tell the truth. The normal farm-landing path leaves this identical (the
+    // runtime's host is already the farm map), and pocketId stays the plan's assigned pocket (unchanged by a trip).
+    if (saved && checkpoint.runtime) checkpoint.mapId = checkpoint.runtime.host.mapId;
     checkpoint.state = saved ? "ready" : "failed";
     // Fan out across every registered host: after a warp the owner's transport may sit in a sibling room, not
     // checkpoint.host. Fall back to the stored host when the fan-out reaches nobody (owner offline, or the host
@@ -733,6 +745,7 @@ export class BotManager {
       accountId,
       characterId: runtime.characterId,
       host: runtime.host,
+      runtime, // settle-time map reconciliation reads runtime.host (return-warp failure → city-hub, D-069)
       profileId: runtime.profileId,
       sourceSessionId: runtime.sessionRowId,
       mapId: runtime.mapId,
