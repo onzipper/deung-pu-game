@@ -24,6 +24,7 @@ import type { FragmentExchangeRules } from "../../src/server/inventory/fragment-
 import { DEFAULT_ECONOMY_CONFIG } from "../config/economy";
 import { DEFAULT_REINFORCEMENT_CONFIG } from "../config/reinforcement";
 import { DEFAULT_STORAGE_CONFIG } from "../config/storage";
+import { DEFAULT_CONSUMABLE_CONFIG } from "../config/consumables";
 import { ECONOMY_CONFIG_DEF } from "../config/loader";
 import type { StorageConfig } from "../config/types";
 
@@ -31,6 +32,8 @@ import type { StorageConfig } from "../config/types";
 export const INVENTORY_CAPACITY = DEFAULT_INVENTORY_CAPACITY;
 /** server-authoritative item definitions (slot + stat bonus, Design Knob §48). */
 export const ITEM_CATALOG: ItemCatalog = DEFAULT_ITEM_CATALOG;
+/** PR5 — server-authoritative consumable effects (heal %/cooldown, Economy §7.1 · Design Knob §48). */
+export const CONSUMABLE_CONFIG = DEFAULT_CONSUMABLE_CONFIG;
 
 // P2-10 — server-authoritative Design Knobs for reinforcement (Reinforcement §2 · D-054 · §16.3.1). Uses the
 // in-code DEFAULT config, same posture as ITEM_CATALOG (the DB `config_versions` override via loader.ts is not
