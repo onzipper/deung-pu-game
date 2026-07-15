@@ -16,6 +16,7 @@ const ALL_STOP_REASONS = [
   "profile_deleted",
   "server_restart",
   "expired_readonly",
+  "town_trip_failed",
 ] as const satisfies readonly BotStopReason[];
 
 describe("Free Character Autonomy stop settlement", () => {
@@ -55,6 +56,7 @@ describe("Free Character Autonomy stop settlement", () => {
       "rare_found",
       "captcha",
       "expired_readonly",
+      "town_trip_failed",
     ]);
     for (const reason of waiting) {
       expect(settlementForStoppedPlan(reason), reason).toBe("wait_for_owner");
@@ -66,7 +68,7 @@ describe("Free Character Autonomy stop settlement", () => {
     const stopReasonSetIsExhaustive: [MissingStopReason] extends [never] ? true : false = true;
 
     expect(stopReasonSetIsExhaustive).toBe(true);
-    expect(ALL_STOP_REASONS).toHaveLength(13);
+    expect(ALL_STOP_REASONS).toHaveLength(14);
     for (const reason of ALL_STOP_REASONS) {
       expect(["wait_for_owner", "complete", "fail"]).toContain(settlementForStoppedPlan(reason));
     }

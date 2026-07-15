@@ -55,22 +55,24 @@ export type BotContinuityTransitionResult =
  * PR3 operational topology. PR4 adds conservative settlement commands without guessing service ordering.
  * PR5 opens the recovery edges: RECOVERING is entered from any farm state (low-hp potion drink, death
  * await-respawn); RECOVERING->WORKING is healed in place; RECOVERING->RETURNING_TO_WORK is the post-respawn
- * walk back; RETURNING_TO_WORK->RECOVERING covers an hp emergency en route. Town/workflow states
- * (RETURNING_TO_TOWN/SELLING/DEPOSITING/RESTOCKING) and LOOTING stay inert until their authoritative
- * behavior lands (PR5 Phase C / PR6).
+ * walk back; RETURNING_TO_WORK->RECOVERING covers an hp emergency en route.
+ * PR5 Phase C (D-069/D-070) opens the town cycle: any farm/recovery state may enter RETURNING_TO_TOWN;
+ * RETURNING_TO_TOWN->SELLING starts the in-town service run, or RETURNING_TO_TOWN->WORKING aborts an outbound
+ * trip before the actor moved. The fixed SELLING->DEPOSITING->RESTOCKING->RETURNING_TO_WORK order returns to
+ * farming. LOOTING alone stays inert until its authoritative behavior lands (PR6).
  */
 export const BOT_CONTINUITY_ADVANCE_GRAPH: Readonly<
   Record<BotContinuityOperationalStateWire, readonly BotContinuityOperationalStateWire[]>
 > = {
-  WORKING: ["TRAVELING", "COMBAT", "RECOVERING"],
-  TRAVELING: ["WORKING", "COMBAT", "RECOVERING"],
-  COMBAT: ["WORKING", "TRAVELING", "RECOVERING"],
+  WORKING: ["TRAVELING", "COMBAT", "RECOVERING", "RETURNING_TO_TOWN"],
+  TRAVELING: ["WORKING", "COMBAT", "RECOVERING", "RETURNING_TO_TOWN"],
+  COMBAT: ["WORKING", "TRAVELING", "RECOVERING", "RETURNING_TO_TOWN"],
   LOOTING: [],
-  RECOVERING: ["RETURNING_TO_WORK", "WORKING"],
-  RETURNING_TO_TOWN: [],
-  SELLING: [],
-  DEPOSITING: [],
-  RESTOCKING: [],
+  RECOVERING: ["RETURNING_TO_WORK", "WORKING", "RETURNING_TO_TOWN"],
+  RETURNING_TO_TOWN: ["SELLING", "WORKING"], // WORKING = outbound abort (actor never moved)
+  SELLING: ["DEPOSITING"],
+  DEPOSITING: ["RESTOCKING"],
+  RESTOCKING: ["RETURNING_TO_WORK"],
   RETURNING_TO_WORK: ["WORKING", "RECOVERING"],
 };
 

@@ -141,6 +141,10 @@ function createPlusHarness(options: PlusHarnessOptions = {}) {
     botExportActor: () => null,
     botAttachWarpedActor: () => false,
     botPersistNow: () => undefined,
+    botBagItems: async () => [],
+    botTownSell: async () => ({ ok: false, reason: "unavailable" }),
+    botTownDeposit: async () => ({ ok: false, reason: "unavailable" }),
+    botTownBuy: async () => ({ ok: false, reason: "unavailable" }),
   };
 
   const runtime = new BotRuntime({

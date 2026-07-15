@@ -218,7 +218,7 @@ import {
   type DeliveryClaimResult,
 } from "../../src/server/inventory/storage-service";
 import { aggregateEquipmentBonus } from "../../src/server/inventory/equipment-stats";
-import { applyEquipmentBonus } from "../../src/server/inventory/item-catalog";
+import { applyEquipmentBonus, sharingPolicyOf } from "../../src/server/inventory/item-catalog";
 import {
   INVENTORY_CAPACITY,
   ITEM_CATALOG,
@@ -260,6 +260,7 @@ import { SHOP_CONFIG, shopForMap, shopItemMeta } from "../economy/shop-state";
 import {
   buyShopItem,
   sellItem,
+  NON_SELLABLE_ITEM_IDS,
   type ShopBuyResult,
   type ShopSellResult,
 } from "../../src/server/economy/shop";
@@ -323,7 +324,15 @@ import { defaultRng } from "../../src/game/mob/rng";
 import { botManager } from "../bot/manager";
 import { nextStepToward, type AgentMob, type Vec2 } from "../bot/agent";
 import { findPath } from "../../src/engine/pathfinding/astar";
-import type { BotAttackOutcome, BotAuthorityInput, BotPotionOutcome, BotWarpExport } from "../bot/runtime";
+import type {
+  BotAttackOutcome,
+  BotAuthorityInput,
+  BotBagItemView,
+  BotMemberState,
+  BotPotionOutcome,
+  BotTownTxResult,
+  BotWarpExport,
+} from "../bot/runtime";
 import { isForbiddenAutomationMobClass } from "../bot/policy";
 import {
   MSG_BOT_PROFILE_LIST,
@@ -368,19 +377,9 @@ interface KillGrant {
   members: { sessionId: string; sharePct: number }[];
 }
 
-/**
- * Batch 7b (Bot): per-bot state kept alongside the shared session maps (trackers/cooldowns/effectiveStats/
- * sessionProgress/sessionClassId are reused as-is). Identity = the owner's account/character (rewards land on
- * them via the identical economy path); `skill` = the resolved basic-attack skill the bot casts each cadence.
- */
-export interface BotMemberState {
-  accountId: string;
-  characterId: string;
-  profileId: string;
-  classId: string;
-  skill: SkillDefinition;
-  pocketId: string;
-}
+// Batch 7b (Bot): BotMemberState (per-bot state alongside the shared session maps) is defined in
+// server/bot/runtime.ts — the canonical bot-facing types module — so warp types never pull this room/schema
+// module into the client/test tsc program. Re-imported below with the other bot host types.
 
 /**
  * PR5: map the pure consumable-service rejects onto the bot potion outcome status. `unknown_item`/`no_effect`
@@ -3677,6 +3676,169 @@ export class MapRoom extends Room<MapRoomState> {
       }
     }
     return null;
+  }
+
+  // ── D-069/D-070 town transaction seams (PR5 Phase C) ───────────────────────────────────────────────────────
+  // Each captures `member` BEFORE any await (command-lease convention, mirrors botAttack/botUsePotion: a manual
+  // takeover may drop botMembers mid-flight). Every seam delegates to the SAME pure service the manual handler uses
+  // and NEVER emits an achievement/milestone (D-070). Gold moves ONLY through the normal shop_sell/shop_buy ledger
+  // reasons inside those services. All four are structurally no-ops on a farm map (shopForMap/storageAvailableForMap
+  // yield nothing there) and stay INERT until the trip controller (next task) calls them from the city-hub room.
+
+  /**
+   * BotHost.botBagItems — the actor's live bag + worn gear projected to {@link BotBagItemView} for policy filtering.
+   * `rarity` from the item catalog; `equipped` from the instance location; `sellPrice` from THIS map's shop sell
+   * table (null when no shop here, a NON_SELLABLE id, or no configured price); `deliverable=false` for equipped or
+   * bound/blocked-storage items (the same gate depositToStorage enforces). Best-effort load → [] on missing member
+   * / no persistence / DB error (never throws).
+   */
+  async botBagItems(actorId: string): Promise<BotBagItemView[]> {
+    const member = this.botMembers.get(actorId);
+    if (!member || !inventoryPersistenceAvailable()) return [];
+    const items = await loadCharacterItemsBestEffort(member.characterId);
+    const sellPrices = shopForMap(this.state.mapId)?.sellPrices ?? null;
+    const views: BotBagItemView[] = [];
+    for (const r of items) {
+      if (r.location !== "CHARACTER_INVENTORY" && r.location !== "CHARACTER_EQUIPMENT") continue;
+      const def = ITEM_CATALOG.get(r.itemId);
+      const equipped = r.location === "CHARACTER_EQUIPMENT";
+      const policy = sharingPolicyOf(def);
+      const deliverable =
+        !equipped &&
+        policy.bindType !== "CHARACTER_BOUND" &&
+        policy.storagePolicy !== "BLOCKED" &&
+        policy.storagePolicy !== "CONDITIONAL";
+      const configured = sellPrices?.[r.itemId];
+      const sellPrice =
+        equipped || configured == null || NON_SELLABLE_ITEM_IDS.has(r.itemId) ? null : configured;
+      views.push({
+        instanceId: r.id,
+        itemId: r.itemId,
+        quantity: r.quantity,
+        version: r.version,
+        rarity: def?.rarity ?? "common",
+        equipped,
+        sellPrice,
+        deliverable,
+      });
+    }
+    return views;
+  }
+
+  /** BotHost.botTownSell — sell one owned bag instance through the manual sell service; goldDelta = +proceeds. */
+  async botTownSell(
+    actorId: string,
+    instanceId: string,
+    expectedVersion: number,
+    quantity: number,
+    idemKey: string,
+  ): Promise<BotTownTxResult> {
+    const member = this.botMembers.get(actorId);
+    if (!member) return { ok: false, reason: "unavailable", goldDelta: 0 };
+    const shop = shopForMap(this.state.mapId);
+    if (!shop || !inventoryPersistenceAvailable()) return { ok: false, reason: "unavailable", goldDelta: 0 };
+    let result: ShopSellResult;
+    try {
+      result = await sellItem(
+        {
+          shop,
+          ledger: { appendEntry: (e) => appendEntry(e) },
+          inventory: getInventoryRepository(),
+        },
+        {
+          characterId: member.characterId,
+          capacity: INVENTORY_CAPACITY,
+          instanceId,
+          expectedVersion,
+          quantity,
+          idempotencyKey: idemKey,
+        },
+      );
+    } catch (err) {
+      console.error(
+        `[MapRoom ${this.roomId}] bot town sell error ${actorId} (${instanceId}): ` +
+          (err instanceof Error ? err.message : String(err)),
+      );
+      return { ok: false, reason: "error", goldDelta: 0 };
+    }
+    if (!result.ok) return { ok: false, reason: result.reason, goldDelta: 0 };
+    // Proceeds = configured sell price × quantity sold (the exact amount credited by the service). No achievement.
+    const proceeds = (shop.sellPrices[result.itemId] ?? 0) * result.quantity;
+    return { ok: true, goldDelta: proceeds };
+  }
+
+  /** BotHost.botTownDeposit — move one bag instance into account storage via the manual deposit service. */
+  async botTownDeposit(
+    actorId: string,
+    instanceId: string,
+    expectedVersion: number,
+    idemKey: string,
+  ): Promise<BotTownTxResult> {
+    const member = this.botMembers.get(actorId);
+    if (!member) return { ok: false, reason: "unavailable", goldDelta: 0 };
+    if (!storageAvailableForMap(this.state.mapId) || !inventoryPersistenceAvailable()) {
+      return { ok: false, reason: "unavailable", goldDelta: 0 };
+    }
+    let result: StorageOpResult;
+    try {
+      result = await depositToStorage(this.storageServiceDeps(), {
+        accountId: member.accountId,
+        characterId: member.characterId,
+        instanceId,
+        expectedVersion,
+        idempotencyKey: idemKey,
+      });
+    } catch (err) {
+      console.error(
+        `[MapRoom ${this.roomId}] bot town deposit error ${actorId} (${instanceId}): ` +
+          (err instanceof Error ? err.message : String(err)),
+      );
+      return { ok: false, reason: "error", goldDelta: 0 };
+    }
+    if (!result.ok) return { ok: false, reason: result.reason, goldDelta: 0 };
+    return { ok: true, goldDelta: 0 }; // a deposit moves items, not gold
+  }
+
+  /** BotHost.botTownBuy — buy `quantity` of `itemId` via the manual buy service; goldDelta = -(net cost). */
+  async botTownBuy(
+    actorId: string,
+    itemId: string,
+    quantity: number,
+    idemKey: string,
+  ): Promise<BotTownTxResult> {
+    const member = this.botMembers.get(actorId);
+    if (!member) return { ok: false, reason: "unavailable", goldDelta: 0 };
+    const shop = shopForMap(this.state.mapId);
+    if (!shop || !inventoryPersistenceAvailable()) return { ok: false, reason: "unavailable", goldDelta: 0 };
+    let result: ShopBuyResult;
+    try {
+      result = await buyShopItem(
+        {
+          shop,
+          itemMeta: shopItemMeta,
+          ledger: { appendEntry: (e) => appendEntry(e) },
+          inventory: getInventoryRepository(),
+        },
+        {
+          characterId: member.characterId,
+          accountId: member.accountId,
+          capacity: INVENTORY_CAPACITY,
+          itemId,
+          quantity,
+          idempotencyKey: idemKey,
+        },
+      );
+    } catch (err) {
+      console.error(
+        `[MapRoom ${this.roomId}] bot town buy error ${actorId} (${itemId}): ` +
+          (err instanceof Error ? err.message : String(err)),
+      );
+      return { ok: false, reason: "error", goldDelta: 0 };
+    }
+    if (!result.ok) return { ok: false, reason: result.reason, goldDelta: 0 };
+    // Net cost = buy price × granted quantity (result.quantity already nets out any overflow refund). No achievement.
+    const cost = (shop.entries.find((e) => e.itemId === result.itemId)?.buyPrice ?? 0) * result.quantity;
+    return { ok: true, goldDelta: -cost };
   }
 
   /**

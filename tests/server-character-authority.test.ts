@@ -139,6 +139,10 @@ function createManagerHarness(options: { insert?: SessionRepo["insert"] } = {}) 
     botExportActor: () => null,
     botAttachWarpedActor: () => false,
     botPersistNow: () => undefined,
+    botBagItems: async () => [],
+    botTownSell: async () => ({ ok: false, reason: "unavailable" }),
+    botTownDeposit: async () => ({ ok: false, reason: "unavailable" }),
+    botTownBuy: async () => ({ ok: false, reason: "unavailable" }),
   };
   const deps: BotManagerDeps = {
     config: DEFAULT_BOT_CONFIG,
@@ -643,6 +647,10 @@ describe("BotRuntime authority drain", () => {
       botExportActor: () => null,
       botAttachWarpedActor: () => false,
       botPersistNow: () => undefined,
+      botBagItems: async () => [],
+      botTownSell: async () => ({ ok: false, reason: "unavailable" }),
+      botTownDeposit: async () => ({ ok: false, reason: "unavailable" }),
+      botTownBuy: async () => ({ ok: false, reason: "unavailable" }),
     };
     const runtime = new BotRuntime({
       host,
@@ -720,6 +728,10 @@ describe("BotRuntime authority drain", () => {
       botExportActor: () => null,
       botAttachWarpedActor: () => false,
       botPersistNow: () => undefined,
+      botBagItems: async () => [],
+      botTownSell: async () => ({ ok: false, reason: "unavailable" }),
+      botTownDeposit: async () => ({ ok: false, reason: "unavailable" }),
+      botTownBuy: async () => ({ ok: false, reason: "unavailable" }),
     };
     let stopped = 0;
     const runtime = new BotRuntime({
@@ -814,6 +826,10 @@ describe("BotRuntime authority drain", () => {
       botExportActor: () => null,
       botAttachWarpedActor: () => false,
       botPersistNow: () => undefined,
+      botBagItems: async () => [],
+      botTownSell: async () => ({ ok: false, reason: "unavailable" }),
+      botTownDeposit: async () => ({ ok: false, reason: "unavailable" }),
+      botTownBuy: async () => ({ ok: false, reason: "unavailable" }),
     };
     const runtime = new BotRuntime({
       host,
@@ -912,6 +928,10 @@ describe("BotRuntime authority drain", () => {
       botExportActor: () => null,
       botAttachWarpedActor: () => false,
       botPersistNow: () => undefined,
+      botBagItems: async () => [],
+      botTownSell: async () => ({ ok: false, reason: "unavailable" }),
+      botTownDeposit: async () => ({ ok: false, reason: "unavailable" }),
+      botTownBuy: async () => ({ ok: false, reason: "unavailable" }),
     };
     const runtime = new BotRuntime({
       host,

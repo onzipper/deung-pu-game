@@ -46,8 +46,21 @@ import {
   type BotContinuitySnapshot,
 } from "./continuity";
 import { settlementForStoppedPlan } from "./policy";
-// Type-only (erased at runtime — no module cycle): the automation metadata a warp transfer re-registers verbatim.
-import type { BotMemberState } from "../rooms/MapRoom";
+import type { SkillDefinition } from "../../src/game/skill/types";
+
+/**
+ * Batch 7b (Bot): per-bot state the room keeps alongside the shared session maps. Identity = the owner's
+ * account/character; `skill` = the resolved basic-attack skill the bot casts each cadence. Canonical definition
+ * lives HERE (not MapRoom) so warp types never pull the room/schema modules into the client/test tsc program.
+ */
+export interface BotMemberState {
+  accountId: string;
+  characterId: string;
+  profileId: string;
+  classId: string;
+  skill: SkillDefinition;
+  pocketId: string;
+}
 
 /** One attack's aggregated result from the host (may kill several mobs in the arc). */
 export interface BotAttackOutcome {
@@ -69,6 +82,38 @@ export interface BotPotionOutcome {
   hpFraction: number;
   /** current per-actor consumable gate (0 if unknown). */
   cooldownUntilMs: number;
+}
+
+/**
+ * Result of one bot town transaction (sell/deposit/buy) through the SAME shop/storage services as manual play
+ * (D-069/D-070). Town seams are gated by the room's own map: shopForMap / storageAvailableForMap return nothing on
+ * a farm map, so a bot that is not physically in the city-hub structurally cannot transact — there are NO remote
+ * transactions. Town seams MUST NOT emit achievements/milestones (D-070: bots never trigger them from services).
+ */
+export interface BotTownTxResult {
+  ok: boolean;
+  /** the service reject code (or "unavailable"/"error") when !ok; absent on success. */
+  reason?: string;
+  /** ledger gold delta: +sell proceeds / -buy cost; 0 when n/a (deposit) or !ok. */
+  goldDelta?: number;
+}
+
+/**
+ * Minimal per-instance bag view the trip controller (next task) filters by policy (rarity / keep-list / equip /
+ * sellability) without re-deriving item semantics. Shaped from what the inventory record + catalog + the current
+ * map's shop config already know: `rarity` from the catalog; `equipped` from the instance location; `sellPrice`
+ * from the map shop's sell table (null when the shop is absent, the id is non-sellable, or has no price); and
+ * `deliverable = false` when the item cannot be deposited (equipped / bound / blocked storage policy).
+ */
+export interface BotBagItemView {
+  instanceId: string;
+  itemId: string;
+  quantity: number;
+  version: number;
+  rarity: string;
+  equipped: boolean;
+  sellPrice: number | null;
+  deliverable: boolean;
 }
 
 /**
@@ -194,6 +239,31 @@ export interface BotHost {
   botAttachWarpedActor(exported: BotWarpExport, anchor: Vec2): boolean;
   /** Fire-and-forget durable save of the actor's position/progression (best-effort; never throws). */
   botPersistNow(actorId: string): void;
+
+  // ── D-069/D-070 town transaction seams (PR5 Phase C) ──────────────────────────────────────────────────────
+  // Delegate to the SAME pure shop/storage services the manual handlers use, gated by the room's own map
+  // (shopForMap/storageAvailableForMap yield nothing on a farm map → structurally no remote transactions) and
+  // MUST NOT emit achievements/milestones. INERT until the trip controller (next task) drives them.
+
+  /** Live bag + worn-gear view for the trip controller's policy filtering (rarity / keep / equip / sellability). */
+  botBagItems(actorId: string): Promise<BotBagItemView[]>;
+  /** Sell `quantity` of a bag instance through the manual sell service, keyed by the bot's fixed idempotency key. */
+  botTownSell(
+    actorId: string,
+    instanceId: string,
+    expectedVersion: number,
+    quantity: number,
+    idemKey: string,
+  ): Promise<BotTownTxResult>;
+  /** Deposit a bag instance into account storage through the manual deposit service (idempotency-keyed). */
+  botTownDeposit(
+    actorId: string,
+    instanceId: string,
+    expectedVersion: number,
+    idemKey: string,
+  ): Promise<BotTownTxResult>;
+  /** Buy `quantity` of `itemId` from the town shop through the manual buy service (idempotency-keyed). */
+  botTownBuy(actorId: string, itemId: string, quantity: number, idemKey: string): Promise<BotTownTxResult>;
 }
 
 export interface BotRuntimeDeps {
