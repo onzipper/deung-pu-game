@@ -199,6 +199,7 @@ import {
 } from "../../src/server/inventory/enhancement-service";
 import {
   useConsumable,
+  type UseConsumableReject,
   type UseConsumableResult,
 } from "../../src/server/inventory/consumable-service";
 import {
@@ -321,7 +322,8 @@ import { resolveDirection, type Direction } from "../../src/engine/movement/dire
 import { defaultRng } from "../../src/game/mob/rng";
 import { botManager } from "../bot/manager";
 import { nextStepToward, type AgentMob, type Vec2 } from "../bot/agent";
-import type { BotAttackOutcome, BotAuthorityInput } from "../bot/runtime";
+import { findPath } from "../../src/engine/pathfinding/astar";
+import type { BotAttackOutcome, BotAuthorityInput, BotPotionOutcome } from "../bot/runtime";
 import { isForbiddenAutomationMobClass } from "../bot/policy";
 import {
   MSG_BOT_PROFILE_LIST,
@@ -379,6 +381,19 @@ interface BotMemberState {
   skill: SkillDefinition;
   pocketId: string;
 }
+
+/**
+ * PR5: map the pure consumable-service rejects onto the bot potion outcome status. `unknown_item`/`no_effect`
+ * are catalogue/config errors → fail closed to "unavailable" (never silently succeed on a bad config).
+ */
+const BOT_POTION_REJECT_STATUS: Record<UseConsumableReject, BotPotionOutcome["status"]> = {
+  no_stock: "no_potion",
+  on_cooldown: "on_cooldown",
+  hp_already_full: "not_needed",
+  version_conflict: "conflict",
+  unknown_item: "unavailable",
+  no_effect: "unavailable",
+};
 
 /**
  * P1-08: channel number registry (display label CH.n ต่อ mapId) — **module-level singleton** ใช้ร่วมทุก
@@ -3396,6 +3411,104 @@ export class MapRoom extends Room<MapRoomState> {
   /** true when a bot-safe pocket still exists on this map (map_unsafe guard). */
   pocketExists(pocketId: string): boolean {
     return this.map.mobPockets.some((p) => p.pocketId === pocketId);
+  }
+
+  /**
+   * BotHost.botUsePotion — drink one unit of `itemId` for the automated actor through the SAME consumable service
+   * + per-actor cooldown gate as manual play (never-downgrade: the consume commits before the heal). `member` is
+   * captured BEFORE any await (command-lease convention, mirrors botAttack): a manual takeover may drop botMembers
+   * mid-flight, yet this already-issued potion command must still settle exactly once against the real actor.
+   * Missing member/persistence/state, a config reject (unknown_item/no_effect), or a thrown repo error all fail
+   * closed to "unavailable". hpFraction + cooldownUntilMs are read fresh (post-heal) so the caller sees live state.
+   */
+  async botUsePotion(actorId: string, itemId: string): Promise<BotPotionOutcome> {
+    const member = this.botMembers.get(actorId);
+    const outcome = (status: BotPotionOutcome["status"]): BotPotionOutcome => ({
+      status,
+      hpFraction: this.botHpFraction(actorId), // guards maxHp<=0 → 0
+      cooldownUntilMs: this.consumableCooldowns.get(actorId) ?? 0,
+    });
+    if (!member) return outcome("unavailable"); // authority dropped mid-flight (or never claimed)
+    if (!inventoryPersistenceAvailable()) return outcome("unavailable"); // same guard as manual runUseItem
+    const player = this.state.players.get(actorId);
+    if (!player) return outcome("unavailable");
+
+    let result: UseConsumableResult;
+    try {
+      result = await useConsumable(
+        getInventoryRepository(),
+        ITEM_CATALOG,
+        (id) => CONSUMABLE_CONFIG.effects[id],
+        {
+          characterId: member.characterId,
+          selector: { by: "item", itemId }, // bot path: first live bag stack of itemId, at its LIVE version
+          hp: player.hp,
+          maxHp: player.maxHp,
+          nowMs: Date.now(),
+          cooldownUntilMs: this.consumableCooldowns.get(actorId) ?? 0,
+        },
+      );
+    } catch (err) {
+      console.warn(
+        `[MapRoom ${this.roomId}] bot use-item DB error ${actorId}: ` +
+          (err instanceof Error ? err.message : String(err)),
+      );
+      return outcome("unavailable");
+    }
+
+    if (!result.ok) return outcome(BOT_POTION_REJECT_STATUS[result.reason]);
+
+    this.applyConsumableHeal(actorId, result.healedToHp, result.cooldownUntilMs);
+    // Mirror the reward/economy path (botGrantForKill): push a fresh bag snapshot to the owner's client when it
+    // is attached — the manual runUseItem sends the same MSG_INVENTORY_STATE snapshot after a successful use.
+    const controller = this.clientForActor(actorId);
+    if (controller) {
+      const items = await loadCharacterItemsBestEffort(member.characterId);
+      controller.send(MSG_INVENTORY_STATE, buildSnapshot(items, INVENTORY_CAPACITY));
+    }
+    return outcome("healed");
+  }
+
+  /**
+   * BotHost.botPlanPath — A* route from the actor's current tile to `goal` on this room's collision grid, reusing
+   * the engine pathfinding module + node cap (single source of truth = DEFAULT_ENGINE_CONFIG.pathfinding). Returns
+   * Vec2 waypoints (excluding start); `[]` = already at goal; null = no member/unreachable/over cap.
+   */
+  botPlanPath(actorId: string, goal: Vec2): Vec2[] | null {
+    const p = this.state.players.get(actorId);
+    if (!p) return null;
+    const path = findPath({ tx: p.tx, ty: p.ty }, goal, this.isWalkableAt, {
+      maxSearchNodes: DEFAULT_ENGINE_CONFIG.pathfinding.maxSearchNodes,
+    });
+    if (path === null) return null;
+    return path.map((wp) => ({ tx: wp.tx, ty: wp.ty }));
+  }
+
+  /**
+   * BotHost.botPocketAnchor — a walkable route target for a mob pocket: the pocket rect's center tile, or (if the
+   * center is blocked) the nearest walkable tile scanned outward in Chebyshev rings bounded by the rect. Returns
+   * null when the pocket is missing or holds no walkable tile.
+   */
+  botPocketAnchor(pocketId: string): Vec2 | null {
+    const pocket = this.map.mobPockets.find((p) => p.pocketId === pocketId);
+    if (!pocket) return null;
+    const { tx, ty, width, height } = pocket.area;
+    const cx = tx + Math.floor(width / 2);
+    const cy = ty + Math.floor(height / 2);
+    if (this.isWalkableAt(cx, cy)) return { tx: cx, ty: cy };
+    const maxR = Math.max(width, height);
+    for (let r = 1; r <= maxR; r++) {
+      for (let dy = -r; dy <= r; dy++) {
+        for (let dx = -r; dx <= r; dx++) {
+          if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue; // ring perimeter only (nearest-first)
+          const nx = cx + dx;
+          const ny = cy + dy;
+          if (nx < tx || nx >= tx + width || ny < ty || ny >= ty + height) continue; // stay within the rect
+          if (this.isWalkableAt(nx, ny)) return { tx: nx, ty: ny };
+        }
+      }
+    }
+    return null;
   }
 
   /**

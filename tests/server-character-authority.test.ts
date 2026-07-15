@@ -130,6 +130,9 @@ function createManagerHarness(options: { insert?: SessionRepo["insert"] } = {}) 
     },
     isForbiddenTargetType: () => false,
     pocketExists: () => true,
+    botUsePotion: async () => ({ status: "unavailable", hpFraction: 1, cooldownUntilMs: 0 }),
+    botPlanPath: () => null,
+    botPocketAnchor: () => null,
   };
   const deps: BotManagerDeps = {
     config: DEFAULT_BOT_CONFIG,
@@ -625,6 +628,9 @@ describe("BotRuntime authority drain", () => {
       },
       isForbiddenTargetType: () => false,
       pocketExists: () => true,
+      botUsePotion: async () => ({ status: "unavailable", hpFraction: 1, cooldownUntilMs: 0 }),
+      botPlanPath: () => null,
+      botPocketAnchor: () => null,
     };
     const runtime = new BotRuntime({
       host,
@@ -691,6 +697,9 @@ describe("BotRuntime authority drain", () => {
       botOwnerSend: () => false,
       isForbiddenTargetType: () => false,
       pocketExists: () => true,
+      botUsePotion: async () => ({ status: "unavailable", hpFraction: 1, cooldownUntilMs: 0 }),
+      botPlanPath: () => null,
+      botPocketAnchor: () => null,
     };
     let stopped = 0;
     const runtime = new BotRuntime({
@@ -774,6 +783,9 @@ describe("BotRuntime authority drain", () => {
       botOwnerSend: () => false,
       isForbiddenTargetType: () => false,
       pocketExists: () => true,
+      botUsePotion: async () => ({ status: "unavailable", hpFraction: 1, cooldownUntilMs: 0 }),
+      botPlanPath: () => null,
+      botPocketAnchor: () => null,
     };
     const runtime = new BotRuntime({
       host,
@@ -861,6 +873,9 @@ describe("BotRuntime authority drain", () => {
       botOwnerSend: () => false,
       isForbiddenTargetType: () => false,
       pocketExists: () => true,
+      botUsePotion: async () => ({ status: "unavailable", hpFraction: 1, cooldownUntilMs: 0 }),
+      botPlanPath: () => null,
+      botPocketAnchor: () => null,
     };
     const runtime = new BotRuntime({
       host,

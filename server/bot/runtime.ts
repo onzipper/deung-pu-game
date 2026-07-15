@@ -58,6 +58,15 @@ export interface BotAttackOutcome {
   leveledUp: boolean;
 }
 
+/** Result of one bot potion attempt through the shared consumable service (mirrors the manual use-item path). */
+export interface BotPotionOutcome {
+  status: "healed" | "not_needed" | "no_potion" | "on_cooldown" | "conflict" | "unavailable";
+  /** live hp/maxHp after the attempt (best-effort). */
+  hpFraction: number;
+  /** current per-actor consumable gate (0 if unknown). */
+  cooldownUntilMs: number;
+}
+
 /** Verified request to hand an already-materialized character actor to automation. */
 export interface BotAuthorityInput {
   controllerSessionId: string;
@@ -105,6 +114,23 @@ export interface BotHost {
   isForbiddenTargetType(mobType: string): boolean;
   /** true when the pocket still exists + is bot-safe (map_unsafe guard). */
   pocketExists(pocketId: string): boolean;
+  /**
+   * Drink one unit of `itemId` for the automated actor through the SAME server consumable service + per-actor
+   * cooldown gate as manual play (never-downgrade: the consume commits before the heal). Async: the version-
+   * guarded consume + owner inventory push run the identical DB path as a real player's use-item. See
+   * {@link BotPotionOutcome}; missing member/persistence/state or a config/DB error all fail closed to "unavailable".
+   */
+  botUsePotion(actorId: string, itemId: string): Promise<BotPotionOutcome>;
+  /**
+   * A* route on the room collision grid from the actor's current tile to `goal` (same pathfinding module + node
+   * cap as movement). `[]` = already there; `null` = unreachable, goal blocked, or over the search cap.
+   */
+  botPlanPath(actorId: string, goal: Vec2): Vec2[] | null;
+  /**
+   * Walkable anchor tile for a mob pocket (a route target): the pocket rect's center, or the nearest walkable
+   * tile scanned outward within the rect. null = the pocket is missing or has no walkable tile.
+   */
+  botPocketAnchor(pocketId: string): Vec2 | null;
 }
 
 export interface BotRuntimeDeps {

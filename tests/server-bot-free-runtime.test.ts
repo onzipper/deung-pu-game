@@ -1,5 +1,10 @@
 import { describe, expect, test } from "vitest";
-import { BotRuntime, type BotAttackOutcome, type BotHost } from "../server/bot/runtime";
+import {
+  BotRuntime,
+  type BotAttackOutcome,
+  type BotHost,
+  type BotPotionOutcome,
+} from "../server/bot/runtime";
 import type { SessionRepo } from "../server/bot/store";
 import { DEFAULT_BOT_CONFIG, type BotConfig } from "../server/config/bot";
 import {
@@ -19,12 +24,15 @@ const EMPTY_OUTCOME: BotAttackOutcome = {
   leveledUp: false,
 };
 
+const UNAVAILABLE_POTION: BotPotionOutcome = { status: "unavailable", hpFraction: 1, cooldownUntilMs: 0 };
+
 interface RuntimeHarnessOptions {
   config?: BotConfig;
   mobs?: ReturnType<BotHost["botMobs"]>;
   hpFraction?: number;
   stepToward?: () => boolean;
   attack?: () => Promise<BotAttackOutcome>;
+  usePotion?: () => Promise<BotPotionOutcome>;
   rarityOf?: (itemId: string) => string | undefined;
 }
 
@@ -67,6 +75,9 @@ function createRuntimeHarness(options: RuntimeHarnessOptions = {}) {
     },
     isForbiddenTargetType: () => false,
     pocketExists: () => true,
+    botUsePotion: options.usePotion ?? (async () => UNAVAILABLE_POTION),
+    botPlanPath: () => null,
+    botPocketAnchor: () => null,
   };
   const runtime = new BotRuntime({
     host,
