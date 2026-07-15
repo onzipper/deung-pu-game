@@ -94,6 +94,8 @@ import {
   MSG_EQUIP_ITEM,
   MSG_UNEQUIP_ITEM,
   MSG_MOVE_ITEM,
+  MSG_USE_ITEM,
+  MSG_USE_ITEM_RESULT,
   MSG_ENHANCE_ITEM,
   MSG_ENHANCE_RESULT,
   MSG_FRAGMENT_EXCHANGE,
@@ -134,6 +136,8 @@ import {
   type SkillResultMessage,
   type EquipItemMessage,
   type MoveItemMessage,
+  type UseItemMessage,
+  type UseItemResultMessage,
   type EnhanceItemMessage,
   type EnhanceResultMessage,
   type FragmentExchangeMessage,
@@ -194,6 +198,10 @@ import {
   type EnhanceResult,
 } from "../../src/server/inventory/enhancement-service";
 import {
+  useConsumable,
+  type UseConsumableResult,
+} from "../../src/server/inventory/consumable-service";
+import {
   exchangeFragments,
   type FragmentExchangeResult,
 } from "../../src/server/inventory/fragment-exchange-service";
@@ -213,6 +221,7 @@ import { applyEquipmentBonus } from "../../src/server/inventory/item-catalog";
 import {
   INVENTORY_CAPACITY,
   ITEM_CATALOG,
+  CONSUMABLE_CONFIG,
   ENHANCEMENT_CURVE,
   REINFORCEMENT_RULES,
   FRAGMENT_EXCHANGE_RULES,
@@ -543,6 +552,12 @@ export class MapRoom extends Room<MapRoomState> {
   private balance!: CombatBalanceConfig;
   /** cooldown state ต่อ (sessionId → skillId → readyAtMs) — server clock authority (§16.3). ไม่ broadcast. */
   private readonly cooldowns = new Map<string, Map<string, number>>();
+  /**
+   * PR5 (Economy §7.1): per-actor consumable cooldown (actorId → epoch ms until next allowed use) — server clock
+   * authority, keyed by the stable actor so the manual + future bot heal paths share one gate. Not in schema
+   * (server-only, never broadcast). Cleaned up in removePlayer alongside the other per-actor cooldown maps.
+   */
+  private readonly consumableCooldowns = new Map<string, number>();
   /**
    * P2-07: effective combat stats ต่อ session = base (นักดาบ lv1) + equipment bonus (aggregate จากของที่สวม).
    * recompute ตอน join + หลังทุก equip/unequip สำเร็จ. ไม่อยู่ใน schema (server-only, ใช้ในสูตร damage §15.2).
@@ -939,6 +954,14 @@ export class MapRoom extends Room<MapRoomState> {
           capacity: INVENTORY_CAPACITY,
         }),
       );
+    });
+
+    // PR5 (Economy §7.1): manual consumable use (heal potion) — server-authoritative, HP applied to the room
+    //   schema. Same manual-mutation fence as equip/move (a bot-held actor must not manually drink → takeover
+    //   required); the run method coerces the payload defensively + answers MSG_USE_ITEM_RESULT (+ fresh snapshot).
+    this.onMessage(MSG_USE_ITEM, (client: Client, message: UseItemMessage) => {
+      if (this.manualMutationBlocked(client)) return;
+      void this.runUseItem(client, message);
     });
 
     // P2-10: guaranteed reinforcement (+1, cap +15) — server-authoritative, atomic, 100% success no RNG.
@@ -2211,6 +2234,83 @@ export class MapRoom extends Room<MapRoomState> {
   }
 
   /**
+   * PR5 (Economy §7.1): run one manual consumable use (heal potion) then answer the client. Only a character-bound
+   * session with a live actor + DB (anonymous/dev has no persisted bag → reject with the closest inventory posture).
+   * The pure `useConsumable` service commits the consume BEFORE the heal (never-downgrade), so success ⟹ the item
+   * really left the bag. Success → set schema HP + store the per-actor cooldown (shared heal-apply path) →
+   * MSG_USE_ITEM_RESULT{ok} + fresh inventory snapshot. Business reject → ok:false + reason; a stale-version reject
+   * ALSO pushes a fresh snapshot (client version was stale). A thrown repo error mirrors the equip/shop posture
+   * (log + version_conflict reject) — a use that did not persist must not look like it worked.
+   */
+  private async runUseItem(client: Client, message: UseItemMessage): Promise<void> {
+    const actorId = this.actorIdOf(client);
+    const player = actorId ? this.state.players.get(actorId) : undefined;
+    const rec = this.characterRecordOf(client);
+    if (!actorId || !player || !rec || !inventoryPersistenceAvailable()) {
+      // no persisted bag / no live actor → closest existing failure posture (mirror the equip guard).
+      const rejected: UseItemResultMessage = { ok: false, reason: "unknown_item" };
+      client.send(MSG_USE_ITEM_RESULT, rejected);
+      return;
+    }
+    let result: UseConsumableResult;
+    try {
+      result = await useConsumable(
+        getInventoryRepository(),
+        ITEM_CATALOG,
+        (id) => CONSUMABLE_CONFIG.effects[id],
+        {
+          characterId: rec.characterId,
+          selector: {
+            by: "instance",
+            instanceId: String(message?.instanceId ?? ""),
+            expectedVersion: Number(message?.expectedVersion),
+          },
+          hp: player.hp,
+          maxHp: player.maxHp,
+          nowMs: Date.now(),
+          cooldownUntilMs: this.consumableCooldowns.get(actorId) ?? 0,
+        },
+      );
+    } catch (err) {
+      console.warn(
+        `[MapRoom ${this.roomId}] use-item DB error ${client.sessionId}: ` +
+          (err instanceof Error ? err.message : String(err)),
+      );
+      const rejected: UseItemResultMessage = { ok: false, reason: "version_conflict" };
+      client.send(MSG_USE_ITEM_RESULT, rejected);
+      return;
+    }
+    if (!result.ok) {
+      const rejected: UseItemResultMessage = { ok: false, reason: result.reason };
+      client.send(MSG_USE_ITEM_RESULT, rejected);
+      // version_conflict = the client's expectedVersion was stale → push fresh state so it re-syncs (client can
+      //   never fake a heal off a stale bag; the consume did NOT commit).
+      if (result.reason === "version_conflict") await this.sendInventorySnapshot(client, rec.characterId);
+      return;
+    }
+    this.applyConsumableHeal(actorId, result.healedToHp, result.cooldownUntilMs);
+    const ok: UseItemResultMessage = {
+      ok: true,
+      itemId: result.itemId,
+      hp: result.healedToHp,
+      cooldownUntilMs: result.cooldownUntilMs,
+    };
+    client.send(MSG_USE_ITEM_RESULT, ok);
+    await this.sendInventorySnapshot(client, rec.characterId);
+  }
+
+  /**
+   * PR5: apply a committed consumable heal to an actor by id + store its next-allowed-use time. Keyed by actorId
+   * (not client) so the manual path here and a future bot heal path share one code path — write schema HP (auto-
+   * sync, clamp not needed: healedToHp is already clamped to Max HP by the service) + record the per-actor cooldown.
+   */
+  private applyConsumableHeal(actorId: string, healedToHp: number, cooldownUntilMs: number): void {
+    const player = this.state.players.get(actorId);
+    if (player) player.hp = healedToHp;
+    this.consumableCooldowns.set(actorId, cooldownUntilMs);
+  }
+
+  /**
    * P2-11: ตอบ catalog ของร้านบน map ปัจจุบัน (Economy §8). ราคาซื้อมาจาก config (ไม่ bundle ในclient) — map
    * ที่ไม่มีร้าน → available:false (client ซ่อนปุ่มร้าน). ไม่ต้องมี DB (ราคา = config).
    */
@@ -2776,6 +2876,7 @@ export class MapRoom extends Room<MapRoomState> {
     this.state.players.delete(sessionId);
     this.trackers.delete(sessionId);
     this.cooldowns.delete(sessionId);
+    this.consumableCooldowns.delete(sessionId); // PR5: drop the per-actor consumable cooldown gate
     this.effectiveStats.delete(sessionId);
     this.sessionBreakPower.delete(sessionId);
     this.damageReductionUntil.delete(sessionId); // A3: เคลียร์ S4 buff
