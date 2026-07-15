@@ -78,6 +78,12 @@ function createRuntimeHarness(options: RuntimeHarnessOptions = {}) {
     botUsePotion: options.usePotion ?? (async () => UNAVAILABLE_POTION),
     botPlanPath: () => null,
     botPocketAnchor: () => null,
+    partyId: "",
+    botReserveWarpSeat: () => true,
+    botReleaseWarpSeat: () => undefined,
+    botExportActor: () => null,
+    botAttachWarpedActor: () => false,
+    botPersistNow: () => undefined,
   };
   const runtime = new BotRuntime({
     host,

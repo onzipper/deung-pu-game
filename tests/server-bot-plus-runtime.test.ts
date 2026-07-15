@@ -135,6 +135,12 @@ function createPlusHarness(options: PlusHarnessOptions = {}) {
       pocketAnchorCalls.push(pocketId);
       return options.pocketAnchor ? options.pocketAnchor(pocketId) : null;
     },
+    partyId: "",
+    botReserveWarpSeat: () => true,
+    botReleaseWarpSeat: () => undefined,
+    botExportActor: () => null,
+    botAttachWarpedActor: () => false,
+    botPersistNow: () => undefined,
   };
 
   const runtime = new BotRuntime({

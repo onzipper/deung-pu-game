@@ -133,6 +133,12 @@ function createManagerHarness(options: { insert?: SessionRepo["insert"] } = {}) 
     botUsePotion: async () => ({ status: "unavailable", hpFraction: 1, cooldownUntilMs: 0 }),
     botPlanPath: () => null,
     botPocketAnchor: () => null,
+    partyId: "",
+    botReserveWarpSeat: () => true,
+    botReleaseWarpSeat: () => undefined,
+    botExportActor: () => null,
+    botAttachWarpedActor: () => false,
+    botPersistNow: () => undefined,
   };
   const deps: BotManagerDeps = {
     config: DEFAULT_BOT_CONFIG,
@@ -631,6 +637,12 @@ describe("BotRuntime authority drain", () => {
       botUsePotion: async () => ({ status: "unavailable", hpFraction: 1, cooldownUntilMs: 0 }),
       botPlanPath: () => null,
       botPocketAnchor: () => null,
+      partyId: "",
+      botReserveWarpSeat: () => true,
+      botReleaseWarpSeat: () => undefined,
+      botExportActor: () => null,
+      botAttachWarpedActor: () => false,
+      botPersistNow: () => undefined,
     };
     const runtime = new BotRuntime({
       host,
@@ -702,6 +714,12 @@ describe("BotRuntime authority drain", () => {
       botUsePotion: async () => ({ status: "unavailable", hpFraction: 1, cooldownUntilMs: 0 }),
       botPlanPath: () => null,
       botPocketAnchor: () => null,
+      partyId: "",
+      botReserveWarpSeat: () => true,
+      botReleaseWarpSeat: () => undefined,
+      botExportActor: () => null,
+      botAttachWarpedActor: () => false,
+      botPersistNow: () => undefined,
     };
     let stopped = 0;
     const runtime = new BotRuntime({
@@ -790,6 +808,12 @@ describe("BotRuntime authority drain", () => {
       botUsePotion: async () => ({ status: "unavailable", hpFraction: 1, cooldownUntilMs: 0 }),
       botPlanPath: () => null,
       botPocketAnchor: () => null,
+      partyId: "",
+      botReserveWarpSeat: () => true,
+      botReleaseWarpSeat: () => undefined,
+      botExportActor: () => null,
+      botAttachWarpedActor: () => false,
+      botPersistNow: () => undefined,
     };
     const runtime = new BotRuntime({
       host,
@@ -882,6 +906,12 @@ describe("BotRuntime authority drain", () => {
       botUsePotion: async () => ({ status: "unavailable", hpFraction: 1, cooldownUntilMs: 0 }),
       botPlanPath: () => null,
       botPocketAnchor: () => null,
+      partyId: "",
+      botReserveWarpSeat: () => true,
+      botReleaseWarpSeat: () => undefined,
+      botExportActor: () => null,
+      botAttachWarpedActor: () => false,
+      botPersistNow: () => undefined,
     };
     const runtime = new BotRuntime({
       host,

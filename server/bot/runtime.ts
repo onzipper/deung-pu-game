@@ -46,6 +46,8 @@ import {
   type BotContinuitySnapshot,
 } from "./continuity";
 import { settlementForStoppedPlan } from "./policy";
+// Type-only (erased at runtime — no module cycle): the automation metadata a warp transfer re-registers verbatim.
+import type { BotMemberState } from "../rooms/MapRoom";
 
 /** One attack's aggregated result from the host (may kill several mobs in the arc). */
 export interface BotAttackOutcome {
@@ -88,10 +90,42 @@ export interface BotAuthorityInput {
   pocketId: string;
 }
 
+/**
+ * Snapshot of a live character actor captured for a server-owned warp transfer between sibling MapRooms (D-069,
+ * PR5 Phase B). In-memory only; combat stats are recomputed at the target from level + equipment, never copied.
+ * Position is intentionally omitted — the destination anchor overrides it.
+ */
+export interface BotWarpExport {
+  /** stable opaque actor id (unchanged across the warp). */
+  actorId: string;
+  accountId: string;
+  characterId: string;
+  /** PlayerState schema fields carried verbatim (recomputed maxHp equals this by construction). */
+  classId: string;
+  name: string;
+  hp: number;
+  maxHp: number;
+  level: number;
+  exp: number;
+  expFloor: number;
+  expCeil: number;
+  /** per-actor session maps to restore at the target (progression / identity / worn gear / class). */
+  sessionProgress: { level: number; exp: number };
+  sessionCharacters: { accountId: string; characterId: string; lastSaveMs: number };
+  sessionEquipment: readonly { itemId: string; enhancementLevel: number }[];
+  sessionClassId: string;
+  /** automation metadata re-registered at the target so the running runtime keeps driving the same actor. */
+  botMember: BotMemberState;
+  /** true when a controller transport was attached to the actor at export time (owner is watching). */
+  ownerAttached: boolean;
+}
+
 /** The room seam the bot drives. MapRoom implements this; tests use a fake. */
 export interface BotHost {
   readonly mapId: string;
   readonly roomId: string;
+  /** "" for a solo channel; the warp target selection never routes into a party channel. */
+  readonly partyId: string;
   /**
    * Claim the verified controller's existing actor. Returns its stable actor id; null means missing actor,
    * ownership mismatch, invalid skill/pocket, or authority already claimed. This method must never spawn.
@@ -140,6 +174,26 @@ export interface BotHost {
    * tile scanned outward within the rect. null = the pocket is missing or has no walkable tile.
    */
   botPocketAnchor(pocketId: string): Vec2 | null;
+  /**
+   * D-069 warp seam (PR5 Phase B). Reserve a world seat for an incoming warp on the same actor-keyed mechanism as
+   * onJoin (players.size + pending vs maxClients). True = a seat is held; the caller releases it after attach.
+   */
+  botReserveWarpSeat(actorId: string): boolean;
+  /** Release a warp seat reservation taken by {@link botReserveWarpSeat} (mirrors the onJoin finally). */
+  botReleaseWarpSeat(actorId: string): void;
+  /**
+   * Synchronously detach the actor from THIS room and collect its full transferable state, or null when the actor
+   * is not a live bot member here. This is a transfer, NOT a leave: it deliberately bypasses removePlayer and never
+   * releases authority, stops the bot, or notifies the manager. The caller must attach it elsewhere in the same tick.
+   */
+  botExportActor(actorId: string): BotWarpExport | null;
+  /**
+   * Synchronously re-materialize an exported actor at `anchor` in THIS room and re-register its automation. Returns
+   * false (invariant breach guard) when the actor/character is already present here. Combat stats are recomputed.
+   */
+  botAttachWarpedActor(exported: BotWarpExport, anchor: Vec2): boolean;
+  /** Fire-and-forget durable save of the actor's position/progression (best-effort; never throws). */
+  botPersistNow(actorId: string): void;
 }
 
 export interface BotRuntimeDeps {

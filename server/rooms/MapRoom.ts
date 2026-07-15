@@ -323,7 +323,7 @@ import { defaultRng } from "../../src/game/mob/rng";
 import { botManager } from "../bot/manager";
 import { nextStepToward, type AgentMob, type Vec2 } from "../bot/agent";
 import { findPath } from "../../src/engine/pathfinding/astar";
-import type { BotAttackOutcome, BotAuthorityInput, BotPotionOutcome } from "../bot/runtime";
+import type { BotAttackOutcome, BotAuthorityInput, BotPotionOutcome, BotWarpExport } from "../bot/runtime";
 import { isForbiddenAutomationMobClass } from "../bot/policy";
 import {
   MSG_BOT_PROFILE_LIST,
@@ -373,7 +373,7 @@ interface KillGrant {
  * sessionProgress/sessionClassId are reused as-is). Identity = the owner's account/character (rewards land on
  * them via the identical economy path); `skill` = the resolved basic-attack skill the bot casts each cadence.
  */
-interface BotMemberState {
+export interface BotMemberState {
   accountId: string;
   characterId: string;
   profileId: string;
@@ -625,8 +625,11 @@ export class MapRoom extends Room<MapRoomState> {
     string,
     readonly { itemId: string; enhancementLevel: number }[]
   >();
-  /** P1-08: partyId ของ channel นี้ ("" = solo channel, ≠"" = party channel) — จาก options คนแรก */
-  private partyId = DEFAULT_PARTY_ID;
+  /**
+   * P1-08: partyId ของ channel นี้ ("" = solo channel, ≠"" = party channel) — จาก options คนแรก.
+   * Public (BotHost.partyId): the warp target selection skips party channels. Set in onCreate.
+   */
+  partyId = DEFAULT_PARTY_ID;
   /** P1-08: display channelId (CH.n) ที่ registry จ่ายให้ตอน onCreate — release ตอน onDispose */
   private assignedChannelId = "";
   /** P1-07: grace window (วินาที) สำหรับ allowReconnection (§59.1) — set ตอน onCreate */
@@ -3184,6 +3187,171 @@ export class MapRoom extends Room<MapRoomState> {
       out.push({ id: m.id, mobType: m.mobType, tx: m.pos.tx, ty: m.pos.ty, hp: m.hp, pocketId: m.pocketId });
     });
     return out;
+  }
+
+  // ── D-069 server-owned warp seams (PR5 Phase B) ──────────────────────────────────────────────────────────
+  // Move the ONE real character actor between a farm MapRoom and the city-hub MapRoom with zero duplicate-actor
+  // windows. The trip controller (next task) calls botExportActor + botAttachWarpedActor inside ONE synchronous
+  // block, so both are fully synchronous. Reservation/persistence are thin wrappers over the existing seams.
+
+  /** BotHost.botReserveWarpSeat — hold a world seat for an incoming warp (same actor-keyed cap as onJoin). */
+  botReserveWarpSeat(actorId: string): boolean {
+    return this.reserveWorldSeat(actorId);
+  }
+
+  /** BotHost.botReleaseWarpSeat — release a warp seat reservation (mirrors the onJoin finally). */
+  botReleaseWarpSeat(actorId: string): void {
+    this.releaseWorldSeat(actorId);
+  }
+
+  /**
+   * BotHost.botExportActor — synchronously detach a live bot actor from THIS room and collect its full transferable
+   * state. null unless the actor is BOTH a bot member and materialized here (or a durable session gap is found).
+   *
+   * ⚠ This is a warp TRANSFER, not a leave: it deliberately does NOT call removePlayer. removePlayer would fire
+   * leave-shaped side effects — forgetAchievementSession, releaseRetainedActorSession, and (via botReleaseAuthority)
+   * the autonomy_stopped_offline dematerialize microtask — that would tear the running bot down. Instead we lift the
+   * actor out of every per-actor structure while the runtime keeps running, so botAttachWarpedActor rebuilds it at
+   * the target anchor. Deliberately NOT called: botReleaseAuthority, removePlayer, any botManager notification.
+   */
+  botExportActor(actorId: string): BotWarpExport | null {
+    if (!this.botMembers.has(actorId) || !this.state.players.has(actorId)) return null;
+    const player = this.state.players.get(actorId)!;
+    const botMember = this.botMembers.get(actorId)!;
+    const rec = this.sessionCharacters.get(actorId);
+    const progress = this.sessionProgress.get(actorId);
+    const classId = this.sessionClassId.get(actorId);
+    // A bot member must always carry durable identity/progression/class; a gap = never export (fail closed).
+    if (!rec || !progress || !classId) return null;
+    const equipment = this.sessionEquipment.get(actorId) ?? [];
+    const ownerAttached = this.characterAuthority.get(actorId)?.controllerSessionId != null;
+
+    const exported: BotWarpExport = {
+      actorId,
+      accountId: botMember.accountId,
+      characterId: botMember.characterId,
+      classId: player.classId,
+      name: player.name,
+      hp: player.hp,
+      maxHp: player.maxHp,
+      level: player.level,
+      exp: player.exp,
+      expFloor: player.expFloor,
+      expCeil: player.expCeil,
+      sessionProgress: { level: progress.level, exp: progress.exp },
+      sessionCharacters: { accountId: rec.accountId, characterId: rec.characterId, lastSaveMs: rec.lastSaveMs },
+      sessionEquipment: equipment.map((e) => ({ itemId: e.itemId, enhancementLevel: e.enhancementLevel })),
+      sessionClassId: classId,
+      botMember: { ...botMember },
+      ownerAttached,
+    };
+
+    // Lift the actor out of every per-actor structure (the removePlayer checklist minus the leave-only side
+    // effects). Mirrors removePlayer's map deletes exactly so no stale entry survives the transfer.
+    this.state.players.delete(actorId);
+    this.trackers.delete(actorId);
+    this.cooldowns.delete(actorId);
+    this.consumableCooldowns.delete(actorId);
+    this.effectiveStats.delete(actorId);
+    this.sessionBreakPower.delete(actorId);
+    this.damageReductionUntil.delete(actorId);
+    this.moveSpeedBonusUntil.delete(actorId);
+    this.sessionClassId.delete(actorId);
+    this.sessionProgress.delete(actorId);
+    this.sessionEquipment.delete(actorId);
+    this.sessionCharacters.delete(actorId);
+    this.transitioningSessions.delete(actorId);
+    this.retainedActors.delete(actorId);
+    this.botMembers.delete(actorId);
+    const removed = this.characterAuthority.removeActor(actorId);
+    if (removed?.controllerSessionId) this.state.controllers.delete(removed.controllerSessionId);
+    this.refreshAutoDispose();
+    return exported;
+  }
+
+  /**
+   * BotHost.botAttachWarpedActor — synchronously re-materialize an exported actor at `anchor` in THIS room and
+   * re-register its automation so the running runtime keeps driving it. Combat stats are RECOMPUTED from the
+   * carried level + equipment (never-downgrade), while live vitals (hp/maxHp/level/exp) are carried verbatim.
+   */
+  botAttachWarpedActor(exported: BotWarpExport, anchor: Vec2): boolean {
+    // Invariant breach guard: an actor observable in two rooms is exactly the window D-069 forbids.
+    if (this.state.players.has(exported.actorId)) return false;
+    const adopted = this.characterAuthority.adoptActor({
+      actorId: exported.actorId,
+      accountId: exported.accountId,
+      characterId: exported.characterId,
+    });
+    if (!adopted) return false;
+    const actorId = exported.actorId;
+
+    const spawn = resolveSpawnPosition({ tx: anchor.tx, ty: anchor.ty }, this.safeCamp, this.isWalkableAt);
+    const player = new PlayerState();
+    player.tx = spawn.pos.tx;
+    player.ty = spawn.pos.ty;
+    player.direction = "S";
+    player.anim = "idle";
+    player.partyId = this.partyId;
+    player.classId = exported.classId;
+    player.name = exported.name;
+    player.isBot = true;
+    const tracker: MoveTracker = {
+      tx: player.tx,
+      ty: player.ty,
+      lastMoveTime: Date.now(),
+      lastCorrectionTime: 0,
+      lastExitId: null,
+      lastInputMs: Date.now(),
+      connectedAtMs: Date.now(),
+    };
+
+    this.state.players.set(actorId, player);
+    this.trackers.set(actorId, tracker);
+    this.cooldowns.set(actorId, new Map());
+    this.sessionProgress.set(actorId, { level: exported.sessionProgress.level, exp: exported.sessionProgress.exp });
+    this.sessionClassId.set(actorId, exported.sessionClassId);
+    this.sessionCharacters.set(actorId, {
+      accountId: exported.sessionCharacters.accountId,
+      characterId: exported.sessionCharacters.characterId,
+      lastSaveMs: exported.sessionCharacters.lastSaveMs,
+    });
+    // Recompute combat stats from the carried level + class + equipment (do NOT copy the source effectiveStats).
+    this.recomputeEffectiveStats(actorId);
+    this.applyEquipmentStats(actorId, exported.sessionEquipment);
+    // Warp preserves live vitals (not a fresh spawn): maxHp equals the recomputed baseline by construction.
+    player.maxHp = exported.maxHp;
+    player.hp = Math.min(exported.hp, player.maxHp);
+    player.level = exported.level;
+    player.exp = exported.exp;
+    player.expFloor = exported.expFloor;
+    player.expCeil = exported.expCeil;
+    this.botMembers.set(actorId, { ...exported.botMember });
+
+    // When the owner was offline at export, keep the actor retained + the account slot pinned to it so the room
+    // survives and a later reconnect routes back here. When the owner was attached, the trip controller (next
+    // task) redirects the transport, which re-binds through the onJoin retained-actor path.
+    if (!exported.ownerAttached) {
+      this.retainedActors.add(actorId);
+      this.retainWarpedActorSession(exported.accountId, actorId, exported.sessionCharacters.characterId);
+    }
+    this.refreshAutoDispose();
+    console.log(`[MapRoom ${this.roomId}] warp attach ${actorId} @(${player.tx.toFixed(1)},${player.ty.toFixed(1)})`);
+    return true;
+  }
+
+  /**
+   * Warp counterpart of retainAccountSessionForActor (no transport to transfer from — the account slot is already
+   * actor-keyed process-wide). Re-point the DB lease's serverId to THIS room so cross-process reconnect routing
+   * finds the actor's new home; the in-process slot transfer is idempotent when the slot already holds the actor.
+   */
+  private retainWarpedActorSession(accountId: string, actorId: string, characterId: string): void {
+    transferSession(accountId, actorId, actorId, () => undefined);
+    void acquireLease(accountId, actorId, { characterId, serverId: this.roomId });
+  }
+
+  /** BotHost.botPersistNow — fire-and-forget durable save of the warped actor (best-effort; swallows errors). */
+  botPersistNow(actorId: string): void {
+    this.persistSession(actorId, true);
   }
 
   botPos(sessionId: string): Vec2 | null {

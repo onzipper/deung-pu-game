@@ -6,7 +6,9 @@
 // ⛔ SERVER-ONLY. Bots require a DB (they mutate the audited economy) — every op rejects `requires_db` with none.
 
 import { randomUUID } from "node:crypto";
+import { matchMaker } from "colyseus";
 import {
+  MAP_ROOM_NAME,
   MSG_BOT_CHECKPOINT,
   MSG_BOT_OP_RESULT,
   MSG_BOT_PROFILES,
@@ -184,7 +186,56 @@ export class BotManager {
     const checkpoint = this.checkpoints.get(accountId);
     if (!checkpoint || checkpoint.id !== checkpointId) return;
     checkpoint.state = saved ? "ready" : "failed";
-    checkpoint.host.botOwnerSend(accountId, MSG_BOT_CHECKPOINT, this.checkpointMessage(checkpoint));
+    // Fan out across every registered host: after a warp the owner's transport may sit in a sibling room, not
+    // checkpoint.host. Fall back to the stored host when the fan-out reaches nobody (owner offline, or the host
+    // was never registered) so the last-known channel still gets the update.
+    const message = this.checkpointMessage(checkpoint);
+    if (!this.ownerSend(accountId, MSG_BOT_CHECKPOINT, message)) {
+      checkpoint.host.botOwnerSend(accountId, MSG_BOT_CHECKPOINT, message);
+    }
+  }
+
+  /**
+   * PR5 Phase B (D-069): deliver an owner-directed message across every registered host. The owner's transport can
+   * be attached to a sibling room after a server-owned warp, so a single stored host is no longer authoritative.
+   * Returns true once any host delivers it (each host sends only to its own connected owner clients).
+   */
+  ownerSend(accountId: string, type: string, message: unknown): boolean {
+    for (const hosts of this.roomsByMap.values()) {
+      for (const host of hosts) {
+        if (host.botOwnerSend(accountId, type, message)) return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * PR5 Phase B (D-069): find (or create) a SOLO host MapRoom for `mapId` to receive a warped actor. Party channels
+   * are never warp targets. Does NOT reserve a seat — the trip controller reserves inside its own synchronous
+   * export→attach block. Returns null when no solo host exists and creation fails.
+   */
+  async acquireHostForMap(mapId: string): Promise<BotHost | null> {
+    const existing = this.firstSoloHostForMap(mapId);
+    if (existing) return existing;
+    try {
+      // registerRoom runs synchronously inside MapRoom.onCreate, so the new host is in roomsByMap once this resolves.
+      const created = await matchMaker.createRoom(MAP_ROOM_NAME, { mapId, partyId: "" });
+      for (const host of this.roomsByMap.get(mapId) ?? []) {
+        if (host.roomId === created.roomId) return host;
+      }
+      return this.firstSoloHostForMap(mapId);
+    } catch (e) {
+      console.error(`[bot] acquireHostForMap(${mapId}) failed: ${e instanceof Error ? e.message : String(e)}`);
+      return null;
+    }
+  }
+
+  /** First registered solo (partyId === "") host for a map, or null. Party channels are excluded as warp targets. */
+  private firstSoloHostForMap(mapId: string): BotHost | null {
+    for (const host of this.roomsByMap.get(mapId) ?? []) {
+      if (host.partyId === "") return host;
+    }
+    return null;
   }
 
   private clearCheckpoint(accountId: string, send: Send): void {
@@ -622,15 +673,20 @@ export class BotManager {
     send: Send,
     m: BotTakeoverMessage,
   ): boolean {
-    if (!accountId || !actorId) return false;
+    if (!accountId) return false;
     const runtime = this.bots.get(accountId);
+    // A null/undefined actorId means the caller has no local actor for this account (e.g. it warped to a sibling
+    // room, so the source room's actorIdOf returns null). Fall back to the account's running runtime / pending
+    // start so an explicit owner takeover still routes to the correct actor.
+    const resolvedActorId = actorId ?? runtime?.actorId ?? this.startingActors.get(accountId)?.actorId ?? null;
+    if (!resolvedActorId) return false;
     if (!runtime) {
       const pending = this.startingActors.get(accountId);
-      if (pending?.actorId === actorId) return this.takeoverPendingStart(accountId, pending, send, m);
+      if (pending?.actorId === resolvedActorId) return this.takeoverPendingStart(accountId, pending, send, m);
       this.reject(send, "takeover", "not_running", m?.requestId);
       return false;
     }
-    if (runtime.actorId !== actorId || runtime.isStopped) {
+    if (runtime.actorId !== resolvedActorId || runtime.isStopped) {
       this.reject(send, "takeover", runtime.isStopped ? "checkpoint_saving" : "actor_mismatch", m?.requestId);
       return false;
     }
