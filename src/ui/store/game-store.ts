@@ -265,7 +265,7 @@ export interface HudState {
    * onBotStatus comment). null = ไม่มีบอทกำลังรัน (หรือไม่ได้เชื่อมต่อห้อง host — UI แสดง "กำลังเชื่อมต่อ").
    */
   botStatus: BotStatusMessage | null;
-  /** Batch 7b-UI: ผลหยุดล่าสุด (เหตุผล 1 ใน 9 mandatory/manual/error + สรุป session) — null = ยังไม่เคยหยุดใน session นี้. */
+  /** D-067: ผล settle ล่าสุดจาก global safety/tier obstacle/manual/error + สรุป run. */
   botLastStopped: BotStoppedMessage | null;
   /** Batch 7b-UI: แจ้งเตือนล่าสุด (rare/captcha/gold_cap) + timestamp client — BotAlertToast อ่าน atMs (pattern เดียวกับ milestoneNotice). */
   botAlert: { profileId: string; kind: "rare" | "captcha" | "gold_cap"; itemId?: string; message: string; atMs: number } | null;

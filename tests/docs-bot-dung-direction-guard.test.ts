@@ -109,7 +109,37 @@ describe("Bot autonomy and Dung-Dung direction docs lock", () => {
   test("routing docs point agents to both decisions and flag implementation drift", () => {
     expectAll("README.md", ["Canonical game spec (v15.5)", "§4.2 Continuity"]);
     expectAll("docs/README.md", ["Runtime lock v1.2", "continuity reducer"]);
-    expectAll("docs/feature-map.md", ["D-067", "D-068", "noncanonical"]);
-    expectAll("docs/current-state.md", ["D-067", "D-068", "PR1–3 aligned", "PR4–10 pending"]);
+    expectAll("docs/feature-map.md", [
+      "D-067",
+      "D-068",
+      "PR4 Free one-area/one-goal safe baseline aligned",
+      "PR5–7 Plus recovery/Pro workflow/UX pending",
+      "noncanonical",
+    ]);
+    expectAll("docs/current-state.md", [
+      "D-067",
+      "D-068",
+      "PR1–4 aligned",
+      "Free one-area/one-goal safe baseline",
+      "WAITING_FOR_OWNER",
+      "COMPLETED",
+      "FAILED",
+      "PR5–10 pending",
+    ]);
+    expectAll("docs/context/server.md", [
+      "PR4 Free is live",
+      "one assigned area + one continuous goal",
+      "WAITING_FOR_OWNER/COMPLETED/FAILED",
+      "PR5–6 still own recovery",
+    ]);
+    expectAll("docs/context/ui.md", ["PR4 status/stopped messages", "PR7 UX"]);
+    expectAll("docs/CODEMAP.md", ["policy.ts", "PR4 Free one-area/one-goal safe-stop settlement"]);
+    expectAll("docs/design/deungpu_MAP_SCALE_AND_SPAWN_DENSITY_SPEC_v1.md", [
+      "CURRENT BOT SOURCE OF TRUTH",
+      "D-067",
+      "stop on rare drop",
+      "SUPERSEDED",
+      "combat/reward ceiling",
+    ]);
   });
 });

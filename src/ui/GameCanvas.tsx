@@ -186,7 +186,7 @@ export function GameCanvas() {
           <MilestoneToast />
           {/* C2b (Achievement §7.1): achievement unlock toast สั้น ๆ ตอน auto-claim (ครั้งเดียวต่อ scope) */}
           <AchievementToast />
-          {/* 7b-UI (P3 §9): bot rare/captcha/gold_cap alert toast — mandatory stop, ของที่ฟาร์มมาไม่หาย */}
+          {/* D-067: item/safety alert toast; ordinary rare is a plan event, not a universal stop. */}
           <BotAlertToast />
           {/* A3 (P2 UI §8.3): แถบสกิล hotbar (S1-S4) — desktop (Digit1-4/คลิก) + มือถือ (แตะช่อง) */}
           <SkillBar getHandle={() => engineRef.current} />

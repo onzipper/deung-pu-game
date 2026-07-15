@@ -93,7 +93,7 @@ describe("tier-neutral operational topology", () => {
     }
   });
 
-  test("keeps PR4-PR6 loot/recovery/town/workflow topology inert instead of guessing ordering", () => {
+  test("keeps PR5-PR6 loot/recovery/town/workflow topology inert instead of guessing ordering", () => {
     expect(BOT_CONTINUITY_ADVANCE_GRAPH).toMatchObject({
       WORKING: ["TRAVELING", "COMBAT"],
       TRAVELING: ["WORKING", "COMBAT"],
@@ -126,6 +126,39 @@ describe("tier-neutral operational topology", () => {
       expect(result.snapshot.interruptedState).toBe(from);
     }
   });
+
+  test("all operational states can settle as waiting, completed, or failed", () => {
+    const settlements = [
+      ["wait_for_owner", "WAITING_FOR_OWNER"],
+      ["complete", "COMPLETED"],
+      ["fail", "FAILED"],
+    ] as const;
+
+    for (const from of BOT_CONTINUITY_OPERATIONAL_STATES) {
+      for (const [kind, state] of settlements) {
+        const result = applyBotContinuityTransition(snapshot(from), { kind, ...meta() });
+        expect(result, `${from}:${kind}`).toMatchObject({
+          ok: true,
+          changed: true,
+          snapshot: { state, revision: 5, previousState: from },
+        });
+        expect(result.snapshot.interruptedState).toBe(kind === "wait_for_owner" ? from : null);
+      }
+    }
+  });
+
+  test("WAITING_FOR_OWNER keeps its interrupted state idempotently and cannot resume itself", () => {
+    const current = snapshot("WAITING_FOR_OWNER", {
+      interruptedState: "TRAVELING",
+      previousState: "TRAVELING",
+    });
+    expect(
+      applyBotContinuityTransition(current, { kind: "wait_for_owner", ...meta() }),
+    ).toEqual({ ok: true, changed: false, clockClamped: false, snapshot: current });
+    expect(
+      applyBotContinuityTransition(current, { kind: "advance", to: "WORKING", ...meta() }),
+    ).toEqual({ ok: false, error: "invalid_transition", snapshot: current });
+  });
 });
 
 describe("pause, terminal and revision invariants", () => {
@@ -133,6 +166,9 @@ describe("pause, terminal and revision invariants", () => {
     const commands: BotContinuityCommand[] = [
       { kind: "advance", to: "WORKING", ...meta() },
       { kind: "pause", ...meta() },
+      { kind: "wait_for_owner", ...meta() },
+      { kind: "complete", ...meta() },
+      { kind: "fail", ...meta() },
     ];
     for (const state of ["COMPLETED", "FAILED"] as const) {
       const current = snapshot(state);

@@ -50,7 +50,7 @@ export interface BotTierDef {
 
 /**
  * Internal stop-reason compatibility. D-067 superseded the former "9 Mandatory Stops for every tier" policy;
- * PR4-PR6 will map obstacles to Free stop / Plus recovery / Pro workflow. Existing v1 triggers remain until then:
+ * PR4 maps obstacles to the Free safe-stop baseline. PR5-PR6 may recover/continue before settling a stop:
  *   • `potion_exhausted` → substituted by `low_hp` (no potion-use system yet — stop at hp < lowHpStopPct).
  *   • `secret_trigger` → N/A on Map 1 (no secret pockets are bot-allowed); wired for maps that gain them.
  *   • `captcha` → anti-abuse challenge infra is a TODO; the stop type exists but never fires in beta.
@@ -62,11 +62,12 @@ export type BotStopReason =
   | "death"
   | "map_unsafe" // pocket became non-bot-safe (config change / removed)
   | "stuck" // no reachable target repeatedly (map unsafe / pocket empty)
-  | "rare_found" // rare/high-value drop → stop + bot:alert
-  | "boss_or_event" // boss/event spawned in range
+  | "rare_found" // compatibility for a future explicit plan action; ordinary rare loot only alerts + continues
+  | "boss_or_event" // compatibility label for a forbidden boss/elite/event target in range
   | "secret_trigger" // N/A Map 1 (no bot-allowed secret pocket) — TODO for maps that add one
   | "captcha" // anti-abuse challenge (infra TODO — never fires in beta)
   | "manual" // owner pressed "หยุดเดี๋ยวนี้"
+  | "profile_deleted" // the active plan definition was deleted; this run cannot resume
   | "server_restart" // process restarted — sessions with stoppedAt IS NULL are marked this on boot, NOT resumed
   | "expired_readonly"; // tier downgrade paused this profile (excess) — running bot stopped safely
 
@@ -86,13 +87,14 @@ export interface BotConfig {
    * boss/elite/secret/event pocket is ABSENT (forbidden always) — Setup never offers them and start rejects them.
    */
   botAllowedPockets: Record<string, readonly string[]>;
-  /** Legacy v1 rare-stop threshold; PR4 replaces ordinary-rare behavior with plan policy per D-067. */
-  rareStopMinRarity: "uncommon" | "rare";
-  /** Legacy low-HP safe-stop threshold; PR4/PR5 decide stop versus recovery. */
+  /** Ordinary-rare notification threshold. It is not a universal stop condition (D-067). */
+  rareNotifyMinRarity: "uncommon" | "rare";
+  /** Free low-HP safe-stop threshold; PR5 may route eligible plans into recovery first. */
   lowHpStopFraction: number;
   /**
    * consecutive decision ticks with no reachable target before the bot stops `stuck` (map unsafe / pocket
-   * empty repeatedly. PR4/PR5 decide wait versus recovery; one decision tick ≈ one throttled attack cadence.
+   * empty repeatedly. Free waits for its owner; PR5 may route eligible plans into recovery first. One decision
+   * tick ≈ one throttled attack cadence.
    */
   stuckTickLimit: number;
   /** session counter flush cadence to `bot_sessions` (periodic durability + on stop). */
@@ -167,8 +169,8 @@ export const DEFAULT_BOT_CONFIG: BotConfig = {
     // Map 4 (§6): W บ่อน้ำจันทร์ · C ป่าหมอก/เห็ดฝัน · E ทุ่งกวางเงา (loop ตัด NE) — secret/boss/event forbidden.
     map4: ["map4-wisp-west", "map4-wisp-center", "map4-dream-center", "map4-deer-east"],
   },
-  rareStopMinRarity: "rare", // legacy until PR4 plan-selected ordinary-rare action
-  lowHpStopFraction: 0.15, // legacy stop until PR4/PR5 tier policy
+  rareNotifyMinRarity: "rare", // ordinary rare loot keeps the Free plan running
+  lowHpStopFraction: 0.15, // Free safe-stop; PR5 may recover eligible Plus plans before settlement
   stuckTickLimit: 6,
   sessionFlushIntervalMs: 30_000,
   statusPushIntervalMs: 2_000, // P3 §16 Q1 proposal (2s while panel open) — provisional

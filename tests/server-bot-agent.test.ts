@@ -5,17 +5,17 @@ import {
   nextStepToward,
   pickTarget,
   rarityAtLeast,
-  stopForBossInRange,
+  stopForForbiddenTargetInRange,
   stopForInventoryOverflow,
   stopForLowHp,
-  stopForRareDrop,
+  findRareDrop,
   stopForStuck,
   throttledAttackCooldownMs,
   withinRange,
   type AgentMob,
 } from "../server/bot/agent";
 
-// Agent decision core (pure): target/throttle + legacy stop predicates retained until PR4-PR6 D-067 routing.
+// Agent decision core (pure): target/throttle plus tier-neutral obstacle and event predicates.
 
 const mob = (id: string, tx: number, ty: number, pocketId = "P", hp = 10, mobType = "slime"): AgentMob => ({
   id,
@@ -59,7 +59,7 @@ describe("efficiency throttle (§6.2)", () => {
   });
 });
 
-describe("legacy stop predicates (D-067 policy routing pending PR4-PR6)", () => {
+describe("tier-neutral obstacle and event predicates", () => {
   test("#1 inventory overflow", () => {
     expect(stopForInventoryOverflow(1)).toBe("inventory_full");
     expect(stopForInventoryOverflow(0)).toBeNull();
@@ -79,15 +79,15 @@ describe("legacy stop predicates (D-067 policy routing pending PR4-PR6)", () => 
   });
   test("#6 rare/high-value drop", () => {
     const rarity = (id: string) => ({ gem: "rare", junk: "common" })[id];
-    expect(stopForRareDrop(["junk", "gem"], rarity, "rare")).toEqual({ reason: "rare_found", itemId: "gem" });
-    expect(stopForRareDrop(["junk"], rarity, "rare")).toBeNull();
+    expect(findRareDrop(["junk", "gem"], rarity, "rare")).toEqual({ itemId: "gem" });
+    expect(findRareDrop(["junk"], rarity, "rare")).toBeNull();
   });
-  test("#7 boss/event in range", () => {
-    const mobs = [mob("boss", 3, 0, "B", 100, "boss_boiling_boar"), mob("slime", 1, 0)];
-    const isBoss = (t: string) => t.startsWith("boss_");
-    expect(stopForBossInRange({ tx: 0, ty: 0 }, mobs, isBoss, 8)).toBe("boss_or_event");
-    expect(stopForBossInRange({ tx: 0, ty: 0 }, mobs, isBoss, 2)).toBeNull(); // out of radius
-    expect(stopForBossInRange({ tx: 0, ty: 0 }, [mob("s", 1, 0)], isBoss, 8)).toBeNull();
+  test("forbidden boss/elite/event target in range", () => {
+    const mobs = [mob("elite", 3, 0, "B", 100, "elite_boar"), mob("slime", 1, 0)];
+    const isForbidden = (type: string) => type.startsWith("boss_") || type.startsWith("elite_");
+    expect(stopForForbiddenTargetInRange({ tx: 0, ty: 0 }, mobs, isForbidden, 8)).toBe("boss_or_event");
+    expect(stopForForbiddenTargetInRange({ tx: 0, ty: 0 }, mobs, isForbidden, 2)).toBeNull();
+    expect(stopForForbiddenTargetInRange({ tx: 0, ty: 0 }, [mob("s", 1, 0)], isForbidden, 8)).toBeNull();
   });
   test("#5 stuck", () => {
     expect(stopForStuck(6, 6)).toBe("stuck");

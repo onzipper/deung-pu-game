@@ -12,6 +12,7 @@ import {
   MSG_BOT_CHECKPOINT,
   MSG_BOT_OP_RESULT,
   MSG_BOT_STATUS,
+  MSG_BOT_STOPPED,
   type BotCheckpointMessage,
   type BotOpResultMessage,
   type BotStatusMessage,
@@ -113,12 +114,13 @@ function createManagerHarness(options: { insert?: SessionRepo["insert"] } = {}) 
     botHpFraction: () => 0.42,
     botAttackRange: () => 1,
     botBaseCooldownSeconds: () => 1,
-    botStepToward: () => undefined,
+    botStepToward: () => false,
     botAttack: async () => ({
       killed: 0,
       gold: 0,
       exp: 0,
       loot: [],
+      bagOverflowed: false,
       overflow: [],
       leveledUp: false,
     }),
@@ -126,7 +128,7 @@ function createManagerHarness(options: { insert?: SessionRepo["insert"] } = {}) 
       messages.push({ type, message });
       return true;
     },
-    isBossOrEventType: () => false,
+    isForbiddenTargetType: () => false,
     pocketExists: () => true,
   };
   const deps: BotManagerDeps = {
@@ -184,6 +186,68 @@ describe("BotManager character-authority lifecycle", () => {
       type: MSG_BOT_OP_RESULT,
       message: expect.objectContaining({ op: "stop", ok: true }),
     });
+  });
+
+  test("deleting a profile aborts only its matching run and never reports completion", async () => {
+    const h = createManagerHarness();
+    await h.manager.onStart(
+      h.host,
+      "controller-1",
+      "account-a",
+      "character-a",
+      h.send,
+      { profileId: PROFILE.id },
+    );
+
+    await h.manager.onProfileDelete("account-a", h.send, { id: "different-profile" });
+    expect(h.manager.activeActorForAccount("account-a")).not.toBeNull();
+    expect(h.releases).toEqual([]);
+
+    await h.manager.onProfileDelete("account-a", h.send, { id: PROFILE.id });
+    expect(h.manager.activeActorForAccount("account-a")).toBeNull();
+    expect(h.releases).toEqual(["actor:real-existing"]);
+    expect(h.messages).toContainEqual({
+      type: MSG_BOT_STOPPED,
+      message: expect.objectContaining({
+        profileId: PROFILE.id,
+        reason: "profile_deleted",
+        continuity: expect.objectContaining({ state: "FAILED" }),
+      }),
+    });
+  });
+
+  test("deleting the requested profile fences a start whose session insert is still pending", async () => {
+    let finishInsert!: () => void;
+    let markInsertStarted!: () => void;
+    const insertStarted = new Promise<void>((resolve) => {
+      markInsertStarted = resolve;
+    });
+    const h = createManagerHarness({
+      insert: () =>
+        new Promise<void>((resolveInsert) => {
+          finishInsert = resolveInsert;
+          markInsertStarted();
+        }),
+    });
+    const start = h.manager.onStart(
+      h.host,
+      "controller-1",
+      "account-a",
+      "character-a",
+      h.send,
+      { profileId: PROFILE.id },
+    );
+    await insertStarted;
+
+    await h.manager.onProfileDelete("account-a", h.send, { id: PROFILE.id });
+    expect(h.releases).toEqual(["actor:real-existing"]);
+    expect(h.manager.activeActorForAccount("account-a")).toBeNull();
+
+    finishInsert();
+    await start;
+    expect(h.releases).toEqual(["actor:real-existing"]);
+    expect(h.patched).toHaveLength(1);
+    expect(h.manager.activeActorForAccount("account-a")).toBeNull();
   });
 
   test("publishes room affinity immediately after claim while the session row is still inserting", async () => {
@@ -506,6 +570,13 @@ describe("MapRoom no-clone implementation guard", () => {
     expect(panel).toContain("รับช่วงต่อ");
     expect(panel).toContain("หยุดแผน");
   });
+
+  test("world seams fail closed for forbidden targets and preserve Delivery Box bag pressure", () => {
+    const room = readFileSync(resolve(process.cwd(), "server/rooms/MapRoom.ts"), "utf8");
+    expect(room).toContain("isForbiddenAutomationMobClass(mobClassForMobType(mobType))");
+    expect(room).toContain("loot: [...outcome.granted, ...outcome.delivered]");
+    expect(room).toContain("outcome.delivered.length > 0 || outcome.overflow.length > 0");
+  });
 });
 
 describe("BotRuntime authority drain", () => {
@@ -532,16 +603,27 @@ describe("BotRuntime authority drain", () => {
       botHpFraction: () => 1,
       botAttackRange: () => 1,
       botBaseCooldownSeconds: () => 1,
-      botStepToward: () => { observed.push(runtime.continuitySnapshot.state); },
+      botStepToward: () => {
+        observed.push(runtime.continuitySnapshot.state);
+        return true;
+      },
       botAttack: async () => {
         observed.push(runtime.continuitySnapshot.state);
-        return { killed: 0, gold: 0, exp: 0, loot: [], overflow: [], leveledUp: false };
+        return {
+          killed: 0,
+          gold: 0,
+          exp: 0,
+          loot: [],
+          bagOverflowed: false,
+          overflow: [],
+          leveledUp: false,
+        };
       },
       botOwnerSend: (_accountId, type, message) => {
         messages.push({ type, message });
         return true;
       },
-      isBossOrEventType: () => false,
+      isForbiddenTargetType: () => false,
       pocketExists: () => true,
     };
     const runtime = new BotRuntime({
@@ -604,10 +686,10 @@ describe("BotRuntime authority drain", () => {
       botHpFraction: () => 1,
       botAttackRange: () => 2,
       botBaseCooldownSeconds: () => 1,
-      botStepToward: () => undefined,
+      botStepToward: () => false,
       botAttack: () => attack,
       botOwnerSend: () => false,
-      isBossOrEventType: () => false,
+      isForbiddenTargetType: () => false,
       pocketExists: () => true,
     };
     let stopped = 0;
@@ -633,6 +715,7 @@ describe("BotRuntime authority drain", () => {
 
     runtime.tick(2_000);
     runtime.stop("manual");
+    expect(runtime.continuitySnapshot.state).toBe("COMPLETED");
     expect(releases).toEqual([]);
     expect(stopped).toBe(0);
 
@@ -641,6 +724,7 @@ describe("BotRuntime authority drain", () => {
       gold: 7,
       exp: 11,
       loot: [{ itemId: "gel", quantity: 2 }],
+      bagOverflowed: false,
       overflow: [],
       leveledUp: false,
     });
@@ -685,10 +769,10 @@ describe("BotRuntime authority drain", () => {
       botHpFraction: () => 1,
       botAttackRange: () => 2,
       botBaseCooldownSeconds: () => 1,
-      botStepToward: () => undefined,
+      botStepToward: () => false,
       botAttack: () => { attacks += 1; return attack; },
       botOwnerSend: () => false,
-      isBossOrEventType: () => false,
+      isForbiddenTargetType: () => false,
       pocketExists: () => true,
     };
     const runtime = new BotRuntime({
@@ -727,6 +811,7 @@ describe("BotRuntime authority drain", () => {
       gold: 7,
       exp: 11,
       loot: [{ itemId: "gel", quantity: 2 }],
+      bagOverflowed: false,
       overflow: [],
       leveledUp: false,
     });
@@ -763,10 +848,18 @@ describe("BotRuntime authority drain", () => {
       botHpFraction: () => 1,
       botAttackRange: () => 2,
       botBaseCooldownSeconds: () => 1,
-      botStepToward: () => undefined,
-      botAttack: async () => ({ killed: 0, gold: 0, exp: 0, loot: [], overflow: [], leveledUp: false }),
+      botStepToward: () => false,
+      botAttack: async () => ({
+        killed: 0,
+        gold: 0,
+        exp: 0,
+        loot: [],
+        bagOverflowed: false,
+        overflow: [],
+        leveledUp: false,
+      }),
       botOwnerSend: () => false,
-      isBossOrEventType: () => false,
+      isForbiddenTargetType: () => false,
       pocketExists: () => true,
     };
     const runtime = new BotRuntime({

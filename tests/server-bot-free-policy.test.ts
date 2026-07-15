@@ -1,0 +1,74 @@
+import { describe, expect, test } from "vitest";
+import { isForbiddenAutomationMobClass, settlementForStoppedPlan } from "../server/bot/policy";
+import type { BotStopReason } from "../server/config/bot";
+
+const ALL_STOP_REASONS = [
+  "inventory_full",
+  "low_hp",
+  "death",
+  "map_unsafe",
+  "stuck",
+  "rare_found",
+  "boss_or_event",
+  "secret_trigger",
+  "captcha",
+  "manual",
+  "profile_deleted",
+  "server_restart",
+  "expired_readonly",
+] as const satisfies readonly BotStopReason[];
+
+describe("Free Character Autonomy stop settlement", () => {
+  test("only catalogued normal mobs are valid automation targets", () => {
+    expect(isForbiddenAutomationMobClass("normal")).toBe(false);
+    expect(isForbiddenAutomationMobClass("elite")).toBe(true);
+    expect(isForbiddenAutomationMobClass("boss")).toBe(true);
+    expect(isForbiddenAutomationMobClass(null)).toBe(true);
+  });
+
+  test("an explicit owner stop completes the single assigned goal", () => {
+    expect(settlementForStoppedPlan("manual")).toBe("complete");
+  });
+
+  test.each(["map_unsafe", "server_restart", "boss_or_event", "secret_trigger", "profile_deleted"] as const)(
+    "%s fails closed because the assigned world state is invalid or forbidden",
+    (reason) => {
+      expect(settlementForStoppedPlan(reason)).toBe("fail");
+    },
+  );
+
+  test("ordinary Free obstacles stop safely and wait for the owner", () => {
+    const failed = new Set<BotStopReason>([
+      "map_unsafe",
+      "server_restart",
+      "boss_or_event",
+      "secret_trigger",
+      "profile_deleted",
+    ]);
+    const waiting = ALL_STOP_REASONS.filter((reason) => reason !== "manual" && !failed.has(reason));
+
+    expect(waiting).toEqual([
+      "inventory_full",
+      "low_hp",
+      "death",
+      "stuck",
+      "rare_found",
+      "captcha",
+      "expired_readonly",
+    ]);
+    for (const reason of waiting) {
+      expect(settlementForStoppedPlan(reason), reason).toBe("wait_for_owner");
+    }
+  });
+
+  test("the settlement table accounts for every stop reason", () => {
+    type MissingStopReason = Exclude<BotStopReason, (typeof ALL_STOP_REASONS)[number]>;
+    const stopReasonSetIsExhaustive: [MissingStopReason] extends [never] ? true : false = true;
+
+    expect(stopReasonSetIsExhaustive).toBe(true);
+    expect(ALL_STOP_REASONS).toHaveLength(13);
+    for (const reason of ALL_STOP_REASONS) {
+      expect(["wait_for_owner", "complete", "fail"]).toContain(settlementForStoppedPlan(reason));
+    }
+  });
+});

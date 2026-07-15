@@ -1,5 +1,5 @@
-// Batch 7b-server — Bot agent decision core (PURE, no I/O). Everything the runtime needs to decide a tick, and
-// legacy v1 stop predicates live here so they remain unit-testable until PR4-PR6 attach D-067 tier policy.
+// Batch 7b-server — Bot agent decision core (PURE, no I/O). Everything the runtime needs to decide a tick;
+// tier-neutral obstacle signals stay unit-testable while runtime policy chooses Free/Plus/Pro disposition.
 //
 // Efficiency model (§6.2): the bot's attack cadence is skill.cooldown ÷ botEfficiencyTarget (slower than
 // optimal). Movement stays normal speed. A manual expert therefore always out-DPS's the bot (no power sold).
@@ -78,31 +78,31 @@ export function throttledAttackCooldownMs(baseCooldownSeconds: number, efficienc
   return Math.max(50, base / eff);
 }
 
-// ── legacy v1 stop predicates (policy superseded by D-067; PR4-PR6 replace routing) ─────────────────────
-// Current evaluation order: death > boss/event > rare drop > inventory full > low hp > stuck.
+// ── Tier-neutral obstacle and event predicates ───────────────────────────────────────────────────────
+// Tier settlement lives in runtime/policy; PR5-PR6 may recover before a predicate becomes a terminal stop.
 
-/** #1 inventory full — a kill produced bag overflow (the grant returned overflow) → stop. */
+/** A kill produced bag overflow (the grant returned overflow). */
 export function stopForInventoryOverflow(overflowCount: number): BotStopReason | null {
   return overflowCount > 0 ? "inventory_full" : null;
 }
 
 /**
- * Legacy low-HP proxy until potion/recovery exists. Stops when
- * the bot's hp fraction is at/below the config floor. hp = 0 is `death` (separate path), so this fires just above.
+ * Low-HP proxy until potion/recovery exists. Signals when the bot's hp fraction is at/below the config floor.
+ * hp = 0 is `death` (separate path), so this fires just above.
  */
 export function stopForLowHp(hpFraction: number, lowHpFraction: number): BotStopReason | null {
   return hpFraction > 0 && hpFraction <= lowHpFraction ? "low_hp" : null;
 }
 
-/** #6 rare/high-value drop → stop + alert. Any banked loot line at/above the min rarity fires it. */
-export function stopForRareDrop(
+/** Detect a banked rare/high-value loot line for notification or a future explicit plan action. */
+export function findRareDrop(
   lootItemIds: readonly string[],
   rarityOf: (itemId: string) => string | undefined,
   minRarity: "uncommon" | "rare",
-): { reason: BotStopReason; itemId: string } | null {
+): { itemId: string } | null {
   for (const id of lootItemIds) {
     const r = rarityOf(id);
-    if (r && rarityAtLeast(r, minRarity)) return { reason: "rare_found", itemId: id };
+    if (r && rarityAtLeast(r, minRarity)) return { itemId: id };
   }
   return null;
 }
@@ -117,17 +117,17 @@ export function rarityAtLeast(rarity: string, min: "uncommon" | "rare"): boolean
 }
 
 /**
- * #7 boss/event encounter — a boss/event entity is within `radius` tiles of the bot → stop (bots never fight
- * bosses; boss/event remains human-only under D-067). `isBossOrEvent(mobType)` is injected.
+ * Forbidden-target encounter — a boss/elite/event/unknown entity is within `radius` tiles of automation.
+ * `isForbiddenTarget(mobType)` is injected by the authoritative world host.
  */
-export function stopForBossInRange(
+export function stopForForbiddenTargetInRange(
   botPos: Vec2,
   mobs: readonly AgentMob[],
-  isBossOrEvent: (mobType: string) => boolean,
+  isForbiddenTarget: (mobType: string) => boolean,
   radius: number,
 ): BotStopReason | null {
   for (const m of mobs) {
-    if (m.hp <= 0 || !isBossOrEvent(m.mobType)) continue;
+    if (m.hp <= 0 || !isForbiddenTarget(m.mobType)) continue;
     if (withinRange(botPos, m, radius)) return "boss_or_event";
   }
   return null;

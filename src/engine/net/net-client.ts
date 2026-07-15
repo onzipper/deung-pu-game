@@ -373,7 +373,7 @@ export interface NetClientHandlers {
    * (server/bot/runtime.ts botOwnerSend — ห้อง/แผนที่อื่นจะไม่เห็น push นี้จนกว่าจะย้ายมา). optional.
    */
   onBotStatus?(msg: BotStatusMessage): void;
-  /** Batch 7b-UI: บอทหยุดแล้ว + เหตุผล (1 ใน 9 mandatory/manual/error) + สรุป session. optional. */
+  /** D-067: server-authored continuity settlement + reason + run summary. optional. */
   onBotStopped?(msg: BotStoppedMessage): void;
   /** PR2: manual-takeover checkpoint lifecycle (saving → ready/failed; null when consumed). */
   onBotCheckpoint?(msg: BotCheckpointMessage): void;

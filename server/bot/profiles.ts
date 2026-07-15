@@ -184,7 +184,7 @@ export async function updateProfile(
   return { ok: true, profile: next };
 }
 
-/** Delete a profile (always allowed — freeing a slot; a running bot on it must be stopped by the caller first). */
+/** Delete a profile (always allowed — freeing a slot; caller aborts the matching run after a successful delete). */
 export async function deleteProfile(repo: ProfileRepo, accountId: string, id: string): Promise<ProfileOpResult> {
   const current = await repo.getById(accountId, id);
   if (!current) return { ok: false, reason: "not_found" };

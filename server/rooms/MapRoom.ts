@@ -313,6 +313,7 @@ import { defaultRng } from "../../src/game/mob/rng";
 import { botManager } from "../bot/manager";
 import { nextStepToward, type AgentMob, type Vec2 } from "../bot/agent";
 import type { BotAttackOutcome, BotAuthorityInput } from "../bot/runtime";
+import { isForbiddenAutomationMobClass } from "../bot/policy";
 import {
   MSG_BOT_PROFILE_LIST,
   MSG_BOT_PROFILE_CREATE,
@@ -3088,13 +3089,14 @@ export class MapRoom extends Room<MapRoomState> {
     return this.botMembers.get(sessionId)?.skill.cooldown ?? 1;
   }
 
-  botStepToward(sessionId: string, target: Vec2, dtMs: number): void {
+  botStepToward(sessionId: string, target: Vec2, dtMs: number): boolean {
     const p = this.state.players.get(sessionId);
     const tracker = this.trackers.get(sessionId);
-    if (!p || !tracker) return;
+    if (!p || !tracker) return false;
     const step = DEFAULT_ENGINE_CONFIG.player.speed * (dtMs / 1000);
     const next = nextStepToward({ tx: p.tx, ty: p.ty }, target, step);
-    if (!this.isWalkableAt(next.tx, next.ty)) return; // blocked → wait (stuck logic handles a persistent block)
+    if (!this.isWalkableAt(next.tx, next.ty)) return false; // persistent block → Free stuck settlement
+    if (next.tx === p.tx && next.ty === p.ty) return false;
     p.direction = resolveDirection(
       { tx: next.tx - p.tx, ty: next.ty - p.ty },
       DEFAULT_ENGINE_CONFIG.tileSize,
@@ -3105,10 +3107,19 @@ export class MapRoom extends Room<MapRoomState> {
     p.anim = "walk";
     tracker.tx = next.tx;
     tracker.ty = next.ty;
+    return true;
   }
 
   async botAttack(sessionId: string, target: Vec2): Promise<BotAttackOutcome> {
-    const empty: BotAttackOutcome = { killed: 0, gold: 0, exp: 0, loot: [], overflow: [], leveledUp: false };
+    const empty: BotAttackOutcome = {
+      killed: 0,
+      gold: 0,
+      exp: 0,
+      loot: [],
+      bagOverflowed: false,
+      overflow: [],
+      leveledUp: false,
+    };
     const member = this.botMembers.get(sessionId);
     const player = this.state.players.get(sessionId);
     if (!member || !player) return empty;
@@ -3137,8 +3148,8 @@ export class MapRoom extends Room<MapRoomState> {
     for (const mobId of hitIds) {
       const mobType = mobTypeById.get(mobId);
       if (mobType === undefined) continue;
-      // defence-in-depth: Character Autonomy never damages a boss (D-067 global forbidden target).
-      if (mobClassForMobType(mobType) === "boss") continue;
+      // Defence-in-depth: only catalogued normal mobs may receive Character Autonomy damage (D-067).
+      if (isForbiddenAutomationMobClass(mobClassForMobType(mobType))) continue;
       const ms = this.balance.mobs[mobType] ?? this.balance.defaultMob;
       const dmg = computeSkillDamage(
         {
@@ -3168,7 +3179,15 @@ export class MapRoom extends Room<MapRoomState> {
     this.broadcast(MSG_SKILL_RESULT, result); // real players see the bot attack
 
     // reward each kill through the IDENTICAL economy entry (ledger/drop/audit/EXP) — the owner earns.
-    const outcome: BotAttackOutcome = { killed: 0, gold: 0, exp: 0, loot: [], overflow: [], leveledUp: false };
+    const outcome: BotAttackOutcome = {
+      killed: 0,
+      gold: 0,
+      exp: 0,
+      loot: [],
+      bagOverflowed: false,
+      overflow: [],
+      leveledUp: false,
+    };
     // `member` is the command lease captured before damage. Manual takeover may remove botMembers while an
     // accepted reward is awaiting DB I/O; every kill from this already-fenced cast must still be paid exactly
     // once, while no later automation command may start.
@@ -3179,6 +3198,7 @@ export class MapRoom extends Room<MapRoomState> {
       outcome.gold += g.gold;
       outcome.exp += g.exp;
       outcome.loot.push(...g.loot);
+      outcome.bagOverflowed = outcome.bagOverflowed || g.bagOverflowed;
       outcome.overflow.push(...g.overflow);
       outcome.leveledUp = outcome.leveledUp || g.leveledUp;
     }
@@ -3195,7 +3215,14 @@ export class MapRoom extends Room<MapRoomState> {
     sessionId: string,
     mobType: string,
     member: BotMemberState,
-  ): Promise<{ gold: number; exp: number; loot: { itemId: string; quantity: number }[]; overflow: { itemId: string; quantity: number }[]; leveledUp: boolean } | null> {
+  ): Promise<{
+    gold: number;
+    exp: number;
+    loot: { itemId: string; quantity: number }[];
+    bagOverflowed: boolean;
+    overflow: { itemId: string; quantity: number }[];
+    leveledUp: boolean;
+  } | null> {
     const progress = this.sessionProgress.get(sessionId);
     if (!progress) return null;
     const oldExp = progress.exp;
@@ -3241,7 +3268,8 @@ export class MapRoom extends Room<MapRoomState> {
     return {
       gold: outcome.goldRolled,
       exp: Math.max(0, outcome.exp.exp - oldExp),
-      loot: outcome.granted,
+      loot: [...outcome.granted, ...outcome.delivered],
+      bagOverflowed: outcome.delivered.length > 0 || outcome.overflow.length > 0,
       overflow: outcome.overflow,
       leveledUp: outcome.exp.leveledUp,
     };
@@ -3259,9 +3287,9 @@ export class MapRoom extends Room<MapRoomState> {
     return sent;
   }
 
-  /** true when a mobType is a boss (D-067 forbids automation combat). Event mobs are not modeled yet. */
-  isBossOrEventType(mobType: string): boolean {
-    return mobClassForMobType(mobType) === "boss";
+  /** True for boss/elite/unknown targets. Unknown also covers future events until explicitly classified. */
+  isForbiddenTargetType(mobType: string): boolean {
+    return isForbiddenAutomationMobClass(mobClassForMobType(mobType));
   }
 
   /** true when a bot-safe pocket still exists on this map (map_unsafe guard). */

@@ -85,7 +85,7 @@ export interface BotManagerDeps {
   tierRepo: TierRepo;
   profileRepo: ProfileRepo;
   sessionRepo: SessionRepo;
-  /** rarity lookup for the rare-drop stop (itemId → rarity band). */
+  /** Rarity lookup for ordinary-rare notification and future plan-selected actions. */
   rarityOf: (itemId: string) => string | undefined;
   /** best-effort DB gate — every op rejects when false. */
   dbAvailable: () => boolean;
@@ -104,6 +104,8 @@ export class BotManager {
   private readonly actorToAccount = new Map<string, string>(); // stable character actorId → accountId
   /** Synchronous reservation closes the async start TOCTOU before tier/profile/DB awaits. */
   private readonly startingAccounts = new Set<string>();
+  /** Requested profile id exists before actor claim, so deleting another profile cannot cancel this start. */
+  private readonly startingProfileIds = new Map<string, string>();
   /** Claimed actors awaiting the bot-session insert still need reconnect routing and duplicate protection. */
   private readonly startingActors = new Map<string, StartingActorPresence>();
   private readonly cancelledStarts = new Map<string, BotStopReason>();
@@ -376,12 +378,17 @@ export class BotManager {
 
   async onProfileDelete(accountId: string | null, send: Send, m: BotProfileDeleteMessage): Promise<void> {
     if (!accountId || !this.guardDb(send, "profileDelete")) return;
-    this.cancelPendingStart(accountId, "manual");
-    // stop a running bot on this profile first (frees the slot cleanly).
-    const running = this.bots.get(accountId);
-    if (running) running.stop("manual");
     const res = await deleteProfile(this.d.profileRepo, accountId, m?.id);
     if (!res.ok) return this.reject(send, "profileDelete", res.reason, m?.id);
+
+    // The profile is now definitively gone. Abort only the run/start that references this exact plan; deleting an
+    // unrelated plan must never seize authority from the real actor. A deleted active plan fails, not completes.
+    if (this.startingProfileIds.get(accountId) === res.profile.id) {
+      this.cancelPendingStart(accountId, "profile_deleted");
+    }
+    const running = this.bots.get(accountId);
+    if (running?.profileId === res.profile.id) running.stop("profile_deleted");
+
     this.ack(send, "profileDelete", m?.id);
     await this.sendProfiles(accountId, send);
   }
@@ -464,11 +471,13 @@ export class BotManager {
       return this.reject(send, op, "at_capacity");
     }
     this.startingAccounts.add(accountId);
+    this.startingProfileIds.set(accountId, String(m?.profileId ?? ""));
 
     try {
       await this.startReserved(requestHost, controllerSessionId, accountId, characterId, send, m, op);
     } finally {
       this.startingAccounts.delete(accountId);
+      this.startingProfileIds.delete(accountId);
       this.startingActors.delete(accountId);
       this.cancelledStarts.delete(accountId);
     }
@@ -698,7 +707,7 @@ export const botManager = new BotManager({
   now: () => Date.now(),
 });
 
-/** rarity lookup resolved from the item catalog (server-only) for the rare-drop stop. */
+/** Rarity lookup resolved from the item catalog (server-only) for rare notification/policy. */
 function rarityLookup(itemId: string): string | undefined {
   return ITEM_CATALOG.get(itemId)?.rarity;
 }
