@@ -43,7 +43,7 @@
 - `src/ui/theme/rarity.ts` — rarity color tokens (D-043)
 - `src/ui/components/` — token kit §4: PanelFrame, Button, TextInput, ItemSlot, Tooltip, ConfirmDialog(+hold-to-confirm), Toast
 - `src/ui/panels/` — panel framework (float/sheet, z-order, keydown; DG §13) + hud-layout/hud-icon-catalog.ts, provider in `src/ui/GameCanvas.tsx`
-- `src/ui/panels/` subdirs — inventory/enhancement/shop/storage/help/mobile/settings · skillbar §8.3 · status §8.2 · minimap §8.4 · auto-pilot = pick/chip (D-037) · world-status §18 · dialogue = LW0 bark · journal (C3) = adventurer log + Achievement tab
+- `src/ui/panels/` subdirs — inventory/enhancement/shop/storage/help/mobile/settings · skillbar/status/minimap/auto-pilot(D-037)/world-status/dialogue(LW0 bark)/journal(C3 log+Achievement) · bot(7b-UI, 4 tabs: status/profiles/reports/packages)
 
 ## server (Colyseus realtime process, separate from Next — L4)
 

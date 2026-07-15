@@ -69,6 +69,23 @@ import {
   MSG_CLIENT_EVENT,
   MSG_ACHIEVEMENTS_REQUEST,
   MSG_ACHIEVEMENTS_SNAPSHOT,
+  MSG_BOT_PROFILE_LIST,
+  MSG_BOT_PROFILE_CREATE,
+  MSG_BOT_PROFILE_UPDATE,
+  MSG_BOT_PROFILE_DELETE,
+  MSG_BOT_START,
+  MSG_BOT_STOP,
+  MSG_BOT_MOCK_PURCHASE,
+  MSG_BOT_REPORT_LIST,
+  MSG_BOT_REPORT_FETCH,
+  MSG_BOT_PROFILES,
+  MSG_BOT_TIER_STATE,
+  MSG_BOT_STATUS,
+  MSG_BOT_STOPPED,
+  MSG_BOT_ALERT,
+  MSG_BOT_REPORTS,
+  MSG_BOT_REPORT,
+  MSG_BOT_OP_RESULT,
   WS_CLOSE_SESSION_TAKEN_OVER,
   type AchievementUnlockedMessage,
   type AchievementsSnapshotMessage,
@@ -106,6 +123,21 @@ import {
   type StorageMoveMessage,
   type StorageResultMessage,
   type StorageStateMessage,
+  type BotProfileCreateMessage,
+  type BotProfileUpdateMessage,
+  type BotProfileDeleteMessage,
+  type BotStartMessage,
+  type BotStopMessage,
+  type BotMockPurchaseMessage,
+  type BotReportFetchMessage,
+  type BotProfilesMessage,
+  type BotTierStateMessage,
+  type BotStatusMessage,
+  type BotStoppedMessage,
+  type BotAlertMessage,
+  type BotReportsMessage,
+  type BotReportMessage,
+  type BotOpResultMessage,
 } from "@/shared/net-protocol";
 import { canSendLocalMove, coerceAnim, coerceDirection, computePlayerCount, type ConnectionState } from "@/engine/net/sync";
 
@@ -307,6 +339,34 @@ export interface NetClientHandlers {
    * MSG_INVENTORY_STATE snapshot ใหม่แยกต่างหาก. caller push เข้า Zustand bridge ตรง ๆ (event-driven). optional.
    */
   onDeliveryResult?(result: DeliveryResultMessage): void;
+  /**
+   * Batch 7b-UI (P3 §13): full profile list (reply to profileList/create/update/delete/mockPurchase) — caller
+   * push เข้า Zustand bridge ตรง ๆ (event-driven, เหมือน onShopList/onStorageState). optional.
+   */
+  onBotProfiles?(msg: BotProfilesMessage): void;
+  /**
+   * Batch 7b-UI: tier ปัจจุบัน + วันหมดอายุ + caps + paused profile ids (reply to profileList/mockPurchase) —
+   * server เป็น truth ของเพดาน tier ทั้งหมด (defense-in-depth เท่านั้นฝั่ง client). optional.
+   */
+  onBotTierState?(msg: BotTierStateMessage): void;
+  /**
+   * Batch 7b-UI: live status stream ของบอทที่กำลังรัน — ส่งเฉพาะตอน owner online ในห้อง host ของ map นั้น
+   * (server/bot/runtime.ts botOwnerSend — ห้อง/แผนที่อื่นจะไม่เห็น push นี้จนกว่าจะย้ายมา). optional.
+   */
+  onBotStatus?(msg: BotStatusMessage): void;
+  /** Batch 7b-UI: บอทหยุดแล้ว + เหตุผล (1 ใน 9 mandatory/manual/error) + สรุป session. optional. */
+  onBotStopped?(msg: BotStoppedMessage): void;
+  /** Batch 7b-UI: แจ้งเตือน (rare/high-value found, captcha required, gold cap) — ของที่ฟาร์มมาไม่หาย. optional. */
+  onBotAlert?(msg: BotAlertMessage): void;
+  /** Batch 7b-UI: สรุปรายงาน (reply to bot:reportList) — clip ตาม retention tier ฝั่ง server แล้ว. optional. */
+  onBotReports?(msg: BotReportsMessage): void;
+  /** Batch 7b-UI: รายละเอียด 1 รายงาน (reply to bot:reportFetch) — null = ถูก retention clip. optional. */
+  onBotReport?(msg: BotReportMessage): void;
+  /**
+   * Batch 7b-UI: ผล op ทั่วไป (create/update/delete/start/stop/mockPurchase, ok/reject+reason) — caller
+   * correlate กับ local phase ด้วย `op` (bot-view.ts BotOpPhase, pattern เดียวกับ ShopTxPhase). optional.
+   */
+  onBotOpResult?(msg: BotOpResultMessage): void;
 }
 
 /** อ่าน MobState schema (reflection → any) → MobSnapshot (coerce state). */
@@ -413,6 +473,24 @@ export interface NetClientHandle {
   sendClientEvent(msg: ClientEventMessage): void;
   /** C2b (Part 5): ขอ snapshot achievement ทั้งหมด (no-op ถ้ายังไม่ online). */
   sendAchievementsRequest(): void;
+  /** Batch 7b-UI: ขอ profile ทั้งหมด + tier state (no-op ถ้ายังไม่ online) — เรียกตอน join + ทุกครั้งที่เปิด panel. */
+  sendBotProfileList(): void;
+  /** Batch 7b-UI: สร้าง profile ใหม่ (server enforce เพดาน tier + bot-safe pocket, no-op ถ้ายังไม่ online). */
+  sendBotProfileCreate(msg: BotProfileCreateMessage): void;
+  /** Batch 7b-UI: แก้ profile เดิม (reject ถ้า read-only excess, no-op ถ้ายังไม่ online). */
+  sendBotProfileUpdate(msg: BotProfileUpdateMessage): void;
+  /** Batch 7b-UI: ลบ profile (no-op ถ้ายังไม่ online). */
+  sendBotProfileDelete(msg: BotProfileDeleteMessage): void;
+  /** Batch 7b-UI: เริ่มบอทบน profile นี้ (server validate pocket/tier/capacity, no-op ถ้ายังไม่ online). */
+  sendBotStart(msg: BotStartMessage): void;
+  /** Batch 7b-UI: หยุดบอทที่กำลังรัน (manual — §12.3, no-op ถ้ายังไม่ online). */
+  sendBotStop(msg: BotStopMessage): void;
+  /** Batch 7b-UI: ซื้อแพ็กเกจ MOCK (D-061, ไม่ตัดเงินจริง — no-op ถ้ายังไม่ online). */
+  sendBotMockPurchase(msg: BotMockPurchaseMessage): void;
+  /** Batch 7b-UI: ขอสรุปรายงานภายใน retention ของ tier (no-op ถ้ายังไม่ online). */
+  sendBotReportList(): void;
+  /** Batch 7b-UI: ขอรายละเอียด 1 รายงาน (no-op ถ้ายังไม่ online). */
+  sendBotReportFetch(msg: BotReportFetchMessage): void;
   /** ออกจาก room + ปิด connection (idempotent) */
   disconnect(): void;
 }
@@ -706,6 +784,33 @@ export function createNetClient(
       handlers.onDeliveryResult?.(result);
     });
 
+    // Batch 7b-UI (P3 §13): bot (Hunter Assistant) push — profiles/tierState (reply to CRUD/mockPurchase),
+    // status stream (owner-online-in-host-room only) + stopped + alert (rare/captcha/gold_cap), reports.
+    joinedRoom.onMessage(MSG_BOT_PROFILES, (msg: BotProfilesMessage) => {
+      handlers.onBotProfiles?.(msg);
+    });
+    joinedRoom.onMessage(MSG_BOT_TIER_STATE, (msg: BotTierStateMessage) => {
+      handlers.onBotTierState?.(msg);
+    });
+    joinedRoom.onMessage(MSG_BOT_STATUS, (msg: BotStatusMessage) => {
+      handlers.onBotStatus?.(msg);
+    });
+    joinedRoom.onMessage(MSG_BOT_STOPPED, (msg: BotStoppedMessage) => {
+      handlers.onBotStopped?.(msg);
+    });
+    joinedRoom.onMessage(MSG_BOT_ALERT, (msg: BotAlertMessage) => {
+      handlers.onBotAlert?.(msg);
+    });
+    joinedRoom.onMessage(MSG_BOT_REPORTS, (msg: BotReportsMessage) => {
+      handlers.onBotReports?.(msg);
+    });
+    joinedRoom.onMessage(MSG_BOT_REPORT, (msg: BotReportMessage) => {
+      handlers.onBotReport?.(msg);
+    });
+    joinedRoom.onMessage(MSG_BOT_OP_RESULT, (msg: BotOpResultMessage) => {
+      handlers.onBotOpResult?.(msg);
+    });
+
     // channel/map อาจถูก set หลัง state แรก → sync ค่าล่าสุด
     $(joinedRoom.state).listen("channelId", (v: string) => {
       status.channelId = v;
@@ -924,6 +1029,42 @@ export function createNetClient(
     sendAchievementsRequest(): void {
       if (!room || status.state !== "online") return;
       room.send(MSG_ACHIEVEMENTS_REQUEST);
+    },
+    sendBotProfileList(): void {
+      if (!room || status.state !== "online") return;
+      room.send(MSG_BOT_PROFILE_LIST);
+    },
+    sendBotProfileCreate(msg: BotProfileCreateMessage): void {
+      if (!room || status.state !== "online") return;
+      room.send(MSG_BOT_PROFILE_CREATE, msg);
+    },
+    sendBotProfileUpdate(msg: BotProfileUpdateMessage): void {
+      if (!room || status.state !== "online") return;
+      room.send(MSG_BOT_PROFILE_UPDATE, msg);
+    },
+    sendBotProfileDelete(msg: BotProfileDeleteMessage): void {
+      if (!room || status.state !== "online") return;
+      room.send(MSG_BOT_PROFILE_DELETE, msg);
+    },
+    sendBotStart(msg: BotStartMessage): void {
+      if (!room || status.state !== "online") return;
+      room.send(MSG_BOT_START, msg);
+    },
+    sendBotStop(msg: BotStopMessage): void {
+      if (!room || status.state !== "online") return;
+      room.send(MSG_BOT_STOP, msg);
+    },
+    sendBotMockPurchase(msg: BotMockPurchaseMessage): void {
+      if (!room || status.state !== "online") return;
+      room.send(MSG_BOT_MOCK_PURCHASE, msg);
+    },
+    sendBotReportList(): void {
+      if (!room || status.state !== "online") return;
+      room.send(MSG_BOT_REPORT_LIST);
+    },
+    sendBotReportFetch(msg: BotReportFetchMessage): void {
+      if (!room || status.state !== "online") return;
+      room.send(MSG_BOT_REPORT_FETCH, msg);
     },
     disconnect(): void {
       if (disposed) return;

@@ -28,6 +28,17 @@ import {
   type ShopResultMessage,
   type StorageResultMessage,
   type StorageStateMessage,
+  type BotProfileWire,
+  type BotProfilesMessage,
+  type BotTierStateMessage,
+  type BotStatusMessage,
+  type BotStoppedMessage,
+  type BotAlertMessage,
+  type BotReportsMessage,
+  type BotReportSummaryWire,
+  type BotReportMessage,
+  type BotReportDetailWire,
+  type BotOpResultMessage,
 } from "@/shared/net-protocol";
 
 /**
@@ -240,6 +251,28 @@ export interface HudState {
   autoPilotStopReason: AutoPilotStopReasonView | null;
   /** Auto Pilot: timestamp (performance.now ms) ตอนหยุดล่าสุด — AutoPilotChip auto-dismiss หลัง n วิ. */
   autoPilotStopAtMs: number | null;
+  /**
+   * Batch 7b-UI (P3 §13): tier ปัจจุบัน + วันหมดอายุ + caps + paused (read-only excess) profile ids — reply to
+   * bot:profileList/mockPurchase. null ก่อนเคยขอ/ก่อนได้ผลครั้งแรกใน session นี้.
+   */
+  botTierState: BotTierStateMessage | null;
+  /** Batch 7b-UI: profile ทั้งหมดของบัญชี (reply to profileList/create/update/delete/mockPurchase). null = ยังไม่เคยขอ. */
+  botProfiles: BotProfileWire[] | null;
+  /**
+   * Batch 7b-UI: live status ของบอทที่กำลังรัน (เฉพาะตอน owner online ในห้อง host ของ map นั้น — ดู net-client.ts
+   * onBotStatus comment). null = ไม่มีบอทกำลังรัน (หรือไม่ได้เชื่อมต่อห้อง host — UI แสดง "กำลังเชื่อมต่อ").
+   */
+  botStatus: BotStatusMessage | null;
+  /** Batch 7b-UI: ผลหยุดล่าสุด (เหตุผล 1 ใน 9 mandatory/manual/error + สรุป session) — null = ยังไม่เคยหยุดใน session นี้. */
+  botLastStopped: BotStoppedMessage | null;
+  /** Batch 7b-UI: แจ้งเตือนล่าสุด (rare/captcha/gold_cap) + timestamp client — BotAlertToast อ่าน atMs (pattern เดียวกับ milestoneNotice). */
+  botAlert: { profileId: string; kind: "rare" | "captcha" | "gold_cap"; itemId?: string; message: string; atMs: number } | null;
+  /** Batch 7b-UI: สรุปรายงานภายใน retention ของ tier (reply to bot:reportList). null = ยังไม่เคยขอ. */
+  botReports: BotReportSummaryWire[] | null;
+  /** Batch 7b-UI: รายละเอียด 1 รายงานที่เพิ่งเลือกดู (reply to bot:reportFetch) — null = ยังไม่เลือก/ถูก retention clip. */
+  botReportDetail: BotReportDetailWire | null;
+  /** Batch 7b-UI: ผล op ล่าสุด (create/update/delete/start/stop/mockPurchase) — panel ใช้ correlate กับ local phase ด้วย `op`. */
+  botOpResult: BotOpResultMessage | null;
 }
 
 export const INITIAL_HUD_STATE: HudState = {
@@ -276,6 +309,14 @@ export const INITIAL_HUD_STATE: HudState = {
   autoPilotDestination: null,
   autoPilotStopReason: null,
   autoPilotStopAtMs: null,
+  botTierState: null,
+  botProfiles: null,
+  botStatus: null,
+  botLastStopped: null,
+  botAlert: null,
+  botReports: null,
+  botReportDetail: null,
+  botOpResult: null,
 };
 
 /** store singleton ตัวเดียวทั้งแอป — engine publish เข้านี่, React component subscribe ผ่าน useGameStore */
@@ -591,6 +632,77 @@ export const selectAutoPilotStopReason = (state: HudState): AutoPilotStopReasonV
 
 /** typed selector — Auto Pilot timestamp หยุดล่าสุด (chip auto-dismiss, D-037) */
 export const selectAutoPilotStopAtMs = (state: HudState): number | null => state.autoPilotStopAtMs;
+
+// ── Batch 7b-UI (P3 §13 Bot/Hunter Assistant) — ทุกตัว event-driven ตรง ๆ (เหมือน onShopList/onStorageState) ──
+
+/** engine เรียกทันทีที่ MSG_BOT_TIER_STATE มาถึง. */
+export function setBotTierState(msg: BotTierStateMessage): void {
+  gameStore.setState({ botTierState: msg });
+}
+
+/** typed selector — tier state ล่าสุด (Batch 7b-UI) */
+export const selectBotTierState = (state: HudState): BotTierStateMessage | null => state.botTierState;
+
+/** engine เรียกทันทีที่ MSG_BOT_PROFILES มาถึง. */
+export function setBotProfiles(msg: BotProfilesMessage): void {
+  gameStore.setState({ botProfiles: msg.profiles });
+}
+
+/** typed selector — profile ทั้งหมดล่าสุด (Batch 7b-UI) */
+export const selectBotProfiles = (state: HudState): BotProfileWire[] | null => state.botProfiles;
+
+/** engine เรียกทันทีที่ MSG_BOT_STATUS มาถึง (throttle cadence กำหนดฝั่ง server, statusPushIntervalMs). */
+export function setBotStatus(msg: BotStatusMessage): void {
+  gameStore.setState({ botStatus: msg });
+}
+
+/** typed selector — live status ล่าสุด (Batch 7b-UI Live Status tab) */
+export const selectBotStatus = (state: HudState): BotStatusMessage | null => state.botStatus;
+
+/** engine เรียกทันทีที่ MSG_BOT_STOPPED มาถึง — เคลียร์ botStatus ไปด้วย (ไม่มีบอทกำลังรันแล้ว). */
+export function setBotStopped(msg: BotStoppedMessage): void {
+  gameStore.setState({ botLastStopped: msg, botStatus: null });
+}
+
+/** typed selector — ผลหยุดล่าสุด (Batch 7b-UI, "last stop reason") */
+export const selectBotLastStopped = (state: HudState): BotStoppedMessage | null => state.botLastStopped;
+
+/**
+ * engine เรียกทันทีที่ MSG_BOT_ALERT มาถึง → stamp timestamp ให้ BotAlertToast แสดง toast (pattern เดียวกับ
+ * setMilestoneNotice/setAchievementUnlocked). `nowMs` inject ได้ (เทสต์); default Date.now().
+ */
+export function setBotAlert(msg: BotAlertMessage, nowMs: number = Date.now()): void {
+  gameStore.setState({
+    botAlert: { profileId: msg.profileId, kind: msg.kind, itemId: msg.itemId, message: msg.message, atMs: nowMs },
+  });
+}
+
+/** typed selector — แจ้งเตือนล่าสุด (Batch 7b-UI toast) */
+export const selectBotAlert = (state: HudState): HudState["botAlert"] => state.botAlert;
+
+/** engine เรียกทันทีที่ MSG_BOT_REPORTS มาถึง (reply to bot:reportList). */
+export function setBotReports(msg: BotReportsMessage): void {
+  gameStore.setState({ botReports: msg.reports });
+}
+
+/** typed selector — สรุปรายงานล่าสุด (Batch 7b-UI Report tab) */
+export const selectBotReports = (state: HudState): BotReportSummaryWire[] | null => state.botReports;
+
+/** engine เรียกทันทีที่ MSG_BOT_REPORT มาถึง (reply to bot:reportFetch) — null = ถูก retention clip. */
+export function setBotReportDetail(msg: BotReportMessage): void {
+  gameStore.setState({ botReportDetail: msg.report });
+}
+
+/** typed selector — รายละเอียดรายงานที่เลือกดูล่าสุด (Batch 7b-UI) */
+export const selectBotReportDetail = (state: HudState): BotReportDetailWire | null => state.botReportDetail;
+
+/** engine เรียกทันทีที่ MSG_BOT_OP_RESULT มาถึง — panel correlate กับ local BotOpPhase ด้วย `op`. */
+export function setBotOpResult(msg: BotOpResultMessage): void {
+  gameStore.setState({ botOpResult: msg });
+}
+
+/** typed selector — ผล op ล่าสุด (Batch 7b-UI) */
+export const selectBotOpResult = (state: HudState): BotOpResultMessage | null => state.botOpResult;
 
 export interface HudPublisher {
   /**
