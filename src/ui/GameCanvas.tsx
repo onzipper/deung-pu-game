@@ -27,6 +27,9 @@ import { StorageHudButton } from "@/ui/panels/storage/StorageHudButton";
 import { StoragePanel } from "@/ui/panels/storage/StoragePanel";
 import { JournalHudButton } from "@/ui/panels/journal/JournalHudButton";
 import { JournalPanel } from "@/ui/panels/journal/JournalPanel";
+import { BotHudButton } from "@/ui/panels/bot/BotHudButton";
+import { BotPanel } from "@/ui/panels/bot/BotPanel";
+import { BotAlertToast } from "@/ui/panels/bot/BotAlertToast";
 import { HelpFocusProvider } from "@/ui/panels/help/help-focus-context";
 import { HelpHudButton } from "@/ui/panels/help/HelpHudButton";
 import { HelpPanel } from "@/ui/panels/help/HelpPanel";
@@ -159,6 +162,9 @@ export function GameCanvas() {
           {/* C3-MVP: ปุ่ม "สมุด" render เสมอทุก map (เหมือน inventory/enhancement) — ดู JournalHudButton.tsx */}
           <JournalHudButton />
           <JournalPanel getHandle={() => engineRef.current} />
+          {/* 7b-UI: ปุ่ม "บอท" (ผู้ช่วยนักล่า) render เสมอทุก map — ดู BotHudButton.tsx. ห้ามปนกับ Auto Pilot/ดึ๋งๆ (D-035/D-037). */}
+          <BotHudButton />
+          <BotPanel getHandle={() => engineRef.current} />
           {/* P2-12: ปุ่ม "?" หลัก render เสมอ (DG §5.2) */}
           <HelpHudButton />
           <HelpPanel />
@@ -180,6 +186,8 @@ export function GameCanvas() {
           <MilestoneToast />
           {/* C2b (Achievement §7.1): achievement unlock toast สั้น ๆ ตอน auto-claim (ครั้งเดียวต่อ scope) */}
           <AchievementToast />
+          {/* 7b-UI (P3 §9): bot rare/captcha/gold_cap alert toast — mandatory stop, ของที่ฟาร์มมาไม่หาย */}
+          <BotAlertToast />
           {/* A3 (P2 UI §8.3): แถบสกิล hotbar (S1-S4) — desktop (Digit1-4/คลิก) + มือถือ (แตะช่อง) */}
           <SkillBar getHandle={() => engineRef.current} />
           {/* P2-15: settings (effect quality/screen shake) + mobile controls + OS notice */}

@@ -91,6 +91,14 @@ import {
   setMilestoneNotice,
   setAchievementUnlocked,
   setAchievementsSnapshot,
+  setBotTierState,
+  setBotProfiles,
+  setBotStatus,
+  setBotStopped,
+  setBotAlert,
+  setBotReports,
+  setBotReportDetail,
+  setBotOpResult,
   setPlayerDead,
   setPlayerExp,
   setPlayerLevel,
@@ -556,6 +564,9 @@ export async function createEngine(
             net?.sendStorageOpen();
             // C2b (Part 5): ขอ snapshot achievement ตอน self เข้า room → game-store field พร้อมให้ journal (C3) อ่าน.
             net?.sendAchievementsRequest();
+            // Batch 7b-UI: ขอ tier state + profile ทั้งหมดตอน self เข้า room (BotPanel เปิดทีหลังจะรีเฟรชซ้ำอีกที
+            // — pattern เดียวกับ achievements). bot:profileList reply มาทั้ง MSG_BOT_TIER_STATE + MSG_BOT_PROFILES.
+            net?.sendBotProfileList();
           },
           // P2-13 (D-056): self AFK flag (server-set) → toggle ป้าย "AFK" ของตัวเอง (display-only).
           onSelfAfkChange: (isAfk) => player.setAfk(isAfk),
@@ -649,6 +660,15 @@ export async function createEngine(
           onStorageResult: (result) => setStorageResult(result),
           onDeliveryState: (state) => setDeliveryState(state),
           onDeliveryResult: (result) => setDeliveryResult(result),
+          // Batch 7b-UI (P3 §13): bot (Hunter Assistant) → Zustand bridge ตรง ๆ (event-driven, เหมือน onShopList)
+          onBotTierState: (msg) => setBotTierState(msg),
+          onBotProfiles: (msg) => setBotProfiles(msg),
+          onBotStatus: (msg) => setBotStatus(msg),
+          onBotStopped: (msg) => setBotStopped(msg),
+          onBotAlert: (msg) => setBotAlert(msg),
+          onBotReports: (msg) => setBotReports(msg),
+          onBotReport: (msg) => setBotReportDetail(msg),
+          onBotOpResult: (msg) => setBotOpResult(msg),
         },
 
       );
