@@ -52,22 +52,26 @@ export type BotContinuityTransitionResult =
     };
 
 /**
- * PR3 operational topology. PR4 adds conservative settlement commands without guessing service ordering;
- * PR5-PR6 must add recovery/town/workflow edges alongside authoritative behavior.
+ * PR3 operational topology. PR4 adds conservative settlement commands without guessing service ordering.
+ * PR5 opens the recovery edges: RECOVERING is entered from any farm state (low-hp potion drink, death
+ * await-respawn); RECOVERING->WORKING is healed in place; RECOVERING->RETURNING_TO_WORK is the post-respawn
+ * walk back; RETURNING_TO_WORK->RECOVERING covers an hp emergency en route. Town/workflow states
+ * (RETURNING_TO_TOWN/SELLING/DEPOSITING/RESTOCKING) and LOOTING stay inert until their authoritative
+ * behavior lands (PR5 Phase C / PR6).
  */
 export const BOT_CONTINUITY_ADVANCE_GRAPH: Readonly<
   Record<BotContinuityOperationalStateWire, readonly BotContinuityOperationalStateWire[]>
 > = {
-  WORKING: ["TRAVELING", "COMBAT"],
-  TRAVELING: ["WORKING", "COMBAT"],
-  COMBAT: ["WORKING", "TRAVELING"],
+  WORKING: ["TRAVELING", "COMBAT", "RECOVERING"],
+  TRAVELING: ["WORKING", "COMBAT", "RECOVERING"],
+  COMBAT: ["WORKING", "TRAVELING", "RECOVERING"],
   LOOTING: [],
-  RECOVERING: [],
+  RECOVERING: ["RETURNING_TO_WORK", "WORKING"],
   RETURNING_TO_TOWN: [],
   SELLING: [],
   DEPOSITING: [],
   RESTOCKING: [],
-  RETURNING_TO_WORK: [],
+  RETURNING_TO_WORK: ["WORKING", "RECOVERING"],
 };
 
 export function createBotContinuity(startedAt: number, reasonCode = "plan_started"): BotContinuitySnapshot {

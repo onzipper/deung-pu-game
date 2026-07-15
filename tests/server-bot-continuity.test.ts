@@ -93,23 +93,54 @@ describe("tier-neutral operational topology", () => {
     }
   });
 
-  test("keeps PR5-PR6 loot/recovery/town/workflow topology inert instead of guessing ordering", () => {
+  test("PR5 opens recovery edges but keeps loot/town/workflow topology inert instead of guessing ordering", () => {
     expect(BOT_CONTINUITY_ADVANCE_GRAPH).toMatchObject({
-      WORKING: ["TRAVELING", "COMBAT"],
-      TRAVELING: ["WORKING", "COMBAT"],
-      COMBAT: ["WORKING", "TRAVELING"],
+      WORKING: ["TRAVELING", "COMBAT", "RECOVERING"],
+      TRAVELING: ["WORKING", "COMBAT", "RECOVERING"],
+      COMBAT: ["WORKING", "TRAVELING", "RECOVERING"],
       LOOTING: [],
-      RECOVERING: [],
+      RECOVERING: ["RETURNING_TO_WORK", "WORKING"],
       RETURNING_TO_TOWN: [],
       SELLING: [],
       DEPOSITING: [],
       RESTOCKING: [],
-      RETURNING_TO_WORK: [],
+      RETURNING_TO_WORK: ["WORKING", "RECOVERING"],
     });
     const current = snapshot("WORKING");
     expect(
-      applyBotContinuityTransition(current, { kind: "advance", to: "RECOVERING", ...meta() }),
+      applyBotContinuityTransition(current, { kind: "advance", to: "SELLING", ...meta() }),
     ).toEqual({ ok: false, error: "invalid_transition", snapshot: current });
+  });
+
+  test("accepts the PR5 recovery edges", () => {
+    const cases: Array<[BotContinuityOperationalStateWire, BotContinuityOperationalStateWire]> = [
+      ["WORKING", "RECOVERING"],
+      ["COMBAT", "RECOVERING"],
+      ["RECOVERING", "RETURNING_TO_WORK"],
+      ["RECOVERING", "WORKING"],
+      ["RETURNING_TO_WORK", "WORKING"],
+      ["RETURNING_TO_WORK", "RECOVERING"],
+    ];
+    for (const [from, to] of cases) {
+      const result = applyBotContinuityTransition(snapshot(from), { kind: "advance", to, ...meta() });
+      expect(result, `${from}->${to}`).toMatchObject({
+        ok: true,
+        changed: true,
+        snapshot: { state: to, revision: 5, previousState: from },
+      });
+    }
+  });
+
+  test("rejects a still-inert recovery/town edge", () => {
+    const fromRecovering = snapshot("RECOVERING");
+    expect(
+      applyBotContinuityTransition(fromRecovering, { kind: "advance", to: "COMBAT", ...meta() }),
+    ).toEqual({ ok: false, error: "invalid_transition", snapshot: fromRecovering });
+
+    const fromReturningToTown = snapshot("RETURNING_TO_TOWN");
+    expect(
+      applyBotContinuityTransition(fromReturningToTown, { kind: "advance", to: "SELLING", ...meta() }),
+    ).toEqual({ ok: false, error: "invalid_transition", snapshot: fromReturningToTown });
   });
 
   test("same-state signals are idempotent and do not consume a revision", () => {

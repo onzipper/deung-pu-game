@@ -105,6 +105,29 @@ export interface BotConfig {
   bossStopRadiusTiles: number;
   /** approach until within attackRange × this factor before casting (ensures the hit-test lands). */
   attackRangeFactor: number;
+  /** PR5 Plus-tier recovery knobs (auto-potion / respawn observation / pocket fallback / replan / tier recheck). */
+  recovery: {
+    /** consumable used for auto-potion recovery; must be kind "consumable" in the item catalog. */
+    potionItemId: string;
+    /** backoff after a failed drink (no_potion / on_cooldown) so the DB is not hammered. */
+    potionRetryIntervalMs: number;
+    /** hp fraction at/above which a respawn is considered observed (respawn = full HP today). */
+    respawnObserveMinHpFraction: number;
+    /** give up waiting for respawn observation → stop("death"). */
+    respawnObserveTimeoutMs: number;
+    /** PENDING OWNER — repeated death usually means an under-leveled pocket. */
+    maxDeathRecoveriesPerSession: number;
+    /** PENDING OWNER — consecutive idle decisions before pocket fallback; must stay < stuckTickLimit. */
+    pocketFallbackIdleDecisions: number;
+    /** PENDING OWNER — assigned pocket wins again as soon as it has alive mobs. */
+    preferAssignedPocket: boolean;
+    /** arrival radius (tiles) for return-to-pocket. */
+    pocketArriveRadiusTiles: number;
+    /** minimum interval between A* replans when a route step is blocked. */
+    routeReplanCooldownMs: number;
+    /** throttle for live tier entitlement recheck during a run. */
+    tierRecheckIntervalMs: number;
+  };
 }
 
 /** Caps table verbatim from D-063 / §15 — the canonical source; never edit without an owner decision. */
@@ -176,4 +199,16 @@ export const DEFAULT_BOT_CONFIG: BotConfig = {
   statusPushIntervalMs: 2_000, // P3 §16 Q1 proposal (2s while panel open) — provisional
   bossStopRadiusTiles: 8,
   attackRangeFactor: 0.95,
+  recovery: {
+    potionItemId: "con_small_potion",
+    potionRetryIntervalMs: 5_000,
+    respawnObserveMinHpFraction: 0.9,
+    respawnObserveTimeoutMs: 10_000,
+    maxDeathRecoveriesPerSession: 3, // PENDING OWNER
+    pocketFallbackIdleDecisions: 3, // PENDING OWNER
+    preferAssignedPocket: true, // PENDING OWNER
+    pocketArriveRadiusTiles: 2,
+    routeReplanCooldownMs: 2_000,
+    tierRecheckIntervalMs: 60_000,
+  },
 };
