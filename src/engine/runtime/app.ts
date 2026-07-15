@@ -60,7 +60,11 @@ import {
   snapshotChanged,
   toMoveMessage,
 } from "../net/sync";
-import { DEFAULT_MAP_ID, type PlayerSnapshot } from "@/shared/net-protocol";
+import {
+  DEFAULT_MAP_ID,
+  type BotTakeoverSourceWire,
+  type PlayerSnapshot,
+} from "@/shared/net-protocol";
 import { partyIdFromLocation } from "../net/party";
 import {
   readSelectedCharacterId,
@@ -99,6 +103,8 @@ import {
   setBotReports,
   setBotReportDetail,
   setBotOpResult,
+  setBotCheckpoint,
+  setBotAuthorityActive,
   setPlayerDead,
   setPlayerExp,
   setPlayerLevel,
@@ -415,6 +421,39 @@ export async function createEngine(
     // FEATURE 2 (hold-to-walk) + Batch 6 (ground-circle aim): tile ใต้เคอร์เซอร์ล่าสุด — ประกาศก่อน castSlot ใช้.
     let pointerTile: TilePoint | null = null;
     let net: NetClientHandle | null = null;
+    let takeoverRequestSeq = 0;
+    let pendingTakeover: {
+      requestId: string;
+      schemaManual: boolean;
+      acked: boolean;
+      replay: (() => void) | null;
+    } | null = null;
+
+    const releaseLocalAuthority = (replay: (() => void) | null): void => {
+      characterAutonomyActive = false;
+      player.setAuthorityLocked(false);
+      lastSent = null;
+      sendAccumMs = 0;
+      replay?.();
+    };
+
+    const finishPendingTakeover = (): void => {
+      const pending = pendingTakeover;
+      if (!pending || !pending.schemaManual || !pending.acked) return;
+      pendingTakeover = null;
+      releaseLocalAuthority(pending.replay);
+    };
+
+    const requestManualTakeover = (source: BotTakeoverSourceWire, replay: (() => void) | null): void => {
+      if (!characterAutonomyActive) {
+        replay?.();
+        return;
+      }
+      if (pendingTakeover || !net || net.status.state !== "online") return;
+      const requestId = `takeover:${Date.now()}:${++takeoverRequestSeq}`;
+      pendingTakeover = { requestId, schemaManual: false, acked: false, replay };
+      net.sendBotTakeover({ requestId, source });
+    };
     const combat: CombatStubHandle = createCombatStub(scene, player, mobView, config, {
       skill: firstSkill,
       castSkill: (msg) => net?.sendCast(msg),
@@ -470,8 +509,7 @@ export async function createEngine(
       const fwd = tileUnitVectorForScreenAngle(screenAngleForDirection(player.facing), config.tileSize);
       return { tx: p.tx + fwd.tx * nearest, ty: p.ty + fwd.ty * nearest };
     };
-    const castSlot = (slot: number): void => {
-      if (characterAutonomyActive) return;
+    const castSlotNow = (slot: number): void => {
       if (!combatAllowed) return; // P1-11 safe zone (เมือง) → ไม่ cast (server ปฏิเสธซ้ำ)
       const skill = localSkills[slot - 1];
       if (!skill) return;
@@ -493,6 +531,13 @@ export async function createEngine(
       combat.playSkillVfx(skill.skillId); // F4: เล่น VFX สกิล client-side (juice — ไม่กระทบ authority)
       skillCooldownReadyAt.set(skill.skillId, now + skill.cooldown * 1000);
       publishSkillSlots();
+    };
+    const castSlot = (slot: number): void => {
+      if (characterAutonomyActive) {
+        requestManualTakeover("skill", () => castSlotNow(slot));
+        return;
+      }
+      castSlotNow(slot);
     };
     publishSkillSlots(); // init (S1 ปลด; S2-4 locked จนกว่า progress แจ้ง level ใหม่)
 
@@ -579,13 +624,22 @@ export async function createEngine(
             sendAccumMs = 0;
           },
           onSelfAutonomyChange: (active) => {
-            characterAutonomyActive = active;
-            player.setAuthorityLocked(active);
+            setBotAuthorityActive(active);
             if (active) {
+              pendingTakeover = null;
+              characterAutonomyActive = true;
+              player.setAuthorityLocked(true);
               engageState = cancelEngage();
               autoPilot.stop("manual");
               lastSent = null;
               sendAccumMs = 0;
+              return;
+            }
+            if (pendingTakeover) {
+              pendingTakeover.schemaManual = true;
+              finishPendingTakeover();
+            } else {
+              releaseLocalAuthority(null);
             }
           },
           // P2-13 (D-056): self AFK flag (server-set) → toggle ป้าย "AFK" ของตัวเอง (display-only).
@@ -685,10 +739,23 @@ export async function createEngine(
           onBotProfiles: (msg) => setBotProfiles(msg),
           onBotStatus: (msg) => setBotStatus(msg),
           onBotStopped: (msg) => setBotStopped(msg),
+          onBotCheckpoint: (msg) => setBotCheckpoint(msg),
           onBotAlert: (msg) => setBotAlert(msg),
           onBotReports: (msg) => setBotReports(msg),
           onBotReport: (msg) => setBotReportDetail(msg),
-          onBotOpResult: (msg) => setBotOpResult(msg),
+          onBotOpResult: (msg) => {
+            const pending = pendingTakeover;
+            if (pending && msg.op === "takeover" && msg.refId === pending.requestId) {
+              if (msg.ok) {
+                pending.acked = true;
+                finishPendingTakeover();
+              } else {
+                pendingTakeover = null;
+                if (pending.schemaManual) releaseLocalAuthority(null);
+              }
+            }
+            setBotOpResult(msg);
+          },
         },
 
       );
@@ -742,7 +809,12 @@ export async function createEngine(
     };
 
     // --- pointer → tile helper (P0-11 debug + P1-09 click-to-move) ---
-    const footFromEvent = (e: PointerEvent): TilePoint => {
+    interface WorldPointerIntent {
+      button: number;
+      pointerType: string;
+      foot: TilePoint;
+    }
+    const footFromEvent = (e: Pick<PointerEvent, "clientX" | "clientY">): TilePoint => {
       const rect = app.canvas.getBoundingClientRect();
       return screenToTile(
         {
@@ -815,15 +887,13 @@ export async function createEngine(
       }
     };
 
-    const onPointerDown = (e: PointerEvent): void => {
-      if (characterAutonomyActive) return;
+    const applyPointerDown = (e: WorldPointerIntent): void => {
       // D-037 stop (manual): คลิก/แตะในโลก = ผู้เล่นเข้าคุมเอง (เดิน/เล็งมอน/คุย NPC) → หยุด auto-pilot "ก่อน"
       //   ออกคำสั่งใหม่เสมอ (stop() cancelPath ก่อน แล้วโค้ดข้างล่างค่อย moveTo/engage → path ใหม่ไม่ถูกล้าง).
       autoPilot.stop("manual");
       // FEATURE 1: ปุ่มกลาง = โจมตีมอนที่ใกล้ตัวสุด (ไม่จำกัดรัศมี — "นับทั้งแมพ" ตามที่ผู้เล่นขอ,
       // ไม่ cap ด้วย assist radius). reuse engageMob เดิม (หัน+ตี/เดินเข้า) — ไม่มี net message ใหม่.
       if (e.button === 1) {
-        e.preventDefault(); // กัน autoscroll ของ browser (middle-click)
         if (transition.isLocked() || !combatAllowed) return;
         const nearest = mobUnderClick(player.position, Number.POSITIVE_INFINITY);
         if (nearest) engageMob(nearest);
@@ -831,7 +901,7 @@ export async function createEngine(
       }
       if (e.button !== 0) return; // touch/pen primary contact = button 0 (PointerEvent ครอบ touch เอง)
       if (transition.isLocked()) return; // P1-10: input lock ระหว่างข้าม map
-      const foot = footFromEvent(e);
+      const foot = e.foot;
       // LW0: คลิกโดน NPC (bark dialogue) — เช็คก่อน mob/ground เสมอ (dialogue ไม่ใช่ combat, ไม่ผูก
       // combatAllowed — NPC วางในโซนที่เดินได้อยู่แล้ว). โดน → เปิด dialogue + หยุด engage/path ค้าง แล้ว
       // จบ (ไม่ตกไป engage มอน/เดินตามเมาส์ ไม่ทับ FEATURE 1/2 ที่เหลือ).
@@ -877,6 +947,19 @@ export async function createEngine(
         followTile = snapToTile(foot);
       }
     };
+    const onPointerDown = (e: PointerEvent): void => {
+      if (e.button === 1) e.preventDefault(); // กัน autoscroll ของ browser ทันที แม้กำลังรอ handoff
+      const buffered: WorldPointerIntent = {
+        button: e.button,
+        pointerType: e.pointerType,
+        foot: footFromEvent(e),
+      };
+      if (!characterAutonomyActive) {
+        applyPointerDown(buffered);
+        return;
+      }
+      requestManualTakeover("pointer", () => applyPointerDown(buffered));
+    };
     app.canvas.addEventListener("pointerdown", onPointerDown);
 
     /**
@@ -885,8 +968,7 @@ export async function createEngine(
      * (requestAttack เหมือน Space; combat-stub gate cooldown/safe-zone ต่อ). ไม่มี combat semantics ใหม่ —
      * reuse engage เดิม, แค่เลือกเป้าใกล้สุดในรัศมี assist.
      */
-    const pressAttack = (): void => {
-      if (characterAutonomyActive) return;
+    const pressAttackNow = (): void => {
       if (transition.isLocked()) return;
       autoPilot.stop("combat"); // D-037 stop: ปุ่มโจมตีมือถือ = ออกโจมตี → เข้าสู่การต่อสู้
       const assist = combatAllowed
@@ -894,6 +976,13 @@ export async function createEngine(
         : null;
       if (assist) engageMob(assist);
       else player.requestAttack();
+    };
+    const pressAttack = (): void => {
+      if (characterAutonomyActive) {
+        requestManualTakeover("touch", pressAttackNow);
+        return;
+      }
+      pressAttackNow();
     };
 
     /**
@@ -990,6 +1079,12 @@ export async function createEngine(
         if (locked) autoPilot.stop("transition");
         // D-037 stop (disconnect): net หลุด (offline) ระหว่าง auto-pilot → หยุด (client เดินต่อเองไม่ได้แล้ว).
         if (net?.status.state === "offline") autoPilot.stop("disconnect");
+        if (!locked && !tabHidden && characterAutonomyActive && !pendingTakeover) {
+          const intent = player.consumeManualTakeoverIntent();
+          if (intent?.kind === "move") requestManualTakeover("move", null);
+          else if (intent?.kind === "attack") requestManualTakeover("skill", pressAttackNow);
+          else if (intent?.kind === "skill") requestManualTakeover("skill", () => castSlotNow(intent.slot));
+        }
         // Keep the locked actor's server-driven animation current during autonomy, but never run local
         // prediction during transition lock or while hidden. LocalPlayer's locked update also drains key edges.
         if (!locked && !tabHidden) player.update(dtSeconds);

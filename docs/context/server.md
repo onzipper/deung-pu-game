@@ -2,18 +2,18 @@
 Scope: `server/**`, `src/server/**`, `src/shared/**` · Read this pack + the files in your brief. Spec detail via the cited §.
 
 ## Contract
-- `server/**` = the Colyseus process (separate from Next, L4): rooms, schema, matchmaking, security, persistence. The **server is authoritative** for movement/combat/drops (TA §1/§6.2).
-- `src/server/**` = the Next API side (server-only): auth token/session, Prisma client — must **never** enter the client bundle.
+- `server/**` = Colyseus (separate from Next, L4). The **server is authoritative** for movement/combat/drops (TA §1/§6.2).
+- `src/server/**` = Next API server-only auth/Prisma; it must **never** enter the client bundle.
 - `src/shared/**` = pure client↔server contracts (net-protocol, reconnect/movement-validation, name/class validators).
-- Reuse `src/server/auth/` from `server/**` directly (server/tsconfig imports `../src/**`; pure `node:crypto`, no Next dep) — no shared module needed.
+- Reuse `src/server/auth/` from `server/**` directly; server/tsconfig imports `../src/**`.
 
 ## Key files
-- `server/rooms/MapRoom.ts` — movement validation, mob sim, combat authority, reconnect grace, map transition, safe-zone cap
+- `server/rooms/MapRoom.ts` — movement/combat authority, mob sim, reconnect, transition, safe-zone cap
 - `server/index.ts` — Colyseus Server + `.filterBy(['mapId','partyId'])`, ws://localhost:2567
-- `server/schema/` — @colyseus/schema state (PlayerState/MobState/MapRoomState)
+- `server/schema/` — @colyseus/schema room/player/mob state
 - `server/security/` — WS handshake (JWT+origin+rate limit), session takeover/lease (Bible 5.2)
-- `server/characters/` — persistence decision (pure) + character-state load/upsert (best-effort; no DB = in-memory)
-- `src/engine/net/net-client.ts` — client glue: connect/join, reconnect, self-adopt gating, cast/skill msgs
+- `server/characters/` + `server/bot/` — stable real actor, no clone; PR2 order is fence → checkpoint → release → manual input. Resume waits reward/report persistence; restart resume belongs to PR6.
+- `src/engine/net/net-client.ts` — connect/reconnect/self-adopt + cast and Bot takeover/checkpoint/resume
 - `src/server/db.ts` + `server/db/` — Prisma singletons (server-only) + ledger contract
 
 ## Invariants

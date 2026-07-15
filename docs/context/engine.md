@@ -18,7 +18,7 @@ Scope: `src/engine/**` (+ `src/game/**` combat mechanics that sit on it) · Read
 - `src/engine/iso/` — iso projection + depth-sort math (**never-downgrade zone**)
 - `src/engine/render/placement.ts` — `entityFootToScreen`: the single foot-position convention (see Traps)
 - `src/engine/render/` — depth registry, camera, scene graph, object pool, screen shake, exit marker
-- `src/engine/runtime/app.ts` — createEngine(): per-map world mount + master tick
+- `src/engine/runtime/app.ts` — per-map world/master tick; buffers one manual intent until takeover ack + `isBot=false`
 - `src/engine/movement/` — mover (stepMovement), direction resolver, path-follower
 - `src/engine/input/` — keyboard intent + `src/engine/input/joystick.ts` (touch → 8-dir intent, same as WASD) + `src/engine/input/target-assist.ts` (per-input-mode click radius, Combat Bible §3, P2-15). LocalPlayerHandle.setMoveVector feeds joystick intent; combat-stub/pressAttack (app.ts) use the assist radius.
 - `src/engine/pathfinding/` — A* on the iso grid (click-to-move)

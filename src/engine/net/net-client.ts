@@ -75,6 +75,8 @@ import {
   MSG_BOT_PROFILE_DELETE,
   MSG_BOT_START,
   MSG_BOT_STOP,
+  MSG_BOT_TAKEOVER,
+  MSG_BOT_RESUME,
   MSG_BOT_MOCK_PURCHASE,
   MSG_BOT_REPORT_LIST,
   MSG_BOT_REPORT_FETCH,
@@ -86,6 +88,7 @@ import {
   MSG_BOT_REPORTS,
   MSG_BOT_REPORT,
   MSG_BOT_OP_RESULT,
+  MSG_BOT_CHECKPOINT,
   WS_CLOSE_SESSION_TAKEN_OVER,
   type AchievementUnlockedMessage,
   type AchievementsSnapshotMessage,
@@ -128,6 +131,8 @@ import {
   type BotProfileDeleteMessage,
   type BotStartMessage,
   type BotStopMessage,
+  type BotTakeoverMessage,
+  type BotResumeMessage,
   type BotMockPurchaseMessage,
   type BotReportFetchMessage,
   type BotProfilesMessage,
@@ -138,6 +143,7 @@ import {
   type BotReportsMessage,
   type BotReportMessage,
   type BotOpResultMessage,
+  type BotCheckpointMessage,
 } from "@/shared/net-protocol";
 import {
   canSendLocalMove,
@@ -369,6 +375,8 @@ export interface NetClientHandlers {
   onBotStatus?(msg: BotStatusMessage): void;
   /** Batch 7b-UI: บอทหยุดแล้ว + เหตุผล (1 ใน 9 mandatory/manual/error) + สรุป session. optional. */
   onBotStopped?(msg: BotStoppedMessage): void;
+  /** PR2: manual-takeover checkpoint lifecycle (saving → ready/failed; null when consumed). */
+  onBotCheckpoint?(msg: BotCheckpointMessage): void;
   /** Batch 7b-UI: แจ้งเตือน (rare/high-value found, captcha required, gold cap) — ของที่ฟาร์มมาไม่หาย. optional. */
   onBotAlert?(msg: BotAlertMessage): void;
   /** Batch 7b-UI: สรุปรายงาน (reply to bot:reportList) — clip ตาม retention tier ฝั่ง server แล้ว. optional. */
@@ -498,6 +506,10 @@ export interface NetClientHandle {
   sendBotStart(msg: BotStartMessage): void;
   /** Batch 7b-UI: หยุดบอทที่กำลังรัน (manual — §12.3, no-op ถ้ายังไม่ online). */
   sendBotStop(msg: BotStopMessage): void;
+  /** PR2: return authority to the player; server acks only after the automation command fence is active. */
+  sendBotTakeover(msg: BotTakeoverMessage): void;
+  /** PR2: resume a ready in-process checkpoint on the same real character. */
+  sendBotResume(msg: BotResumeMessage): void;
   /** Batch 7b-UI: ซื้อแพ็กเกจ MOCK (D-061, ไม่ตัดเงินจริง — no-op ถ้ายังไม่ online). */
   sendBotMockPurchase(msg: BotMockPurchaseMessage): void;
   /** Batch 7b-UI: ขอสรุปรายงานภายใน retention ของ tier (no-op ถ้ายังไม่ online). */
@@ -835,6 +847,9 @@ export function createNetClient(
     joinedRoom.onMessage(MSG_BOT_STOPPED, (msg: BotStoppedMessage) => {
       handlers.onBotStopped?.(msg);
     });
+    joinedRoom.onMessage(MSG_BOT_CHECKPOINT, (msg: BotCheckpointMessage) => {
+      handlers.onBotCheckpoint?.(msg);
+    });
     joinedRoom.onMessage(MSG_BOT_ALERT, (msg: BotAlertMessage) => {
       handlers.onBotAlert?.(msg);
     });
@@ -1099,6 +1114,14 @@ export function createNetClient(
     sendBotStop(msg: BotStopMessage): void {
       if (!room || status.state !== "online") return;
       room.send(MSG_BOT_STOP, msg);
+    },
+    sendBotTakeover(msg: BotTakeoverMessage): void {
+      if (!room || status.state !== "online") return;
+      room.send(MSG_BOT_TAKEOVER, msg);
+    },
+    sendBotResume(msg: BotResumeMessage): void {
+      if (!room || status.state !== "online") return;
+      room.send(MSG_BOT_RESUME, msg);
     },
     sendBotMockPurchase(msg: BotMockPurchaseMessage): void {
       if (!room || status.state !== "online") return;

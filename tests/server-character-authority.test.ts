@@ -8,7 +8,12 @@ import type { SessionRepo, TierRepo } from "../server/bot/store";
 import type { BotProfileRow, BotSessionRow } from "../server/bot/types";
 import { CharacterAuthorityRegistry } from "../server/characters/authority";
 import { DEFAULT_BOT_CONFIG } from "../server/config/bot";
-import { MSG_BOT_OP_RESULT, type BotOpResultMessage } from "../src/shared/net-protocol";
+import {
+  MSG_BOT_CHECKPOINT,
+  MSG_BOT_OP_RESULT,
+  type BotCheckpointMessage,
+  type BotOpResultMessage,
+} from "../src/shared/net-protocol";
 
 describe("stable character actor authority", () => {
   test("a replacement controller reattaches to the same opaque actor without resetting its authority", () => {
@@ -115,7 +120,10 @@ function createManagerHarness(options: { insert?: SessionRepo["insert"] } = {}) 
       overflow: [],
       leveledUp: false,
     }),
-    botOwnerSend: () => false,
+    botOwnerSend: (_accountId, type, message) => {
+      messages.push({ type, message });
+      return true;
+    },
     isBossOrEventType: () => false,
     pocketExists: () => true,
   };
@@ -275,6 +283,70 @@ describe("BotManager character-authority lifecycle", () => {
       expect.objectContaining({ op: "start", ok: false, reason: "cancelled" }),
     ]));
   });
+
+  test("manual takeover releases authority synchronously, saves a checkpoint, then resumes the same plan", async () => {
+    const h = createManagerHarness();
+    await h.manager.onStart(
+      h.host,
+      "controller-1",
+      "account-a",
+      "character-a",
+      h.send,
+      { profileId: PROFILE.id },
+    );
+
+    expect(h.manager.onTakeover(
+      "account-a",
+      "actor:real-existing",
+      h.send,
+      { requestId: "takeover-1", source: "move" },
+    )).toBe(true);
+    expect(h.releases).toEqual(["actor:real-existing"]);
+    expect(h.manager.activeActorForAccount("account-a")).toBeNull();
+    expect(h.messages).toContainEqual({
+      type: MSG_BOT_OP_RESULT,
+      message: expect.objectContaining({ op: "takeover", ok: true, refId: "takeover-1" }),
+    });
+
+    const saving = h.messages.find((entry) => entry.type === MSG_BOT_CHECKPOINT)?.message as BotCheckpointMessage;
+    expect(saving.checkpoint).toMatchObject({
+      profileId: PROFILE.id,
+      sourceSessionId: h.inserted[0]?.id,
+      mapId: PROFILE.mapId,
+      pocketId: PROFILE.pocketId,
+      state: "saving",
+    });
+
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    const checkpointMessages = h.messages
+      .filter((entry) => entry.type === MSG_BOT_CHECKPOINT)
+      .map((entry) => entry.message as BotCheckpointMessage);
+    expect(checkpointMessages.at(-1)?.checkpoint?.state).toBe("ready");
+
+    h.messages.length = 0;
+    await h.manager.onProfileList("account-a", h.send);
+    expect(h.messages).toContainEqual({
+      type: MSG_BOT_CHECKPOINT,
+      message: expect.objectContaining({ checkpoint: expect.objectContaining({ id: saving.checkpoint!.id, state: "ready" }) }),
+    });
+
+    await h.manager.onResume(
+      h.host,
+      "controller-1",
+      "account-a",
+      "character-a",
+      h.send,
+      { checkpointId: saving.checkpoint!.id },
+    );
+    expect(h.claims).toHaveLength(2);
+    expect(h.inserted).toHaveLength(2);
+    expect(h.messages).toContainEqual({
+      type: MSG_BOT_OP_RESULT,
+      message: expect.objectContaining({ op: "resume", ok: true, refId: PROFILE.id }),
+    });
+    expect(checkpointMessages.at(-1)?.checkpoint?.state).toBe("ready");
+    expect(h.messages).toContainEqual({ type: MSG_BOT_CHECKPOINT, message: { checkpoint: null } });
+  });
 });
 
 describe("MapRoom no-clone implementation guard", () => {
@@ -299,9 +371,24 @@ describe("MapRoom no-clone implementation guard", () => {
     expect(player).toContain("setAuthorityLocked(locked: boolean)");
     expect(player).toContain("if (authorityLocked) clearPath()");
     expect(player).toContain("keyboard.consumeSlotPressed()");
-    expect(app).toContain("player.setAuthorityLocked(active)");
+    expect(app).toContain("player.setAuthorityLocked(true)");
+    expect(app).toContain("player.setAuthorityLocked(false)");
     expect(app).toContain("player.applyAuthorityState(");
     expect(app).toContain("const frozen = locked || tabHidden || characterAutonomyActive");
+  });
+
+  test("manual move and skill both invoke the server takeover fence before their existing handlers", () => {
+    const room = readFileSync(resolve(process.cwd(), "server/rooms/MapRoom.ts"), "utf8");
+    const manager = readFileSync(resolve(process.cwd(), "server/bot/manager.ts"), "utf8");
+    const app = readFileSync(resolve(process.cwd(), "src/engine/runtime/app.ts"), "utf8");
+    const panel = readFileSync(resolve(process.cwd(), "src/ui/panels/bot/BotPanel.tsx"), "utf8");
+    expect(room).toContain('this.takeManualAuthority(client, "move")');
+    expect(room).toContain('this.takeManualAuthority(client, "skill")');
+    expect(manager).toContain("runtime.takeover(checkpoint.id, checkpoint.savedAt)");
+    expect(app).toContain("!pending.schemaManual || !pending.acked");
+    expect(app).toContain("consumeManualTakeoverIntent()");
+    expect(panel).toContain("รับช่วงต่อ");
+    expect(panel).toContain("หยุดแผน");
   });
 });
 
@@ -351,6 +438,7 @@ describe("BotRuntime authority drain", () => {
       baseCooldownSeconds: 1,
       startedAtMs: 0,
       onStopped: () => { stopped += 1; },
+      onTakeoverSettled: () => undefined,
     });
 
     runtime.tick(2_000);
@@ -378,5 +466,140 @@ describe("BotRuntime authority drain", () => {
       drops: { gel: 2 },
     });
     expect(patches.at(-1)?.[2]).toMatchObject({ stopReason: "manual" });
+  });
+
+  test("takeover fences future commands immediately while an accepted reward drains into the checkpoint", async () => {
+    let finishAttack!: (outcome: BotAttackOutcome) => void;
+    const attack = new Promise<BotAttackOutcome>((resolve) => { finishAttack = resolve; });
+    const releases: string[] = [];
+    const settled: { checkpointId: string; saved: boolean }[] = [];
+    let attacks = 0;
+    const sessionRepo: SessionRepo = {
+      insert: async () => undefined,
+      patch: async () => undefined,
+      listByAccount: async () => [],
+      getById: async () => null,
+      markOpenAsRestart: async () => 0,
+    };
+    const host: BotHost = {
+      mapId: "map1",
+      roomId: "room-1",
+      botClaimAuthority: () => "actor:real",
+      botReleaseAuthority: (actorId) => { releases.push(actorId); },
+      botMobs: () => [{ id: "mob-1", mobType: "slime", tx: 0, ty: 0, hp: 10, pocketId: "pocket" }],
+      botPos: () => ({ tx: 0, ty: 0 }),
+      botHpFraction: () => 1,
+      botAttackRange: () => 2,
+      botBaseCooldownSeconds: () => 1,
+      botStepToward: () => undefined,
+      botAttack: () => { attacks += 1; return attack; },
+      botOwnerSend: () => false,
+      isBossOrEventType: () => false,
+      pocketExists: () => true,
+    };
+    const runtime = new BotRuntime({
+      host,
+      config: DEFAULT_BOT_CONFIG,
+      sessionRepo,
+      rarityOf: () => undefined,
+      sessionRowId: "run-takeover",
+      accountId: "account-a",
+      characterId: "character-a",
+      profileId: "profile-a",
+      actorId: "actor:real",
+      mapId: "map1",
+      pocketId: "pocket",
+      rules: { skillSlots: [0], potionThresholdPct: null, lootAll: true },
+      baseCooldownSeconds: 1,
+      startedAtMs: 0,
+      onStopped: () => undefined,
+      onTakeoverSettled: (_accountId, checkpointId, saved) => settled.push({ checkpointId, saved }),
+    });
+
+    runtime.tick(2_000);
+    expect(runtime.takeover("checkpoint-1", 123)).toBe(true);
+    expect(releases).toEqual(["actor:real"]);
+    runtime.tick(10_000);
+    expect(attacks).toBe(1);
+    expect(settled).toEqual([]);
+
+    finishAttack({
+      killed: 1,
+      gold: 7,
+      exp: 11,
+      loot: [{ itemId: "gel", quantity: 2 }],
+      overflow: [],
+      leveledUp: false,
+    });
+    await attack;
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+
+    expect(releases).toEqual(["actor:real"]);
+    expect(settled).toEqual([{ checkpointId: "checkpoint-1", saved: true }]);
+  });
+
+  test("final checkpoint write waits behind an older periodic report flush", async () => {
+    let finishFirstPatch!: () => void;
+    const firstPatch = new Promise<void>((resolve) => { finishFirstPatch = resolve; });
+    const patches: Parameters<SessionRepo["patch"]>[] = [];
+    const settled: boolean[] = [];
+    const sessionRepo: SessionRepo = {
+      insert: async () => undefined,
+      patch: (...args) => {
+        patches.push(args);
+        return patches.length === 1 ? firstPatch : Promise.resolve();
+      },
+      listByAccount: async () => [],
+      getById: async () => null,
+      markOpenAsRestart: async () => 0,
+    };
+    const host: BotHost = {
+      mapId: "map1",
+      roomId: "room-1",
+      botClaimAuthority: () => "actor:real",
+      botReleaseAuthority: () => undefined,
+      botMobs: () => [],
+      botPos: () => ({ tx: 0, ty: 0 }),
+      botHpFraction: () => 1,
+      botAttackRange: () => 2,
+      botBaseCooldownSeconds: () => 1,
+      botStepToward: () => undefined,
+      botAttack: async () => ({ killed: 0, gold: 0, exp: 0, loot: [], overflow: [], leveledUp: false }),
+      botOwnerSend: () => false,
+      isBossOrEventType: () => false,
+      pocketExists: () => true,
+    };
+    const runtime = new BotRuntime({
+      host,
+      config: DEFAULT_BOT_CONFIG,
+      sessionRepo,
+      rarityOf: () => undefined,
+      sessionRowId: "run-serialized",
+      accountId: "account-a",
+      characterId: "character-a",
+      profileId: "profile-a",
+      actorId: "actor:real",
+      mapId: "map1",
+      pocketId: "pocket",
+      rules: { skillSlots: [0], potionThresholdPct: null, lootAll: true },
+      baseCooldownSeconds: 1,
+      startedAtMs: 0,
+      onStopped: () => undefined,
+      onTakeoverSettled: (_accountId, _checkpointId, saved) => settled.push(saved),
+    });
+
+    runtime.tick(DEFAULT_BOT_CONFIG.sessionFlushIntervalMs + 1);
+    await Promise.resolve();
+    expect(patches).toHaveLength(1);
+    expect(runtime.takeover("checkpoint-serialized", 456)).toBe(true);
+    await Promise.resolve();
+    expect(patches).toHaveLength(1);
+    expect(settled).toEqual([]);
+
+    finishFirstPatch();
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    expect(patches).toHaveLength(2);
+    expect(patches[1]?.[2]).toMatchObject({ stoppedAt: 456, stopReason: "manual" });
+    expect(settled).toEqual([true]);
   });
 });

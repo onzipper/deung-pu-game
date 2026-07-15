@@ -111,7 +111,9 @@ export interface BotRuntimeDeps {
   baseCooldownSeconds: number;
   startedAtMs: number;
   /** called when the runtime stops (any reason) so the manager drops it. */
-  onStopped: (accountId: string) => void;
+  onStopped: (accountId: string, sessionRowId: string) => void;
+  /** takeover checkpoint becomes resumable only after the accepted reward/report write has drained. */
+  onTakeoverSettled: (accountId: string, checkpointId: string, saved: boolean) => void;
 }
 
 export class BotRuntime {
@@ -126,6 +128,10 @@ export class BotRuntime {
   private attacking = false; // an async attack+grant is in flight → don't start another
   private pendingStop: { reason: BotStopReason; requestedAt: number } | null = null;
   private stopFinalized = false;
+  private authorityReleased = false;
+  private takeoverCheckpointId: string | null = null;
+  /** Serialize periodic/final report patches so an older flush can never land after the checkpoint close. */
+  private persistenceTail: Promise<void> = Promise.resolve();
 
   constructor(deps: BotRuntimeDeps) {
     this.d = deps;
@@ -140,6 +146,18 @@ export class BotRuntime {
   }
   get characterId(): string {
     return this.d.characterId;
+  }
+  get profileId(): string {
+    return this.d.profileId;
+  }
+  get sessionRowId(): string {
+    return this.d.sessionRowId;
+  }
+  get mapId(): string {
+    return this.d.mapId;
+  }
+  get pocketId(): string {
+    return this.d.pocketId;
   }
   get host(): BotHost {
     return this.d.host;
@@ -189,7 +207,7 @@ export class BotRuntime {
     this.sinceFlushMs += dtMs;
     if (this.sinceFlushMs >= config.sessionFlushIntervalMs) {
       this.sinceFlushMs = 0;
-      this.flush(null);
+      void this.flush(null);
     }
     this.sinceStatusMs += dtMs;
     if (this.sinceStatusMs >= config.statusPushIntervalMs) {
@@ -260,12 +278,33 @@ export class BotRuntime {
     if (!this.attacking) this.finalizeStop();
   }
 
+  /**
+   * Fence every future automation command and release the actor synchronously so the caller may apply the
+   * same manual input in this event turn. The already-accepted async reward is allowed to drain into the
+   * report; it can never issue another movement/attack after `stopped` is set.
+   */
+  takeover(checkpointId: string, requestedAt: number): boolean {
+    if (this.stopped) return false;
+    this.stopped = true;
+    this.pendingStop = { reason: "manual", requestedAt };
+    this.takeoverCheckpointId = checkpointId;
+    this.releaseAuthorityOnce();
+    if (!this.attacking) this.finalizeStop();
+    return true;
+  }
+
+  private releaseAuthorityOnce(): void {
+    if (this.authorityReleased) return;
+    this.authorityReleased = true;
+    this.d.host.botReleaseAuthority(this.d.actorId);
+  }
+
   private finalizeStop(): void {
     if (this.stopFinalized || !this.pendingStop || this.attacking) return;
     this.stopFinalized = true;
     const { reason, requestedAt } = this.pendingStop;
-    this.flush({ stoppedAt: requestedAt, stopReason: reason });
-    this.d.host.botReleaseAuthority(this.d.actorId);
+    const persisted = this.flush({ stoppedAt: requestedAt, stopReason: reason });
+    this.releaseAuthorityOnce();
     const stopped: BotStoppedMessage = {
       profileId: this.d.profileId,
       sessionId: this.d.sessionRowId,
@@ -275,7 +314,11 @@ export class BotRuntime {
       expEarned: this.counters.expEarned,
     };
     this.d.host.botOwnerSend(this.d.accountId, MSG_BOT_STOPPED, stopped);
-    this.d.onStopped(this.d.accountId);
+    this.d.onStopped(this.d.accountId, this.d.sessionRowId);
+    const checkpointId = this.takeoverCheckpointId;
+    if (checkpointId) {
+      void persisted.then((saved) => this.d.onTakeoverSettled(this.d.accountId, checkpointId, saved));
+    }
   }
 
   private pushStatus(action: string): void {
@@ -296,11 +339,16 @@ export class BotRuntime {
   }
 
   /** best-effort DB flush of the live counters (+ optional stop). */
-  private flush(stop: { stoppedAt: number; stopReason: BotStopReason } | null): void {
-    void this.d.sessionRepo
-      .patch(this.d.sessionRowId, { ...this.counters, drops: { ...this.counters.drops } }, stop)
+  private flush(stop: { stoppedAt: number; stopReason: BotStopReason } | null): Promise<boolean> {
+    const counters = { ...this.counters, drops: { ...this.counters.drops } };
+    const persisted = this.persistenceTail
+      .then(() => this.d.sessionRepo.patch(this.d.sessionRowId, counters, stop))
+      .then(() => true)
       .catch((e: unknown) => {
         console.error(`[bot ${this.d.sessionRowId}] flush error: ${e instanceof Error ? e.message : String(e)}`);
+        return false;
       });
+    this.persistenceTail = persisted.then(() => undefined);
+    return persisted;
   }
 }
