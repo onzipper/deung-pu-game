@@ -143,6 +143,8 @@ function createManagerHarness(options: { insert?: SessionRepo["insert"] } = {}) 
     botTownSell: async () => ({ ok: false, reason: "unavailable" }),
     botTownDeposit: async () => ({ ok: false, reason: "unavailable" }),
     botTownBuy: async () => ({ ok: false, reason: "unavailable" }),
+    botGoldBalance: async () => null,
+    botSafeCampAnchor: () => ({ tx: 0, ty: 0 }),
   };
   const deps: BotManagerDeps = {
     config: DEFAULT_BOT_CONFIG,
@@ -651,6 +653,8 @@ describe("BotRuntime authority drain", () => {
       botTownSell: async () => ({ ok: false, reason: "unavailable" }),
       botTownDeposit: async () => ({ ok: false, reason: "unavailable" }),
       botTownBuy: async () => ({ ok: false, reason: "unavailable" }),
+      botGoldBalance: async () => null,
+      botSafeCampAnchor: () => ({ tx: 0, ty: 0 }),
     };
     const runtime = new BotRuntime({
       host,
@@ -732,6 +736,8 @@ describe("BotRuntime authority drain", () => {
       botTownSell: async () => ({ ok: false, reason: "unavailable" }),
       botTownDeposit: async () => ({ ok: false, reason: "unavailable" }),
       botTownBuy: async () => ({ ok: false, reason: "unavailable" }),
+      botGoldBalance: async () => null,
+      botSafeCampAnchor: () => ({ tx: 0, ty: 0 }),
     };
     let stopped = 0;
     const runtime = new BotRuntime({
@@ -830,6 +836,8 @@ describe("BotRuntime authority drain", () => {
       botTownSell: async () => ({ ok: false, reason: "unavailable" }),
       botTownDeposit: async () => ({ ok: false, reason: "unavailable" }),
       botTownBuy: async () => ({ ok: false, reason: "unavailable" }),
+      botGoldBalance: async () => null,
+      botSafeCampAnchor: () => ({ tx: 0, ty: 0 }),
     };
     const runtime = new BotRuntime({
       host,
@@ -932,6 +940,8 @@ describe("BotRuntime authority drain", () => {
       botTownSell: async () => ({ ok: false, reason: "unavailable" }),
       botTownDeposit: async () => ({ ok: false, reason: "unavailable" }),
       botTownBuy: async () => ({ ok: false, reason: "unavailable" }),
+      botGoldBalance: async () => null,
+      botSafeCampAnchor: () => ({ tx: 0, ty: 0 }),
     };
     const runtime = new BotRuntime({
       host,

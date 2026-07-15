@@ -165,6 +165,11 @@ describe("botStopReasonLabel / reportStopReasonLabel", () => {
     expect(botStopReasonLabel("expired_readonly")).toContain("อ่านอย่างเดียว");
   });
 
+  test("town_trip_failed (D-069) มีข้อความเฉพาะ ไม่ fallback", () => {
+    expect(botStopReasonLabel("town_trip_failed")).toContain("เมือง");
+    expect(botStopReasonLabel("town_trip_failed")).not.toBe("บอทหยุดทำงาน");
+  });
+
   test("reason แปลกไม่รู้จัก → fallback", () => {
     expect(botStopReasonLabel("unknown_xyz")).toBe("บอทหยุดทำงาน");
   });

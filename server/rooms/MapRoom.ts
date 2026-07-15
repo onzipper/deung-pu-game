@@ -264,7 +264,7 @@ import {
   type ShopBuyResult,
   type ShopSellResult,
 } from "../../src/server/economy/shop";
-import { appendEntry } from "../db/ledger";
+import { appendEntry, getBalance } from "../db/ledger";
 import {
   applyClassStatWeights,
   applyExpGain,
@@ -3839,6 +3839,33 @@ export class MapRoom extends Room<MapRoomState> {
     // Net cost = buy price × granted quantity (result.quantity already nets out any overflow refund). No achievement.
     const cost = (shop.entries.find((e) => e.itemId === result.itemId)?.buyPrice ?? 0) * result.quantity;
     return { ok: true, goldDelta: -cost };
+  }
+
+  /**
+   * BotHost.botGoldBalance — the actor's authoritative gold balance = SUM(ledger) for the character, the SAME
+   * value the shop buy path debits against (D-070 minGoldReserve is checked against this, NOT a summed goldDelta —
+   * a duplicate-replay edge makes deltas unreliable). null on missing member / no persistence / ledger error.
+   */
+  async botGoldBalance(actorId: string): Promise<number | null> {
+    const member = this.botMembers.get(actorId);
+    if (!member || !inventoryPersistenceAvailable()) return null;
+    try {
+      return Number(await getBalance(member.characterId, "gold"));
+    } catch (err) {
+      console.error(
+        `[MapRoom ${this.roomId}] bot gold balance error ${actorId}: ` +
+          (err instanceof Error ? err.message : String(err)),
+      );
+      return null;
+    }
+  }
+
+  /**
+   * BotHost.botSafeCampAnchor — THIS room's safe-camp tile (§59.1). The warp anchor for a null townTrip.townAnchor
+   * and the always-safe return anchor at the farm. A read-only position getter (no balance/combat semantics).
+   */
+  botSafeCampAnchor(): Vec2 {
+    return { tx: this.safeCamp.tx, ty: this.safeCamp.ty };
   }
 
   /**

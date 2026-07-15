@@ -655,6 +655,10 @@ export class BotManager {
       now: () => this.d.now(),
       onStopped: (acc, stoppedSessionRowId) => this.dropRuntime(acc, stoppedSessionRowId),
       onTakeoverSettled: (acc, checkpointId, saved) => this.settleTakeoverCheckpoint(acc, checkpointId, saved),
+      // PR5 Phase C (D-069): the town-trip warp needs a solo host for a target map, and owner pushes must fan out
+      // across every registered host (the owner's transport can sit in a sibling room after a warp).
+      acquireHostForMap: (mapId) => this.acquireHostForMap(mapId),
+      ownerSend: (acc, type, message) => this.ownerSend(acc, type, message),
     });
     this.bots.set(accountId, runtime);
     this.actorToAccount.set(actorId, accountId);

@@ -145,6 +145,8 @@ function createPlusHarness(options: PlusHarnessOptions = {}) {
     botTownSell: async () => ({ ok: false, reason: "unavailable" }),
     botTownDeposit: async () => ({ ok: false, reason: "unavailable" }),
     botTownBuy: async () => ({ ok: false, reason: "unavailable" }),
+    botGoldBalance: async () => null,
+    botSafeCampAnchor: () => ({ tx: 0, ty: 0 }),
   };
 
   const runtime = new BotRuntime({

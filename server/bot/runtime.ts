@@ -46,6 +46,7 @@ import {
   type BotContinuitySnapshot,
 } from "./continuity";
 import { settlementForStoppedPlan } from "./policy";
+import { TownTripController, type TownTripFacade, type TownTripTrigger } from "./town-trip";
 import type { SkillDefinition } from "../../src/game/skill/types";
 
 /**
@@ -264,6 +265,17 @@ export interface BotHost {
   ): Promise<BotTownTxResult>;
   /** Buy `quantity` of `itemId` from the town shop through the manual buy service (idempotency-keyed). */
   botTownBuy(actorId: string, itemId: string, quantity: number, idemKey: string): Promise<BotTownTxResult>;
+  /**
+   * Authoritative gold balance (SUM of the currency ledger) for the actor's character — the SAME value the shop
+   * buy path debits. The trip controller re-reads this before each restock buy so the D-070 gold reserve holds
+   * (a summed goldDelta is unreliable under a duplicate replay). null = missing member / no persistence / DB error.
+   */
+  botGoldBalance(actorId: string): Promise<number | null>;
+  /**
+   * This room's safe-camp anchor tile (§59.1). Used as the warp arrival anchor when townTrip.townAnchor is null
+   * (city-hub has no farm pockets) and as the always-safe return anchor at the farm. Read-only position getter.
+   */
+  botSafeCampAnchor(): Vec2;
 }
 
 export interface BotRuntimeDeps {
@@ -296,6 +308,18 @@ export interface BotRuntimeDeps {
   onStopped: (accountId: string, sessionRowId: string) => void;
   /** takeover checkpoint becomes resumable only after the accepted reward/report write has drained. */
   onTakeoverSettled: (accountId: string, checkpointId: string, saved: boolean) => void;
+  /**
+   * PR5 Phase C (D-069): acquire (or create) a SOLO host for a target map — the town-trip warp target on the way
+   * out (city-hub) and the farm map on the way back. Optional: absent = the runtime cannot town-trip (Free path
+   * and the existing recovery suites never pass it, and never call {@link BotRuntime.beginTownTrip}).
+   */
+  acquireHostForMap?: (mapId: string) => Promise<BotHost | null>;
+  /**
+   * PR5 Phase B (D-069): fan an owner-directed message across every registered host. After a warp the owner's
+   * transport may sit in a sibling room, so a single stored host is no longer authoritative. Optional: absent =
+   * fall back to the current host's own `botOwnerSend` (identical to the pre-trip behavior).
+   */
+  ownerSend?: (accountId: string, type: string, message: unknown) => boolean;
 }
 
 export class BotRuntime {
@@ -313,7 +337,7 @@ export class BotRuntime {
    * lease; the resolution continuation drops it. A nonempty registry defers finalizeStop so an already-committed
    * economy grant always drains into the report before authority release.
    */
-  private readonly pendingLeases = new Map<symbol, "attack" | "potion">();
+  private readonly pendingLeases = new Map<symbol, "attack" | "potion" | "town">();
   private pendingStop: { reason: BotStopReason; requestedAt: number } | null = null;
   private stopFinalized = false;
   private authorityReleased = false;
@@ -338,8 +362,24 @@ export class BotRuntime {
   /** Static-per-map anchor cache (built on first paid need over the allowed pockets) — never built for Free. */
   private pocketAnchorsCache: Map<string, Vec2> | null = null;
 
+  // ── PR5 Phase C town-trip state (D-069/D-070; Plus/Pro only — Free never town-trips) ──────────────────────
+  /**
+   * The host the runtime currently drives. Starts at `deps.host`; a town-trip warp rebinds it to the town host and
+   * then back to a farm host. Mutable so tickRoom routing (`rt.host === host`) follows the actor automatically.
+   */
+  private currentHost: BotHost;
+  /** Active town trip, or null when farming. While non-null, tickPaid delegates the whole tick to it (no planner). */
+  private tripController: TownTripController | null = null;
+  /** Last completed town trip (epoch ms) — the cooldown gate; NEGATIVE_INFINITY = never (first trip allowed). */
+  private lastTownTripAt = Number.NEGATIVE_INFINITY;
+  /** Short backoff after a trip that never moved the actor (target/seat unavailable) so it does not spin per tick. */
+  private townTripRetryUntil = 0;
+  /** Per-runtime trip sequence — fixes the idempotency-key namespace so a retried transaction reuses its key. */
+  private tripSeq = 0;
+
   constructor(deps: BotRuntimeDeps) {
     this.d = deps;
+    this.currentHost = deps.host;
     this.throttleMs = throttledAttackCooldownMs(deps.baseCooldownSeconds, deps.config.botEfficiencyTarget);
     this.continuity = deps.initialContinuity
       ? { ...deps.initialContinuity }
@@ -370,7 +410,7 @@ export class BotRuntime {
     return this.d.pocketId;
   }
   get host(): BotHost {
-    return this.d.host;
+    return this.currentHost;
   }
   get isStopped(): boolean {
     return this.stopped;
@@ -399,7 +439,8 @@ export class BotRuntime {
    * runs it with the inline low-hp stop skipped because the recovery planner owns the low-hp floor.
    */
   private runFarmBody(dtMs: number, skipInlineLowHp: boolean): void {
-    const { host, config } = this.d;
+    const host = this.currentHost;
+    const config = this.d.config;
     const pocketId = this.activePocketId;
 
     const pos = host.botPos(this.d.actorId);
@@ -481,15 +522,24 @@ export class BotRuntime {
    * host side effect lives here, state-before-side-effect and revision-fenced like PR4.
    */
   private tickPaid(dtMs: number): void {
-    const { host, config } = this.d;
+    const host = this.currentHost;
+    const config = this.d.config;
 
-    // (a) periodic tier recheck — a lapsed pass stops the run safely (expired_readonly → wait_for_owner).
+    // (a) periodic tier recheck — runs during a town trip too: a lapsed pass aborts the paid transactions but the
+    //     return warp still runs (getting the actor home is safety, not paid value) before settling expired_readonly.
     this.sinceTierCheckMs += dtMs;
     if (this.sinceTierCheckMs >= config.recovery.tierRecheckIntervalMs && !this.tierCheckInFlight) {
       this.recheckTier();
     }
 
-    // (b) one deterministic recovery decision for this tick.
+    // (b) an active town trip owns the whole tick — no recovery planner, no farm loop, no pocket/map_unsafe check
+    //     (the trip states are not farm states). canIssueAutomationCommand (tick's outer gate) still fences it.
+    if (this.tripController) {
+      this.tripController.tickTrip();
+      return;
+    }
+
+    // (c) one deterministic recovery decision for this tick.
     const snapshot: RecoverySnapshot = {
       nowMs: this.d.now(),
       tier: this.currentTier,
@@ -508,7 +558,7 @@ export class BotRuntime {
     };
     const decision = planRecovery(snapshot, config.recovery);
 
-    // (c) apply the single decision (state transition before side effect, revision-fenced).
+    // (d) apply the single decision (state transition before side effect, revision-fenced).
     switch (decision.kind) {
       case "baseline":
         this.runFarmBody(dtMs, true);
@@ -544,6 +594,10 @@ export class BotRuntime {
   onActorDied(): void {
     if (this.stopped) return;
     if (this.currentTier === "free") return void this.stop("death");
+    // A death during a town trip can only happen in the outbound window (the city-hub is a safe zone once the actor
+    // lands), so there is no recovery to attempt — settle `death` like Free. The controller observes `stopped` and
+    // unwinds on its next entry without transferring the actor.
+    if (this.tripController) return void this.stop("death");
     if (this.deathRecoveryCount >= this.d.config.recovery.maxDeathRecoveriesPerSession) {
       return void this.stop("death");
     }
@@ -560,7 +614,12 @@ export class BotRuntime {
       .resolveTier()
       .then((tier) => {
         if (tier === "free") {
-          if (this.currentTier !== "free" && !this.stopped) this.stop("expired_readonly");
+          if (this.currentTier !== "free" && !this.stopped) {
+            // Mid-trip expiry: skip the remaining paid transactions but let the return warp finish (getting the
+            // actor home is safety, not paid value); the controller settles expired_readonly after it lands.
+            if (this.tripController) this.tripController.abortForTierExpiry();
+            else this.stop("expired_readonly");
+          }
         } else {
           this.currentTier = tier;
         }
@@ -623,9 +682,9 @@ export class BotRuntime {
   /** Post-respawn: enter RETURNING_TO_WORK and plan an A* route back to the assigned pocket's anchor. */
   private dispatchPlanReturn(targetPocketId: string): void {
     if (!this.advanceContinuity("RETURNING_TO_WORK", "respawn_return_to_pocket")) return; // fence lost.
-    const anchor = this.pocketAnchors().get(targetPocketId) ?? this.d.host.botPocketAnchor(targetPocketId);
+    const anchor = this.pocketAnchors().get(targetPocketId) ?? this.currentHost.botPocketAnchor(targetPocketId);
     if (!anchor) return void this.stop("stuck"); // no walkable anchor — cannot route back.
-    const route = this.d.host.botPlanPath(this.d.actorId, anchor);
+    const route = this.currentHost.botPlanPath(this.d.actorId, anchor);
     if (route === null) return void this.stop("stuck"); // unreachable — a factual obstacle for the owner.
     this.recoveryPhase = { kind: "returning", targetPocketId, waypoints: route, nextIndex: 0 };
   }
@@ -638,10 +697,10 @@ export class BotRuntime {
     if (!waypoint) return; // consumed — the planner settles it as `arrived` next tick.
 
     this.decisionTimer += dtMs;
-    const progressed = this.d.host.botStepToward(this.d.actorId, waypoint, dtMs);
+    const progressed = this.currentHost.botStepToward(this.d.actorId, waypoint, dtMs);
     if (progressed) {
       this.idleDecisions = 0;
-      const pos = this.d.host.botPos(this.d.actorId);
+      const pos = this.currentHost.botPos(this.d.actorId);
       if (pos && withinRange(pos, waypoint, RETURN_WAYPOINT_ARRIVE_TILES)) {
         phase.nextIndex += 1;
         this.decisionTimer = 0;
@@ -663,9 +722,9 @@ export class BotRuntime {
     const now = this.d.now();
     if (now - this.lastRouteReplanMs < this.d.config.recovery.routeReplanCooldownMs) return;
     this.lastRouteReplanMs = now;
-    const anchor = this.pocketAnchors().get(phase.targetPocketId) ?? this.d.host.botPocketAnchor(phase.targetPocketId);
+    const anchor = this.pocketAnchors().get(phase.targetPocketId) ?? this.currentHost.botPocketAnchor(phase.targetPocketId);
     if (!anchor) return; // keep counting; the stuck limit is the terminal guard.
-    const route = this.d.host.botPlanPath(this.d.actorId, anchor);
+    const route = this.currentHost.botPlanPath(this.d.actorId, anchor);
     if (route === null) return; // keep counting.
     phase.waypoints = route;
     phase.nextIndex = 0;
@@ -696,7 +755,7 @@ export class BotRuntime {
   private allowedPockets(): readonly string[] {
     if (this.allowedPocketsCache) return this.allowedPocketsCache;
     const configured = this.d.config.botAllowedPockets[this.d.mapId] ?? [];
-    const existing = configured.filter((p) => this.d.host.pocketExists(p));
+    const existing = configured.filter((p) => this.currentHost.pocketExists(p));
     this.allowedPocketsCache = existing.length > 0 ? existing : [this.d.pocketId];
     return this.allowedPocketsCache;
   }
@@ -706,7 +765,7 @@ export class BotRuntime {
     if (this.pocketAnchorsCache) return this.pocketAnchorsCache;
     const anchors = new Map<string, Vec2>();
     for (const p of this.allowedPockets()) {
-      const anchor = this.d.host.botPocketAnchor(p);
+      const anchor = this.currentHost.botPocketAnchor(p);
       if (anchor) anchors.set(p, anchor);
     }
     this.pocketAnchorsCache = anchors;
@@ -719,7 +778,7 @@ export class BotRuntime {
     return false;
   }
 
-  private acquireLease(kind: "attack" | "potion"): symbol {
+  private acquireLease(kind: "attack" | "potion" | "town"): symbol {
     const token = Symbol(kind);
     this.pendingLeases.set(token, kind);
     return token;
@@ -776,7 +835,7 @@ export class BotRuntime {
         itemId: rare.itemId,
         message: "เก็บของแรร์แล้ว",
       };
-      this.d.host.botOwnerSend(this.d.accountId, MSG_BOT_ALERT, alert);
+      this.ownerSendMessage(MSG_BOT_ALERT, alert);
     }
     // Free has one area + one goal: bag overflow is an obstacle, so it stops safely and reports.
     const bag = stopForInventoryOverflow(o.bagOverflowed ? 1 : 0);
@@ -813,6 +872,24 @@ export class BotRuntime {
    */
   takeover(checkpointId: string, requestedAt: number): BotContinuitySnapshotWire | null {
     if (this.stopped) return null;
+    // Mid-trip takeover = finish-and-return-then-pause (D-069): DON'T pause/stop now (that would freeze the
+    // controller's own drive home). Fence new transactions, drain the in-flight one, run the return warp, land at
+    // the farm, THEN pause + checkpoint (or pause-in-place at city-hub on return failure). Report the current
+    // (trip-state) snapshot so the manager can store the pending checkpoint; the settle updates it after landing.
+    if (this.tripController) {
+      this.tripController.abortForTakeover(checkpointId, requestedAt);
+      return toBotContinuityWire(this.continuity);
+    }
+    return this.applyTakeoverPause(checkpointId, requestedAt);
+  }
+
+  /**
+   * The synchronous pause + checkpoint settle shared by an immediate takeover (no trip) and the trip controller's
+   * post-landing settle. Fences every future automation command, releases the actor, and drains the accepted async
+   * reward into the report before authority release. Returns the paused snapshot, or null when the pause is fenced
+   * out (a stop/settlement already won the race).
+   */
+  private applyTakeoverPause(checkpointId: string, requestedAt: number): BotContinuitySnapshotWire | null {
     const paused = applyBotContinuityTransition(this.continuity, {
       kind: "pause",
       expectedRevision: this.continuity.revision,
@@ -824,15 +901,99 @@ export class BotRuntime {
     this.stopped = true;
     this.pendingStop = { reason: "manual", requestedAt };
     this.takeoverCheckpointId = checkpointId;
+    this.tripController = null;
     this.releaseAuthorityOnce();
     if (this.pendingLeases.size === 0) this.finalizeStop();
     return toBotContinuityWire(this.continuity);
   }
 
+  // ── PR5 Phase C town-trip wiring (D-069/D-070) ────────────────────────────────────────────────────────────
+
+  /**
+   * Begin a town trip (Plus/Pro): warp the real actor to the city-hub, run sell → deposit → restock, warp back and
+   * resume farming. Guards: paid tier in `townTrip.enabledTiers`, past the trip cooldown and any short retry
+   * backoff, no trip already active, not stopped, and the warp acquisition dep is wired. Advances the continuity to
+   * RETURNING_TO_TOWN before constructing the controller. Returns true when the trip started. Called by the (next
+   * task's) bag-pressure trigger and directly by the warp-handoff tests.
+   */
+  beginTownTrip(trigger: TownTripTrigger): boolean {
+    if (this.stopped || this.tripController) return false;
+    if (!canIssueAutomationCommand(this.continuity)) return false;
+    if (this.currentTier === "free" || !this.d.config.townTrip.enabledTiers.includes(this.currentTier)) return false;
+    if (!this.d.acquireHostForMap) return false;
+    const now = this.d.now();
+    if (now < this.townTripRetryUntil) return false;
+    if (now - this.lastTownTripAt < this.d.config.townTrip.cooldownMs) return false;
+    const reason = trigger === "bag_full" ? "bag_full_town_trip" : "preflight_town_trip";
+    if (!this.advanceContinuity("RETURNING_TO_TOWN", reason)) return false; // fence lost (takeover/stop raced).
+    this.tripController = new TownTripController(this.makeTripFacade(), this.tripSeq);
+    return true;
+  }
+
+  /** Swap the driven host (town-trip warp export→attach→rebind). tickRoom routing follows `rt.host` automatically. */
+  rebindHost(next: BotHost): void {
+    this.currentHost = next;
+  }
+
+  /**
+   * Plan an A* route from the actor's CURRENT tile (the farm safe-camp, post-return-warp) to `targetPocketId`'s
+   * anchor and enter the recovery "returning" phase — WITHOUT re-advancing continuity (it is already
+   * RETURNING_TO_WORK). The runtime's own recovery machinery then walks it home (follow_route → arrived → WORKING).
+   * Returns false when no walkable anchor exists or the route is unreachable (the caller stops `stuck`).
+   */
+  private beginReturnRouteFromCurrent(targetPocketId: string): boolean {
+    const anchor = this.pocketAnchors().get(targetPocketId) ?? this.currentHost.botPocketAnchor(targetPocketId);
+    if (!anchor) return false;
+    const route = this.currentHost.botPlanPath(this.d.actorId, anchor);
+    if (route === null) return false;
+    this.recoveryPhase = { kind: "returning", targetPocketId, waypoints: route, nextIndex: 0 };
+    this.idleDecisions = 0;
+    return true;
+  }
+
+  /** Record a completed trip: arm the cooldown from now and bump the idempotency-key trip sequence. */
+  private markTripComplete(): void {
+    this.lastTownTripAt = this.d.now();
+    this.tripSeq += 1;
+  }
+
+  /** Build the narrow facade the controller drives the runtime through (keeps runtime internals private). */
+  private makeTripFacade(): TownTripFacade {
+    return {
+      config: this.d.config,
+      actorId: this.d.actorId,
+      sessionRowId: this.d.sessionRowId,
+      farmMapId: this.d.mapId,
+      now: () => this.d.now(),
+      isStopped: () => this.stopped,
+      currentHost: () => this.currentHost,
+      activePocketId: () => this.activePocketId,
+      acquireHostForMap: (mapId) =>
+        this.d.acquireHostForMap ? this.d.acquireHostForMap(mapId) : Promise.resolve(null),
+      rebindHost: (next) => this.rebindHost(next),
+      advance: (to, reasonCode) => this.advanceContinuity(to, reasonCode),
+      acquireTownLease: () => this.acquireLease("town"),
+      releaseTownLease: (token) => this.releaseLease(token),
+      stop: (reason) => this.stop(reason),
+      goldBalance: () => this.currentHost.botGoldBalance(this.d.actorId),
+      bagItems: () => this.currentHost.botBagItems(this.d.actorId),
+      ownerStatusPush: () => this.pushStatus(),
+      beginReturnRouteFromCurrent: (pocketId) => this.beginReturnRouteFromCurrent(pocketId),
+      markTripComplete: () => this.markTripComplete(),
+      settleTakeover: (checkpointId, requestedAt) => void this.applyTakeoverPause(checkpointId, requestedAt),
+      armRetryBackoff: () => {
+        this.townTripRetryUntil = this.d.now() + Math.floor(this.d.config.townTrip.cooldownMs / 10);
+      },
+      onTripEnded: () => {
+        this.tripController = null;
+      },
+    };
+  }
+
   private releaseAuthorityOnce(): void {
     if (this.authorityReleased) return;
     this.authorityReleased = true;
-    this.d.host.botReleaseAuthority(this.d.actorId);
+    this.currentHost.botReleaseAuthority(this.d.actorId);
   }
 
   private finalizeStop(): void {
@@ -850,7 +1011,7 @@ export class BotRuntime {
       goldEarned: this.counters.goldEarned,
       expEarned: this.counters.expEarned,
     };
-    this.d.host.botOwnerSend(this.d.accountId, MSG_BOT_STOPPED, stopped);
+    this.ownerSendMessage(MSG_BOT_STOPPED, stopped);
     this.d.onStopped(this.d.accountId, this.d.sessionRowId);
     const checkpointId = this.takeoverCheckpointId;
     if (checkpointId) {
@@ -858,8 +1019,18 @@ export class BotRuntime {
     }
   }
 
+  /**
+   * Deliver an owner-directed message. Prefer the manager's cross-host fan-out (the owner's transport may sit in a
+   * sibling room after a warp); fall back to the current host's own `botOwnerSend`. With no manager dep wired (the
+   * Free/recovery suites) this is byte-identical to the pre-trip behavior: a single call on the current host.
+   */
+  private ownerSendMessage(type: string, message: unknown): boolean {
+    if (this.d.ownerSend?.(this.d.accountId, type, message)) return true;
+    return this.currentHost.botOwnerSend(this.d.accountId, type, message);
+  }
+
   private pushStatus(): void {
-    const pos = this.d.host.botPos(this.d.actorId);
+    const pos = this.currentHost.botPos(this.d.actorId);
     const msg: BotStatusMessage = {
       profileId: this.d.profileId,
       sessionId: this.d.sessionRowId,
@@ -870,10 +1041,10 @@ export class BotRuntime {
       killCount: this.counters.killCount,
       goldEarned: this.counters.goldEarned,
       expEarned: this.counters.expEarned,
-      hpFraction: this.d.host.botHpFraction(this.d.actorId),
+      hpFraction: this.currentHost.botHpFraction(this.d.actorId),
       uptimeMs: this.d.now() - this.d.startedAtMs,
     };
-    this.d.host.botOwnerSend(this.d.accountId, MSG_BOT_STATUS, msg);
+    this.ownerSendMessage(MSG_BOT_STATUS, msg);
   }
 
   private advanceContinuity(to: BotContinuityOperationalStateWire, reasonCode: string): boolean {
