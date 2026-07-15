@@ -34,9 +34,9 @@ export class PlayerState extends Schema {
    */
   @type("boolean") isAfk = false;
   /**
-   * Batch 7b (Bot/Hunter Assistant): true = this entity is a server-side bot (virtual player), NOT a connected
-   * client. Colyseus auto-sync → other real players SEE the bot in the room + client can render a bot marker.
-   * server-authoritative (a real client can never set this). additive field — not a skill/DB schema field.
+   * D-067 Character Autonomy: true while the server automation controller owns this real character actor.
+   * This never denotes a clone, bot avatar, worker entity, or separate inventory. Other players see the same
+   * actor with a quiet automation marker. Server-authoritative; clients cannot set it.
    */
   @type("boolean") isBot = false;
   /**
@@ -95,6 +95,12 @@ export class MapRoomState extends Schema {
   /** partyId ของ channel นี้ (P1-08) — "" = solo channel; ≠"" = channel เฉพาะ party นั้น. */
   @type("string") partyId = "";
   @type("string") roomId = "";
+  /**
+   * Transport attachment table: Colyseus controller session id → stable world actor id. A reconnect may replace
+   * the controller key while retaining the same actor key/state. Clients use this server-issued binding to find
+   * their local character instead of assuming that a socket session id is a character identity.
+   */
+  @type({ map: "string" }) controllers = new MapSchema<string>();
   @type({ map: PlayerState }) players = new MapSchema<PlayerState>();
   /** มอนทุกตัวในห้อง (P1-03) — key = mobId. **AOI filter ยังไม่บังคับ P1** (§18.2, ดู MapRoom TODO). */
   @type({ map: MobState }) mobs = new MapSchema<MobState>();

@@ -84,6 +84,11 @@ export interface LocalPlayerHandle {
    */
   readonly manualInputActive: boolean;
   /**
+   * PR1 character authority: lock local prediction while the server-side automation controller owns this
+   * same actor. Unlocking does not synthesize input; a later player action may control the actor normally.
+   */
+  setAuthorityLocked(locked: boolean): void;
+  /**
    * consume การกด ATTACK_KEY (Space) หรือ requestAttack() ตั้งแต่ครั้งก่อนหน้า — edge-triggered
    * (กันกดค้างสแปม). P1-09: รวม programmatic attack (tap mob) เข้าช่องเดียวกับ Space → cooldown gate เดียว.
    */
@@ -123,6 +128,13 @@ export interface LocalPlayerHandle {
    * reconcile แบบง่าย (snap เฉย ๆ, ไม่ rewind-replay input) — พอสำหรับ P1-02.
    */
   applyCorrection(tx: number, ty: number): void;
+  /** Apply the complete server presentation of this actor while Character Autonomy owns it. */
+  applyAuthorityState(
+    tx: number,
+    ty: number,
+    direction: Direction,
+    animation: "idle" | "walk",
+  ): void;
   /**
    * P2-13 (D-056): เปิด/ปิดป้าย "AFK" ของตัวเอง (server ตั้ง isAfk เมื่อ idle ครบ idleIndicatorSec) —
    * caller (app.ts) เรียกจาก net onSelfAfkChange. display-only, ไม่กระทบ input/movement.
@@ -165,6 +177,7 @@ export function createLocalPlayer(
   const attackDurationMs = player.animation.attackFrameDuration * player.animation.attackFrames;
   let attackElapsedMs: number | null = null; // null = ไม่ได้กำลังโจมตี
   let clickAttackPending = false; // P1-09 programmatic attack (tap mob) — edge-triggered เหมือน Space
+  let authorityLocked = false;
 
   // --- animated sprite (P0-06 placeholder / P3 atlas art ถ้ามี assetId + โหลดสำเร็จ) ---
   // มี assetId + peek เจอ + anim ครบ → ใช้ atlas (manifest/anchor/texture ของ atlas เอง); ไม่งั้น placeholder.
@@ -283,6 +296,14 @@ export function createLocalPlayer(
     }
   };
 
+  const snapPosition = (tx: number, ty: number): void => {
+    pos.tx = tx;
+    pos.ty = ty;
+    scene.moveEntity(LOCAL_PLAYER_ID, pos);
+    nameplates?.moveEntity(LOCAL_PLAYER_ID, pos);
+    scene.setCameraTarget(pos, true);
+  };
+
   return {
     position: pos,
     get facing() {
@@ -301,22 +322,40 @@ export function createLocalPlayer(
       return manualInputActive;
     },
 
+    setAuthorityLocked(locked: boolean): void {
+      // Consume edge-triggered input on both sides of the handoff so a key pressed under automation can never
+      // replay as a synthetic command after authority returns to the player.
+      keyboard.consumeAttackPressed();
+      keyboard.consumeSlotPressed();
+      authorityLocked = locked;
+      if (!locked) return;
+      moveVector = null;
+      manualInputActive = false;
+      clickAttackPending = false;
+      attackElapsedMs = null;
+      animation = "idle";
+      clearPath();
+    },
+
     consumeAttackPressed() {
       const kb = keyboard.consumeAttackPressed();
       const click = clickAttackPending;
       clickAttackPending = false;
-      return kb || click;
+      return authorityLocked ? false : kb || click;
     },
 
     consumeSlotPressed() {
-      return keyboard.consumeSlotPressed(); // A3: Digit1-4 (edge-triggered)
+      const slot = keyboard.consumeSlotPressed(); // A3: Digit1-4 (edge-triggered)
+      return authorityLocked ? null : slot;
     },
 
     requestAttack(): void {
+      if (authorityLocked) return;
       clickAttackPending = true;
     },
 
     faceToward(tile: TilePoint): void {
+      if (authorityLocked) return;
       facing = resolveDirection(
         { tx: tile.tx - pos.tx, ty: tile.ty - pos.ty },
         tileSize,
@@ -325,10 +364,11 @@ export function createLocalPlayer(
     },
 
     setMoveVector(vec: { dx: number; dy: number } | null): void {
-      moveVector = vec; // อ่าน+แปลงเป็น intent ใน update() (พร้อม keyboard) — ทิศเดียวกับ WASD
+      moveVector = authorityLocked ? null : vec; // อ่าน+แปลงเป็น intent ใน update() (พร้อม keyboard) — ทิศเดียวกับ WASD
     },
 
     moveTo(goal: TilePoint): boolean {
+      if (authorityLocked) return false;
       const path = findPath(pos, goal, isWalkable, {
         maxSearchNodes: pathfinding.maxSearchNodes,
       });
@@ -348,6 +388,7 @@ export function createLocalPlayer(
     },
 
     triggerAttack(): void {
+      if (authorityLocked) return;
       attackElapsedMs = 0; // update() รอบถัดไปจะ lock animation="attack" ทันที
     },
 
@@ -361,19 +402,38 @@ export function createLocalPlayer(
 
     applyCorrection(tx: number, ty: number): void {
       // P1-02: server สั่ง snap กลับ — เขียนทับ position ทันที (ไม่ interpolate: correction = truth)
-      pos.tx = tx;
-      pos.ty = ty;
-      scene.moveEntity(LOCAL_PLAYER_ID, pos);
-      nameplates?.moveEntity(LOCAL_PLAYER_ID, pos);
-      scene.setCameraTarget(pos, true); // snap กล้องตาม (ไม่ lerp ไปหาตำแหน่งใหม่)
+      snapPosition(tx, ty); // snap กล้องตาม (ไม่ lerp ไปหาตำแหน่งใหม่)
       // Prod fix 2026-07-12: correction แล้ว **ไม่ทิ้ง goal** — ถ้ากำลังเดินตาม path (click-to-move /
       // walk-to-attack chase) → replan A* จากตำแหน่งใหม่ไป goal เดิม → เดินต่อ (แก้ "กระตุกแล้วหยุด ไม่
       // ถึงจุดที่คลิก"). ไม่มี goal (WASD/manual / fresh join) → no-op ล้าง path. reconnect กลาง walk →
       // resume goal เดิม (สอดคล้อง decision "ค้างออนไลน์"). replan ไม่ถึง → clearPath (เหมือนเดิม).
-      replanToGoal();
+      if (authorityLocked) clearPath();
+      else replanToGoal();
+    },
+
+    applyAuthorityState(
+      tx: number,
+      ty: number,
+      direction: Direction,
+      nextAnimation: "idle" | "walk",
+    ): void {
+      snapPosition(tx, ty);
+      clearPath();
+      attackElapsedMs = null;
+      facing = direction;
+      animation = nextAnimation;
+      animator.setState(animation, facing);
     },
 
     update(dtSeconds: number): void {
+      if (authorityLocked) {
+        keyboard.consumeAttackPressed();
+        keyboard.consumeSlotPressed();
+        manualInputActive = false;
+        animator.setState(animation, facing);
+        animator.update(dtSeconds);
+        return;
+      }
       // P2-15: รวม intent WASD + joystick (touch) — ทั้งคู่เป็น tile-space basis เดียวกัน (ดู joystick.ts).
       const kb = keyboard.getIntent();
       const joy = moveVector

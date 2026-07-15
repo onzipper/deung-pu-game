@@ -10,12 +10,17 @@
 //    ยังทำ takeover ได้แม้ไม่มี DB — lease คือชั้น cross-process/persist เสริม.
 
 import { getPrisma } from "../db/client";
+import { KeyedOperationQueue } from "./keyed-operation-queue";
 
 /** ระยะ heartbeat (ms) — bump heartbeatAt เป็นระยะให้ตรวจ lease ค้างได้ (§4.1). */
 const HEARTBEAT_INTERVAL_MS = 30_000;
 
 let dbUnavailableWarned = false;
-const heartbeatTimers = new Map<string, ReturnType<typeof setInterval>>();
+const heartbeatTimers = new Map<
+  string,
+  { sessionId: string; timer: ReturnType<typeof setInterval> }
+>();
+const leaseOperations = new KeyedOperationQueue();
 
 /** DATABASE_URL ตั้งไหม — ไม่ตั้ง = dev/e2e ไม่มี DB → ข้าม lease (warn ครั้งเดียว). */
 function dbConfigured(): boolean {
@@ -49,13 +54,13 @@ function startHeartbeat(accountId: string, sessionId: string): void {
     void touchLease(accountId, sessionId);
   }, HEARTBEAT_INTERVAL_MS);
   timer.unref?.(); // ไม่กัน process ปิด
-  heartbeatTimers.set(accountId, timer);
+  heartbeatTimers.set(accountId, { sessionId, timer });
 }
 
-function stopHeartbeat(accountId: string): void {
-  const timer = heartbeatTimers.get(accountId);
-  if (timer) {
-    clearInterval(timer);
+function stopHeartbeat(accountId: string, expectedSessionId?: string): void {
+  const holder = heartbeatTimers.get(accountId);
+  if (holder && (expectedSessionId === undefined || holder.sessionId === expectedSessionId)) {
+    clearInterval(holder.timer);
     heartbeatTimers.delete(accountId);
   }
 }
@@ -87,26 +92,28 @@ export async function acquireLease(
   sessionId: string,
   ctx: LeaseContext = {},
 ): Promise<void> {
-  if (!dbConfigured()) return;
-  try {
-    await getPrisma().sessionLease.upsert({
-      where: { accountId },
-      create: {
-        accountId,
-        sessionId,
-        characterId: ctx.characterId ?? null,
-        serverId: ctx.serverId ?? null,
-      },
-      update: {
-        sessionId,
-        characterId: ctx.characterId ?? null,
-        serverId: ctx.serverId ?? null,
-      },
-    });
-    startHeartbeat(accountId, sessionId);
-  } catch (err) {
-    warnDbError("acquire", err);
-  }
+  return leaseOperations.run(accountId, async () => {
+    if (!dbConfigured()) return;
+    try {
+      await getPrisma().sessionLease.upsert({
+        where: { accountId },
+        create: {
+          accountId,
+          sessionId,
+          characterId: ctx.characterId ?? null,
+          serverId: ctx.serverId ?? null,
+        },
+        update: {
+          sessionId,
+          characterId: ctx.characterId ?? null,
+          serverId: ctx.serverId ?? null,
+        },
+      });
+      startHeartbeat(accountId, sessionId);
+    } catch (err) {
+      warnDbError("acquire", err);
+    }
+  });
 }
 
 /**
@@ -115,11 +122,14 @@ export async function acquireLease(
  *   → ไม่ลบ lease ของตัวใหม่. best-effort.
  */
 export async function releaseLease(accountId: string, sessionId: string): Promise<void> {
-  stopHeartbeat(accountId);
-  if (!dbConfigured()) return;
-  try {
-    await getPrisma().sessionLease.deleteMany({ where: { accountId, sessionId } });
-  } catch (err) {
-    warnDbError("release", err);
-  }
+  return leaseOperations.run(accountId, async () => {
+    // Takeover-wins: a delayed leave from the old controller must not stop the new holder's heartbeat.
+    stopHeartbeat(accountId, sessionId);
+    if (!dbConfigured()) return;
+    try {
+      await getPrisma().sessionLease.deleteMany({ where: { accountId, sessionId } });
+    } catch (err) {
+      warnDbError("release", err);
+    }
+  });
 }

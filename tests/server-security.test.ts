@@ -6,11 +6,45 @@ import {
   shouldTakeOverSession,
   claimSession,
   releaseSession,
+  transferSession,
   _resetSessionRegistry,
 } from "../server/security/session-registry";
 import { issueRealtimeToken, verifyRealtimeToken } from "../src/server/auth/realtime-token";
+import { KeyedOperationQueue } from "../server/security/keyed-operation-queue";
 
 const SECRET = "test-secret-at-least-16-chars-long";
+
+describe("keyed session mutation ordering", () => {
+  it("preserves invocation order per account even when the first operation is slow", async () => {
+    const queue = new KeyedOperationQueue();
+    const events: string[] = [];
+    let finishFirst!: () => void;
+    const gate = new Promise<void>((resolve) => { finishFirst = resolve; });
+
+    const first = queue.run("account-a", async () => {
+      events.push("first:start");
+      await gate;
+      events.push("first:end");
+    });
+    const second = queue.run("account-a", async () => {
+      events.push("second");
+    });
+    await Promise.resolve();
+    expect(events).toEqual(["first:start"]);
+
+    finishFirst();
+    await Promise.all([first, second]);
+    expect(events).toEqual(["first:start", "first:end", "second"]);
+  });
+
+  it("does not poison later operations when an earlier mutation rejects", async () => {
+    const queue = new KeyedOperationQueue();
+    const first = queue.run("account-a", async () => { throw new Error("expected"); });
+    const second = queue.run("account-a", async () => "recovered");
+    await expect(first).rejects.toThrow("expected");
+    await expect(second).resolves.toBe("recovered");
+  });
+});
 
 describe("origin allowlist (P2-04, Bible 5.2)", () => {
   it("parses comma-separated env, trims, drops empties", () => {
@@ -86,6 +120,19 @@ describe("session registry takeover decision (P2-04, Storage §4.2)", () => {
     const t3 = claimSession("acc", "s3", () => kicked.push("s3-kick-old"));
     expect(t3).toBe(true);
     expect(kicked).toEqual(["s1", "s2"]);
+    _resetSessionRegistry();
+  });
+
+  it("transfers a closing controller slot to a server actor without disconnecting either side", () => {
+    _resetSessionRegistry();
+    const kicked: string[] = [];
+    claimSession("acc", "controller", () => kicked.push("controller"));
+    expect(transferSession("acc", "controller", "actor:opaque", () => kicked.push("actor"))).toBe(true);
+    expect(kicked).toEqual([]);
+
+    expect(claimSession("acc", "controller-2", () => kicked.push("controller-2"))).toBe(true);
+    expect(kicked).toEqual(["actor"]);
+    expect(transferSession("acc", "controller", "stale-actor", () => undefined)).toBe(false);
     _resetSessionRegistry();
   });
 });
