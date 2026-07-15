@@ -1,7 +1,7 @@
 # ดึ๋งปุ๊ — Owner Production Decisions: P2B–Launch Baseline
 
 > **ไฟล์:** `deungpu_OWNER_PRODUCTION_DECISIONS_P2B_TO_LAUNCH_v1.md`  
-> **สถานะ:** `APPROVED BASELINE — READY FOR SPEC AMENDMENT`  
+> **สถานะ:** `APPROVED BASELINE — v1.1 AMENDED 2026-07-15`
 > **วันที่:** 2026-07-12  
 > **ขอบเขต:** Guest Account, Boss Philosophy, Companion Concept Process, Audio Production, Bot Economy, Monetization, Market Economy, Hall of Fame, RBAC, Art Production, Closed Alpha Gates และ Cross-phase Operating Decisions  
 > **หลักการ:** เอกสารนี้ปิด decision ระดับ Owner ให้ทีมสามารถทำงานต่อได้โดยไม่ต้องถามซ้ำ เว้นแต่ผล Playtest หรือ Telemetry ขัดกับ baseline อย่างมีนัยสำคัญ
@@ -18,9 +18,32 @@ Delta:
 2. **§6.6 Price Baseline (`plusMonthly: 99` / `proMonthly: 199` / `supporterMonthly: 299`)** — **SUPERSEDED โดย D-063**: เปลี่ยนโมเดลจากรายเดือน → **duration pass 1/10/30 วัน** นับอายุจริงจากวันซื้อ ไม่มี pause · ราคา canon: Plus 9/39/79฿ · Pro 15/69/149฿ · Supporter (cosmetic รายเดือน) พักไว้ ตัดสินหลัง beta
 3. **§18 Launch Scope Gates → "Beta" (Maps 1–7)** — หมายเหตุ re-scope (ไม่ supersede เนื้อเดิม เพราะเป็นแผนเดิมที่ยังอ้างอิงได้): ตาม D-065 **Open Beta = ระบบครบ + Map 1 เท่านั้น** ไม่ต้องรอ Maps 1–7 ครบก่อนเปิด — Map 2–10 ทยอย develop แล้วปล่อยเป็นรอบ ๆ หลัง beta
 
+## 0.0.1 Amendment Log — (2026-07-15) — Character Autonomy (D-067)
+
+> **CURRENT BOT DIRECTION:** D-067 และ amendment นี้ชนะ §0 ข้อ 10, §6 และ §7 เดิมทุกจุดที่ระบุ AMENDED/SUPERSEDED. เนื้อเดิมคงไว้เพื่อ history และห้ามใช้เป็น implementation behavior เมื่อขัดกับ amendment นี้
+
+Delta:
+
+1. **Identity:** Bot Mode คือ Character Autonomy ที่ควบคุมตัวละครจริงหนึ่งตัวใน real world/channel ใช้ state/ทรัพยากรจริง ไม่มี clone, worker entity หรือ offline reward simulation
+2. **Authority:** client disconnect เป็น controller detach; reconnect กลับ actor/state/position ล่าสุด. manual movement/skill คืน authority ทันที หยุด automation command และ checkpoint โดยไม่ต้องเปิดเมนู
+3. **Tier value:** ทุก tier ใช้ combat/reward ceiling เดียวกัน; paid value คือ continuity/recovery/workflow. profile/rule/retention counts คงเป็น technical caps เท่านั้น
+4. **Tier behavior:**
+
+   | Tier | Continuity / Recovery / Workflow |
+   |---|---|
+   | Free | basic combat/loot ในพื้นที่เดียว; inventory/resource/death/stuck หลัง basic recovery/server restart → หยุด |
+   | Plus | potion/rest, sell/deposit/lock, repair/refill, **revive แล้ว return area หลังตาย**, change target, same-map fallback, schedule/notification/history แล้วทำต่อเมื่อ rule/resources อนุญาต; server restart → safe-stop |
+   | Pro | สืบทอด death recovery ของ Plus; multi-step/branching/cross-pocket/cross-map workflow, multiple fallback/schedule, checkpoint และ validated safe resume หลัง server restart |
+
+5. **Stops:** §6.5 “Mandatory Stop ทุก tier” **SUPERSEDED ทั้ง section**. Global stops = CAPTCHA, account conflict, invalid state, unsafe map, economic inconsistency และ canonical critical-item policy; obstacle/death/restart/ordinary rare ใช้ tier capability หรือ plan action ตาม D-067
+6. **World/no-power:** actor จริง visible/attackable ใช้ real spawn/reward/loss และนับ channel/pocket population; ห้าม boss/elite/event/secret/unsafe area. damage/attack speed/EXP/drop/luck/efficiency ceiling เท่ากันทุก tier
+7. **Report/terminology:** Report เป็น output. Player-facing ใช้ “แผนงาน/แผนฟาร์ม”, “มอบการควบคุม”, “หยุดแผน”, “รับช่วงต่อ”; identifier `bot:*`/profile/session อาจคงชั่วคราวเพื่อ compatibility
+
 ---
 
 # 0. Decision Authority
+
+> **CLARIFIED โดย D-067:** “Bot เป็นผู้ช่วย ไม่ใช่ผู้เล่นแทนเจ้าของ” หมายถึงระบบรับ authority ชั่วคราวเหนือ actor จริงของเจ้าของ ไม่ใช่ separate helper entity
 
 เอกสารนี้เป็น Owner-approved production baseline
 
@@ -528,10 +551,12 @@ Local player retains full client juice
 
 ## 6.1 Philosophy
 
+> **AMENDED โดย §0.0.1/D-067:** “เวลา” และ cap counts ไม่ใช่คุณค่าหลัก; paid value = continuity/recovery/workflow. รายการ no-power ด้านล่างยังใช้และ ordinary rare action ต้องไม่กลายเป็น paid advantage
+
 Bot ขาย:
 
-- เวลา
-- continuity
+- ~~เวลา~~ **SUPERSEDED โดย D-067:** runtime/combat/reward ceiling เท่ากันทุก tier
+- continuity/recovery/workflow
 - report
 - rules
 - history
@@ -550,6 +575,8 @@ Bot ห้ามขาย:
 
 ## 6.2 Efficiency Target
 
+> **AMENDED โดย D-067:** target/ceiling ชุดเดียวใช้กับทุก tier ห้าม paid tier เพิ่ม combat หรือ reward efficiency
+
 ```yaml
 botEfficiency:
   versusEfficientManual:
@@ -561,6 +588,8 @@ botEfficiency:
 Manual expert ต้องดีที่สุด
 
 ## 6.3 Tier Baseline
+
+> **SUPERSEDED ในฐานะ tier definition โดย §0.0.1/D-067:** ตาราง profile/rule/report/schedule ด้านล่างคงเป็น technical caps/history เท่านั้น; tier behavior ใช้ continuity matrix ใน §0.0.1
 
 > **`hoursPerDay` ทุก tier ด้านล่าง — SUPERSEDED โดย D-063 (2026-07-13) → §0.0 ด้านบน**: ทุก tier 24/7 ไม่จำกัดชั่วโมงเท่ากันหมด รวม Free (ค่า `hoursPerDay` ที่เหลืออยู่ในบล็อก yaml ด้านล่างเป็น history เดิม ไม่ใช่ค่าที่ใช้จริงอีกต่อไป). ค่าอื่นในแต่ละ tier ยังมีผลตามเดิม.
 
@@ -603,19 +632,23 @@ pro:
 
 ## 6.4 Output Cap
 
+> **AMENDED โดย D-067:** “ไม่มี direct loot multiplier” ยัง Locked; runtime-hour/ordinary-rare-stop framing ถูก SUPERSEDED และ obstacle อื่นใช้ tier recovery/plan action
+
 Bot ไม่มี direct loot multiplier
 
 Cap ใช้:
 
-- runtime hour
-- inventory
-- potion threshold
-- durability/future condition
-- death count
-- rare drop stop
+- ~~runtime hour~~ platform runtime เท่ากันทุก tier; ผู้เล่นตั้ง schedule/stop ของแผนเองได้
+- inventory/resource เป็น obstacle: Free หยุด, Plus/Pro recovery ตาม capability
+- potion threshold เป็น recovery rule
+- durability/future condition เป็น recovery rule
+- death count เป็น plan stop; Plus/Pro revive/return ได้ตามแผนและทรัพยากร
+- ~~rare drop stop~~ ordinary rare ใช้ plan action; critical-item policy เท่านั้นที่ global safe-stop
 - gold cap alert
 
 ## 6.5 Mandatory Stop Conditions
+
+> **SUPERSEDED ทั้ง section โดย §0.0.1/D-067 (2026-07-15):** ห้าม implement 9 เงื่อนไขด้านล่างเป็น universal stop ทุก tier
 
 ทุก tier:
 
@@ -646,21 +679,25 @@ Supporter ได้ cosmetic/support badge ไม่เพิ่ม bot power
 
 ## 6.7 Bot A Intro
 
+> **AMENDED โดย D-067/D-068:** ต้องสอน real actor/no clone, world presence, instant manual takeover, tier recovery, plan-specific rare action และ Report-as-output; ดึ๋งๆ เปิดบทได้ในฐานะ presentation layerเท่านั้น
+
 30–60 วินาที
 
 ต้องสอน:
 
 - Bot ทำอะไร
 - Bot ไม่ทำอะไร
-- stop condition
-- inventory full
-- rare item stop
+- global safety / tier recovery / plan action
+- inventory/resource obstacle ของแต่ละ tier
+- ~~rare item stop~~ ordinary rare item-event action ตามแผน
 - report
-- how to stop immediately
+- manual input รับช่วงต่อทันที
 
 ---
 
 # 7. P3 — Bot UI Spec Scope
+
+> **AMENDED โดย D-067:** UI ต้องครอบ plan authority/takeover, real-world status, tier recovery/restart state และ returning summary; player-facing terminology ใช้แผนงาน ไม่สื่อว่ามี entity อื่นไปฟาร์มแทน
 
 ต้องมีเล่มแยก:
 

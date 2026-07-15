@@ -9,9 +9,9 @@
 
 | เอกสาร | บทบาท |
 |---|---|
-| [docs/design/deungpu_project_checkpoint_v15_p0_scope_lock_ready.md](docs/design/deungpu_project_checkpoint_v15_p0_scope_lock_ready.md) | **Canonical game spec (v15)** — game semantics / balance / §48 Design Knobs / §50.1 Skill Schema / §61 P0 scope lock |
+| [docs/design/deungpu_project_checkpoint_v15_p0_scope_lock_ready.md](docs/design/deungpu_project_checkpoint_v15_p0_scope_lock_ready.md) | **Canonical game spec (v15.4)** — game semantics / balance / §4.1 Character Autonomy / §48 Design Knobs / §50.1 Skill Schema / §61 P0 scope lock |
 | [docs/design/deungpu_P0_SCOPE_LOCK_v1.md](docs/design/deungpu_P0_SCOPE_LOCK_v1.md) | **P0 Scope Lock** — Engine Foundation Vertical Slice, P0-01→12, done definition, non-goals |
-| [docs/tech/deungpu_technical_architecture_v1_5_p0_scope_lock.md](docs/tech/deungpu_technical_architecture_v1_5_p0_scope_lock.md) | **Tech architecture (v1.5)** — stack, locked decisions, MVP plan P0–P6, P0 scope lock §19 |
+| [docs/tech/deungpu_technical_architecture_v1_5_p0_scope_lock.md](docs/tech/deungpu_technical_architecture_v1_5_p0_scope_lock.md) | **Tech architecture (v1.5.3)** — stack, locked decisions, Character Autonomy runtime boundary, MVP plan P0–P6, P0 scope lock §19 |
 | [docs/README.md](docs/README.md) | สารบัญ docs ทั้งหมด + ลำดับการอ่าน |
 
 AI agents: เริ่มที่ [AI.md](AI.md) เสมอ

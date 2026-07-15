@@ -1,13 +1,24 @@
-# ดึ๋งปุ๊ — RUNTIME_BOT_CHANNEL_AND_SCHEMA_OWNERSHIP_DECISIONS.md v1
+# ดึ๋งปุ๊ — RUNTIME_BOT_CHANNEL_AND_SCHEMA_OWNERSHIP_DECISIONS.md v1.1
 
-> สถานะ: **P1/P2 Decision Tracking / Tech Alignment**
-> Scope: Reconnect, Offline Bot, Channel Assignment, Skill/Knobs Ownership
+> สถานะ: **P1/P2 Decision Tracking / v1.1 Character Autonomy Alignment**
+> Scope: Reconnect, Character Autonomy (historically “Offline Bot”), Channel Assignment, Skill/Knobs Ownership
 > ใช้คู่กับ:
 > - `deungpu_project_checkpoint_v15_p0_scope_lock_ready.md` (เดิมอ้าง v14 — v15 supersede, เนื้อหา §59 เดียวกัน)
 > - `deungpu_ENGINE_FOUNDATION_DECISIONS_v1.md`
 > - `deungpu_MAP_SCALE_AND_SPAWN_DENSITY_SPEC_v1.md`
 
 ---
+
+## 0.0 Amendment Log — v1.1 (2026-07-15) — Real-character Autonomy (D-067)
+
+> **CURRENT BOT RUNTIME AUTHORITY:** `docs/decisions/D-067-character-autonomy.md` + checkpoint v15.4 §4.1. ห้าม implement §3 worker/background/ghost/private/offline simulation หรือ §6 ข้อ 2 เดิม; historical text คงไว้เพื่อ traceability
+
+- Character Autonomy ควบคุม actor จริงหนึ่งตัว keyed by character identity; client connection เป็น controller attachment ไม่ใช่ actor identity
+- client disconnect ขณะ autonomy active ไม่เข้า ordinary “เกิน 30s → safe camp” flow: server ถือ actor/state/positionเดิมใน real world/channel และ reconnect attachกลับ actorเดิม. Ordinary manual reconnect rulesใน §2 ยังใช้เมื่อไม่มี active autonomy
+- manual move/skill ต้อง revoke automation authority + checkpoint + fence stale commands ก่อน apply manual intent
+- actor จริง visible/attackable ใช้ combat/reward/resource pipeline ปกติและนับ channel/pocket automation population; ห้าม boss/elite/event/secret/unsafe/unapproved area
+- worker ใช้ได้เฉพาะ schedule dispatch, report projection, notification หรือ telemetry; ห้าม simulate combat/reward/world presence
+- Free/Plus safe-stopเมื่อ server restart; Pro resumeได้เฉพาะ durable checkpointที่ validationผ่านตาม D-067
 
 # 1. Purpose
 
@@ -25,13 +36,15 @@ v13 ปิด engine foundation หลักแล้ว ได้แก่:
 
 เอกสารนี้ล็อกคำตอบที่เหลือสำหรับ P1/P2:
 1. Reconnect behavior
-2. Offline Pro Bot materialization
+2. Character Autonomy materialization (historical §3 “Offline Pro Bot” ถูก superseded)
 3. Channel selection / party sync
 4. Skill Model / Design Knobs ownership
 
 ---
 
 # 2. Reconnect Behavior
+
+> **AMENDED โดย §0.0/D-067:** ordinary manual reconnect ด้านล่างยังใช้; active Character Autonomy reconnect ต้อง attach ไป actor/state/position ล่าสุดและเสนอ instant takeover
 
 ## Decision
 
@@ -85,6 +98,8 @@ Reconnect invalid / room closed / state corrupt:
 ---
 
 # 3. Offline Pro Bot Materialization
+
+> **SUPERSEDED ทั้ง section โดย §0.0/D-067 (2026-07-15):** ห้าม worker/background/ghost/private/offline reward simulation; actor จริงต้อง materializeใน real world/channelตลอด run
 
 ## Decision
 
@@ -327,6 +342,8 @@ Do not rename or duplicate semantic fields.
 ---
 
 # 6. Final Tech Summary
+
+> **SUPERSEDED เฉพาะข้อ 2 Offline Bot โดย §0.0/D-067:** ข้อ reconnect/channel/schema ownership ที่ไม่ขัดยังใช้ต่อ
 
 ```txt
 Pending P1/P2 Decisions:
