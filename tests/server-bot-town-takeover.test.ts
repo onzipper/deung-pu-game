@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { FakeWorld, warpConfig, type BagSeed, type FakeHost } from "./helpers/warp-world";
+import { FakeWorld, warpConfig, type BagSeed } from "./helpers/warp-world";
 import { BotManager, type BotManagerDeps } from "../server/bot/manager";
 import type { BotHost, BotRuntime } from "../server/bot/runtime";
 import type { ProfileRepo } from "../server/bot/profiles";
