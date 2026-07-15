@@ -1,9 +1,8 @@
 "use client";
 
-// Bot alert toast (7b-UI, P3 §9 "P8 — Rare/High-value Alert") — bot:alert (rare/captcha/gold_cap) ต้องเด่น
-// + แจ้งทันที (เป็น 1 ใน 9 mandatory stops, §14 ห้าม dark pattern แต่ alert นี้ "แจ้งชัด" ไม่ใช่ upsell).
+// D-067 item/safety alert toast — bot:alert (rare/captcha/gold_cap) ต้องเด่นและแจ้งทันที.
 // อ่าน botAlert.atMs จาก store — ค่า atMs เปลี่ยน = แจ้งเตือนใหม่ → แสดง toast แล้ว auto-dismiss (pattern
-// เดียวกับ AchievementToast/MilestoneToast). ไอเทมที่เจอถูกเก็บเข้ากระเป๋าแล้วตาม loot filter (ไม่หาย) —
+// เดียวกับ AchievementToast/MilestoneToast). ไอเทมที่เจอถูก persist เข้ากระเป๋าหรือ Delivery Box (ไม่หาย) —
 // toast นี้แค่แจ้ง ไม่ต้องกดยืนยันอะไร (ต่างจาก market purchase/enhancement ที่ต้อง confirm modal).
 
 import { useEffect, useState } from "react";

@@ -129,7 +129,7 @@ export function botTierComparisonRows(): readonly BotTierCompareRow[] {
     { label: "แจ้งเตือนนอกเกม", values: by("notifications", (v) => (v ? "เปิด" : "ปิด")) },
     { label: "ตั้งเวลา (Schedule)", values: by("schedules", (v) => (v > 0 ? String(v) : "—")) },
     { label: "Analytics ขั้นสูง", values: by("analytics", (v) => (v ? "✓" : "—")) },
-    { label: "9 เงื่อนไขความปลอดภัยบังคับ", values: { free: "✓ ปิดไม่ได้", plus: "✓ ปิดไม่ได้", pro: "✓ ปิดไม่ได้" } },
+    { label: "เพดานพลัง/รางวัล", values: { free: "เท่ากัน", plus: "เท่ากัน", pro: "เท่ากัน" } },
   ];
 }
 
@@ -156,7 +156,7 @@ export function resolveBotPurchaseConfirmation(
   return { needsConfirm: true, lostDays };
 }
 
-// ── Stop reasons (P3 §5/§9/§10 — 9 mandatory + manual/server_restart/expired_readonly) ───────────────────
+// ── D-067 settlement/event compatibility labels ─────────────────────────────────────────────────────
 //
 // ค่า reason ตัวจริงส่งมาเป็น string ธรรมดา (net-protocol.ts BotStoppedMessage.reason ไม่ narrow เป็น union
 // ฝั่ง wire) — mirror ของ server/config/bot.ts BotStopReason (ไม่ import server/** ข้าม layer). disconnect
@@ -171,19 +171,21 @@ export function botStopReasonLabel(reason: string): string {
     case "death":
       return "ตัวละครตาย บอทหยุดปลอดภัยแล้ว";
     case "map_unsafe":
-      return "พื้นที่ไม่ปลอดภัย บอทกลับจุดเซฟแล้ว";
+      return "พื้นที่แผนไม่ปลอดภัย ระบบหยุดการควบคุมแล้ว";
     case "stuck":
       return "หาเป้าหมายไม่เจอต่อเนื่อง บอทหยุดปลอดภัยแล้ว";
     case "rare_found":
       return "เจอของแรร์! บอทหยุดรอคุณ";
     case "boss_or_event":
-      return "พบบอส/อีเวนต์ในระยะ บอทหยุดปลอดภัยแล้ว";
+      return "พบเป้าหมายต้องห้าม (บอส/อีลิต/อีเวนต์) ระบบหยุดการควบคุมแล้ว";
     case "secret_trigger":
       return "พบจุดลับ บอทหยุดปลอดภัยแล้ว";
     case "captcha":
       return "ต้องยืนยันตัวตนก่อนทำต่อ";
     case "manual":
       return "หยุดโดยคุณเอง";
+    case "profile_deleted":
+      return "แผนนี้ถูกลบ ระบบหยุดการควบคุมแล้ว";
     case "server_restart":
       return "เซิร์ฟเวอร์รีสตาร์ท บอทหยุดปลอดภัยแล้ว (ของที่ได้ถูกบันทึกแล้ว)";
     case "expired_readonly":

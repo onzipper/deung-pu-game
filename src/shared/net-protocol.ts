@@ -890,7 +890,7 @@ export interface ShopResultMessage {
 
 // ══════════════════════════════════════════════════════════════════════════════
 // Batch 7b — Bot (Hunter Assistant) protocol (P3 Bot UI spec §13). Message names are LOCKED by that spec.
-// Server = source of truth for tier caps / retention clip / the 9 mandatory stops; client reflects + pre-guards
+// Server = source of truth for tier capability, retention, global safety, recovery outcome, and plan actions.
 // (defense-in-depth) but never overrides. Bot runs server-side; the owner closing the tab does NOT stop it.
 // ══════════════════════════════════════════════════════════════════════════════
 
@@ -1025,6 +1025,8 @@ export interface BotStoppedMessage {
   profileId: string;
   sessionId: string;
   reason: string;
+  /** Final server-authored settlement for the closed run. */
+  continuity: BotContinuitySnapshotWire;
   killCount: number;
   goldEarned: number;
   expEarned: number;

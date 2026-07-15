@@ -1,6 +1,6 @@
-// PR3 continuity state machine for Character Autonomy.
+// Character Autonomy continuity state machine: PR3 operational topology + PR4 Free settlement commands.
 //
-// This reducer owns topology only: no tier, HP, inventory, route, DB, timer, or side effect. PR4-PR6 policy
+// This reducer owns topology only: no tier, HP, inventory, route, DB, timer, or side effect. Runtime policy
 // decides which command to request. `expectedRevision` fences stale async callbacks after takeover/pause.
 
 import {
@@ -26,7 +26,10 @@ interface TransitionMeta {
 
 export type BotContinuityCommand =
   | ({ kind: "advance"; to: BotContinuityOperationalStateWire } & TransitionMeta)
-  | ({ kind: "pause" } & TransitionMeta);
+  | ({ kind: "pause" } & TransitionMeta)
+  | ({ kind: "wait_for_owner" } & TransitionMeta)
+  | ({ kind: "complete" } & TransitionMeta)
+  | ({ kind: "fail" } & TransitionMeta);
 
 export type BotContinuityTransitionError =
   | "revision_conflict"
@@ -49,8 +52,8 @@ export type BotContinuityTransitionResult =
     };
 
 /**
- * PR3 topology only. PR4-PR6 must add edges alongside their authoritative behavior/spec; empty rows deliberately
- * avoid pre-deciding recovery, town-service, loot, or workflow ordering from state names alone.
+ * PR3 operational topology. PR4 adds conservative settlement commands without guessing service ordering;
+ * PR5-PR6 must add recovery/town/workflow edges alongside authoritative behavior.
  */
 export const BOT_CONTINUITY_ADVANCE_GRAPH: Readonly<
   Record<BotContinuityOperationalStateWire, readonly BotContinuityOperationalStateWire[]>
@@ -99,7 +102,7 @@ export function applyBotContinuityTransition(
 
   const clockClamped = command.at < current.enteredAt;
   const interruptedState =
-    target === "PAUSED" && isBotContinuityOperationalState(current.state)
+    (target === "PAUSED" || target === "WAITING_FOR_OWNER") && isBotContinuityOperationalState(current.state)
       ? current.state
       : null;
 
@@ -178,6 +181,11 @@ function isCommandAllowed(
       );
     case "pause":
       return isBotContinuityOperationalState(current) || current === "PAUSED";
+    case "wait_for_owner":
+      return isBotContinuityOperationalState(current) || current === "WAITING_FOR_OWNER";
+    case "complete":
+    case "fail":
+      return isBotContinuityOperationalState(current);
   }
 }
 
@@ -187,6 +195,12 @@ function targetFor(command: BotContinuityCommand): BotContinuityStateWire {
       return command.to;
     case "pause":
       return "PAUSED";
+    case "wait_for_owner":
+      return "WAITING_FOR_OWNER";
+    case "complete":
+      return "COMPLETED";
+    case "fail":
+      return "FAILED";
   }
 }
 

@@ -140,7 +140,7 @@ describe("resolveBotPurchaseConfirmation", () => {
 });
 
 describe("botStopReasonLabel / reportStopReasonLabel", () => {
-  const mandatory = [
+  const compatibilityReasons = [
     "inventory_full",
     "low_hp",
     "death",
@@ -151,14 +151,16 @@ describe("botStopReasonLabel / reportStopReasonLabel", () => {
     "captcha",
   ];
 
-  test("9 mandatory (+stuck runtime safety) มีข้อความไทยทุกตัว ไม่ fallback", () => {
-    for (const reason of [...mandatory, "stuck"]) {
+  test("global safety/tier obstacle/item-event reasons มีข้อความไทยทุกตัว ไม่ fallback", () => {
+    for (const reason of [...compatibilityReasons, "stuck"]) {
       expect(botStopReasonLabel(reason)).not.toBe("บอทหยุดทำงาน");
     }
+    expect(botStopReasonLabel("boss_or_event")).toContain("อีลิต");
   });
 
-  test("manual/server_restart/expired_readonly มีข้อความเฉพาะ", () => {
+  test("manual/profile_deleted/server_restart/expired_readonly มีข้อความเฉพาะ", () => {
     expect(botStopReasonLabel("manual")).toContain("คุณเอง");
+    expect(botStopReasonLabel("profile_deleted")).toContain("ถูกลบ");
     expect(botStopReasonLabel("server_restart")).toContain("รีสตาร์ท");
     expect(botStopReasonLabel("expired_readonly")).toContain("อ่านอย่างเดียว");
   });

@@ -3,8 +3,8 @@
 //
 // Reuses the room's EXISTING seams via the BotHost interface (MapRoom implements it): movement on the collision
 // grid, attacks through the SAME server combat resolution + the IDENTICAL economy entry (grantKillRewardsForMob),
-// so guardrails/audit apply exactly as for a real player. Existing stop predicates remain in place until PR4-PR6
-// attach the locked tier policy; continuity itself is tier-neutral and never grants power.
+// so guardrails/audit apply exactly as for a real player. PR4 adds the Free single-area safe-stop baseline;
+// PR5-PR6 own recovery and multi-step workflow. Continuity itself is tier-neutral and never grants power.
 //
 // ⛔ SERVER-ONLY. DB writes (counter flush + stop) are best-effort — a DB error never crashes the room.
 
@@ -23,10 +23,10 @@ import type {
 import type { BotConfig, BotStopReason } from "../config/bot";
 import {
   pickTarget,
-  stopForBossInRange,
+  stopForForbiddenTargetInRange,
   stopForInventoryOverflow,
   stopForLowHp,
-  stopForRareDrop,
+  findRareDrop,
   stopForStuck,
   throttledAttackCooldownMs,
   withinRange,
@@ -43,6 +43,7 @@ import {
   toBotContinuityWire,
   type BotContinuitySnapshot,
 } from "./continuity";
+import { settlementForStoppedPlan } from "./policy";
 
 /** One attack's aggregated result from the host (may kill several mobs in the arc). */
 export interface BotAttackOutcome {
@@ -50,6 +51,8 @@ export interface BotAttackOutcome {
   gold: number;
   exp: number;
   loot: { itemId: string; quantity: number }[];
+  /** True when any earned item missed the real bag, including items safely routed to Delivery Box. */
+  bagOverflowed: boolean;
   /** loot that could not be banked (bag full / no delivery) — drives the inventory_full stop. */
   overflow: { itemId: string; quantity: number }[];
   leveledUp: boolean;
@@ -88,8 +91,8 @@ export interface BotHost {
   botAttackRange(actorId: string): number;
   /** the chosen basic-attack skill's base cooldown (seconds) — throttled by the runtime. */
   botBaseCooldownSeconds(actorId: string): number;
-  /** step toward `target` at normal move speed, clamped to walkable tiles. */
-  botStepToward(actorId: string, target: Vec2, dtMs: number): void;
+  /** Step toward `target` at normal move speed. True only when the real actor position advanced. */
+  botStepToward(actorId: string, target: Vec2, dtMs: number): boolean;
   /**
    * face `target`, cast the basic attack through the room combat+economy seams, resolve the aggregate outcome.
    * Async: the reward grant (EXP/gold/drops) runs through the same async economy path as a real player's kill.
@@ -98,8 +101,8 @@ export interface BotHost {
   botAttack(actorId: string, target: Vec2): Promise<BotAttackOutcome>;
   /** send a message to the owner IF they are connected in this room (offline owner → false, no push). */
   botOwnerSend(accountId: string, type: string, msg: unknown): boolean;
-  /** true when a mobType is a boss/event entity (automation may never fight either under D-067). */
-  isBossOrEventType(mobType: string): boolean;
+  /** True for boss/elite/event/unknown targets that Character Autonomy may never fight. */
+  isForbiddenTargetType(mobType: string): boolean;
   /** true when the pocket still exists + is bot-safe (map_unsafe guard). */
   pocketExists(pocketId: string): boolean;
 }
@@ -108,7 +111,7 @@ export interface BotRuntimeDeps {
   host: BotHost;
   config: BotConfig;
   sessionRepo: SessionRepo;
-  /** rarity lookup for the rare-drop stop (itemId → rarity band). */
+  /** Rarity lookup for ordinary-rare notification and future plan-selected actions. */
   rarityOf: (itemId: string) => string | undefined;
   /** the persisted bot_sessions row id (a report). */
   sessionRowId: string;
@@ -204,7 +207,12 @@ export class BotRuntime {
 
     const mobs = host.botMobs();
     // #7 boss/event in range.
-    const bossStop = stopForBossInRange(pos, mobs, (t) => host.isBossOrEventType(t), config.bossStopRadiusTiles);
+    const bossStop = stopForForbiddenTargetInRange(
+      pos,
+      mobs,
+      (mobType) => host.isForbiddenTargetType(mobType),
+      config.bossStopRadiusTiles,
+    );
     if (bossStop) return void this.stop(bossStop);
 
     const target = pickTarget(pos, mobs, pocketId);
@@ -214,15 +222,25 @@ export class BotRuntime {
       const range = host.botAttackRange(this.d.actorId) * config.attackRangeFactor;
       if (!withinRange(pos, target, range)) {
         if (!this.advanceContinuity("TRAVELING", "target_out_of_range")) return;
-        host.botStepToward(this.d.actorId, target, dtMs);
+        const progressed = host.botStepToward(this.d.actorId, target, dtMs);
+        if (progressed) {
+          this.idleDecisions = 0;
+        } else if (this.decisionTimer >= this.throttleMs) {
+          // Sample blocked movement on the same throttled cadence as an empty pocket. A target behind collision
+          // must eventually become an owner-visible Free obstacle instead of spinning forever in TRAVELING.
+          this.decisionTimer = 0;
+          this.idleDecisions += 1;
+          const stuck = stopForStuck(this.idleDecisions, config.stuckTickLimit);
+          if (stuck) return void this.stop(stuck);
+        }
       } else if (!this.advanceContinuity("COMBAT", "target_in_range")) {
         return;
       }
       if (this.decisionTimer >= this.throttleMs && !this.attacking) {
-        this.decisionTimer = 0;
-        this.idleDecisions = 0;
         const p2 = host.botPos(this.d.actorId) ?? pos;
         if (withinRange(p2, target, range)) {
+          this.decisionTimer = 0;
+          this.idleDecisions = 0;
           if (!this.advanceContinuity("COMBAT", "attack_committed")) return;
           this.runAttack(target);
         }
@@ -282,31 +300,46 @@ export class BotRuntime {
     }
   }
 
-  /** Fold rewards into counters, then apply legacy rare/bag stops until PR4-PR5 route tier policy. */
+  /** Fold rewards into counters, notify for ordinary rare loot, then apply the Free obstacle baseline. */
   private applyAttack(o: BotAttackOutcome): void {
     this.recordAttack(o);
     // (EXP/gold/items already persisted inside host.botAttack via the identical economy path; level-up saved there.)
 
-    // #6 rare/high-value drop → alert + stop (checked before the bag-full stop — surface the item).
-    const rare = stopForRareDrop(o.loot.map((l) => l.itemId), this.d.rarityOf, this.d.config.rareStopMinRarity);
+    // Ordinary rare loot is a plan event, never a universal stop (D-067). The current v1 plan keeps it,
+    // surfaces an in-game alert, and continues; lock/deposit/explicit-stop actions belong to PR5+ plan rules.
+    const rare = findRareDrop(o.loot.map((l) => l.itemId), this.d.rarityOf, this.d.config.rareNotifyMinRarity);
     if (rare) {
       const alert: BotAlertMessage = {
         profileId: this.d.profileId,
         kind: "rare",
         itemId: rare.itemId,
-        message: "เจอของแรร์! บอทหยุดรอคุณ",
+        message: "เก็บของแรร์แล้ว",
       };
       this.d.host.botOwnerSend(this.d.accountId, MSG_BOT_ALERT, alert);
-      return void this.stop(rare.reason);
     }
-    // #1 inventory full → stop.
-    const bag = stopForInventoryOverflow(o.overflow.length);
+    // Free has one area + one goal: bag overflow is an obstacle, so it stops safely and reports.
+    const bag = stopForInventoryOverflow(o.bagOverflowed ? 1 : 0);
     if (bag) return void this.stop(bag);
   }
 
   /** stop the bot for a reason (mandatory / manual / death / restart). Idempotent. */
   stop(reason: BotStopReason): void {
     if (this.stopped) return;
+    const settlement = settlementForStoppedPlan(reason);
+    const settled = applyBotContinuityTransition(this.continuity, {
+      kind: settlement,
+      expectedRevision: this.continuity.revision,
+      at: this.d.now(),
+      reasonCode: `stop_${reason}`,
+    });
+    if (settled.ok) {
+      this.continuity = settled.snapshot;
+    } else {
+      console.error(
+        `[bot ${this.d.sessionRowId}] stop settlement rejected: ${settled.error} ` +
+          `${this.continuity.state}:${reason}`,
+      );
+    }
     this.stopped = true;
     this.pendingStop = { reason, requestedAt: this.d.now() };
     if (!this.attacking) this.finalizeStop();
@@ -351,6 +384,7 @@ export class BotRuntime {
       profileId: this.d.profileId,
       sessionId: this.d.sessionRowId,
       reason,
+      continuity: toBotContinuityWire(this.continuity),
       killCount: this.counters.killCount,
       goldEarned: this.counters.goldEarned,
       expEarned: this.counters.expEarned,
