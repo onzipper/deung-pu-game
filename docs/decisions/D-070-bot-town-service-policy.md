@@ -1,5 +1,5 @@
 # D-070 — นโยบายขาย/ฝาก/ซื้อคืนของบอทในเมือง (PR5 town services)
-- Date: 2026-07-16 · Status: Proposed (รอ owner lock ก่อนเริ่ม implement) · Source: owner แชท 2026-07-16 — starter policy ใช้เป็นฐาน
+- Date: 2026-07-16 · Status: Locked (owner แชท 2026-07-16) · Source: owner แชท 2026-07-16 — starter policy ใช้เป็นฐาน
 
 ## มติ (เคาะแล้วในแชท — starter policy)
 
@@ -12,9 +12,10 @@
 - **เกณฑ์จบ trip:** กลับ farm แล้วช่องกระเป๋าว่างยังไม่ถึงเกณฑ์ → หยุดด้วย `inventory_full` ตามจริง (รายงานไม่โกหก)
 - **Gold ผ่าน ledger ปกติ** (`shop_sell`/`shop_buy`) — audit ได้ครบ ไม่มี ledger reason ใหม่ · บอทห้าม trigger achievement จากธุรกรรมในเมือง
 
-## รอเคาะก่อนเริ่ม implement Phase C (ค่าเสนอเป็น Design Knobs)
+## ค่าตัวเลขที่ lock 2026-07-16 (ทั้งหมดเป็น Design Knobs ปรับทีหลังได้)
 
-- `sellRarityMax` (เสนอ: uncommon) · `keepItemIds` (เสนอ: `con_small_potion`) · `potionRestockTarget` (เสนอ: 5 = starter loadout) · `minGoldReserve` · `resumeMinFreeSlots` · `maxTxRetries` (เสนอ: 1)
+- `sellRarityMax` = uncommon · `keepItemIds` = [`con_small_potion`] · `potionRestockTarget` = 5 (เท่า starter loadout) · `minGoldReserve` = 50 (potion ขวดละ 18) · `resumeMinFreeSlots` = 5 (จากกระเป๋า 40 ช่อง) · `maxTxRetries` = 1
+- Phase A knobs lock พร้อมกัน: `maxDeathRecoveriesPerSession` = 3 · `pocketFallbackIdleDecisions` = 3 · `preferAssignedPocket` = true
 
 ## ผลต่อเอกสารเดิม
 

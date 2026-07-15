@@ -115,11 +115,11 @@ export interface BotConfig {
     respawnObserveMinHpFraction: number;
     /** give up waiting for respawn observation → stop("death"). */
     respawnObserveTimeoutMs: number;
-    /** PENDING OWNER — repeated death usually means an under-leveled pocket. */
+    /** D-070 locked 2026-07-16 — repeated death usually means an under-leveled pocket. */
     maxDeathRecoveriesPerSession: number;
-    /** PENDING OWNER — consecutive idle decisions before pocket fallback; must stay < stuckTickLimit. */
+    /** D-070 locked 2026-07-16 — consecutive idle decisions before pocket fallback; must stay < stuckTickLimit. */
     pocketFallbackIdleDecisions: number;
-    /** PENDING OWNER — assigned pocket wins again as soon as it has alive mobs. */
+    /** D-070 locked 2026-07-16 — assigned pocket wins again as soon as it has alive mobs. */
     preferAssignedPocket: boolean;
     /** arrival radius (tiles) for return-to-pocket. */
     pocketArriveRadiusTiles: number;
@@ -204,9 +204,9 @@ export const DEFAULT_BOT_CONFIG: BotConfig = {
     potionRetryIntervalMs: 5_000,
     respawnObserveMinHpFraction: 0.9,
     respawnObserveTimeoutMs: 10_000,
-    maxDeathRecoveriesPerSession: 3, // PENDING OWNER
-    pocketFallbackIdleDecisions: 3, // PENDING OWNER
-    preferAssignedPocket: true, // PENDING OWNER
+    maxDeathRecoveriesPerSession: 3, // D-070 locked
+    pocketFallbackIdleDecisions: 3, // D-070 locked
+    preferAssignedPocket: true, // D-070 locked
     pocketArriveRadiusTiles: 2,
     routeReplanCooldownMs: 2_000,
     tierRecheckIntervalMs: 60_000,
