@@ -156,6 +156,7 @@ import {
   computePlayerCount,
   parseCharacterActorRoomRedirect,
   isCharacterWorldCapacityError,
+  resolveMapReentry,
   resolveSelfActorId,
   type ConnectionState,
 } from "@/engine/net/sync";
@@ -229,6 +230,13 @@ export interface NetClientHandlers {
    * teardown world เดิม + join room map ปลายทางที่ targetSpawn (fade). optional.
    */
   onMapTransition?(msg: MapTransitionMessage): void;
+  /**
+   * PR5-fix: the room we successfully joined can be a DIFFERENT map than joinOptions.mapId — a server-owned
+   * bot "warp" moved the real actor (surfaced as a 4216 actor-room redirect / reconnect into another room).
+   * Fired at most once per connection, on the first `state.mapId` sync, only when it differs from the loaded
+   * map. Caller re-enters cleanly on `correctMapId` via its EXISTING map-change flow (and must loop-guard).
+   */
+  onMapMismatch?(correctMapId: string): void;
   /**
    * Fix issue #1/#2: หลัง join/reconnect สำเร็จ + self เข้า room state ครั้งแรก (immediate หรือ patch แรก)
    * → server = source of truth ของตำแหน่ง spawn/held → caller **snap local player + camera** ไปตำแหน่งนี้
@@ -590,6 +598,10 @@ export function createNetClient(
   // ที่ wire room ใหม่ → true เมื่อ self เข้า state ครั้งแรก. gate sendMove ระหว่างนี้ (กันยิง move จาก spawn
   // ก่อนรู้ตำแหน่ง server hold → correction/warp + exit detection พลาด).
   let selfAdopted = false;
+  // PR5-fix: reconcile the loaded map (joinOptions.mapId) against the room's authoritative state.mapId at
+  // most once per connection. reset=false on every wire → true when the first real mapId arrives (a 4216
+  // redirect / reconnect can land us in another map's room; caller re-enters on the correct one).
+  let mapReconciled = false;
   // P1-07: entity ที่ track ไว้ (สำหรับ reset ก่อน re-wire — กัน onAdd(immediate) รอบใหม่ทำ remote/mob ซ้ำ).
   const knownRemotes = new Set<string>();
   const knownMobs = new Set<string>();
@@ -649,6 +661,7 @@ export function createNetClient(
     // Fix issue #1/#2: connection ใหม่ → ยังไม่รู้ตำแหน่ง authoritative ของ self จนกว่า self เข้า state
     // (gate sendMove จนกว่าจะ adopt). ต้อง reset ก่อน register onAdd (immediate อาจยิง self ทันทีในบรรทัดถัดไป).
     selfAdopted = false;
+    mapReconciled = false; // PR5-fix: re-check loaded map vs room map for this fresh connection
     room = joinedRoom;
     persistToken(joinedRoom.reconnectionToken); // P1-07(-fix): เก็บ token ล่าสุด (memory + per-tab store)
     status.state = "online";
@@ -886,6 +899,15 @@ export function createNetClient(
     });
     $(joinedRoom.state).listen("mapId", (v: string) => {
       status.mapId = v;
+      // PR5-fix: first time we learn the room's real map, reconcile it against the map the client loaded
+      // (joinOptions.mapId). A 4216 redirect / reconnect can drop us into another map's room (server warped
+      // the real actor) → the loaded scene renders the wrong map under the authoritative actor unless the
+      // caller re-enters on `v`. Fire at most once per connection (mapId is fixed per MapRoom).
+      if (!mapReconciled && typeof v === "string" && v.length > 0) {
+        mapReconciled = true;
+        const reentry = resolveMapReentry(joinOptions.mapId, v);
+        if (reentry !== null) handlers.onMapMismatch?.(reentry);
+      }
     });
     $(joinedRoom.state).listen("partyId", (v: string) => {
       status.partyId = v;

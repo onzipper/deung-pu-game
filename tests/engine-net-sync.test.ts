@@ -7,6 +7,8 @@ import {
   computePlayerCount,
   parseCharacterActorRoomRedirect,
   isCharacterWorldCapacityError,
+  planMapReentry,
+  resolveMapReentry,
   resolveSelfActorId,
   snapshotChanged,
   toMoveMessage,
@@ -48,6 +50,35 @@ describe("net sync — stable character actor binding", () => {
     expect(isCharacterWorldCapacityError({ code: CHARACTER_WORLD_CAPACITY_CODE })).toBe(true);
     expect(isCharacterWorldCapacityError({ code: CHARACTER_ACTOR_ROOM_REDIRECT_CODE })).toBe(false);
     expect(isCharacterWorldCapacityError(null)).toBe(false);
+  });
+});
+
+describe("net sync — resolveMapReentry (PR5-fix: 4216 redirect into a different map's room)", () => {
+  test("server map == loaded map → no re-entry (normal join / correct settle)", () => {
+    expect(resolveMapReentry("map1", "map1")).toBeNull();
+  });
+
+  test("server map != loaded map → re-enter on the server's map (bot warped the real actor)", () => {
+    // loaded "map1" from sessionStorage but the 4216 redirect landed us in the city-hub room → render city-hub
+    expect(resolveMapReentry("map1", "city-hub")).toBe("city-hub");
+  });
+
+  test("server map not yet published (empty/undefined/null) → wait, no re-entry", () => {
+    expect(resolveMapReentry("map1", "")).toBeNull();
+    expect(resolveMapReentry("map1", undefined)).toBeNull();
+    expect(resolveMapReentry("map1", null)).toBeNull();
+  });
+});
+
+describe("net sync — planMapReentry (PR5-fix loop-guard: warp-during-reload)", () => {
+  test("under the cap → reenter", () => {
+    expect(planMapReentry(0, 2)).toBe("reenter");
+    expect(planMapReentry(1, 2)).toBe("reenter");
+  });
+
+  test("at/over the cap → abort (surface offline UX instead of looping)", () => {
+    expect(planMapReentry(2, 2)).toBe("abort");
+    expect(planMapReentry(3, 2)).toBe("abort");
   });
 });
 
