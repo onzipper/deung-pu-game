@@ -138,6 +138,7 @@ describe("manual-takeover checkpoint bridge", () => {
       sessionId: "run-1",
       mapId: "map1",
       pocketId: "map1-slime-center",
+      continuity: { state: "COMBAT", revision: 2, enteredAt: 100, interruptedState: null },
       action: "attacking",
       killCount: 1,
       goldEarned: 2,
@@ -155,6 +156,7 @@ describe("manual-takeover checkpoint bridge", () => {
         pocketId: "map1-slime-center",
         savedAt: 123,
         state: "ready",
+        continuity: { state: "PAUSED", revision: 3, enteredAt: 123, interruptedState: "COMBAT" },
       },
     };
 
@@ -176,6 +178,7 @@ describe("manual-takeover checkpoint bridge", () => {
       sessionId: "run-1",
       mapId: "map1",
       pocketId: "pocket",
+      continuity: { state: "TRAVELING", revision: 1, enteredAt: 1, interruptedState: null },
       action: "moving",
       killCount: 0,
       goldEarned: 0,

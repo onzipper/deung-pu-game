@@ -1,7 +1,7 @@
 # ดึ๋งปุ๊ — P3 Bot & Report UI Implementation Spec
 
 > **ไฟล์:** `deungpu_P3_BOT_AND_REPORT_UI_IMPLEMENTATION_SPEC_v1.md`
-> **สถานะ:** `LOCKED for implementation — v1.1 AMENDED 2026-07-15`
+> **สถานะ:** `LOCKED for implementation — v1.2 AMENDED 2026-07-15`
 > **supersedes:** เนื้อเดิมเฉพาะ sections ที่ระบุใน §0.0; historical text คงไว้
 > **relates:** `docs/decisions/D-067-character-autonomy.md` (**current behavior authority**) · `docs/decisions/D-068-dungdung-contextual-guide.md` · `deungpu_OWNER_PRODUCTION_DECISIONS_P2B_TO_LAUNCH_v1.md` §0.0.1/§6/§7 · `docs/decisions/D-063-bot-economy-final.md` (economy/pass clausesที่ยังไม่ถูก D-067 supersede) · `docs/decisions/D-035-not-bot-a.md` · `docs/decisions/D-037-autopilot.md` · `deungpu_MAP_SCALE_AND_SPAWN_DENSITY_SPEC_v1.md` §8/§11 · `deungpu_P2_UI_VISUAL_IMPLEMENTATION_SPEC_v1.md`
 > **ขอบเขต:** UI/UX + client↔server message contract ของระบบ Bot (Hunter Assistant) และหน้ารายงาน — **ไม่ครอบ** runtime/anti-abuse ฝั่ง server (แยกไป tech doc)
@@ -53,6 +53,15 @@
 - **SUPERSEDED ทั้ง section:** §5 “9 Mandatory Stops”, §9 “Rare/High-value Alert” ในฐานะ always-stop และ §10 recovery semantics เดิม
 - **SUPERSEDED:** §12.3 confirm-before-stop/9-stop flow, §14 ข้อห้ามลด 9 stops, §15 แถว “9 Mandatory Stops” และ §16 ข้อ 6 ที่ตั้ง rare threshold เป็น universal stop
 - **RETAIN:** no-power/non-pushy principles, bot-safe allowlist, report UI foundation, pass pricing/expiry/fallback และ technical caps ที่ D-067 ไม่ได้เปลี่ยน
+
+## 0.0.1 Amendment Log — v1.2 (2026-07-15) — PR3 Continuity Status Contract
+
+> **CURRENT CONTINUITY CONTRACT:** checkpoint v15.5 §4.2 + Runtime Bot v1.2 §0.0.1. Server เป็น state writer เพียงฝ่ายเดียว; PR7 ยังเป็นเจ้าของการ redesign UI จาก technical profile ไปเป็นแผนงาน
+
+- `bot:status.continuity.state` ใช้ vocabulary `WORKING`, `TRAVELING`, `COMBAT`, `LOOTING`, `RECOVERING`, `RETURNING_TO_TOWN`, `SELLING`, `DEPOSITING`, `RESTOCKING`, `RETURNING_TO_WORK`, `PAUSED`, `WAITING_FOR_OWNER`, `COMPLETED`, `FAILED` ตาม checkpoint §4.2
+- client เก็บ/render snapshot ที่ server ส่งและห้าม advance/infer state เอง. `action` เดิมคงชั่วคราวเพื่อ presentation compatibility จน PR7 แต่ต้อง derive จาก continuity state ไม่เป็น authority อีกชุด
+- `bot:checkpoint.state` (`saving|ready|failed`) คือ persistence lifecycle แยกจาก `bot:checkpoint.continuity.state`; manual takeover checkpoint ต้องเห็น `PAUSED` และ interrupted state แต่ resume ต้อง replan จาก actor จริง
+- PR3 ไม่เปลี่ยน layout/copy/tier comparison. Recovery/town/workflow state ยังไม่แสดงว่า active จน PR4–PR6 ต่อ behavior จริง
 
 # 0. ขอบเขตและหลักการ
 

@@ -24,6 +24,23 @@ const EFFECTIVE_DIRECTION_POINTERS: Array<[string, string[]]> = [
   ["docs/tech/deungpu_technical_architecture_v1_5_p0_scope_lock.md", ["D-067", "CURRENT BOT IMPLEMENTATION CONSTRAINT", "worker combat simulation"]],
 ];
 
+const CONTINUITY_STATES = [
+  "WORKING",
+  "TRAVELING",
+  "COMBAT",
+  "LOOTING",
+  "RECOVERING",
+  "RETURNING_TO_TOWN",
+  "SELLING",
+  "DEPOSITING",
+  "RESTOCKING",
+  "RETURNING_TO_WORK",
+  "PAUSED",
+  "WAITING_FOR_OWNER",
+  "COMPLETED",
+  "FAILED",
+];
+
 describe("Bot autonomy and Dung-Dung direction docs lock", () => {
   test("D-067 locks real-character autonomy and tier parity", () => {
     expectAll("docs/decisions/D-067-character-autonomy.md", [
@@ -56,6 +73,14 @@ describe("Bot autonomy and Dung-Dung direction docs lock", () => {
     ]);
   });
 
+  test.each([
+    "docs/design/deungpu_project_checkpoint_v15_p0_scope_lock_ready.md",
+    "docs/design/deungpu_P3_BOT_AND_REPORT_UI_IMPLEMENTATION_SPEC_v1.md",
+    "docs/tech/deungpu_RUNTIME_BOT_CHANNEL_AND_SCHEMA_OWNERSHIP_DECISIONS_v1.md",
+  ])("%s locks the PR3 continuity vocabulary", (path) => {
+    expectAll(path, CONTINUITY_STATES);
+  });
+
   test("technical architecture locally supersedes worker, risk, and elite paths", () => {
     expectAll("docs/tech/deungpu_technical_architecture_v1_5_p0_scope_lock.md", [
       "ข้อความ Bot runtime เดิมทุกจุดในไฟล์นี้",
@@ -82,7 +107,9 @@ describe("Bot autonomy and Dung-Dung direction docs lock", () => {
   });
 
   test("routing docs point agents to both decisions and flag implementation drift", () => {
+    expectAll("README.md", ["Canonical game spec (v15.5)", "§4.2 Continuity"]);
+    expectAll("docs/README.md", ["Runtime lock v1.2", "continuity reducer"]);
     expectAll("docs/feature-map.md", ["D-067", "D-068", "noncanonical"]);
-    expectAll("docs/current-state.md", ["D-067", "D-068", "not aligned"]);
+    expectAll("docs/current-state.md", ["D-067", "D-068", "PR1–3 aligned", "PR4–10 pending"]);
   });
 });

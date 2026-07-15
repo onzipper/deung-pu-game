@@ -17,7 +17,7 @@
 
 ## 1. Spec-first (summarized from AI.md — the full version always wins)
 
-- game semantics/balance follow game spec v15.4 + the Production Bible Set (`docs/design/bibles/`) · implementation follows tech architecture v1.5.3
+- game semantics/balance follow game spec v15.5 + the Production Bible Set (`docs/design/bibles/`) · implementation follows tech architecture v1.5.3
 - work that's outside of/conflicts with spec → **stop, report back** — don't guess, don't decide on the owner's behalf
 - field names must match v15 §50.1 exactly · every balance value is read from config (Design Knobs §48), never hardcoded
 - **Spec drift (design↔tech)**: never type a field/value from memory because "it's roughly this" — open the § feature-map points to and copy field names directly from v15 §50.1 every time. full story: docs/history/2026-07-13-known-traps-archive.md#spec-drift-between-design-and-tech

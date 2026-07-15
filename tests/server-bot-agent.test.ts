@@ -15,7 +15,7 @@ import {
   type AgentMob,
 } from "../server/bot/agent";
 
-// Batch 7b — Agent decision core (pure). Target pick, throttle math, and every mandatory-stop predicate (§6.5).
+// Agent decision core (pure): target/throttle + legacy stop predicates retained until PR4-PR6 D-067 routing.
 
 const mob = (id: string, tx: number, ty: number, pocketId = "P", hp = 10, mobType = "slime"): AgentMob => ({
   id,
@@ -59,7 +59,7 @@ describe("efficiency throttle (§6.2)", () => {
   });
 });
 
-describe("mandatory stop predicates (§6.5)", () => {
+describe("legacy stop predicates (D-067 policy routing pending PR4-PR6)", () => {
   test("#1 inventory overflow", () => {
     expect(stopForInventoryOverflow(1)).toBe("inventory_full");
     expect(stopForInventoryOverflow(0)).toBeNull();

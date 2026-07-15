@@ -10,7 +10,7 @@
 
 ## 0.0 Amendment — 2026-07-15 (D-067)
 
-> **CURRENT P3 BOT DIRECTION:** P3 ใช้ real-character autonomy ตาม checkpoint v15.4 §4.1/D-067. ข้อความ offline coarse simulation/worker economy ด้านล่างคงไว้เพื่อ historyแต่ถูก SUPERSEDED; Report/telemetry ยังทำเป็น background projectionได้
+> **CURRENT P3 BOT DIRECTION:** P3 ใช้ real-character autonomy ตาม checkpoint v15.5 §4.1–§4.2/D-067. ข้อความ offline coarse simulation/worker economy ด้านล่างคงไว้เพื่อ historyแต่ถูก SUPERSEDED; Report/telemetry ยังทำเป็น background projectionได้
 
 ## 0. Critical Clarification
 

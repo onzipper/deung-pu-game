@@ -4,7 +4,7 @@ Applies to EVERY AI agent. Orchestrator-specific rules live in CLAUDE.md.
 
 ## Iron rule #1: Spec-first (never guess, never improvise)
 
-- **The spec is the truth** — game semantics/balance follow game spec v15.4; implementation follows tech architecture v1.5.3.
+- **The spec is the truth** — game semantics/balance follow game spec v15.5; implementation follows tech architecture v1.5.3.
 - Work outside of / conflicting with spec → **STOP**, propose a spec update to the owner first, implement after. No exceptions.
 - Spec doesn't cover it → ask the owner, don't guess.
 - Field names in code/JSON must match v15 §50.1 exactly — never rename/duplicate a semantic field.

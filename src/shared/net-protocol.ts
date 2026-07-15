@@ -10,6 +10,13 @@
 // ยังไม่มี auto-assign). ยังไม่ทำ reconnect/party/auth/persistence.
 
 import type { Direction } from "@/engine/movement/direction";
+import type { BotContinuitySnapshotWire } from "./bot-continuity";
+
+export type {
+  BotContinuityOperationalStateWire,
+  BotContinuitySnapshotWire,
+  BotContinuityStateWire,
+} from "./bot-continuity";
 
 /**
  * Wire direction = Direction เดียวกับ engine (5-dir + mirror → 8 logical).
@@ -1002,7 +1009,9 @@ export interface BotStatusMessage {
   sessionId: string;
   mapId: string;
   pocketId: string;
-  /** current action label ("moving" | "attacking" | "searching"). */
+  /** Canonical server-owned workflow state. Client action labels must not become a second state authority. */
+  continuity: BotContinuitySnapshotWire;
+  /** Pre-PR7 presentation compatibility, derived from `continuity.state` by the server. */
   action: string;
   killCount: number;
   goldEarned: number;
@@ -1010,7 +1019,7 @@ export interface BotStatusMessage {
   hpFraction: number;
   uptimeMs: number;
 }
-/** S→C: the bot stopped (§13 bot:stopped) — carries the 1-of-9/manual/error reason + session totals. */
+/** S→C: the plan stopped (§13 bot:stopped) — carries the current stop reason + session totals. */
 export const MSG_BOT_STOPPED = "bot:stopped";
 export interface BotStoppedMessage {
   profileId: string;
@@ -1030,6 +1039,8 @@ export interface BotCheckpointWire {
   pocketId: string;
   savedAt: number;
   state: BotCheckpointStateWire;
+  /** PAUSED snapshot plus the interrupted operational state; resume still re-evaluates the live actor. */
+  continuity: BotContinuitySnapshotWire;
 }
 /** S→C: current manual-takeover checkpoint; null means consumed/cleared by a successful start or resume. */
 export const MSG_BOT_CHECKPOINT = "bot:checkpoint";

@@ -56,14 +56,14 @@
 - `server/characters/` — stable actor ownership/controller mode (`server/characters/authority.ts`) + state/progress persistence
 - `server/inventory/` — best-effort DB glue for MapRoom (snapshot on join; capacity + item catalog; mutations strict) + P2-10 reinforcement knobs
 - `server/economy/` — kill-reward wiring: mobType→monsterId + Prisma seams (ledger/inventory/drop-audit); EXP always, gold/drops/audit w/ DB · shop-state · milestones (C1) · achievements (C2b) · reinforcement-pity (B4 §4.2/§3.5)
-- `server/bot/` — real-actor controller + PR2 atomic takeover/report checkpoint/in-process resume; PR3–7 pending
+- `server/bot/` — real-actor controller; `server/bot/continuity.ts` = PR3 tier-neutral reducer/revision fence, runtime wires WORKING/TRAVELING/COMBAT/PAUSED; PR4–7 policy/UX pending
 - `server/db/` — Prisma client singleton (server-only) + ledger contract (getBalance/appendEntry)
 - `server/config/` — Design Knobs: economy + reinforcement + loader + storage + achievements + bot (7b: caps/prices/pockets/efficiency)
 - `prisma/migrations/` — 0001_init (13 tables) · 0002_shop_ledger_reasons · 0003_progression · 0004_bot (tier_state/profiles/sessions)
 
 ## src/shared + src/server (client↔server contracts + Next server-only)
 
-- `src/shared/` — net-protocol (wire contract), reconnect/movement-validation (pure), character-name/-class validators, afk (P2-13)
+- `src/shared/` — net-protocol + bot-continuity wire contracts, reconnect/movement-validation, character validators, afk (pure)
 - `src/server/db.ts` — Prisma client singleton on the Next API side (**server-only**, must never enter the client bundle)
 - `src/server/auth/` — token/session-cookie, password hash/policy, email normalize, auth service/upgrade state machine
 - `src/server/characters/` — repository (memory/prisma) + service (slot cap, cross-account guard)

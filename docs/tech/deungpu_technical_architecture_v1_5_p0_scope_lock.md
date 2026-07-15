@@ -1,8 +1,8 @@
 # ดึ๋งปุ๊ — Technical Architecture v1.5.3
 
-> **Canonical game spec:** `deungpu_project_checkpoint_v15_p0_scope_lock_ready.md` (current source of truth v15.4; Character Autonomy = §4.1/D-067)
+> **Canonical game spec:** `deungpu_project_checkpoint_v15_p0_scope_lock_ready.md` (current source of truth v15.5; Character Autonomy = §4.1–§4.2/D-067)
 > **เอกสารแยกที่อ้างอิง:** `ENGINE_FOUNDATION_DECISIONS_v1` · `RUNTIME_BOT_CHANNEL_AND_SCHEMA_OWNERSHIP_DECISIONS_v1` · `MAP_LAYOUT_BIBLE_v1` · `MAP_SCALE_AND_SPAWN_DENSITY_SPEC_v1` · `P0_SCOPE_LOCK_v1` · **Production Bible Set v1 (`docs/design/bibles/`, 2026-07-12)** — Bible ชนะเรื่องพฤติกรรม/ความหมายที่ผู้เล่นได้รับ, เอกสารนี้ชนะเรื่องวิธี implement
-> สถานะ: **P0 scope locked — เอกสารนี้คือ tech architecture ฝั่ง implementation; game semantics/balance ยึด v15.4**
+> สถานะ: **P0 scope locked — เอกสารนี้คือ tech architecture ฝั่ง implementation; game semantics/balance ยึด v15.5**
 > **v1.5.3 — amendment (2026-07-15, in-place):** D-067 ล็อก Bot = real-character autonomy; §9 worker/coarse/offline simulation, L17 offline worker และข้อความต่อเนื่องที่ระบุด้านล่างถูก SUPERSEDED. Worker คงใช้ได้เฉพาะ schedule/report/notification/telemetry ไม่ใช่ combat/reward/world simulation
 > **v1.5.2 — amendment (2026-07-12, in-place):** สะท้อน Production Bible Set v1 (owner ปิด decision queue ทุกข้อ) — **balance เลิกสถานะ PENDING OWNER** (k=50, hit tolerance 1.40/0.35/20° ยืนยันเป็น baseline), multi-hit rounding = round-total-once (§15.7.1), party model final = public shared channel (§6.2), background tab production policy (§6.2), P2 scope + milestone P2B ใหม่ (§12.1), click radius per input mode + Map 1 ratified (§17.3), asset canvas standards ใหม่ (L12, boss 160–192)
 > **v1.5.1 — amendment (2026-07-12, in-place ไม่ rename ไฟล์):** สะท้อน decision + finding จริงจาก P0/P1 implementation — client ต้อง adopt ตำแหน่งจาก server ก่อนส่ง move แรก (§6), reconnect token = sessionStorage per-tab (§6), นโยบายแท็บเบื้องหลัง = ค้างออนไลน์ตลอดใน P1 (§6), party channel model ที่ implement จริง = private-party-channel (§6), server-side hit tolerance สำหรับ melee ที่ระยะประชิด (§15, ตัวเลข **PENDING OWNER**), walk-to-attack ตีต่อเนื่อง (§17.3) — ดู "Amendment Log" ท้าย §6/§15/§17.3 สำหรับรายละเอียด ค่า balance ทั้งหมดยังเป็น PENDING OWNER เหมือนเดิม
@@ -18,7 +18,7 @@
 
 ## 0.0 Amendment Log — v1.5.3 (2026-07-15) — Character Autonomy Runtime Boundary (D-067)
 
-> **CURRENT BOT IMPLEMENTATION CONSTRAINT:** ใช้ checkpoint v15.4 §4.1 + D-067 + runtime decisions v1.1 ก่อน **ข้อความ Bot runtime เดิมทุกจุดในไฟล์นี้** โดยเฉพาะ §0/§0.1, §1 authority table, L17, §4–§5, §7–§9, §12–§14, §16.1, §17.8, §18 และ §19.8. ห้าม implement clone, worker combat simulation, invisible actor, ghost/private reward instance หรือ coarse offline reward model
+> **CURRENT BOT IMPLEMENTATION CONSTRAINT:** ใช้ checkpoint v15.5 §4.1–§4.2 + D-067 + runtime decisions v1.2 ก่อน **ข้อความ Bot runtime เดิมทุกจุดในไฟล์นี้** โดยเฉพาะ §0/§0.1, §1 authority table, L17, §4–§5, §7–§9, §12–§14, §16.1, §17.8, §18 และ §19.8. ห้าม implement clone, worker combat simulation, invisible actor, ghost/private reward instance หรือ coarse offline reward model
 
 1. Actor จริงหนึ่งตัวเป็นเจ้าของ equipment/skill/HP/inventory/position/progression/world presence; transport session เป็น controller attachment
 2. Character control authority ต้องรองรับ Manual/Assisted/Autonomy, instant manual takeover และ stale-command fencing; reconnect attach ไป actor/state/position ล่าสุด

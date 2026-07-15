@@ -4,7 +4,7 @@
 //   • tier caps (profiles/rules/retention/notifications/schedules/analytics) .. D-063 · P3 Bot UI spec §15
 //   • pass prices (1/10/30 days) ............................................. D-063 (Plus 9/39/79฿ · Pro 15/69/149฿)
 //   • efficiency vs efficient manual ........................................ P2B §6.2 (min .60 / target .70 / max .80)
-//   • the 9 Mandatory Stops ................................................. P2B §6.5 · D-063 (non-disable, every tier)
+//   • stop reason compatibility ............................................ D-067 (PR4-PR6 own current policy)
 //   • bot-allowed pockets ................................................... MAPS_2_4 §6 (bot-safe table) + Map 1 §8/§11
 //
 // ⛔ SERVER-ONLY (bots mutate the persistent economy — the same audited paths as real players; drop/rate
@@ -49,8 +49,8 @@ export interface BotTierDef {
 }
 
 /**
- * The 9 Mandatory Stop reasons (P2B §6.5 · D-063). Non-disable at EVERY tier. Two are substituted/deferred for
- * v1 and DOCUMENTED here (the substitution is a runtime decision, not a spec change):
+ * Internal stop-reason compatibility. D-067 superseded the former "9 Mandatory Stops for every tier" policy;
+ * PR4-PR6 will map obstacles to Free stop / Plus recovery / Pro workflow. Existing v1 triggers remain until then:
  *   • `potion_exhausted` → substituted by `low_hp` (no potion-use system yet — stop at hp < lowHpStopPct).
  *   • `secret_trigger` → N/A on Map 1 (no secret pockets are bot-allowed); wired for maps that gain them.
  *   • `captcha` → anti-abuse challenge infra is a TODO; the stop type exists but never fires in beta.
@@ -86,20 +86,20 @@ export interface BotConfig {
    * boss/elite/secret/event pocket is ABSENT (forbidden always) — Setup never offers them and start rejects them.
    */
   botAllowedPockets: Record<string, readonly string[]>;
-  /** rare/high-value drop → mandatory stop (§6.5). A granted loot line at/above this rarity fires `rare_found`. */
+  /** Legacy v1 rare-stop threshold; PR4 replaces ordinary-rare behavior with plan policy per D-067. */
   rareStopMinRarity: "uncommon" | "rare";
-  /** substitute for potion-exhausted (§6.5): hp fraction below which the bot stops `low_hp`. */
+  /** Legacy low-HP safe-stop threshold; PR4/PR5 decide stop versus recovery. */
   lowHpStopFraction: number;
   /**
    * consecutive decision ticks with no reachable target before the bot stops `stuck` (map unsafe / pocket
-   * empty repeatedly, §6.5). One decision tick ≈ one throttled attack cadence.
+   * empty repeatedly. PR4/PR5 decide wait versus recovery; one decision tick ≈ one throttled attack cadence.
    */
   stuckTickLimit: number;
   /** session counter flush cadence to `bot_sessions` (periodic durability + on stop). */
   sessionFlushIntervalMs: number;
   /** how often the owner (if connected in the host room) receives a `bot:status` push. */
   statusPushIntervalMs: number;
-  /** radius (tiles) around the bot within which a boss/event entity triggers the `boss_or_event` stop (§6.5). */
+  /** Boss/event safety radius. Automation may never fight either under D-067. */
   bossStopRadiusTiles: number;
   /** approach until within attackRange × this factor before casting (ensures the hit-test lands). */
   attackRangeFactor: number;
@@ -167,8 +167,8 @@ export const DEFAULT_BOT_CONFIG: BotConfig = {
     // Map 4 (§6): W บ่อน้ำจันทร์ · C ป่าหมอก/เห็ดฝัน · E ทุ่งกวางเงา (loop ตัด NE) — secret/boss/event forbidden.
     map4: ["map4-wisp-west", "map4-wisp-center", "map4-dream-center", "map4-deer-east"],
   },
-  rareStopMinRarity: "rare", // §6.5 rare/high-value — provisional (owner knob botRareStopThreshold, P3 §16 Q6)
-  lowHpStopFraction: 0.15, // 15% — potion-exhausted substitution (documented, §6.5)
+  rareStopMinRarity: "rare", // legacy until PR4 plan-selected ordinary-rare action
+  lowHpStopFraction: 0.15, // legacy stop until PR4/PR5 tier policy
   stuckTickLimit: 6,
   sessionFlushIntervalMs: 30_000,
   statusPushIntervalMs: 2_000, // P3 §16 Q1 proposal (2s while panel open) — provisional

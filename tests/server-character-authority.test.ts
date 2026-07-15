@@ -11,8 +11,10 @@ import { DEFAULT_BOT_CONFIG } from "../server/config/bot";
 import {
   MSG_BOT_CHECKPOINT,
   MSG_BOT_OP_RESULT,
+  MSG_BOT_STATUS,
   type BotCheckpointMessage,
   type BotOpResultMessage,
+  type BotStatusMessage,
 } from "../src/shared/net-protocol";
 
 describe("stable character actor authority", () => {
@@ -284,6 +286,116 @@ describe("BotManager character-authority lifecycle", () => {
     ]));
   });
 
+  test("takeover during session insert owns PAUSED/checkpoint before releasing authority", async () => {
+    let finishInsert!: () => void;
+    let markInsertStarted!: () => void;
+    const insertStarted = new Promise<void>((resolve) => { markInsertStarted = resolve; });
+    const h = createManagerHarness({
+      insert: () => new Promise<void>((resolve) => {
+        finishInsert = resolve;
+        markInsertStarted();
+      }),
+    });
+    const statesAtRelease: Array<string | null> = [];
+    const release = h.host.botReleaseAuthority;
+    h.host.botReleaseAuthority = (actorId) => {
+      const checkpoints = (h.manager as unknown as {
+        checkpoints: Map<string, { continuity: { state: string } }>;
+      }).checkpoints;
+      statesAtRelease.push(checkpoints.get("account-a")?.continuity.state ?? null);
+      release(actorId);
+    };
+
+    const start = h.manager.onStart(
+      h.host,
+      "controller-1",
+      "account-a",
+      "character-a",
+      h.send,
+      { profileId: PROFILE.id },
+    );
+    await insertStarted;
+
+    expect(h.manager.onTakeover(
+      "account-a",
+      "actor:real-existing",
+      h.send,
+      { requestId: "takeover-during-insert", source: "move" },
+    )).toBe(true);
+    expect(statesAtRelease).toEqual(["PAUSED"]);
+    expect(h.releases).toEqual(["actor:real-existing"]);
+    expect(h.manager.activeActorForAccount("account-a")).toBeNull();
+
+    const saving = h.messages.find((entry) => entry.type === MSG_BOT_CHECKPOINT)?.message as BotCheckpointMessage;
+    expect(saving.checkpoint).toMatchObject({
+      profileId: PROFILE.id,
+      state: "saving",
+      continuity: { state: "PAUSED", revision: 1, interruptedState: "WORKING" },
+    });
+
+    finishInsert();
+    await start;
+
+    expect(h.releases).toEqual(["actor:real-existing"]);
+    expect(h.patched).toHaveLength(1);
+    const checkpointMessages = h.messages
+      .filter((entry) => entry.type === MSG_BOT_CHECKPOINT)
+      .map((entry) => entry.message as BotCheckpointMessage);
+    expect(checkpointMessages.at(-1)?.checkpoint).toMatchObject({
+      id: saving.checkpoint?.id,
+      state: "ready",
+      continuity: { state: "PAUSED", interruptedState: "WORKING" },
+    });
+    expect(h.messages).toContainEqual({
+      type: MSG_BOT_OP_RESULT,
+      message: expect.objectContaining({ op: "start", ok: false, reason: "cancelled" }),
+    });
+  });
+
+  test("takeover checkpoint fails closed when the pending session insert is rejected", async () => {
+    let rejectInsert!: (reason?: unknown) => void;
+    let markInsertStarted!: () => void;
+    const insertStarted = new Promise<void>((resolve) => { markInsertStarted = resolve; });
+    const h = createManagerHarness({
+      insert: () => new Promise<void>((_resolve, reject) => {
+        rejectInsert = reject;
+        markInsertStarted();
+      }),
+    });
+    const start = h.manager.onStart(
+      h.host,
+      "controller-1",
+      "account-a",
+      "character-a",
+      h.send,
+      { profileId: PROFILE.id },
+    );
+    await insertStarted;
+
+    expect(h.manager.onTakeover(
+      "account-a",
+      "actor:real-existing",
+      h.send,
+      { requestId: "takeover-before-insert-failure", source: "skill" },
+    )).toBe(true);
+    rejectInsert(new Error("db down"));
+    await start;
+
+    const checkpointMessages = h.messages
+      .filter((entry) => entry.type === MSG_BOT_CHECKPOINT)
+      .map((entry) => entry.message as BotCheckpointMessage);
+    expect(checkpointMessages.at(-1)?.checkpoint).toMatchObject({
+      state: "failed",
+      continuity: { state: "PAUSED", interruptedState: "WORKING" },
+    });
+    expect(h.releases).toEqual(["actor:real-existing"]);
+    expect(h.patched).toHaveLength(0);
+    expect(h.messages).toContainEqual({
+      type: MSG_BOT_OP_RESULT,
+      message: expect.objectContaining({ op: "start", ok: false, reason: "cancelled" }),
+    });
+  });
+
   test("manual takeover releases authority synchronously, saves a checkpoint, then resumes the same plan", async () => {
     const h = createManagerHarness();
     await h.manager.onStart(
@@ -315,6 +427,10 @@ describe("BotManager character-authority lifecycle", () => {
       mapId: PROFILE.mapId,
       pocketId: PROFILE.pocketId,
       state: "saving",
+      continuity: {
+        state: "PAUSED",
+        interruptedState: "WORKING",
+      },
     });
 
     await new Promise<void>((resolve) => setTimeout(resolve, 0));
@@ -393,6 +509,79 @@ describe("MapRoom no-clone implementation guard", () => {
 });
 
 describe("BotRuntime authority drain", () => {
+  test("publishes server-owned WORKING/TRAVELING/COMBAT state before issuing world commands", async () => {
+    let pos = { tx: 0, ty: 0 };
+    let mobs = [{ id: "mob-1", mobType: "slime", tx: 5, ty: 0, hp: 10, pocketId: "pocket" }];
+    let now = 1_000;
+    const observed: string[] = [];
+    const messages: { type: string; message: unknown }[] = [];
+    const sessionRepo: SessionRepo = {
+      insert: async () => undefined,
+      patch: async () => undefined,
+      listByAccount: async () => [],
+      getById: async () => null,
+      markOpenAsRestart: async () => 0,
+    };
+    const host: BotHost = {
+      mapId: "map1",
+      roomId: "room-1",
+      botClaimAuthority: () => "actor:real",
+      botReleaseAuthority: () => undefined,
+      botMobs: () => mobs,
+      botPos: () => pos,
+      botHpFraction: () => 1,
+      botAttackRange: () => 1,
+      botBaseCooldownSeconds: () => 1,
+      botStepToward: () => { observed.push(runtime.continuitySnapshot.state); },
+      botAttack: async () => {
+        observed.push(runtime.continuitySnapshot.state);
+        return { killed: 0, gold: 0, exp: 0, loot: [], overflow: [], leveledUp: false };
+      },
+      botOwnerSend: (_accountId, type, message) => {
+        messages.push({ type, message });
+        return true;
+      },
+      isBossOrEventType: () => false,
+      pocketExists: () => true,
+    };
+    const runtime = new BotRuntime({
+      host,
+      config: DEFAULT_BOT_CONFIG,
+      sessionRepo,
+      rarityOf: () => undefined,
+      sessionRowId: "run-continuity",
+      accountId: "account-a",
+      characterId: "character-a",
+      profileId: "profile-a",
+      actorId: "actor:real",
+      mapId: "map1",
+      pocketId: "pocket",
+      rules: { skillSlots: [0], potionThresholdPct: null, lootAll: true },
+      baseCooldownSeconds: 1,
+      startedAtMs: now,
+      now: () => ++now,
+      onStopped: () => undefined,
+      onTakeoverSettled: () => undefined,
+    });
+
+    expect(runtime.continuitySnapshot).toMatchObject({ state: "WORKING", revision: 0 });
+    runtime.tick(100);
+    expect(runtime.continuitySnapshot.state).toBe("TRAVELING");
+    expect(observed).toEqual(["TRAVELING"]);
+
+    pos = { tx: 5, ty: 0 };
+    runtime.tick(2_000);
+    await Promise.resolve();
+    expect(runtime.continuitySnapshot.state).toBe("COMBAT");
+    expect(observed).toEqual(["TRAVELING", "COMBAT"]);
+    const status = messages.find((entry) => entry.type === MSG_BOT_STATUS)?.message as BotStatusMessage;
+    expect(status).toMatchObject({ continuity: { state: "COMBAT" }, action: "attacking" });
+
+    mobs = [];
+    runtime.tick(100);
+    expect(runtime.continuitySnapshot.state).toBe("WORKING");
+  });
+
   test("does not release the real actor until an in-flight reward is reflected in the final report", async () => {
     let finishAttack!: (outcome: BotAttackOutcome) => void;
     const attack = new Promise<BotAttackOutcome>((resolve) => { finishAttack = resolve; });
@@ -437,6 +626,7 @@ describe("BotRuntime authority drain", () => {
       rules: { skillSlots: [0], potionThresholdPct: null, lootAll: true },
       baseCooldownSeconds: 1,
       startedAtMs: 0,
+      now: () => 1,
       onStopped: () => { stopped += 1; },
       onTakeoverSettled: () => undefined,
     });
@@ -472,6 +662,7 @@ describe("BotRuntime authority drain", () => {
     let finishAttack!: (outcome: BotAttackOutcome) => void;
     const attack = new Promise<BotAttackOutcome>((resolve) => { finishAttack = resolve; });
     const releases: string[] = [];
+    const releaseStates: string[] = [];
     const settled: { checkpointId: string; saved: boolean }[] = [];
     let attacks = 0;
     const sessionRepo: SessionRepo = {
@@ -485,7 +676,10 @@ describe("BotRuntime authority drain", () => {
       mapId: "map1",
       roomId: "room-1",
       botClaimAuthority: () => "actor:real",
-      botReleaseAuthority: (actorId) => { releases.push(actorId); },
+      botReleaseAuthority: (actorId) => {
+        releases.push(actorId);
+        releaseStates.push(runtime.continuitySnapshot.state);
+      },
       botMobs: () => [{ id: "mob-1", mobType: "slime", tx: 0, ty: 0, hp: 10, pocketId: "pocket" }],
       botPos: () => ({ tx: 0, ty: 0 }),
       botHpFraction: () => 1,
@@ -512,13 +706,18 @@ describe("BotRuntime authority drain", () => {
       rules: { skillSlots: [0], potionThresholdPct: null, lootAll: true },
       baseCooldownSeconds: 1,
       startedAtMs: 0,
+      now: () => 1,
       onStopped: () => undefined,
       onTakeoverSettled: (_accountId, checkpointId, saved) => settled.push({ checkpointId, saved }),
     });
 
     runtime.tick(2_000);
-    expect(runtime.takeover("checkpoint-1", 123)).toBe(true);
+    expect(runtime.takeover("checkpoint-1", 123)).toMatchObject({
+      state: "PAUSED",
+      interruptedState: "COMBAT",
+    });
     expect(releases).toEqual(["actor:real"]);
+    expect(releaseStates).toEqual(["PAUSED"]);
     runtime.tick(10_000);
     expect(attacks).toBe(1);
     expect(settled).toEqual([]);
@@ -536,6 +735,7 @@ describe("BotRuntime authority drain", () => {
 
     expect(releases).toEqual(["actor:real"]);
     expect(settled).toEqual([{ checkpointId: "checkpoint-1", saved: true }]);
+    expect(runtime.continuitySnapshot).toMatchObject({ state: "PAUSED", interruptedState: "COMBAT" });
   });
 
   test("final checkpoint write waits behind an older periodic report flush", async () => {
@@ -584,6 +784,7 @@ describe("BotRuntime authority drain", () => {
       rules: { skillSlots: [0], potionThresholdPct: null, lootAll: true },
       baseCooldownSeconds: 1,
       startedAtMs: 0,
+      now: () => 1,
       onStopped: () => undefined,
       onTakeoverSettled: (_accountId, _checkpointId, saved) => settled.push(saved),
     });
@@ -591,7 +792,7 @@ describe("BotRuntime authority drain", () => {
     runtime.tick(DEFAULT_BOT_CONFIG.sessionFlushIntervalMs + 1);
     await Promise.resolve();
     expect(patches).toHaveLength(1);
-    expect(runtime.takeover("checkpoint-serialized", 456)).toBe(true);
+    expect(runtime.takeover("checkpoint-serialized", 456)).toMatchObject({ state: "PAUSED" });
     await Promise.resolve();
     expect(patches).toHaveLength(1);
     expect(settled).toEqual([]);
