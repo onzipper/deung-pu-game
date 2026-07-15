@@ -1,6 +1,6 @@
-// Batch 7b-server — BotManager: process singleton that owns tier/profile/report persistence, the running bot
-// sessions, the concurrency cap, and the wire ops. Rooms register on create (hosts by mapId) and are ticked by
-// their own sim loop. Bots run only while the process lives (Render free, D-058); on boot every still-open
+// Character Autonomy manager: process singleton that owns tier/profile/report persistence and server controllers
+// attached to real character actors. Rooms register on create and tick their attached controllers in the room sim.
+// Controllers run only while the process lives (Render free, D-058); on boot every still-open
 // session is closed as `server_restart` and NOT auto-resumed (owner restarts manually — simplest correct v1).
 //
 // ⛔ SERVER-ONLY. Bots require a DB (they mutate the audited economy) — every op rejects `requires_db` with none.
@@ -26,8 +26,7 @@ import {
   type BotTierStateMessage,
   type BotTierWire,
 } from "../../src/shared/net-protocol";
-import { loadCharacterClass, loadCharacterProgress } from "../characters/character-state";
-import { DEFAULT_BOT_CONFIG, type BotConfig } from "../config/bot";
+import { DEFAULT_BOT_CONFIG, type BotConfig, type BotStopReason } from "../config/bot";
 import { ITEM_CATALOG } from "../inventory/inventory-state";
 import {
   createProfile,
@@ -63,15 +62,21 @@ export interface BotManagerDeps {
   dbAvailable: () => boolean;
   /** clock (DI for tests). */
   now: () => number;
-  loadProgress: (characterId: string) => Promise<{ level: number; exp: number } | null>;
-  loadClass: (characterId: string) => Promise<string | null>;
 }
 
 export class BotManager {
   private readonly d: BotManagerDeps;
   private readonly roomsByMap = new Map<string, Set<BotHost>>();
   private readonly bots = new Map<string, BotRuntime>(); // accountId → runtime (one running bot per account)
-  private readonly sessionToAccount = new Map<string, string>(); // virtual sessionId → accountId
+  private readonly actorToAccount = new Map<string, string>(); // stable character actorId → accountId
+  /** Synchronous reservation closes the async start TOCTOU before tier/profile/DB awaits. */
+  private readonly startingAccounts = new Set<string>();
+  /** Claimed actors awaiting the bot-session insert still need reconnect routing and duplicate protection. */
+  private readonly startingActors = new Map<
+    string,
+    { actorId: string; characterId: string; roomId: string; host: BotHost }
+  >();
+  private readonly cancelledStarts = new Map<string, BotStopReason>();
   private booted = false;
 
   constructor(deps: BotManagerDeps) {
@@ -114,22 +119,50 @@ export class BotManager {
   }
 
   /** the host contact path reports a bot death → stop it (mandatory stop #3). */
-  onBotDied(sessionId: string): void {
-    const accountId = this.sessionToAccount.get(sessionId);
-    if (accountId) this.bots.get(accountId)?.stop("death");
+  onBotDied(actorId: string): void {
+    const accountId = this.actorToAccount.get(actorId);
+    if (accountId) {
+      this.bots.get(accountId)?.stop("death");
+      return;
+    }
+    for (const [startingAccountId, presence] of this.startingActors) {
+      if (presence.actorId === actorId) {
+        this.cancelPendingStart(startingAccountId, "death");
+        return;
+      }
+    }
   }
 
   /** called by a runtime when it stops (any reason) → drop it. */
   private dropRuntime(accountId: string): void {
     const rt = this.bots.get(accountId);
-    if (rt) this.sessionToAccount.delete(rt.sessionId);
+    if (rt) this.actorToAccount.delete(rt.actorId);
     this.bots.delete(accountId);
   }
 
-  private pickHost(mapId: string): BotHost | null {
-    const set = this.roomsByMap.get(mapId);
-    if (!set || set.size === 0) return null;
-    return set.values().next().value ?? null;
+  /** Authenticated reconnect routing. Never returns another account's actor. */
+  activeActorForAccount(accountId: string): {
+    actorId: string;
+    characterId: string;
+    roomId: string;
+    host: BotHost;
+  } | null {
+    const rt = this.bots.get(accountId);
+    if (rt) {
+      return { actorId: rt.actorId, characterId: rt.characterId, roomId: rt.host.roomId, host: rt.host };
+    }
+    return this.startingActors.get(accountId) ?? null;
+  }
+
+  private cancelPendingStart(accountId: string, reason: BotStopReason): boolean {
+    if (!this.startingAccounts.has(accountId)) return false;
+    this.cancelledStarts.set(accountId, reason);
+    const presence = this.startingActors.get(accountId);
+    if (presence) {
+      this.startingActors.delete(accountId);
+      presence.host.botReleaseAuthority(presence.actorId);
+    }
+    return true;
   }
 
   // ── shared reply helpers ─────────────────────────────────────────────────────
@@ -236,6 +269,7 @@ export class BotManager {
 
   async onProfileDelete(accountId: string | null, send: Send, m: BotProfileDeleteMessage): Promise<void> {
     if (!accountId || !this.guardDb(send, "profileDelete")) return;
+    this.cancelPendingStart(accountId, "manual");
     // stop a running bot on this profile first (frees the slot cleanly).
     const running = this.bots.get(accountId);
     if (running) running.stop("manual");
@@ -262,6 +296,7 @@ export class BotManager {
 
   async onStart(
     requestHost: BotHost,
+    controllerSessionId: string,
     accountId: string | null,
     characterId: string | null,
     send: Send,
@@ -269,28 +304,75 @@ export class BotManager {
   ): Promise<void> {
     if (!accountId || !this.guardDb(send, "start")) return;
     if (!characterId) return this.reject(send, "start", "no_character");
-    if (this.bots.has(accountId)) return this.reject(send, "start", "already_running");
-    if (this.bots.size >= this.d.config.maxConcurrentBots) return this.reject(send, "start", "at_capacity");
+    if (this.bots.has(accountId) || this.startingAccounts.has(accountId)) {
+      return this.reject(send, "start", "already_running");
+    }
+    if (this.bots.size + this.startingAccounts.size >= this.d.config.maxConcurrentBots) {
+      return this.reject(send, "start", "at_capacity");
+    }
+    this.startingAccounts.add(accountId);
+
+    try {
+      await this.startReserved(requestHost, controllerSessionId, accountId, characterId, send, m);
+    } finally {
+      this.startingAccounts.delete(accountId);
+      this.startingActors.delete(accountId);
+      this.cancelledStarts.delete(accountId);
+    }
+  }
+
+  private async startReserved(
+    requestHost: BotHost,
+    controllerSessionId: string,
+    accountId: string,
+    characterId: string,
+    send: Send,
+    m: BotStartMessage,
+  ): Promise<void> {
 
     const tier = await this.resolveTierFor(accountId);
+    if (this.cancelledStarts.has(accountId)) return this.reject(send, "start", "cancelled", m?.profileId);
     const profile = await this.d.profileRepo.getById(accountId, m?.profileId);
     if (!profile) return this.reject(send, "start", "not_found", m?.profileId);
 
     const all = await this.d.profileRepo.listByAccount(accountId);
+    if (this.cancelledStarts.has(accountId)) return this.reject(send, "start", "cancelled", profile.id);
     const view = markReadOnlyExcess(all, tier, this.d.config).find((v) => v.id === profile.id);
     if (view?.readOnly) return this.reject(send, "start", "profile_readonly", profile.id);
     if (!isBotAllowedPocket(profile.mapId, profile.pocketId, this.d.config)) {
       return this.reject(send, "start", "pocket_not_allowed", profile.id);
     }
 
-    const host = profile.mapId === requestHost.mapId ? requestHost : this.pickHost(profile.mapId);
-    if (!host) return this.reject(send, "start", "no_room", profile.id);
+    // Character Autonomy controls the actor where it actually stands. A profile can never teleport it into a
+    // different room/map or choose an unrelated host.
+    if (profile.mapId !== requestHost.mapId) {
+      return this.reject(send, "start", "character_not_in_profile_map", profile.id);
+    }
+    if (this.cancelledStarts.has(accountId)) return this.reject(send, "start", "cancelled", profile.id);
 
-    const progress = (await this.d.loadProgress(characterId)) ?? { level: 1, exp: 0 };
-    const classId = (await this.d.loadClass(characterId)) ?? "swordsman";
+    const actorId = requestHost.botClaimAuthority({
+      controllerSessionId,
+      accountId,
+      characterId,
+      profileId: profile.id,
+      allowedSlots: profile.rules.skillSlots,
+      pocketId: profile.pocketId,
+    });
+    if (!actorId) return this.reject(send, "start", "actor_not_available", profile.id);
+    this.startingActors.set(accountId, {
+      actorId,
+      characterId,
+      roomId: requestHost.roomId,
+      host: requestHost,
+    });
+    if (this.cancelledStarts.has(accountId)) {
+      this.startingActors.delete(accountId);
+      requestHost.botReleaseAuthority(actorId);
+      return this.reject(send, "start", "cancelled", profile.id);
+    }
+
     const now = this.d.now();
     const sessionRowId = randomUUID();
-    const sessionId = `bot#${sessionRowId}`;
 
     try {
       await this.d.sessionRepo.insert({
@@ -309,29 +391,27 @@ export class BotManager {
         updatedAt: now,
       });
     } catch {
+      if (this.startingActors.delete(accountId)) requestHost.botReleaseAuthority(actorId);
       return this.reject(send, "start", "db_error", profile.id);
     }
 
-    const spawned = host.botSpawn({
-      sessionId,
-      accountId,
-      characterId,
-      profileId: profile.id,
-      classId,
-      level: progress.level,
-      exp: progress.exp,
-      allowedSlots: profile.rules.skillSlots,
-      pocketId: profile.pocketId,
-    });
-    if (!spawned) {
-      await this.d.sessionRepo
-        .patch(sessionRowId, { killCount: 0, goldEarned: 0, expEarned: 0, drops: {} }, { stoppedAt: now, stopReason: "map_unsafe" })
-        .catch(() => {});
-      return this.reject(send, "start", "spawn_failed", profile.id);
+    const cancelledReason = this.cancelledStarts.get(accountId);
+    if (cancelledReason) {
+      if (this.startingActors.delete(accountId)) requestHost.botReleaseAuthority(actorId);
+      try {
+        await this.d.sessionRepo.patch(
+          sessionRowId,
+          { killCount: 0, goldEarned: 0, expEarned: 0, drops: {} },
+          { stoppedAt: this.d.now(), stopReason: cancelledReason },
+        );
+      } catch {
+        // The session row exists; boot cleanup remains a final safety net if this best-effort close fails.
+      }
+      return this.reject(send, "start", "cancelled", profile.id);
     }
 
     const runtime = new BotRuntime({
-      host,
+      host: requestHost,
       config: this.d.config,
       sessionRepo: this.d.sessionRepo,
       rarityOf: this.d.rarityOf,
@@ -339,23 +419,27 @@ export class BotManager {
       accountId,
       characterId,
       profileId: profile.id,
-      sessionId,
+      actorId,
       mapId: profile.mapId,
       pocketId: profile.pocketId,
       rules: profile.rules,
-      baseCooldownSeconds: host.botBaseCooldownSeconds(sessionId),
+      baseCooldownSeconds: requestHost.botBaseCooldownSeconds(actorId),
       startedAtMs: now,
       onStopped: (acc) => this.dropRuntime(acc),
     });
     this.bots.set(accountId, runtime);
-    this.sessionToAccount.set(sessionId, accountId);
+    this.actorToAccount.set(actorId, accountId);
+    this.startingActors.delete(accountId);
     this.ack(send, "start", profile.id);
   }
 
   onStop(accountId: string | null, send: Send, _m: BotStopMessage): void {
     if (!accountId) return;
     const rt = this.bots.get(accountId);
-    if (!rt) return this.reject(send, "stop", "not_running");
+    if (!rt) {
+      if (this.cancelPendingStart(accountId, "manual")) return this.ack(send, "stop");
+      return this.reject(send, "stop", "not_running");
+    }
     rt.stop("manual");
     this.ack(send, "stop");
   }
@@ -393,8 +477,6 @@ export const botManager = new BotManager({
   rarityOf: (itemId) => rarityLookup(itemId),
   dbAvailable: botPersistenceAvailable,
   now: () => Date.now(),
-  loadProgress: (characterId) => loadCharacterProgress(characterId),
-  loadClass: (characterId) => loadCharacterClass(characterId),
 });
 
 /** rarity lookup resolved from the item catalog (server-only) for the rare-drop stop. */

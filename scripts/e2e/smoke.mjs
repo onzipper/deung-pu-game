@@ -86,7 +86,6 @@ async function main() {
   let correctionCount = 0;
   let castRejectCount = 0;
   let room = null;
-  let client = null;
 
   const joinOptions = {
     mapId: DEFAULT_MAP_ID,
@@ -99,12 +98,12 @@ async function main() {
 
   // prod free tier อาจ cold start — retry การ join 1 ครั้งหลัง delay สั้น ๆ (README ข้อควรระวัง)
   try {
-    ({ client, room } = await connect(url, MAP_ROOM_NAME, joinOptions));
+    ({ room } = await connect(url, MAP_ROOM_NAME, joinOptions));
   } catch (err) {
     console.log(`[e2e] join failed (${describeError(err)}) — retry once ใน 5s (cold start?) ...`);
     await sleep(5000);
     try {
-      ({ client, room } = await connect(url, MAP_ROOM_NAME, joinOptions));
+      ({ room } = await connect(url, MAP_ROOM_NAME, joinOptions));
     } catch (err2) {
       report("join room", false, describeError(err2));
       finalizeReport();
@@ -112,6 +111,11 @@ async function main() {
     }
   }
   report("join room", true, `sessionId=${room.sessionId}`);
+  const selfActorId = await waitFor(
+    () => room.state?.controllers?.get(room.sessionId),
+    10000,
+    "controller bound to stable character actor",
+  );
 
   room.onMessage(MSG_POSITION_CORRECTION, () => {
     correctionCount++;
@@ -124,7 +128,7 @@ async function main() {
   try {
     // (a) join สำเร็จ + ได้ ROOM_STATE + เห็นตำแหน่ง self
     const self = await waitFor(
-      () => room.state?.players?.get(room.sessionId),
+      () => room.state?.players?.get(selfActorId),
       10000,
       "self player visible in ROOM_STATE",
     );
@@ -206,7 +210,7 @@ async function main() {
       const castDir = directionFromDelta(current.tx - pos.tx, current.ty - pos.ty);
       const resultPromise = new Promise((resolve) => {
         const off = room.onMessage(MSG_SKILL_RESULT, (msg) => {
-          if (msg.casterId === room.sessionId) {
+          if (msg.casterId === selfActorId) {
             off();
             resolve(msg);
           }

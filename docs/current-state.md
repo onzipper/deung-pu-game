@@ -1,6 +1,6 @@
 # Current state
 
-_Last updated: 2026-07-15 · Status board only — history & detail: `docs/history/` (full pre-restructure snapshot: `docs/history/2026-07-13-current-state-archive.md`)_
+_Updated 2026-07-15 · History: `docs/history/` · archive: `docs/history/2026-07-13-current-state-archive.md`_
 
 ## Now
 
@@ -8,7 +8,7 @@ _Last updated: 2026-07-15 · Status board only — history & detail: `docs/histo
 - **Phase:** P2 wave 3 **code-complete** (P2-07..17 ✅, merged). Post-merge todo: **P2-16** handoff (rename `upg_kraeng`→`upg_reinforcement`, wipe test data, verify migrations).
 - **SVG-01** merged (PR #15); rasterizer = `@resvg/resvg-js`.
 - **Live:** server `https://deung-pu-game.onrender.com` (Render free tier + UptimeRobot, `/healthz`, D-058) · client `https://deung-pu.softrock.space/game` (Hostinger). Guest login + realtime connect verified 2026-07-13.
-- **Spec:** game v15.4 / tech v1.5.3 + Bibles; D-063–066 remain locked. D-067 locks Bot = real-character autonomy (no clone/worker entity; tiers = continuity/recovery/workflow; instant takeover). D-068 locks Dung = hub/context guide and Help separate. **Implementation still uses clone/follower semantics and is not aligned.**
+- **Spec:** game v15.4 / tech v1.5.3 + Bibles; D-063–066, D-067, D-068 locked. **PR1 aligned:** automation controls one stable server-owned real character—no clone/worker; reattach keeps its actual HP/inventory/position. **PR2–10 unimplemented and not aligned:** takeover/checkpoints, continuity/recovery/workflows, Bot UX, follower removal, searchable Help, contextual Dung. Current Dung follower/Help remains noncanonical.
 - **DB:** Hostinger MariaDB production (D-057); 0001-0002 applied · 0003/0004_bot hand-authored, unapplied.
 
 ## Task board — P2 wave 3 (code-complete)

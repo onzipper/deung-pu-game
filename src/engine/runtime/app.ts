@@ -379,6 +379,10 @@ export async function createEngine(
     let lastKnownHp: number | null = null;
     // D-037 combat hook (ออกโจมตี): isAttacking rising-edge (Space/คลิก/ปุ่มมือถือ) ระหว่าง auto-pilot → stop("combat").
     let prevAttacking = false;
+    // PR1 character authority: server automation and local prediction are mutually exclusive controllers of
+    // the same actor. PR2 will turn manual input into an explicit takeover; PR1 ignores it while locked.
+    let characterAutonomyActive = false;
+    let engageState: EngageState = IDLE_ENGAGE_STATE;
 
     // --- ดึ๋งๆ companion (C4-MVP, §12.2/§5.1) — client-only cosmetic follow entity, มีทุก map (เมือง+field).
     //     ตามผู้เล่น local, no collision/combat (§3.2), depth-sort เข้า entity layer เหมือน mob/NPC. คลิก →
@@ -467,6 +471,7 @@ export async function createEngine(
       return { tx: p.tx + fwd.tx * nearest, ty: p.ty + fwd.ty * nearest };
     };
     const castSlot = (slot: number): void => {
+      if (characterAutonomyActive) return;
       if (!combatAllowed) return; // P1-11 safe zone (เมือง) → ไม่ cast (server ปฏิเสธซ้ำ)
       const skill = localSkills[slot - 1];
       if (!skill) return;
@@ -567,6 +572,21 @@ export async function createEngine(
             // Batch 7b-UI: ขอ tier state + profile ทั้งหมดตอน self เข้า room (BotPanel เปิดทีหลังจะรีเฟรชซ้ำอีกที
             // — pattern เดียวกับ achievements). bot:profileList reply มาทั้ง MSG_BOT_TIER_STATE + MSG_BOT_PROFILES.
             net?.sendBotProfileList();
+          },
+          onSelfServerState: (snap) => {
+            player.applyAuthorityState(snap.tx, snap.ty, snap.direction, snap.anim);
+            lastSent = null;
+            sendAccumMs = 0;
+          },
+          onSelfAutonomyChange: (active) => {
+            characterAutonomyActive = active;
+            player.setAuthorityLocked(active);
+            if (active) {
+              engageState = cancelEngage();
+              autoPilot.stop("manual");
+              lastSent = null;
+              sendAccumMs = 0;
+            }
           },
           // P2-13 (D-056): self AFK flag (server-set) → toggle ป้าย "AFK" ของตัวเอง (display-only).
           onSelfAfkChange: (isAfk) => player.setAfk(isAfk),
@@ -783,8 +803,6 @@ export async function createEngine(
       Math.hypot(p.tx - player.position.tx, p.ty - player.position.ty);
     // P1-09.1 (TA §17.3 walk-to-attack): คลิกมอบ 1 ครั้ง = engage ต่อเนื่อง (ไม่ใช่ตีทีเดียวจบ) — state
     // machine pure ใน target-engage.ts ตัดสิน attack/chase/idle ทุก tick, ที่นี่แค่ execute action จริง.
-    let engageState: EngageState = IDLE_ENGAGE_STATE;
-
     /** engage มอน (tap/press): ถึงระยะ → หัน+ตี, ไกล → เดินเข้าไป (walk-to-attack). ใช้ทั้ง click และ pressAttack. */
     const engageMob = (mob: { id: string; pos: TilePoint }): void => {
       engageState = startEngage(mob.id);
@@ -798,6 +816,7 @@ export async function createEngine(
     };
 
     const onPointerDown = (e: PointerEvent): void => {
+      if (characterAutonomyActive) return;
       // D-037 stop (manual): คลิก/แตะในโลก = ผู้เล่นเข้าคุมเอง (เดิน/เล็งมอน/คุย NPC) → หยุด auto-pilot "ก่อน"
       //   ออกคำสั่งใหม่เสมอ (stop() cancelPath ก่อน แล้วโค้ดข้างล่างค่อย moveTo/engage → path ใหม่ไม่ถูกล้าง).
       autoPilot.stop("manual");
@@ -867,6 +886,7 @@ export async function createEngine(
      * reuse engage เดิม, แค่เลือกเป้าใกล้สุดในรัศมี assist.
      */
     const pressAttack = (): void => {
+      if (characterAutonomyActive) return;
       if (transition.isLocked()) return;
       autoPilot.stop("combat"); // D-037 stop: ปุ่มโจมตีมือถือ = ออกโจมตี → เข้าสู่การต่อสู้
       const assist = combatAllowed
@@ -965,14 +985,16 @@ export async function createEngine(
       tick(dtSeconds, deltaMs, deltaTime, locked): void {
         // P2-13 (D-056): freeze input/net-send ตอน transition lock **หรือ** แท็บ hidden (บาง browser ยัง
         //   tick 1Hz ตอน background) — render (mob/combat/scene) เดินต่อ. connection ไม่ถูกแตะ (ไม่ disconnect).
-        const frozen = locked || tabHidden;
+        const frozen = locked || tabHidden || characterAutonomyActive;
         // D-037 stop (transition): ต้องข้าม map-channel (transition lock) → หยุด auto-pilot (world กำลังจะถูก swap).
         if (locked) autoPilot.stop("transition");
         // D-037 stop (disconnect): net หลุด (offline) ระหว่าง auto-pilot → หยุด (client เดินต่อเองไม่ได้แล้ว).
         if (net?.status.state === "offline") autoPilot.stop("disconnect");
-        // calc: player intent → movement (freeze ตอน lock/hidden)
+        // Keep the locked actor's server-driven animation current during autonomy, but never run local
+        // prediction during transition lock or while hidden. LocalPlayer's locked update also drains key edges.
+        if (!locked && !tabHidden) player.update(dtSeconds);
+        // calc: player intent → movement (freeze ตอน lock/hidden/autonomy)
         if (!frozen) {
-          player.update(dtSeconds);
           // D-037 stop (combat): isAttacking rising-edge = ผู้เล่นออกโจมตี (Space/คลิก/ปุ่มมือถือ) → เข้าสู่การต่อสู้.
           //   auto-pilot ไม่เคยสั่งโจมตีเอง → edge นี้ = manual attack เสมอ. เช็คหลัง player.update (isAttacking สด).
           const attackingNow = player.isAttacking;
@@ -1026,6 +1048,7 @@ export async function createEngine(
       pressAttack,
       castSlot,
       startAutoPilot(dest): void {
+        if (characterAutonomyActive) return;
         // ยกเลิก engage/chase + hold-to-walk ที่ค้างก่อน (auto-pilot ขับ moveTo แทน ไม่ให้สองระบบชนกัน).
         engageState = cancelEngage();
         leftHeld = false;

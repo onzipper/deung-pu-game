@@ -1,4 +1,5 @@
-// Batch 7b-server — BotRuntime: one running bot session. Driven by the host room's sim tick (no own interval).
+// Character Autonomy runtime: one server controller attached to an existing character actor. Driven by the
+// actor's host-room sim tick (no client clock and no separate worker/entity).
 //
 // Reuses the room's EXISTING seams via the BotHost interface (MapRoom implements it): movement on the collision
 // grid, attacks through the SAME server combat resolution + the IDENTICAL economy entry (grantKillRewardsForMob),
@@ -42,46 +43,47 @@ export interface BotAttackOutcome {
   leveledUp: boolean;
 }
 
-/** Everything the runtime needs to spawn/host a virtual player. Implemented by MapRoom. */
-export interface BotSpawnInput {
-  sessionId: string;
+/** Verified request to hand an already-materialized character actor to automation. */
+export interface BotAuthorityInput {
+  controllerSessionId: string;
   accountId: string;
   characterId: string;
   profileId: string;
-  classId: string;
-  level: number;
-  exp: number;
-  /** allowed skill-slot indices (validated against the class at spawn by the host). */
+  /** allowed skill-slot indices (validated against the actor's real class/loadout by the host). */
   allowedSlots: number[];
-  /** the bot-safe pocket to farm — the host computes a walkable spawn inside it. */
+  /** The permitted pocket; claiming authority never teleports the actor into it. */
   pocketId: string;
 }
 
 /** The room seam the bot drives. MapRoom implements this; tests use a fake. */
 export interface BotHost {
   readonly mapId: string;
-  /** spawn the virtual player (PlayerState isBot=true + tracker + stats). false = invalid spawn / no such skill. */
-  botSpawn(input: BotSpawnInput): boolean;
-  /** remove the virtual player + all its per-session state. */
-  botRemove(sessionId: string): void;
+  readonly roomId: string;
+  /**
+   * Claim the verified controller's existing actor. Returns its stable actor id; null means missing actor,
+   * ownership mismatch, invalid skill/pocket, or authority already claimed. This method must never spawn.
+   */
+  botClaimAuthority(input: BotAuthorityInput): string | null;
+  /** Release automation only. The real actor and its state must remain materialized while its owner is attached. */
+  botReleaseAuthority(actorId: string): void;
   /** snapshot of live mobs for the agent. */
   botMobs(): AgentMob[];
   /** current bot tile position (null = member gone). */
-  botPos(sessionId: string): Vec2 | null;
+  botPos(actorId: string): Vec2 | null;
   /** current hp fraction 0..1. */
-  botHpFraction(sessionId: string): number;
+  botHpFraction(actorId: string): number;
   /** the chosen basic-attack skill's range (tiles). */
-  botAttackRange(sessionId: string): number;
+  botAttackRange(actorId: string): number;
   /** the chosen basic-attack skill's base cooldown (seconds) — throttled by the runtime. */
-  botBaseCooldownSeconds(sessionId: string): number;
+  botBaseCooldownSeconds(actorId: string): number;
   /** step toward `target` at normal move speed, clamped to walkable tiles. */
-  botStepToward(sessionId: string, target: Vec2, dtMs: number): void;
+  botStepToward(actorId: string, target: Vec2, dtMs: number): void;
   /**
    * face `target`, cast the basic attack through the room combat+economy seams, resolve the aggregate outcome.
    * Async: the reward grant (EXP/gold/drops) runs through the same async economy path as a real player's kill.
    * Damage + the visual broadcast happen synchronously first; the promise resolves after the grants persist.
    */
-  botAttack(sessionId: string, target: Vec2): Promise<BotAttackOutcome>;
+  botAttack(actorId: string, target: Vec2): Promise<BotAttackOutcome>;
   /** send a message to the owner IF they are connected in this room (offline owner → false, no push). */
   botOwnerSend(accountId: string, type: string, msg: unknown): boolean;
   /** true when a mobType is a boss/event entity (bots must stop, §6.5). */
@@ -101,7 +103,7 @@ export interface BotRuntimeDeps {
   accountId: string;
   characterId: string;
   profileId: string;
-  sessionId: string; // the virtual-player session id in the room
+  actorId: string; // stable id of the owner's real character actor in the room
   mapId: string;
   pocketId: string;
   rules: BotRulesV1;
@@ -122,17 +124,22 @@ export class BotRuntime {
   private sinceStatusMs = 0;
   private stopped = false;
   private attacking = false; // an async attack+grant is in flight → don't start another
+  private pendingStop: { reason: BotStopReason; requestedAt: number } | null = null;
+  private stopFinalized = false;
 
   constructor(deps: BotRuntimeDeps) {
     this.d = deps;
     this.throttleMs = throttledAttackCooldownMs(deps.baseCooldownSeconds, deps.config.botEfficiencyTarget);
   }
 
-  get sessionId(): string {
-    return this.d.sessionId;
+  get actorId(): string {
+    return this.d.actorId;
   }
   get accountId(): string {
     return this.d.accountId;
+  }
+  get characterId(): string {
+    return this.d.characterId;
   }
   get host(): BotHost {
     return this.d.host;
@@ -146,12 +153,12 @@ export class BotRuntime {
     if (this.stopped) return;
     const { host, config, pocketId } = this.d;
 
-    const pos = host.botPos(this.d.sessionId);
+    const pos = host.botPos(this.d.actorId);
     if (!pos) return void this.stop("map_unsafe"); // member vanished
     if (!host.pocketExists(pocketId)) return void this.stop("map_unsafe");
 
     // #2 low hp (potion-exhausted substitution). death arrives via the host contact path (onBotDied).
-    const hpStop = stopForLowHp(host.botHpFraction(this.d.sessionId), config.lowHpStopFraction);
+    const hpStop = stopForLowHp(host.botHpFraction(this.d.actorId), config.lowHpStopFraction);
     if (hpStop) return void this.stop(hpStop);
 
     const mobs = host.botMobs();
@@ -163,12 +170,12 @@ export class BotRuntime {
     this.decisionTimer += dtMs;
 
     if (target) {
-      const range = host.botAttackRange(this.d.sessionId) * config.attackRangeFactor;
-      if (!withinRange(pos, target, range)) host.botStepToward(this.d.sessionId, target, dtMs);
+      const range = host.botAttackRange(this.d.actorId) * config.attackRangeFactor;
+      if (!withinRange(pos, target, range)) host.botStepToward(this.d.actorId, target, dtMs);
       if (this.decisionTimer >= this.throttleMs && !this.attacking) {
         this.decisionTimer = 0;
         this.idleDecisions = 0;
-        const p2 = host.botPos(this.d.sessionId) ?? pos;
+        const p2 = host.botPos(this.d.actorId) ?? pos;
         if (withinRange(p2, target, range)) this.runAttack(target);
       }
     } else if (this.decisionTimer >= this.throttleMs) {
@@ -195,25 +202,37 @@ export class BotRuntime {
   private runAttack(target: Vec2): void {
     this.attacking = true;
     void this.d.host
-      .botAttack(this.d.sessionId, target)
+      .botAttack(this.d.actorId, target)
       .then((o) => {
         this.attacking = false;
-        if (!this.stopped) this.applyAttack(o);
+        if (this.stopped) {
+          // The authoritative economy call already committed against the real character. Include that result in
+          // the report, then release authority; never dematerialize while an in-flight grant still owns state.
+          this.recordAttack(o);
+          this.finalizeStop();
+        } else {
+          this.applyAttack(o);
+        }
       })
       .catch((e: unknown) => {
         this.attacking = false;
         console.error(`[bot ${this.d.sessionRowId}] attack error: ${e instanceof Error ? e.message : String(e)}`);
+        if (this.stopped) this.finalizeStop();
       });
   }
 
-  /** fold one attack's rewards into the counters + evaluate the loot-driven mandatory stops (rare / bag full). */
-  private applyAttack(o: BotAttackOutcome): void {
+  private recordAttack(o: BotAttackOutcome): void {
     this.counters.killCount += o.killed;
     this.counters.goldEarned += Math.max(0, Math.round(o.gold));
     this.counters.expEarned += Math.max(0, Math.round(o.exp));
     for (const line of o.loot) {
       this.counters.drops[line.itemId] = (this.counters.drops[line.itemId] ?? 0) + line.quantity;
     }
+  }
+
+  /** fold one attack's rewards into the counters + evaluate the loot-driven mandatory stops (rare / bag full). */
+  private applyAttack(o: BotAttackOutcome): void {
+    this.recordAttack(o);
     // (EXP/gold/items already persisted inside host.botAttack via the identical economy path; level-up saved there.)
 
     // #6 rare/high-value drop → alert + stop (checked before the bag-full stop — surface the item).
@@ -237,8 +256,16 @@ export class BotRuntime {
   stop(reason: BotStopReason): void {
     if (this.stopped) return;
     this.stopped = true;
-    this.flush({ stoppedAt: Date.now(), stopReason: reason });
-    this.d.host.botRemove(this.d.sessionId);
+    this.pendingStop = { reason, requestedAt: Date.now() };
+    if (!this.attacking) this.finalizeStop();
+  }
+
+  private finalizeStop(): void {
+    if (this.stopFinalized || !this.pendingStop || this.attacking) return;
+    this.stopFinalized = true;
+    const { reason, requestedAt } = this.pendingStop;
+    this.flush({ stoppedAt: requestedAt, stopReason: reason });
+    this.d.host.botReleaseAuthority(this.d.actorId);
     const stopped: BotStoppedMessage = {
       profileId: this.d.profileId,
       sessionId: this.d.sessionRowId,
@@ -252,7 +279,7 @@ export class BotRuntime {
   }
 
   private pushStatus(action: string): void {
-    const pos = this.d.host.botPos(this.d.sessionId);
+    const pos = this.d.host.botPos(this.d.actorId);
     const msg: BotStatusMessage = {
       profileId: this.d.profileId,
       sessionId: this.d.sessionRowId,
@@ -262,7 +289,7 @@ export class BotRuntime {
       killCount: this.counters.killCount,
       goldEarned: this.counters.goldEarned,
       expEarned: this.counters.expEarned,
-      hpFraction: this.d.host.botHpFraction(this.d.sessionId),
+      hpFraction: this.d.host.botHpFraction(this.d.actorId),
       uptimeMs: Date.now() - this.d.startedAtMs,
     };
     this.d.host.botOwnerSend(this.d.accountId, MSG_BOT_STATUS, msg);

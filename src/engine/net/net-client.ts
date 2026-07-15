@@ -139,7 +139,16 @@ import {
   type BotReportMessage,
   type BotOpResultMessage,
 } from "@/shared/net-protocol";
-import { canSendLocalMove, coerceAnim, coerceDirection, computePlayerCount, type ConnectionState } from "@/engine/net/sync";
+import {
+  canSendLocalMove,
+  coerceAnim,
+  coerceDirection,
+  computePlayerCount,
+  parseCharacterActorRoomRedirect,
+  isCharacterWorldCapacityError,
+  resolveSelfActorId,
+  type ConnectionState,
+} from "@/engine/net/sync";
 
 /**
  * สถานะการเชื่อมต่อ (P0-11 debug overlay อ่านผ่าน EngineHandle.net.getNetDebugInfo()).
@@ -217,6 +226,10 @@ export interface NetClientHandlers {
    * เดิมก่อน refresh (กัน "วาร์ปกลับ" + กัน exit detection พลาดเพราะ desync). ยิงครั้งเดียวต่อ 1 connection. optional.
    */
   onSelfSpawn?(snap: PlayerSnapshot): void;
+  /** True while server-side Character Autonomy owns this same actor; local prediction must stay locked. */
+  onSelfAutonomyChange?(active: boolean): void;
+  /** While Character Autonomy owns self, follow the server actor instead of local prediction. */
+  onSelfServerState?(snap: PlayerSnapshot): void;
   /**
    * P2-13 (D-056): self AFK flag เปลี่ยน (server ตั้งเมื่อ idle ครบ idleIndicatorSec) → caller (app.ts) ให้
    * local player แสดง/ซ่อนป้าย "AFK" ของตัวเอง. self ไม่ผูก onChange ตำแหน่ง (client-predicted) — listen
@@ -615,27 +628,48 @@ export function createNetClient(
     persistToken(joinedRoom.reconnectionToken); // P1-07(-fix): เก็บ token ล่าสุด (memory + per-tab store)
     status.state = "online";
     status.roomId = joinedRoom.roomId;
-    status.selfSessionId = joinedRoom.sessionId;
-
     const $ = getStateCallbacks(joinedRoom);
     const state = joinedRoom.state as {
       mapId: string;
       channelId: string;
       partyId: string;
+      controllers?: { get(key: string): string | undefined };
     };
+    let selfActorId = resolveSelfActorId(joinedRoom.sessionId, state.controllers);
+    status.selfSessionId = selfActorId;
     status.mapId = state.mapId ?? null;
     status.channelId = state.channelId ?? null;
     status.partyId = state.partyId ?? null;
 
+    // The controller binding can arrive with the initial schema callbacks. Register it before the players map
+    // and keep the captured id mutable so self identity never freezes on the legacy socket-id fallback.
+    $(joinedRoom.state).controllers.onAdd((actorId: string, controllerSessionId: string) => {
+      if (controllerSessionId !== joinedRoom.sessionId || !actorId) return;
+      selfActorId = actorId;
+      status.selfSessionId = actorId;
+    }, true);
+    $(joinedRoom.state).controllers.onChange((actorId: string, controllerSessionId: string) => {
+      if (controllerSessionId !== joinedRoom.sessionId || !actorId) return;
+      selfActorId = actorId;
+      status.selfSessionId = actorId;
+    });
+
     // players map: onAdd/onChange/onRemove (ข้าม self — local player render เองแล้ว)
     $(joinedRoom.state).players.onAdd(
       (player: Record<string, unknown> & { tx: number; ty: number; direction: string; anim: string }, sessionId: string) => {
-        if (sessionId === joinedRoom.sessionId) {
+        if (sessionId === selfActorId) {
           // Fix issue #1/#2: self เข้า state ครั้งแรกต่อ connection → adopt ตำแหน่ง authoritative (server
           // hold ตำแหน่งจริง). caller snap local player + camera; หลังจากนี้ sendMove ปลดล็อก. local player
           // = client-predicted → ไม่ผูก onChange (reconcile ต่อเนื่องผ่าน MSG_POSITION_CORRECTION เท่านั้น).
           selfAdopted = true;
           handlers.onSelfSpawn?.(snapshotOf(player));
+          // PR1 character authority: automation controls this exact actor. The client observes the state and
+          // must not continue local prediction until server authority returns to manual mode.
+          $(player).listen("isBot", (v: unknown) => {
+            const active = v === true;
+            handlers.onSelfAutonomyChange?.(active);
+            if (active) handlers.onSelfServerState?.(snapshotOf(player));
+          });
           // P2-13 (D-056): listen เฉพาะ field isAfk ของ self (display-only) → local player แสดงป้ายตัวเอง.
           // ไม่ผูก onChange ตำแหน่ง (client-predicted). listen ยิง immediate ครั้งแรก (false) — harmless.
           $(player).listen("isAfk", (v: unknown) => handlers.onSelfAfkChange?.(v === true));
@@ -660,6 +694,9 @@ export function createNetClient(
           $(player).listen("exp", emitExp);
           $(player).listen("expFloor", emitExp);
           $(player).listen("expCeil", emitExp);
+          $(player).onChange(() => {
+            if (player.isBot === true) handlers.onSelfServerState?.(snapshotOf(player));
+          });
           return;
         }
         status.remoteCount += 1;
@@ -674,7 +711,7 @@ export function createNetClient(
     );
 
     $(joinedRoom.state).players.onRemove((_player: unknown, sessionId: string) => {
-      if (sessionId === joinedRoom.sessionId) return;
+      if (sessionId === selfActorId) return;
       status.remoteCount = Math.max(0, status.remoteCount - 1);
       knownRemotes.delete(sessionId);
       handlers.onPlayerRemove(sessionId);
@@ -897,10 +934,19 @@ export function createNetClient(
       const authToken = await fetchRealtimeToken();
       if (disposed) return;
       const opts = authToken ? { ...joinOptions, token: authToken } : joinOptions;
-      const joined = await client.joinOrCreate<unknown>(
-        config.roomName ?? MAP_ROOM_NAME,
-        opts,
-      );
+      let joined: Room;
+      try {
+        joined = await client.joinOrCreate<unknown>(config.roomName ?? MAP_ROOM_NAME, opts);
+      } catch (error) {
+        const retainedRoomId = parseCharacterActorRoomRedirect(error);
+        if (retainedRoomId) {
+          joined = await client.joinById<unknown>(retainedRoomId, opts);
+        } else if (isCharacterWorldCapacityError(error)) {
+          joined = await client.create<unknown>(config.roomName ?? MAP_ROOM_NAME, opts);
+        } else {
+          throw error;
+        }
+      }
       if (disposed) {
         void joined.leave();
         return;

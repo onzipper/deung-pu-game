@@ -47,7 +47,7 @@ import { MapRoomState, MobState, PlayerState } from "../schema/MapRoomState";
 import { authorizeHandshake } from "../security/handshake";
 import { parseAllowedOrigins } from "../security/origin-allowlist";
 import { createRateLimiter } from "../security/rate-limiter";
-import { claimSession, releaseSession } from "../security/session-registry";
+import { claimSession, releaseSession, transferSession } from "../security/session-registry";
 import { acquireLease, releaseLease } from "../security/session-lease";
 import {
   fetchCharacterOwner,
@@ -61,6 +61,7 @@ import {
 } from "../characters/character-state";
 import { isValidClassId } from "../../src/shared/character-class";
 import { carryKey, recallProgress, stashProgress } from "../characters/progress-carrier";
+import { CharacterAuthorityRegistry } from "../characters/authority";
 import {
   decideOwnership,
   pickLoadPosition,
@@ -75,6 +76,10 @@ import {
 import {
   DEFAULT_PARTY_ID,
   DEFAULT_MAP_ID,
+  CHARACTER_ACTOR_ROOM_REDIRECT_CODE,
+  CHARACTER_ACTOR_ROOM_REDIRECT_PREFIX,
+  CHARACTER_AUTONOMY_CONFLICT_CODE,
+  CHARACTER_WORLD_CAPACITY_CODE,
   MSG_CAST_SKILL,
   MSG_CAST_REJECTED,
   MSG_MAP_TRANSITION,
@@ -307,7 +312,7 @@ import { resolveDirection, type Direction } from "../../src/engine/movement/dire
 import { defaultRng } from "../../src/game/mob/rng";
 import { botManager } from "../bot/manager";
 import { nextStepToward, type AgentMob, type Vec2 } from "../bot/agent";
-import type { BotAttackOutcome, BotSpawnInput } from "../bot/runtime";
+import type { BotAttackOutcome, BotAuthorityInput } from "../bot/runtime";
 import {
   MSG_BOT_PROFILE_LIST,
   MSG_BOT_PROFILE_CREATE,
@@ -401,7 +406,6 @@ function accountIdOf(client: Client): string | null {
  */
 const GUEST_PLAYER_NAME = "ผู้เล่น";
 /** Batch 7b: nameplate for a bot (Hunter Assistant) entity so real players can tell it apart. */
-const BOT_PLAYER_NAME = "ผู้ช่วยนักล่า";
 
 /** P2-05: อ่าน characterId ที่ onAuth verify ownership แล้วผูกไว้ใน client.auth (null = anonymous/ไม่ผูกตัวละคร). */
 function characterIdOf(client: Client): string | null {
@@ -608,18 +612,19 @@ export class MapRoom extends Room<MapRoomState> {
     string,
     { accountId: string; characterId: string; lastSaveMs: number }
   >();
+  /** Stable character actor ownership; transport sessions are optional controllers, never entity identities. */
+  private readonly characterAuthority = new CharacterAuthorityRegistry(randomUUID);
   /**
    * P2-05: session ที่กำลังข้าม map (checkExit save ปลายทางไปแล้ว) — onLeave (consented จาก transition)
    * จะ **ไม่** save ทับด้วยตำแหน่ง map เก่า. เคลียร์ตอน onLeave/removePlayer.
    */
   private readonly transitioningSessions = new Set<string>();
-  /**
-   * Batch 7b (Bot): virtual-player bot members hosted in this room (sessionId → identity + chosen skill). These
-   * sessionIds live in state.players (isBot=true, real players see them) + the shared session maps, but never in
-   * this.clients (no Colyseus client) → the real-player reward/achievement loops (this.clients.find) never touch
-   * them. Bots are driven by botManager.tickRoom() inside stepMobSim.
-   */
+  /** D-067: automation metadata keyed by the real actor id. No clone/worker PlayerState is created. */
   private readonly botMembers = new Map<string, BotMemberState>();
+  /** Actors whose transport detached during autonomy; keep their world room alive until they attach again. */
+  private readonly retainedActors = new Set<string>();
+  /** Pending first materializations count as world seats; repeated joins for one actor share one reservation. */
+  private readonly pendingActorSeats = new Map<string, number>();
   /** P2-05: ระยะ throttle save (ms) = knob persistence.saveIntervalMs — set ตอน onCreate. */
   private saveIntervalMs = 30_000;
   /**
@@ -697,6 +702,75 @@ export class MapRoom extends Room<MapRoomState> {
 
     handshakeRateLimiter.reset(ip); // handshake ผ่าน → ล้าง failure ที่สะสมของ IP นี้
     return { accountId: decision.accountId, characterId };
+  }
+
+  /** Attach a transport to a stable actor before any PlayerState can be materialized. */
+  private bindCharacterController(
+    client: Client,
+    accountId: string | null,
+    characterId: string | null,
+  ): { actorId: string; created: boolean } {
+    const result = accountId && characterId
+      ? this.characterAuthority.bindCharacter(accountId, characterId, client.sessionId)
+      : this.characterAuthority.bindGuest(client.sessionId);
+    if (
+      result.previousControllerSessionId &&
+      result.previousControllerSessionId !== client.sessionId
+    ) {
+      this.state.controllers.delete(result.previousControllerSessionId);
+    }
+    this.state.controllers.set(client.sessionId, result.actor.actorId);
+    return { actorId: result.actor.actorId, created: result.created };
+  }
+
+  private actorIdOf(client: Client): string | null {
+    return this.characterAuthority.actorForController(client.sessionId)?.actorId ?? null;
+  }
+
+  /** PR1 single-writer fence; PR2 replaces this rejection with atomic takeover + checkpoint. */
+  private manualMutationBlocked(client: Client): boolean {
+    const actorId = this.actorIdOf(client);
+    return actorId !== null && this.botMembers.has(actorId);
+  }
+
+  private characterRecordOf(client: Client): { accountId: string; characterId: string; lastSaveMs: number } | undefined {
+    const actorId = this.actorIdOf(client);
+    return actorId ? this.sessionCharacters.get(actorId) : undefined;
+  }
+
+  private clientForActor(actorId: string): Client | undefined {
+    const controllerSessionId = this.characterAuthority.get(actorId)?.controllerSessionId;
+    return controllerSessionId
+      ? this.clients.find((client) => client.sessionId === controllerSessionId)
+      : undefined;
+  }
+
+  private detachCharacterController(client: Client): string | null {
+    const actor = this.characterAuthority.detachController(client.sessionId);
+    this.state.controllers.delete(client.sessionId);
+    return actor?.actorId ?? null;
+  }
+
+  private refreshAutoDispose(): void {
+    this.autoDispose = this.botMembers.size === 0 && this.retainedActors.size === 0;
+  }
+
+  private isCurrentController(client: Client, actorId: string): boolean {
+    return !this.takenOverSessions.has(client.sessionId) &&
+      this.characterAuthority.actorForController(client.sessionId)?.actorId === actorId;
+  }
+
+  private reserveWorldSeat(actorId: string): boolean {
+    const current = this.pendingActorSeats.get(actorId) ?? 0;
+    if (current === 0 && this.state.players.size + this.pendingActorSeats.size >= this.maxClients) return false;
+    this.pendingActorSeats.set(actorId, current + 1);
+    return true;
+  }
+
+  private releaseWorldSeat(actorId: string): void {
+    const current = this.pendingActorSeats.get(actorId) ?? 0;
+    if (current <= 1) this.pendingActorSeats.delete(actorId);
+    else this.pendingActorSeats.set(actorId, current - 1);
   }
 
   onCreate(options: MapRoomCreateOptions = {}): void {
@@ -813,6 +887,7 @@ export class MapRoom extends Room<MapRoomState> {
     // P2-07: inventory/equipment mutation (server-authoritative, TA §7/§8). client ส่ง intent (+expectedVersion)
     //   → service ตัดสินด้วย optimistic lock → สำเร็จ: ส่ง snapshot + recompute combat stats; ปฏิเสธ: เงียบ ๆ.
     this.onMessage(MSG_EQUIP_ITEM, (client: Client, message: EquipItemMessage) => {
+      if (this.manualMutationBlocked(client)) return;
       void this.runInventoryOp(client, "equip", (characterId) =>
         equipItem(getInventoryRepository(), ITEM_CATALOG, {
           characterId,
@@ -823,6 +898,7 @@ export class MapRoom extends Room<MapRoomState> {
       );
     });
     this.onMessage(MSG_UNEQUIP_ITEM, (client: Client, message: EquipItemMessage) => {
+      if (this.manualMutationBlocked(client)) return;
       void this.runInventoryOp(client, "unequip", (characterId) =>
         unequipItem(getInventoryRepository(), ITEM_CATALOG, {
           characterId,
@@ -833,6 +909,7 @@ export class MapRoom extends Room<MapRoomState> {
       );
     });
     this.onMessage(MSG_MOVE_ITEM, (client: Client, message: MoveItemMessage) => {
+      if (this.manualMutationBlocked(client)) return;
       void this.runInventoryOp(client, "move", (characterId) =>
         moveItem(getInventoryRepository(), {
           characterId,
@@ -848,6 +925,7 @@ export class MapRoom extends Room<MapRoomState> {
     //   client ส่ง intent (+expectedVersion + idempotencyKey) → สำเร็จ: result + snapshot + recompute stats;
     //   ปฏิเสธ (flag inert P2 / no material / max / lock): MSG_ENHANCE_RESULT ok:false + reason. (§2.3/R8)
     this.onMessage(MSG_ENHANCE_ITEM, (client: Client, message: EnhanceItemMessage) => {
+      if (this.manualMutationBlocked(client)) return;
       void this.runEnhanceOp(client, message);
     });
 
@@ -855,6 +933,7 @@ export class MapRoom extends Room<MapRoomState> {
     //   client ส่ง intent (fragment stack instanceId + expectedVersion + idempotencyKey) → สำเร็จ: result + snapshot;
     //   ปฏิเสธ (no DB / เศษไม่พอ / กระเป๋าเต็ม / lock): MSG_FRAGMENT_EXCHANGE_RESULT ok:false + reason.
     this.onMessage(MSG_FRAGMENT_EXCHANGE, (client: Client, message: FragmentExchangeMessage) => {
+      if (this.manualMutationBlocked(client)) return;
       void this.runFragmentExchangeOp(client, message);
     });
 
@@ -865,9 +944,11 @@ export class MapRoom extends Room<MapRoomState> {
       this.handleShopList(client);
     });
     this.onMessage(MSG_SHOP_BUY, (client: Client, message: ShopBuyMessage) => {
+      if (this.manualMutationBlocked(client)) return;
       void this.runShopBuy(client, message);
     });
     this.onMessage(MSG_SHOP_SELL, (client: Client, message: ShopSellMessage) => {
+      if (this.manualMutationBlocked(client)) return;
       void this.runShopSell(client, message);
     });
 
@@ -878,17 +959,21 @@ export class MapRoom extends Room<MapRoomState> {
       void this.handleStorageOpen(client);
     });
     this.onMessage(MSG_STORAGE_DEPOSIT, (client: Client, message: StorageMoveMessage) => {
+      if (this.manualMutationBlocked(client)) return;
       void this.runStorageMove(client, "deposit", message);
     });
     this.onMessage(MSG_STORAGE_WITHDRAW, (client: Client, message: StorageMoveMessage) => {
+      if (this.manualMutationBlocked(client)) return;
       void this.runStorageMove(client, "withdraw", message);
     });
     this.onMessage(MSG_DELIVERY_CLAIM, (client: Client, message: DeliveryClaimMessage) => {
+      if (this.manualMutationBlocked(client)) return;
       void this.runDeliveryClaim(client, message);
     });
 
     // C2b (Achievement §13): client-reported cosmetic/meme events (whitelisted + rate-limited server-side).
     this.onMessage(MSG_CLIENT_EVENT, (client: Client, message: ClientEventMessage) => {
+      if (this.manualMutationBlocked(client)) return;
       this.handleClientEvent(client, message);
     });
     // C2b (Part 5): journal snapshot request → masked achievement rows (hidden not spoiled, §8.4).
@@ -912,7 +997,14 @@ export class MapRoom extends Room<MapRoomState> {
       void botManager.onProfileDelete(accountIdOf(client), (t, m) => client.send(t, m), message);
     });
     this.onMessage(MSG_BOT_START, (client: Client, message: BotStartMessage) => {
-      void botManager.onStart(this, accountIdOf(client), characterIdOf(client), (t, m) => client.send(t, m), message);
+      void botManager.onStart(
+        this,
+        client.sessionId,
+        accountIdOf(client),
+        characterIdOf(client),
+        (t, m) => client.send(t, m),
+        message,
+      );
     });
     this.onMessage(MSG_BOT_STOP, (client: Client, message: BotStopMessage) => {
       botManager.onStop(accountIdOf(client), (t, m) => client.send(t, m), message);
@@ -930,9 +1022,25 @@ export class MapRoom extends Room<MapRoomState> {
     botManager.registerRoom(this);
 
     this.onMessage(MSG_MOVE, (client: Client, message: MoveMessage) => {
-      const player = this.state.players.get(client.sessionId);
-      const tracker = this.trackers.get(client.sessionId);
+      const actorId = this.actorIdOf(client);
+      if (!actorId) return;
+      const player = this.state.players.get(actorId);
+      const tracker = this.trackers.get(actorId);
       if (!player || !tracker) return;
+
+      // PR1 authority fence: while automation owns the actor, manual intents cannot race it. PR2 replaces this
+      // temporary rejection with atomic manual takeover + checkpoint before accepting the input.
+      if (this.botMembers.has(actorId)) {
+        const correction: PositionCorrectionMessage = {
+          tx: player.tx,
+          ty: player.ty,
+          direction: player.direction as PositionCorrectionMessage["direction"],
+          anim: player.anim as PositionCorrectionMessage["anim"],
+          reason: "character_autonomy_active",
+        };
+        client.send(MSG_POSITION_CORRECTION, correction);
+        return;
+      }
 
       const now = Date.now();
       const elapsedMs = now - tracker.lastMoveTime;
@@ -940,11 +1048,11 @@ export class MapRoom extends Room<MapRoomState> {
       tracker.lastMoveTime = now;
       // P2-13 (D-056): MSG_MOVE = input activity → reset idle timer + เคลียร์ป้าย AFK ทันที (กันรอ interval
       //   ถัดไปถึง 1s ค่อยหาย — ผู้เล่นขยับแล้วป้ายควรหายทันตา). ใช้กับทั้ง move ที่ผ่าน/ถูกปฏิเสธ (ยังถือ active).
-      this.markInput(client.sessionId, tracker, now);
+      this.markInput(actorId, tracker, now);
 
       // Batch 6 (ARCHER_CLASS_SPEC §3 S4 swift_step): moveSpeed buff active → กว้าง speed allowance ตาม bonus
       //   (never-downgrade: อย่า reject การเดินที่ buff อนุญาตจริง). ไม่มี buff → moveParams เดิม (พฤติกรรมเดิม).
-      const speedBonus = this.activeMoveSpeedBonus(client.sessionId, now);
+      const speedBonus = this.activeMoveSpeedBonus(actorId, now);
       const moveParams =
         speedBonus > 0
           ? { ...this.moveParams, speed: this.moveParams.speed * (1 + speedBonus) }
@@ -982,7 +1090,7 @@ export class MapRoom extends Room<MapRoomState> {
         };
         client.send(MSG_POSITION_CORRECTION, correction);
         console.log(
-          `[MapRoom ${this.roomId}] correct ${client.sessionId} (${result.reason}) → ` +
+          `[MapRoom ${this.roomId}] correct ${actorId} (${result.reason}) → ` +
             `snap (${player.tx.toFixed(2)},${player.ty.toFixed(2)})`,
         );
       }
@@ -996,6 +1104,8 @@ export class MapRoom extends Room<MapRoomState> {
    * server **ไม่** ย้าย/ลบ player เอง (separated rooms = client re-join) — แค่บอกทาง.
    */
   private checkExit(client: Client, tracker: MoveTracker): void {
+    const actorId = this.actorIdOf(client);
+    if (!actorId) return;
     const cell = snapToTile({ tx: tracker.tx, ty: tracker.ty });
     const exit = findExitAt(this.map, cell.tx, cell.ty);
     const exitId = exit?.exitId ?? null;
@@ -1007,7 +1117,7 @@ export class MapRoom extends Room<MapRoomState> {
       };
       client.send(MSG_MAP_TRANSITION, msg);
       console.log(
-        `[MapRoom ${this.roomId}] ${client.sessionId} เข้า exit "${exit.exitId}" → ` +
+        `[MapRoom ${this.roomId}] ${actorId} เข้า exit "${exit.exitId}" → ` +
           `transition ไป ${exit.targetMapId} @(${exit.targetSpawn.x},${exit.targetSpawn.y})`,
       );
       // P2-05 (Storage §24): save จุดหมาย (map+targetSpawn ปลายทาง) ตอนสั่ง transition — client กำลังจะ
@@ -1017,9 +1127,9 @@ export class MapRoom extends Room<MapRoomState> {
       //   process-cache write (fires ก่อน room teardown เสมอ ต่างจาก void save async) → รอดแม้ไม่มี DB /
       //   ไม่มี characterId ผูก (มีแต่ accountId). ต้องเรียกก่อน early-return path ใด ๆ ด้านล่าง.
       this.stashProgressForCarry(client);
-      const rec = this.sessionCharacters.get(client.sessionId);
+      const rec = this.sessionCharacters.get(actorId);
       if (rec) {
-        this.transitioningSessions.add(client.sessionId);
+        this.transitioningSessions.add(actorId);
         rec.lastSaveMs = Date.now();
         void saveCharacterState(
           rec.characterId,
@@ -1029,7 +1139,7 @@ export class MapRoom extends Room<MapRoomState> {
         );
         // fix/level-persist-map-cross: เดิม transition save "ตำแหน่งอย่างเดียว" → level/exp หลุดตอนข้าม map
         //   (persistOnLeave ก็ skip เพราะ transitioning). save progression คู่ตำแหน่งปลายทางด้วย (durable DB).
-        const prog = this.sessionProgress.get(client.sessionId);
+        const prog = this.sessionProgress.get(actorId);
         if (prog) void saveCharacterProgress(rec.characterId, prog.level, prog.exp);
       }
     }
@@ -1131,6 +1241,7 @@ export class MapRoom extends Room<MapRoomState> {
    */
   private applySwiftStep(
     client: Client,
+    actorId: string,
     player: PlayerState,
     facing: Direction,
     speedBonus: number,
@@ -1151,13 +1262,13 @@ export class MapRoom extends Room<MapRoomState> {
     );
     player.tx = dest.tx;
     player.ty = dest.ty;
-    const tracker = this.trackers.get(client.sessionId);
+    const tracker = this.trackers.get(actorId);
     if (tracker) {
       tracker.tx = dest.tx;
       tracker.ty = dest.ty;
     }
     if (speedBonus > 0 && activeTimeSeconds > 0) {
-      this.moveSpeedBonusUntil.set(client.sessionId, {
+      this.moveSpeedBonusUntil.set(actorId, {
         until: nowMs + activeTimeSeconds * 1000,
         bonus: speedBonus,
       });
@@ -1180,20 +1291,17 @@ export class MapRoom extends Room<MapRoomState> {
    * idempotent). ไม่แตะ inventory/ledger เลย.
    */
   private handlePlayerDeath(sessionId: string, killerMobId: string): void {
-    // Batch 7b (Bot): a bot dying = mandatory stop #3 (death). Broadcast the death (real players see it), then
-    //   hand off to the manager which finalizes the session + removes the member — do NOT auto-respawn a bot.
+    // Character Autonomy death still follows the real-character recovery path. The current Free baseline stops
+    // the controller, but never deletes the actor or leaves a synthetic bot body at 0 HP.
     if (this.botMembers.has(sessionId)) {
-      const death: PlayerDeathMessage = { sessionId, mobId: killerMobId };
-      this.broadcast(MSG_PLAYER_DEATH, death);
       botManager.onBotDied(sessionId);
-      return;
     }
     const death: PlayerDeathMessage = { sessionId, mobId: killerMobId };
     this.broadcast(MSG_PLAYER_DEATH, death);
     // C2b: death achievements (counter first_death/death_100 · composite die-before-kill · sameCell death_spot).
     //   Capture the death cell BEFORE respawn snaps the player to safe camp; route the toast to the owner.
     const player = this.state.players.get(sessionId);
-    const client = this.clients.find((c) => c.sessionId === sessionId);
+    const client = this.clientForActor(sessionId);
     if (client && player) {
       this.emitAchievement(
         client,
@@ -1374,9 +1482,18 @@ export class MapRoom extends Room<MapRoomState> {
    * ไม่ throw/crash room ไม่ว่า payload อะไร (best-effort validate).
    */
   private handleCast(client: Client, message: CastSkillMessage): void {
-    const sessionId = client.sessionId;
+    const sessionId = this.actorIdOf(client);
+    if (!sessionId) return;
     const player = this.state.players.get(sessionId);
     if (!player || !message) return;
+    if (this.botMembers.has(sessionId)) {
+      const rejected: CastRejectedMessage = {
+        skillId: typeof message.skillId === "string" ? message.skillId : "",
+        reason: "character_autonomy_active",
+      };
+      client.send(MSG_CAST_REJECTED, rejected);
+      return;
+    }
 
     // P2-13 (D-056): cast intent = input activity → reset idle timer + เคลียร์ป้าย AFK (แม้ cast จะถูก
     //   ปฏิเสธ cooldown/range ก็ยังถือว่าผู้เล่น active). tracker อาจไม่มี (race) → markInput ข้ามเงียบ ๆ.
@@ -1549,7 +1666,7 @@ export class MapRoom extends Room<MapRoomState> {
           // §9.4 pool size: solo channel = 1 (each individual gets a solo pool); party channel = eligible count.
           const poolMembers = isParty ? Math.max(1, eligible.length) : 1;
           for (const e of eligible) {
-            const memberClient = this.clients.find((c) => c.sessionId === e.sessionId);
+            const memberClient = this.clientForActor(e.sessionId);
             if (!memberClient) continue; // dropped between hit-resolve and here → skip (defensive)
             const memberPlayer = this.state.players.get(e.sessionId);
             const memberMaxHp = memberPlayer && memberPlayer.maxHp > 0 ? memberPlayer.maxHp : 1;
@@ -1609,7 +1726,7 @@ export class MapRoom extends Room<MapRoomState> {
     //   ถอยหลัง swiftStepDashTiles ทิศตรงข้าม facing + moveSpeed buff activeTime. server-authoritative displacement.
     if (def.targetType === "self") {
       const speedBonus = moveSpeedBonusFromStatus(def.statusEffects, this.balance.statusEffectMoveSpeedBonus);
-      if (speedBonus > 0) this.applySwiftStep(client, player, facing, speedBonus, def.activeTime, now);
+      if (speedBonus > 0) this.applySwiftStep(client, sessionId, player, facing, speedBonus, def.activeTime, now);
     }
 
     const result: SkillResultMessage = { casterId: sessionId, skillId, hits };
@@ -1626,7 +1743,7 @@ export class MapRoom extends Room<MapRoomState> {
       void (async () => {
         for (const kg of killGrants) {
           for (const m of kg.members) {
-            const memberClient = this.clients.find((c) => c.sessionId === m.sessionId);
+            const memberClient = this.clientForActor(m.sessionId);
             if (!memberClient) continue; // left before the grant ran → skip (in-scene required at kill, §10.2)
             await this.grantKillReward(memberClient, kg.mobType, kg.poolMembers);
           }
@@ -1648,7 +1765,7 @@ export class MapRoom extends Room<MapRoomState> {
   ): boolean {
     const p = this.state.players.get(sessionId);
     if (!p) return false; // left the scene / removed
-    if (!this.clients.some((c) => c.sessionId === sessionId)) return false; // disconnected (grace)
+    if (!this.clientForActor(sessionId)) return false; // detached manual actor (grace)
     const dx = p.tx - deathTx;
     const dy = p.ty - deathTy;
     return dx * dx + dy * dy <= radiusTiles * radiusTiles;
@@ -1714,7 +1831,8 @@ export class MapRoom extends Room<MapRoomState> {
     mobType: string,
     eligibleMembers: number,
   ): Promise<void> {
-    const sessionId = client.sessionId;
+    const sessionId = this.actorIdOf(client);
+    if (!sessionId) return;
     const progress = this.sessionProgress.get(sessionId);
     if (!progress) return;
     const rec = this.sessionCharacters.get(sessionId);
@@ -1813,7 +1931,8 @@ export class MapRoom extends Room<MapRoomState> {
    * Best-effort: a DB error is logged (money-loud) but never crashes the room (the marker/ledger stay strict inside).
    */
   private async fireMilestone(client: Client, milestoneId: string): Promise<void> {
-    const sessionId = client.sessionId;
+    const sessionId = this.actorIdOf(client);
+    if (!sessionId) return;
     const rec = this.sessionCharacters.get(sessionId);
     let outcome: MilestoneGrantOutcome;
     try {
@@ -1874,13 +1993,14 @@ export class MapRoom extends Room<MapRoomState> {
     nowMs: number,
     clientReported = false,
   ): void {
-    const rec = this.sessionCharacters.get(client.sessionId);
+    const actorId = this.actorIdOf(client);
+    const rec = actorId ? this.sessionCharacters.get(actorId) : undefined;
     void emitAchievementEvent({
       type,
       payload,
       accountId: rec?.accountId,
       characterId: rec?.characterId,
-      sessionId: client.sessionId,
+      sessionId: actorId ?? client.sessionId,
       nowMs,
       clientReported,
       notify: (m) => client.send(MSG_ACHIEVEMENT_UNLOCKED, m),
@@ -1896,7 +2016,7 @@ export class MapRoom extends Room<MapRoomState> {
 
   /** C2b (Part 5): answer a journal snapshot request with masked achievement rows (best-effort). */
   private async handleAchievementsRequest(client: Client): Promise<void> {
-    const rec = this.sessionCharacters.get(client.sessionId);
+    const rec = this.characterRecordOf(client);
     let rows: AchievementsSnapshotMessage["rows"] = [];
     try {
       rows = await buildAchievementsSnapshot({ accountId: rec?.accountId, characterId: rec?.characterId });
@@ -1919,7 +2039,7 @@ export class MapRoom extends Room<MapRoomState> {
    */
   private async runEnhanceOp(client: Client, message: EnhanceItemMessage): Promise<void> {
     const instanceId = String(message?.instanceId ?? "");
-    const rec = this.sessionCharacters.get(client.sessionId);
+    const rec = this.characterRecordOf(client);
     if (!rec || !inventoryPersistenceAvailable()) {
       const rejected: EnhanceResultMessage = { ok: false, instanceId, level: -1, reason: "NO_ITEM" };
       client.send(MSG_ENHANCE_RESULT, rejected);
@@ -1960,7 +2080,8 @@ export class MapRoom extends Room<MapRoomState> {
     const ok: EnhanceResultMessage = { ok: true, instanceId, level: result.newLevel };
     client.send(MSG_ENHANCE_RESULT, ok);
     client.send(MSG_INVENTORY_STATE, result.snapshot);
-    this.applyEquipmentStats(client.sessionId, result.snapshot.equipment);
+    const actorId = this.actorIdOf(client);
+    if (actorId) this.applyEquipmentStats(actorId, result.snapshot.equipment);
     // C2b: enhancement achievements (max_value plus / counter / streak). enhance.fail has NO live source in P2
     //   (guaranteed +1, no RNG — a business reject like NO_REINFORCEMENT is not a fail outcome). Documented TODO.
     this.emitAchievement(client, "enhance.success", { plus: result.newLevel }, Date.now());
@@ -1974,7 +2095,7 @@ export class MapRoom extends Room<MapRoomState> {
    * (never-downgrade zone: an exchange that did not persist must not look like it worked).
    */
   private async runFragmentExchangeOp(client: Client, message: FragmentExchangeMessage): Promise<void> {
-    const rec = this.sessionCharacters.get(client.sessionId);
+    const rec = this.characterRecordOf(client);
     if (!rec || !inventoryPersistenceAvailable()) {
       const rejected: FragmentExchangeResultMessage = { ok: false, granted: 0, reason: "NO_DB" };
       client.send(MSG_FRAGMENT_EXCHANGE_RESULT, rejected);
@@ -2023,7 +2144,7 @@ export class MapRoom extends Room<MapRoomState> {
     op: InventoryOp,
     run: (characterId: string) => Promise<InventoryOpResult>,
   ): Promise<void> {
-    const rec = this.sessionCharacters.get(client.sessionId);
+    const rec = this.characterRecordOf(client);
     if (!rec || !inventoryPersistenceAvailable()) {
       const rejected: InventoryOpRejectedMessage = { op, reason: "unknown_item" };
       client.send(MSG_INVENTORY_OP_REJECTED, rejected);
@@ -2047,7 +2168,8 @@ export class MapRoom extends Room<MapRoomState> {
       return;
     }
     client.send(MSG_INVENTORY_STATE, result.snapshot);
-    this.applyEquipmentStats(client.sessionId, result.snapshot.equipment);
+    const actorId = this.actorIdOf(client);
+    if (actorId) this.applyEquipmentStats(actorId, result.snapshot.equipment);
   }
 
   /**
@@ -2078,7 +2200,7 @@ export class MapRoom extends Room<MapRoomState> {
   private async runShopBuy(client: Client, message: ShopBuyMessage): Promise<void> {
     const itemId = String(message?.itemId ?? "");
     const shop = shopForMap(this.state.mapId);
-    const rec = this.sessionCharacters.get(client.sessionId);
+    const rec = this.characterRecordOf(client);
     if (!shop || !rec || !inventoryPersistenceAvailable()) {
       this.sendShopReject(client, "buy", itemId, "SHOP_ITEM_NOT_FOUND");
       return;
@@ -2137,7 +2259,7 @@ export class MapRoom extends Room<MapRoomState> {
   private async runShopSell(client: Client, message: ShopSellMessage): Promise<void> {
     const instanceId = String(message?.instanceId ?? "");
     const shop = shopForMap(this.state.mapId);
-    const rec = this.sessionCharacters.get(client.sessionId);
+    const rec = this.characterRecordOf(client);
     if (!shop || !rec || !inventoryPersistenceAvailable()) {
       this.sendShopReject(client, "sell", instanceId, "SHOP_ITEM_NOT_FOUND");
       return;
@@ -2245,7 +2367,7 @@ export class MapRoom extends Room<MapRoomState> {
    * (§16.6, with server-computed expiry status). Gated by map (§10.4) + a character-bound session + DB.
    */
   private async handleStorageOpen(client: Client): Promise<void> {
-    const rec = this.sessionCharacters.get(client.sessionId);
+    const rec = this.characterRecordOf(client);
     if (!storageAvailableForMap(this.state.mapId) || !rec || !inventoryPersistenceAvailable()) {
       this.sendStorageUnavailable(client);
       return;
@@ -2279,7 +2401,7 @@ export class MapRoom extends Room<MapRoomState> {
     message: StorageMoveMessage,
   ): Promise<void> {
     const instanceId = String(message?.instanceId ?? "");
-    const rec = this.sessionCharacters.get(client.sessionId);
+    const rec = this.characterRecordOf(client);
     if (!storageAvailableForMap(this.state.mapId) || !rec || !inventoryPersistenceAvailable()) {
       this.sendStorageReject(client, op, instanceId, "STORAGE_UNAVAILABLE");
       return;
@@ -2324,7 +2446,7 @@ export class MapRoom extends Room<MapRoomState> {
    */
   private async runDeliveryClaim(client: Client, message: DeliveryClaimMessage): Promise<void> {
     const entryId = String(message?.entryId ?? "");
-    const rec = this.sessionCharacters.get(client.sessionId);
+    const rec = this.characterRecordOf(client);
     if (!storageAvailableForMap(this.state.mapId) || !rec || !inventoryPersistenceAvailable()) {
       this.sendDeliveryReject(client, entryId, "STORAGE_UNAVAILABLE");
       return;
@@ -2374,6 +2496,68 @@ export class MapRoom extends Room<MapRoomState> {
     const accountId = accountIdOf(client);
     const characterId = characterIdOf(client);
 
+    // A fresh connection must be routed back to the room that owns the existing autonomous actor. Rejecting
+    // happens before binding/materialization, so a wrong joinOrCreate candidate cannot create a duplicate.
+    if (accountId) {
+      const active = botManager.activeActorForAccount(accountId);
+      if (active) {
+        if (!characterId || active.characterId !== characterId) {
+          throw new ServerError(CHARACTER_AUTONOMY_CONFLICT_CODE, "character_autonomy_conflict");
+        }
+        if (active.host !== this) {
+          throw new ServerError(
+            CHARACTER_ACTOR_ROOM_REDIRECT_CODE,
+            `${CHARACTER_ACTOR_ROOM_REDIRECT_PREFIX}${active.roomId}`,
+          );
+        }
+      }
+    }
+
+    const binding = this.bindCharacterController(client, accountId, characterId);
+    const actorId = binding.actorId;
+
+    // Transport/session ownership remains takeover-wins, but its disconnect callback targets the stable actor.
+    if (accountId) {
+      const tookOver = claimSession(accountId, client.sessionId, () => this.forceTakeover(client, actorId));
+      if (tookOver) {
+        console.log(`[MapRoom ${this.roomId}] account ${accountId} controller takeover for ${actorId}`);
+      }
+      void acquireLease(accountId, client.sessionId, { characterId, serverId: this.roomId });
+    }
+
+    const retainedPlayer = this.state.players.get(actorId);
+    if (retainedPlayer) {
+      const rec = this.sessionCharacters.get(actorId);
+      if (
+        !accountId ||
+        !characterId ||
+        !rec ||
+        rec.accountId !== accountId ||
+        rec.characterId !== characterId
+      ) {
+        this.detachCharacterController(client);
+        throw new ServerError(CHARACTER_AUTONOMY_CONFLICT_CODE, "character_actor_ownership_conflict");
+      }
+      const items = await loadCharacterItemsBestEffort(characterId);
+      if (!this.isCurrentController(client, actorId)) return;
+      client.send(MSG_INVENTORY_STATE, buildSnapshot(items, INVENTORY_CAPACITY));
+      void updateLastPlayed(accountId, characterId);
+      this.retainedActors.delete(actorId);
+      this.refreshAutoDispose();
+      console.log(
+        `[MapRoom ${this.roomId}] attach ${client.sessionId} -> ${actorId} ` +
+          `@(${retainedPlayer.tx.toFixed(1)},${retainedPlayer.ty.toFixed(1)})`,
+      );
+      return;
+    }
+
+    if (!this.reserveWorldSeat(actorId)) {
+      this.detachCharacterController(client);
+      this.releaseAccountSession(client);
+      throw new ServerError(CHARACTER_WORLD_CAPACITY_CODE, "character_world_capacity");
+    }
+
+    try {
     // P1-07 (§59.1): server = source of truth ว่า spawn ลงได้จริง. พิกัดที่ client ส่ง (fresh join /
     // reconnect เกิน grace) ถ้าเดินไม่ได้/ไม่ finite → snap ไป safe camp. (within-grace reconnect ไม่ผ่าน
     // onJoin เลย → ตำแหน่งเดิมคงอยู่ ไม่ถูก resolve ซ้ำ.)
@@ -2398,9 +2582,9 @@ export class MapRoom extends Room<MapRoomState> {
     player.anim = options?.anim ?? "idle";
     // P1-08: partyId ระดับ room (filterBy การันตีตรงกันทุก client ในห้อง) — ให้ client อื่นรู้ party membership.
     player.partyId = this.partyId;
-    this.state.players.set(client.sessionId, player);
+    // Delay every shared-state mutation until all async loads finish and this transport is re-verified below.
     // valid position เริ่มต้น = จุด spawn (หลัง resolve safe camp); เวลาเริ่ม = now
-    this.trackers.set(client.sessionId, {
+    const initialTracker: MoveTracker = {
       tx: player.tx,
       ty: player.ty,
       lastMoveTime: Date.now(),
@@ -2410,15 +2594,14 @@ export class MapRoom extends Room<MapRoomState> {
       // P2-13 (D-056): เพิ่ง join = active (นับ idle จากตอนนี้) + จุดอ้าง connection duration (hard cap inert).
       lastInputMs: Date.now(),
       connectedAtMs: Date.now(),
-    });
+    };
     if (spawn.usedSafeCamp) {
       console.log(
-        `[MapRoom ${this.roomId}] ${client.sessionId} spawn ที่ safe camp ` +
+        `[MapRoom ${this.roomId}] ${actorId} spawn ที่ safe camp ` +
           `(${this.safeCamp.tx},${this.safeCamp.ty}) — พิกัดที่ขอ (${requested.tx},${requested.ty}) invalid (§59.1)`,
       );
     }
     // P1-05: cooldown state ต่อ player (ว่างตอน join → ทุกสกิลพร้อมใช้)
-    this.cooldowns.set(client.sessionId, new Map());
     // P2-04 (Storage §4.1/§4.2): มี accountId (verified token) → ยึด 1-active-session ต่อบัญชี.
     //   in-process registry เตะ session เดิมของ account เดียวกัน (SESSION_TAKEN_OVER, takeover-wins);
     //   DB lease = authority ข้าม process (best-effort — dev/e2e ไม่มี accountId/DB → ข้าม ไม่พัง join).
@@ -2426,16 +2609,6 @@ export class MapRoom extends Room<MapRoomState> {
     //   unclean disconnect → session เก่าค้างใน grace (ยังไม่ persist). join ใหม่ (same account, sessionId
     //   ใหม่) ยิง takeover → forceTakeover stash progression ล่าสุดของตัวเก่าเข้า carrier (sync) ก่อน. ทำก่อน
     //   recallProgress ด้านล่าง = อ่านค่าที่ตัวเก่า stash ไว้ทัน (ไม่ใช่ carrier ว่าง = reset lv1).
-    if (accountId) {
-      const tookOver = claimSession(accountId, client.sessionId, () => this.forceTakeover(client));
-      if (tookOver) {
-        console.log(
-          `[MapRoom ${this.roomId}] account ${accountId} takeover — เตะ session เดิม (§4.2)`,
-        );
-      }
-      void acquireLease(accountId, client.sessionId);
-    }
-
     // P2-09: โหลด progression (level/exp) best-effort → ตั้ง base combat stat ตามเลเวล (D-055 §2). ไม่มี
     //   DB/ตัวละคร → lv1 (in-memory). ต้องตั้งก่อน applyEquipmentStats เพื่อให้ base ถูกต้องตั้งแต่เฟรมแรก.
     // fix/level-persist-map-cross: resolve progression = DB load (durable) → process-cache carrier (รอด
@@ -2445,57 +2618,65 @@ export class MapRoom extends Room<MapRoomState> {
     const carrierKey = carryKey(accountId, characterId);
     const progress = (characterId ? await loadCharacterProgress(characterId) : null) ??
       (carrierKey ? recallProgress(carrierKey) : null) ?? { level: 1, exp: 0 };
-    this.sessionProgress.set(client.sessionId, { level: progress.level, exp: progress.exp });
     // Batch 6 (ARCHER_CLASS_SPEC §6 note 4): resolve classId ก่อน recomputeEffectiveStats (class stat weights §2).
     //   authority = DB Character.classId; fallback = joinOptions.classId (validate CLASS_IDS, dev/no-DB); สุดท้าย
     //   swordsman. set sessionClassId (ขับ skill set + stat weights) + PlayerState.classId (broadcast).
     const dbClass = characterId ? await loadCharacterClass(characterId) : null;
     const optClass = isValidClassId(options?.classId) ? options.classId : null;
     const classId = (isValidClassId(dbClass) ? dbClass : null) ?? optClass ?? "swordsman";
-    this.sessionClassId.set(client.sessionId, classId);
     player.classId = classId;
     // P2-07: combat stats เริ่มต้น = base ตามเลเวล (+ class weights) — override ด้วย equipment bonus หลังโหลด inventory.
-    this.recomputeEffectiveStats(client.sessionId);
 
     // P2-05 (Storage §7.2/§24): ผูก session กับตัวละคร → เปิด save cycle + ตั้ง lastPlayedCharacterId (Continue
     //   default). เฉพาะเมื่อมีทั้ง accountId + characterId (verified). anonymous/dev = ไม่ persist (flow เดิม).
-    if (accountId && characterId) {
-      this.sessionCharacters.set(client.sessionId, {
-        accountId,
-        characterId,
-        lastSaveMs: Date.now(),
-      });
-      void updateLastPlayed(accountId, characterId);
-      // C2b: bind-time achievement events (needs the scope binding above). character.created = counter target-1
-      //   (fires every join but claimed-terminal makes it once). map.enter carries firstVisit:true so the
-      //   {mapId,firstVisit} filter (ach_leave_town) matches — target-1 + claimed keeps it once-only anyway. Each
-      //   map is its own room; onJoin fires map.enter per crossing, driving the map1→city-hub sequence (shared scope).
-      const joinNow = Date.now();
-      this.emitAchievement(client, "character.created", {}, joinNow);
-      this.emitAchievement(client, "map.enter", { mapId: this.state.mapId, firstVisit: true }, joinNow);
-    }
-
     // P2-07 (Storage §22 · TA §7/§8): ส่ง inventory/equipment snapshot ตอน join + ตั้ง combat stats จากของที่สวม.
     //   best-effort load (ไม่มี DB/ตัวละคร → []); anonymous ก็ได้ snapshot ว่างเพื่อ init HUD (flow เดิมไม่พัง).
     const items = characterId ? await loadCharacterItemsBestEffort(characterId) : [];
     const snapshot = buildSnapshot(items, INVENTORY_CAPACITY);
-    client.send(MSG_INVENTORY_STATE, snapshot);
-    this.applyEquipmentStats(client.sessionId, snapshot.equipment);
     // A1/A2 (§10): เกิดเต็ม hp (maxHp = effective hp ที่ applyEquipmentStats set แล้ว). within-grace reconnect
     // ไม่ผ่าน onJoin → hp เดิมคงอยู่ (reconnect ไม่ heal); grace หมด = fresh join → เต็ม hp ที่ตำแหน่ง resolve.
-    player.maxHp = this.maxHpFor(client.sessionId);
-    player.hp = player.maxHp;
     // E3: sync level ทันทีตอน join (จาก sessionProgress ที่โหลดแล้ว) → HUD badge + A3 unlock ถูกตั้งแต่เกิด
-    player.level = this.sessionProgress.get(client.sessionId)?.level ?? 1;
-    this.syncPlayerExpSchema(client.sessionId); // E3: exp → แถบ EXP + % แสดงตั้งแต่เกิด
     // NAMEPLATES: ชื่อตัวละคร (display name §3.3) → PlayerState.name (ป้ายเหนือหัว local + remote). best-effort
     //   DB load; guest/ไม่มีตัวละคร/ไม่มี DB (characterId null หรือ row หาย) → default "ผู้เล่น" (ไม่ leak id/sessionId).
     const displayName = characterId ? await loadCharacterName(characterId) : null;
     player.name = displayName && displayName.length > 0 ? displayName : GUEST_PLAYER_NAME;
 
+    // All DB reads above are intentionally local. A newer controller may have taken over while they were in
+    // flight; only the latest verified controller may atomically materialize this actor and publish snapshots.
+    if (!this.isCurrentController(client, actorId)) return;
+    this.state.players.set(actorId, player);
+    this.trackers.set(actorId, initialTracker);
+    this.cooldowns.set(actorId, new Map());
+    this.sessionProgress.set(actorId, { level: progress.level, exp: progress.exp });
+    this.sessionClassId.set(actorId, classId);
+    if (accountId && characterId) {
+      this.sessionCharacters.set(actorId, {
+        accountId,
+        characterId,
+        lastSaveMs: Date.now(),
+      });
+    }
+    this.recomputeEffectiveStats(actorId);
+    client.send(MSG_INVENTORY_STATE, snapshot);
+    this.applyEquipmentStats(actorId, snapshot.equipment);
+    player.maxHp = this.maxHpFor(actorId);
+    player.hp = player.maxHp;
+    player.level = progress.level;
+    this.syncPlayerExpSchema(actorId);
+
+    if (accountId && characterId) {
+      void updateLastPlayed(accountId, characterId);
+      const joinNow = Date.now();
+      this.emitAchievement(client, "character.created", {}, joinNow);
+      this.emitAchievement(client, "map.enter", { mapId: this.state.mapId, firstVisit: true }, joinNow);
+    }
+
     console.log(
-      `[MapRoom ${this.roomId}] join ${client.sessionId} @(${player.tx.toFixed(1)},${player.ty.toFixed(1)}) — ${this.clients.length} online`,
+      `[MapRoom ${this.roomId}] join ${client.sessionId} -> ${actorId} @(${player.tx.toFixed(1)},${player.ty.toFixed(1)}) — ${this.clients.length} online`,
     );
+    } finally {
+      this.releaseWorldSeat(actorId);
+    }
   }
 
   /**
@@ -2503,13 +2684,13 @@ export class MapRoom extends Room<MapRoomState> {
    * (onLeave จะเห็น → ลบทันทีไม่เข้า grace) แล้วสั่ง client.leave(SESSION_TAKEN_OVER). best-effort (client
    * อาจหลุดไปแล้วถ้ากำลังอยู่ใน grace ตัวเอง).
    */
-  private forceTakeover(client: Client): void {
+  private forceTakeover(client: Client, actorId: string): void {
     this.takenOverSessions.add(client.sessionId);
     // fix/refresh-progression-race: session ที่ถูกเตะจะไม่ save ที่ onLeave (taken_over path / grace-catch
     //   ข้าม persist เพราะ wasTakenOver) — จุดนี้จึงเป็นที่ **เดียว** ที่บันทึกตัวเก่า. persistOnLeave = stash
     //   progression เข้า carrier (sync, กัน race กับ join ตัวใหม่ที่ resolve หลัง claimSession) + flush DB
     //   (เว้นถ้ากำลัง transition). ต้องทำ **ก่อน** client.leave (leave = trigger onLeave ที่ skip persist).
-    this.persistOnLeave(client, client.sessionId);
+    this.persistOnLeave(client, actorId);
     try {
       client.leave(WS_CLOSE_SESSION_TAKEN_OVER);
     } catch {
@@ -2526,6 +2707,27 @@ export class MapRoom extends Room<MapRoomState> {
     if (!accountId) return;
     releaseSession(accountId, client.sessionId);
     void releaseLease(accountId, client.sessionId);
+  }
+
+  /** Keep one-active-session ownership on the server actor after its transport detaches. */
+  private retainAccountSessionForActor(client: Client, actorId: string): void {
+    const accountId = accountIdOf(client);
+    if (!accountId) return;
+    transferSession(accountId, client.sessionId, actorId, () => undefined);
+    const rec = this.sessionCharacters.get(actorId);
+    void acquireLease(accountId, actorId, {
+      characterId: rec?.characterId ?? characterIdOf(client),
+      serverId: this.roomId,
+    });
+  }
+
+  /** Release the server-owned account slot when an offline autonomous actor is finally dematerialized. */
+  private releaseRetainedActorSession(actorId: string): void {
+    const authority = this.characterAuthority.get(actorId);
+    const accountId = authority?.accountId ?? this.sessionCharacters.get(actorId)?.accountId;
+    if (!accountId) return;
+    releaseSession(accountId, actorId);
+    void releaseLease(accountId, actorId);
   }
 
   /**
@@ -2545,6 +2747,10 @@ export class MapRoom extends Room<MapRoomState> {
     this.sessionEquipment.delete(sessionId);
     this.sessionCharacters.delete(sessionId);
     this.transitioningSessions.delete(sessionId);
+    const authority = this.characterAuthority.removeActor(sessionId);
+    if (authority?.controllerSessionId) this.state.controllers.delete(authority.controllerSessionId);
+    this.retainedActors.delete(sessionId);
+    this.refreshAutoDispose();
     forgetAchievementSession(sessionId); // C2b: drop the session's rate-limit buckets (progress is scope-keyed)
     // G-lite: intentionally NOT clearing this session's damageContrib entries — a leaver's dealt damage stays
     //   attributed so it still counts toward the OTHER members' share denominator; the leaver is excluded from
@@ -2609,7 +2815,7 @@ export class MapRoom extends Room<MapRoomState> {
       // hard cap: inert ใน P2 (afkHardCapHours=null → false เสมอ). เดินสายไว้ให้ open alpha เปิดได้โดยไม่
       //   แก้ flow — เกินเพดาน → consented leave (ลบทันที ไม่เข้า grace เหมือนออกเอง).
       if (exceedsAfkHardCap(tracker.connectedAtMs, now, this.afkHardCapHours)) {
-        const client = this.clients.find((c) => c.sessionId === sessionId);
+        const client = this.clientForActor(sessionId);
         if (client) {
           console.log(
             `[MapRoom ${this.roomId}] ${sessionId} เกิน afkHardCapHours (${this.afkHardCapHours}h) — เอาออก`,
@@ -2629,7 +2835,7 @@ export class MapRoom extends Room<MapRoomState> {
   private persistOnLeave(client: Client, sessionId: string): void {
     // fix/level-persist-map-cross: ขน progression เข้า process-cache ก่อน removePlayer ทุก leave path
     //   (consented/grace-expired) — ต้องทำแม้ transitioning (checkExit stash ไปแล้วก็ตาม; idempotent).
-    this.stashProgressForCarry(client);
+    this.stashProgressForCarry(client, sessionId);
     if (this.transitioningSessions.has(sessionId)) return; // transition save จุดหมายไปแล้ว
     this.persistSession(sessionId, true);
   }
@@ -2639,10 +2845,10 @@ export class MapRoom extends Room<MapRoomState> {
    * แล้ว (characterId/accountId จาก client.auth — ไม่ใช่ค่าดิบจาก client). ทำให้ level รอดข้าม map แม้ไม่มี DB
    * (local dev) หรือ session ที่ยังไม่ผูก characterId (มีแต่ accountId). ไม่มี identity ที่ verify → no-op.
    */
-  private stashProgressForCarry(client: Client): void {
+  private stashProgressForCarry(client: Client, actorId = this.actorIdOf(client)): void {
     const key = carryKey(accountIdOf(client), characterIdOf(client));
-    if (!key) return;
-    const prog = this.sessionProgress.get(client.sessionId);
+    if (!key || !actorId) return;
+    const prog = this.sessionProgress.get(actorId);
     if (prog) stashProgress(key, prog.level, prog.exp);
   }
 
@@ -2656,22 +2862,42 @@ export class MapRoom extends Room<MapRoomState> {
    * ระหว่าง grace: client อื่นยังเห็น player นี้ค้างใน state (Colyseus hold state จน expire — documented).
    */
   async onLeave(client: Client, consented?: boolean): Promise<void> {
-    const sessionId = client.sessionId;
+    const controllerSessionId = client.sessionId;
+    const wasTakenOver = this.takenOverSessions.delete(controllerSessionId);
+    const authority = this.characterAuthority.actorForController(controllerSessionId);
+
+    // A newer controller already attached to this actor. The stale leave cannot unbind, save over, or delete it.
+    if (!authority) {
+      this.releaseAccountSession(client);
+      return;
+    }
+    const actorId = authority.actorId;
+
+    // Closing either cleanly or unexpectedly while autonomy runs detaches only the transport. The same actor,
+    // HP/inventory/position/progression, and room simulation remain authoritative server state.
+    if (this.botMembers.has(actorId)) {
+      this.persistOnLeave(client, actorId);
+      this.retainedActors.add(actorId);
+      this.detachCharacterController(client);
+      this.retainAccountSessionForActor(client, actorId);
+      this.refreshAutoDispose();
+      console.log(`[MapRoom ${this.roomId}] detach ${controllerSessionId} <- ${actorId} (autonomy continues)`);
+      return;
+    }
 
     // P2-04 (§4.2): ถูกเตะด้วย SESSION_TAKEN_OVER → ลบทันที ไม่เข้า grace (ตั้งใจเตะ ไม่ใช่หลุดเน็ต).
     //   ไม่ releaseAccountSession — registry/lease เป็นของ session ใหม่ที่ยึดไปแล้ว (releaseSession scope ด้วย
     //   sessionId ก็ no-op อยู่ดี แต่ข้ามไปเลยชัดกว่า).
-    const wasTakenOver = this.takenOverSessions.delete(sessionId);
     if (wasTakenOver) {
-      this.removePlayer(sessionId, "taken_over");
+      this.removePlayer(actorId, "taken_over");
       return;
     }
 
     if (consented) {
       // P2-05: save ตำแหน่งล่าสุดก่อนลบ (เว้นถ้ากำลัง transition — checkExit save จุดหมายไปแล้ว).
-      this.persistOnLeave(client, sessionId);
+      this.persistOnLeave(client, actorId);
       this.releaseAccountSession(client);
-      this.removePlayer(sessionId, "consented");
+      this.removePlayer(actorId, "consented");
       return;
     }
 
@@ -2680,7 +2906,7 @@ export class MapRoom extends Room<MapRoomState> {
     //   resume state ที่ respawn แล้ว; grace หมด = fresh join → safe camp. TODO(PvP/boss critical, post-OB):
     //   ถ้าอนาคตมี death ที่มี window (revive/PvP down state) ต้องบังคับ safe camp ตอนกลับตรงนี้ (§59.1 guardrail).
     console.log(
-      `[MapRoom ${this.roomId}] ${sessionId} หลุด — เริ่ม grace ${this.graceSeconds}s (§59.1)`,
+      `[MapRoom ${this.roomId}] ${actorId} หลุด — เริ่ม grace ${this.graceSeconds}s (§59.1)`,
     );
     // fix/refresh-progression-race: refresh = unclean disconnect เข้า grace — ระหว่าง await ด้านล่างไม่มี
     //   stash/persist ใด ๆ. stash progression เข้า carrier **ก่อน** await (sync) เพื่อครอบ refresh ที่ไม่ถูก
@@ -2690,25 +2916,28 @@ export class MapRoom extends Room<MapRoomState> {
     try {
       await this.allowReconnection(client, this.graceSeconds);
       console.log(
-        `[MapRoom ${this.roomId}] ${sessionId} reconnect สำเร็จใน grace — resume ตำแหน่ง/channel เดิม`,
+        `[MapRoom ${this.roomId}] ${actorId} reconnect สำเร็จใน grace — resume ตำแหน่ง/channel เดิม`,
       );
     } catch {
       // grace หมด → ลบจริง + ปล่อย session ระดับบัญชี (registry/DB lease). ถ้าระหว่าง grace ถูก account
       // เดียวกัน takeover (forceTakeover mark sessionId ตอน await กำลังรอ) → เก็บกวาด set ที่นี่ด้วย.
       // P2-05: save ตำแหน่งล่าสุดก่อนลบ (ผู้เล่นหลุดจริง ไม่กลับใน grace) — เว้นถ้าถูก takeover (ตัวใหม่คุมแล้ว).
-      const wasTakenOverDuringGrace = this.takenOverSessions.delete(sessionId);
-      if (!wasTakenOverDuringGrace) this.persistOnLeave(client, sessionId);
+      // Fresh same-character takeover may have attached while this await was pending.
+      if (this.characterAuthority.actorForController(controllerSessionId)?.actorId !== actorId) {
+        this.takenOverSessions.delete(controllerSessionId);
+        this.releaseAccountSession(client);
+        return;
+      }
+      const wasTakenOverDuringGrace = this.takenOverSessions.delete(controllerSessionId);
+      if (!wasTakenOverDuringGrace) this.persistOnLeave(client, actorId);
       this.releaseAccountSession(client);
-      this.removePlayer(sessionId, "grace_expired");
+      this.removePlayer(actorId, "grace_expired");
     }
   }
 
   // ══════════════════════════════════════════════════════════════════════════
-  // Batch 7b (Bot/Hunter Assistant) — BotHost seam. A bot is a virtual player: its position/movement use the
-  // SAME collision grid + its attacks the SAME combat resolution (resolveSkillHits/computeSkillDamage/
-  // sim.damageMob/recordDamage) and the IDENTICAL economy entry (grantKillRewardsForMob) as a real player, so
-  // guardrails/audit apply. The real-player cast/reward paths (handleCast/grantKillReward) are UNTOUCHED — bots
-  // never enter this.clients, so those loops never see them. Driven by botManager.tickRoom() in stepMobSim.
+  // D-067 Character Autonomy BotHost seam. Automation drives the already-materialized character actor through
+  // the room's server-authoritative movement/combat/economy state. It never creates a clone, worker, or inventory.
   // ══════════════════════════════════════════════════════════════════════════
 
   /** BotHost.mapId — the map this room hosts (the bot manager keys hosts by it). */
@@ -2728,66 +2957,71 @@ export class MapRoom extends Room<MapRoomState> {
     return arr.find(isDamage) ?? null; // fallback = class basic attack
   }
 
-  /** a walkable spawn inside a bot-safe pocket (center → safe camp fallback). null = no such pocket. */
-  private pocketSpawnPos(pocketId: string): Vec2 | null {
-    const pocket = this.map.mobPockets.find((p) => p.pocketId === pocketId);
-    if (!pocket) return null;
-    const center = { tx: pocket.area.tx + pocket.area.width / 2, ty: pocket.area.ty + pocket.area.height / 2 };
-    const spawn = resolveSpawnPosition(center, this.safeCamp, this.isWalkableAt);
-    return { tx: spawn.pos.tx, ty: spawn.pos.ty };
-  }
+  botClaimAuthority(input: BotAuthorityInput): string | null {
+    const actor = this.characterAuthority.actorForController(input.controllerSessionId);
+    if (!actor || !actor.accountId || !actor.characterId) return null;
+    const actorId = actor.actorId;
+    const player = this.state.players.get(actorId);
+    const rec = this.sessionCharacters.get(actorId);
+    const classId = this.sessionClassId.get(actorId);
+    if (
+      !player ||
+      !rec ||
+      !classId ||
+      rec.accountId !== input.accountId ||
+      rec.characterId !== input.characterId ||
+      !this.pocketExists(input.pocketId)
+    ) {
+      return null;
+    }
+    const skill = this.resolveBotSkill(classId, input.allowedSlots);
+    if (!skill) return null;
+    if (!this.characterAuthority.beginAutonomy(
+      actorId,
+      input.controllerSessionId,
+      input.accountId,
+      input.characterId,
+    )) {
+      return null;
+    }
 
-  botSpawn(input: BotSpawnInput): boolean {
-    if (this.state.players.has(input.sessionId)) return false;
-    const skill = this.resolveBotSkill(input.classId, input.allowedSlots);
-    if (!skill) return false;
-    const spawn = this.pocketSpawnPos(input.pocketId);
-    if (!spawn) return false;
-
-    const player = new PlayerState();
-    player.tx = spawn.tx;
-    player.ty = spawn.ty;
-    player.direction = "S";
-    player.anim = "idle";
-    player.partyId = this.partyId;
-    player.classId = input.classId;
     player.isBot = true;
-    player.name = BOT_PLAYER_NAME;
-    this.state.players.set(input.sessionId, player);
-    const now = Date.now();
-    this.trackers.set(input.sessionId, {
-      tx: spawn.tx,
-      ty: spawn.ty,
-      lastMoveTime: now,
-      lastCorrectionTime: 0,
-      lastExitId: null,
-      lastInputMs: now,
-      connectedAtMs: now,
-    });
-    this.cooldowns.set(input.sessionId, new Map());
-    this.sessionProgress.set(input.sessionId, { level: input.level, exp: input.exp });
-    this.sessionClassId.set(input.sessionId, input.classId);
-    this.recomputeEffectiveStats(input.sessionId);
-    player.maxHp = this.maxHpFor(input.sessionId);
-    player.hp = player.maxHp;
-    player.level = input.level;
-    this.syncPlayerExpSchema(input.sessionId);
-    this.botMembers.set(input.sessionId, {
+    this.botMembers.set(actorId, {
       accountId: input.accountId,
       characterId: input.characterId,
       profileId: input.profileId,
-      classId: input.classId,
+      classId,
       skill,
       pocketId: input.pocketId,
     });
-    console.log(`[MapRoom ${this.roomId}] bot spawn ${input.sessionId} @pocket ${input.pocketId} lv${input.level}`);
-    return true;
+    this.refreshAutoDispose();
+    console.log(`[MapRoom ${this.roomId}] autonomy claim ${actorId} @pocket ${input.pocketId}`);
+    return actorId;
   }
 
-  botRemove(sessionId: string): void {
-    if (!this.botMembers.has(sessionId)) return;
-    this.botMembers.delete(sessionId);
-    this.removePlayer(sessionId, "bot_stop"); // clears trackers/cooldowns/effectiveStats/progress/classId + state
+  botReleaseAuthority(actorId: string): void {
+    if (!this.botMembers.has(actorId)) return;
+    this.botMembers.delete(actorId);
+    this.characterAuthority.endAutonomy(actorId);
+    const player = this.state.players.get(actorId);
+    if (player) player.isBot = false;
+    this.refreshAutoDispose();
+    console.log(`[MapRoom ${this.roomId}] autonomy release ${actorId}`);
+
+    // If the owner is offline, the run was the only reason to retain this materialized actor. Dematerialize on
+    // the next microtask so synchronous death/respawn handling can finish first. This also removes the stale
+    // room-affinity record before a later fresh join can materialize a duplicate in another room.
+    if (!this.characterAuthority.get(actorId)?.controllerSessionId) {
+      queueMicrotask(() => {
+        const authority = this.characterAuthority.get(actorId);
+        if (!authority || authority.controllerSessionId || authority.mode === "autonomy" || this.botMembers.has(actorId)) {
+          return;
+        }
+        this.persistSession(actorId, true);
+        this.releaseRetainedActorSession(actorId);
+        this.removePlayer(actorId, "autonomy_stopped_offline");
+      });
+    }
   }
 
   botMobs(): AgentMob[] {
@@ -2913,9 +3147,9 @@ export class MapRoom extends Room<MapRoomState> {
 
   /**
    * Grant one bot kill's rewards to the OWNER via grantKillRewardsForMob (identical economy path as a real
-   * player). EXP/level are applied to the bot's session state (so its stats scale) and level-ups are persisted;
-   * gold/items are persisted inside the economy call (ledger/inventory/delivery). Bot position is NOT persisted
-   * (the bot never overwrites the character's saved spot). Returns per-kill deltas for the report + stop checks.
+    * player). EXP/level, equipment-derived stats, HP, inventory, and position all belong to this same actor;
+    * gold/items are persisted inside the economy call (ledger/inventory/delivery), while the ordinary room save
+    * cycle persists its latest actor position/progression. Returns per-kill deltas for the report + stop checks.
    */
   private async botGrantForKill(
     sessionId: string,
@@ -2934,7 +3168,7 @@ export class MapRoom extends Room<MapRoomState> {
           accountId: member.accountId,
           playerLevel: progress.level,
           playerExp: progress.exp,
-          eligibleMembers: 1, // solo virtual player
+          eligibleMembers: 1, // current autonomy plan is single-actor; party parity remains later work
           killEventId: randomUUID(),
           persist: true,
         },
@@ -2959,6 +3193,11 @@ export class MapRoom extends Room<MapRoomState> {
       this.refreshPlayerMaxHp(sessionId);
     }
     if (outcome.exp.leveledUp) void saveCharacterProgress(member.characterId, outcome.exp.level, outcome.exp.exp);
+    const controller = this.clientForActor(sessionId);
+    if (controller && outcome.granted.length > 0) {
+      const items = await loadCharacterItemsBestEffort(member.characterId);
+      controller.send(MSG_INVENTORY_STATE, buildSnapshot(items, INVENTORY_CAPACITY));
+    }
     return {
       gold: outcome.goldRolled,
       exp: Math.max(0, outcome.exp.exp - oldExp),

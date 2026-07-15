@@ -8,6 +8,11 @@ import type {
   WirePlayerAnim,
   WirePlayerDirection,
 } from "@/shared/net-protocol";
+import {
+  CHARACTER_ACTOR_ROOM_REDIRECT_CODE,
+  CHARACTER_ACTOR_ROOM_REDIRECT_PREFIX,
+  CHARACTER_WORLD_CAPACITY_CODE,
+} from "@/shared/net-protocol";
 
 /** 8 ทิศที่ valid (ตรง Direction). ใช้ coerce ค่า wire ที่อาจเพี้ยน (defensive, P1 มี validation จริง). */
 const VALID_DIRECTIONS: readonly Direction[] = [
@@ -99,6 +104,39 @@ export function computePlayerCount(
   remoteCount: number,
 ): number {
   return state === "online" ? remoteCount + 1 : 0;
+}
+
+/**
+ * Resolve the stable character actor controlled by this transport session. New servers publish the binding in
+ * room state; the fallback preserves compatibility with an older server where player keys were session ids.
+ */
+export function resolveSelfActorId(
+  controllerSessionId: string,
+  controllers: { get(key: string): string | undefined | null } | null | undefined,
+): string {
+  const actorId = controllers?.get(controllerSessionId);
+  return typeof actorId === "string" && actorId.length > 0 ? actorId : controllerSessionId;
+}
+
+/** Extract an authenticated actor-room redirect from a Colyseus matchmaking error. */
+export function parseCharacterActorRoomRedirect(error: unknown): string | null {
+  if (!error || typeof error !== "object") return null;
+  const record = error as { code?: unknown; message?: unknown };
+  if (Number(record.code) !== CHARACTER_ACTOR_ROOM_REDIRECT_CODE || typeof record.message !== "string") {
+    return null;
+  }
+  const start = record.message.indexOf(CHARACTER_ACTOR_ROOM_REDIRECT_PREFIX);
+  if (start < 0) return null;
+  const roomId = record.message
+    .slice(start + CHARACTER_ACTOR_ROOM_REDIRECT_PREFIX.length)
+    .match(/^[A-Za-z0-9_-]+/)?.[0];
+  return roomId && roomId.length > 0 ? roomId : null;
+}
+
+/** A retained actor consumed the last world seat; create a new channel instead of retrying that room. */
+export function isCharacterWorldCapacityError(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  return Number((error as { code?: unknown }).code) === CHARACTER_WORLD_CAPACITY_CODE;
 }
 
 /**

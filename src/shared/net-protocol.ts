@@ -59,6 +59,14 @@ export const DEFAULT_PARTY_ID = "";
  */
 export const WS_CLOSE_SESSION_TAKEN_OVER = 4001;
 
+/** Matchmaking retry contract for a character whose autonomous actor is retained in a specific room. */
+export const CHARACTER_ACTOR_ROOM_REDIRECT_CODE = 4216;
+export const CHARACTER_ACTOR_ROOM_REDIRECT_PREFIX = "character_actor_room:";
+/** Same account selected a different character while another character actor is autonomous. */
+export const CHARACTER_AUTONOMY_CONFLICT_CODE = 4217;
+/** Effective world population is full; clients should create another channel, not retry the same retained room. */
+export const CHARACTER_WORLD_CAPACITY_CODE = 4218;
+
 /**
  * key ของ sessionStorage ที่ Game Hub เขียน characterId ที่ผู้เล่นเลือก "เข้าเกม" (P2-05, Storage §5/§7)
  * แล้ว /game (net-client) อ่านมาแนบใน joinOptions.characterId → server load state + ตรวจ ownership.

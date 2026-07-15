@@ -6,13 +6,13 @@
 
 - `src/engine/config.ts` — barrel — Design Knobs/types (EngineConfig, DEFAULT_ENGINE_CONFIG); domain modules under `src/engine/config/` (scene/player/auto-pilot/companion/input/mob/combat/combat-feel/net/engine/world)
 - `src/engine/runtime/` — engine lifecycle: transition (map fade), resize, assets, debug-info · LW0: world-clock (§3) + weather-overlay (§4)
-- `src/engine/runtime/app.ts` — createEngine(): per-map world (player+mobs+combat+net+input), master tick, F3/F4, pressAttack/effect-quality knobs (P2-15)
+- `src/engine/runtime/app.ts` — per-map world + master tick; PR1 freezes local input/send while the real actor is autonomous (takeover pending)
 - `src/engine/iso/` — iso projection + depth-sort math (**never-downgrade zone**)
 - `src/engine/movement/` — mover (stepMovement), direction resolver, path-follower
 - `src/engine/pathfinding/` — A* on the iso grid (click-to-move)
-- `src/engine/player/` — local player pixi glue + correction-resume (server reconcile) + companion (C4 follow-entity) + auto-pilot (D-037, ≠ bot)
-- `src/engine/net/` — colyseus glue, interp buffer, reconnect store, remote player/attack, party, visibility (P2-13)
-- `src/engine/net/net-client.ts` — createNetClient(): connect/join, reconnect (§59.1), self-adopt gating, cast/skill messages
+- `src/engine/player/` — local player/correction + PR1 autonomy lock + companion + auto-pilot (D-037, ≠ bot)
+- `src/engine/net/` — Colyseus glue, stable controller→actor self binding, reconnect/interpolation, party, visibility
+- `src/engine/net/net-client.ts` — connect/reconnect, stable self-actor resolution, self-adopt, cast/skill messages
 - `src/engine/animation/` — animation manifest (5-dir+mirror), sprite animator, placeholder textures, texture-set (non-owning handles)
 - `src/engine/assets/` — runtime atlas loader/registry (engine-scope, fail-soft → placeholder)
 - `src/engine/config/render.ts` — pixelate knob (on/scale/nearest-filter/CSS)
@@ -49,14 +49,14 @@
 
 - `server/index.ts` — Colyseus Server entry: defines MapRoom + `.filterBy(['mapId','partyId'])`, listens ws://localhost:2567
 - `server/rooms/` — MapRoom lifecycle glue (onCreate/onJoin/onMessage/onLeave/onDispose)
-- `server/rooms/MapRoom.ts` — the room: movement validation, mob sim tick, combat authority, reconnect grace, map transition, safe-zone cap
-- `server/schema/` — @colyseus/schema state (PlayerState/MobState/MapRoomState)
+- `server/rooms/MapRoom.ts` — stable real-actor authority/controller attach, movement/combat/mob sim, reconnect, transition, capacity
+- `server/schema/` — room state + controller session→stable actor binding
 - `server/matchmaking/` — pure channel-number allocator (§59.3 auto-assign)
-- `server/security/` — WS handshake (JWT+origin+rate limit), session takeover/lease (Bible 5.2)
-- `server/characters/` — persistence-decision (pure) + character-state load/upsert (best-effort, no DB = in-memory) + progress-carrier.ts (cross-room/refresh/takeover level·exp)
+- `server/security/` — WS handshake + ordered per-account takeover/lease
+- `server/characters/` — stable actor ownership/controller mode (`server/characters/authority.ts`) + state/progress persistence
 - `server/inventory/` — best-effort DB glue for MapRoom (snapshot on join; capacity + item catalog; mutations strict) + P2-10 reinforcement knobs
 - `server/economy/` — kill-reward wiring: mobType→monsterId + Prisma seams (ledger/inventory/drop-audit); EXP always, gold/drops/audit w/ DB · shop-state · milestones (C1) · achievements (C2b) · reinforcement-pity (B4 §4.2/§3.5)
-- `server/bot/` — Bot/Hunter Assistant (7b, D-063): tier · profiles (caps/read-only) · agent (target/throttle/9 stops) · reports (retention) · store (Prisma) · runtime+manager (virtual player in MapRoom, reuses combat/economy)
+- `server/bot/` — D-067 controller claims the real actor/HP/inventory/position/combat/economy; no clone (PR2–7 pending)
 - `server/db/` — Prisma client singleton (server-only) + ledger contract (getBalance/appendEntry)
 - `server/config/` — Design Knobs: economy + reinforcement + loader + storage + achievements + bot (7b: caps/prices/pockets/efficiency)
 - `prisma/migrations/` — 0001_init (13 tables) · 0002_shop_ledger_reasons · 0003_progression · 0004_bot (tier_state/profiles/sessions)
@@ -72,7 +72,7 @@
 
 ## scripts + tests
 
-- `scripts/e2e/` — permanent E2E harness (Colyseus client, works local/prod): `scripts/e2e/lib.mjs` helpers, `scripts/e2e/smoke.mjs` 8-step scenario
+- `scripts/e2e/` — Colyseus local/prod harness; smoke covers stable actor binding
 - `scripts/svg/` — SVG-first pipeline (SVG-01, D-042/D-043): sanitizer + palette lint (32-color/rarity) + manifest gen (engine 5-dir+mirror + Asset Bible sec19) + `scripts/svg/raster-resvg.ts` (@resvg/resvg-js backend, builds PNG atlases + icons); svg:lint/svg:build CLIs
 - `svg/` — SVG source tree + `svg/README.md` contract; entity folders carry entity.json; `_`-prefixed folders = WIP, skipped by build; build output mirrors to `public/assets/` (manifests/atlases/icons, committed)
-- tests/ mirrors source module names — grep the test dir.
+- tests/ mirrors source names; `tests/server-character-authority.test.ts` guards stable actor/no-clone behavior.
