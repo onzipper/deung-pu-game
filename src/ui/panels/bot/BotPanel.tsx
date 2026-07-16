@@ -1,11 +1,14 @@
 "use client";
 
-// Bot Hub panel (7b-UI, deungpu_P3_BOT_AND_REPORT_UI_IMPLEMENTATION_SPEC_v1.md) — multi-tab pattern เดียวกับ
-// JournalPanel.tsx (แถวปุ่มแท็บด้านบนแทน sidebar). 4 แท็บ (MVP scope ตาม orchestrator brief):
-//   สถานะ (Hub §2 + Live Status §7) · โปรไฟล์ (Setup §3 + Rule Builder v1 §4 อย่างง่าย) · รายงาน (§8) ·
-//   แพ็กเกจ (Tier Comparison + MOCK purchase §11, D-061/D-063).
-// Schedule (§6) + Analytics ขั้นสูง (§8.2) = locked placeholder "เร็วๆ นี้" (deferred, ไม่ใช่ MVP scope) —
-// แสดงใน tier table เป็นตัวเลข/เครื่องหมายเฉย ๆ ไม่มี UI แยกให้กด. notification prefs = defer เช่นกัน.
+// Bot Hub panel (P3 Bot UI spec, PR7 UX pass) — multi-tab pattern เดียวกับ JournalPanel.tsx (แถวปุ่มแท็บด้านบน
+// แทน sidebar). 4 แท็บ: สถานะ (Hub §2 + Live Status §7, continuity.state = authority) · แผนงาน (setup wizard
+// §5 ตอนสร้างแผนใหม่ + Rule Builder v1 §4 รวม branch step) · รายงาน (§8) · แพ็กเกจ (Tier Comparison + MOCK
+// purchase §11, D-061/D-063 — ไม่มีแถว Schedule แล้ว, D-072).
+// Analytics ขั้นสูง (§8.2) = locked placeholder "เร็วๆ นี้" (deferred) — แสดงใน tier table เป็นเครื่องหมายเฉย ๆ
+// ไม่มี UI แยกให้กด. notification prefs = defer เช่นกัน.
+//
+// terminology (PR7 §2 locked): "แผน/แผนงาน" แทน "โปรไฟล์/บอท" ทุกจุด · เริ่มแผน = "มอบการควบคุม" · "รับช่วงต่อ"
+// ไม่มี confirmation · resume CTA แยกตาม checkpoint.kind (bot-view.ts botResumeCtaLabel).
 //
 // อ่าน state ผ่าน Zustand bridge เท่านั้น (useGameStore, docs/context/ui.md contract) — ส่ง intent
 // (create/update/delete/start/stop/mockPurchase/reportList/reportFetch) ผ่าน EngineHandle.net ตรง ๆ
@@ -39,7 +42,6 @@ import {
   BOT_TAB_LABELS,
   BOT_TAB_ORDER,
   BOT_TIER_PLANS,
-  botActionLabel,
   botMapLabel,
   botMapOptions,
   botOpMessage,
@@ -76,8 +78,33 @@ import {
   BOT_WORKFLOW_GOAL_TYPES,
   BOT_WORKFLOW_METRIC_LABELS,
   BOT_WORKFLOW_MAX_STEPS_CLIENT,
+  // PR7: continuity-first status, resume CTA, workflow progress + branch editor, setup wizard, presets,
+  // stop-policy info, micro-tutorial (P3 Bot UI spec, terminology "แผน/แผนงาน" — see bot-view.ts comments).
+  botStatusStateLabel,
+  botResumeCtaLabel,
+  botCheckpointRestartBadge,
+  BOT_RESUME_REASSURANCE,
+  formatWorkflowStepProgress,
+  newWorkflowBranchStep,
+  workflowBranchTargetOptions,
+  setWorkflowBranchWhen,
+  setWorkflowBranchTarget,
+  BOT_WIZARD_STEPS,
+  BOT_WIZARD_STEP_LABELS,
+  nextBotWizardStep,
+  prevBotWizardStep,
+  isBotWizardStepValid,
+  BOT_RULE_PRESETS,
+  applyBotRulePreset,
+  BOT_GLOBAL_SAFETY_STOP_REASONS,
+  botTierRecoveryLabel,
+  BOT_TUTORIAL_SLIDES,
+  createBotTutorialStore,
+  dismissBotTutorial,
   type BotOpPhase,
   type BotTab,
+  type BotWizardStep,
+  type BotTutorialState,
 } from "./bot-view";
 import type { BotWorkflowMetric, BotWorkflowV1 } from "@/shared/bot-workflow";
 
@@ -98,21 +125,34 @@ interface ProfileFormState {
   mapId: string;
   pocketId: string;
   rules: BotRulesWire;
+  /** PR7 §5 setup wizard cursor — meaningful only for mode="create" (edit ใช้ฟอร์มเดียวไม่มี stepper). */
+  wizardStep: BotWizardStep;
 }
 
 function blankForm(): ProfileFormState {
   const mapId = botMapOptions()[0] ?? "map1";
   const pocketId = botPocketOptions(mapId)[0] ?? "";
-  return { mode: "create", name: "", mapId, pocketId, rules: defaultBotRules() };
+  return { mode: "create", name: "", mapId, pocketId, rules: defaultBotRules(), wizardStep: "map" };
 }
 
 function editForm(profile: BotProfileWire): ProfileFormState {
-  return { mode: "edit", id: profile.id, name: profile.name, mapId: profile.mapId, pocketId: profile.pocketId, rules: profile.rules };
+  return {
+    mode: "edit",
+    id: profile.id,
+    name: profile.name,
+    mapId: profile.mapId,
+    pocketId: profile.pocketId,
+    rules: profile.rules,
+    wizardStep: "rules",
+  };
 }
 
 const SELECT_CLASS =
   "h-10 rounded-(--dp-radius-sm) border border-(--dp-soil-brown) bg-(--dp-deep-ink) px-3 " +
   "text-(--dp-highlight) dp-focus-ring";
+
+// PR7 §7 micro-tutorial — module-level store เหมือน HelpPanel.tsx prefsStore (load ครั้งเดียว, lazy useState init)
+const tutorialStore = createBotTutorialStore();
 
 export function BotPanel({ getHandle }: BotPanelProps) {
   const manager = usePanelManager();
@@ -139,6 +179,9 @@ export function BotPanel({ getHandle }: BotPanelProps) {
   // "now" สำหรับ formatPassExpiry/countdown — Date.now() ห้ามเรียกตรงใน render body (react-hooks/purity)
   // จึง lazy-init ครั้งแรกผ่าน useState initializer (เหมือน JournalPanel sessionStartMs) แล้ว refresh ตอนเปิด panel.
   const [nowMs, setNowMs] = useState(() => Date.now());
+  // PR7 §7: micro-tutorial ครั้งแรกที่เปิด panel — persist localStorage, ข้ามได้เสมอ (ดู bot-view.ts comment)
+  const [tutorial, setTutorial] = useState<BotTutorialState>(() => tutorialStore.load());
+  const [tutorialSlide, setTutorialSlide] = useState(0);
 
   // เปิด panel → ขอ tier state + profiles ใหม่ (reply เดียวจาก bot:profileList มาทั้งคู่ — pattern เดียวกับ
   // JournalPanel sendAchievementsRequest, deferred setState/network call ใน setTimeout callback) + refresh nowMs
@@ -243,6 +286,21 @@ export function BotPanel({ getHandle }: BotPanelProps) {
     (caps !== null && countBotRules(form.rules) > caps.rules) ||
     (!!form.rules.workflow && !isValidBotWorkflowClient(form.rules.workflow));
 
+  // PR7 §5: "ถัดไป" ในสเต็ปสร้างแผนใหม่กดได้เฉพาะเมื่อขั้นปัจจุบันผ่าน mirror validation (server เป็น truth จริงเสมอ)
+  const wizardStepValid = form ? isBotWizardStepValid(form.wizardStep, form, caps?.rules ?? null) : false;
+
+  // PR7 §7: ปิด micro-tutorial (ข้าม หรือจบสไลด์สุดท้าย) — persist ทันที, ข้ามได้เสมอตาม spec
+  const dismissTutorial = (): void => {
+    const next = dismissBotTutorial(tutorial);
+    setTutorial(next);
+    tutorialStore.save(next);
+  };
+  const onFinishTutorial = (): void => {
+    dismissTutorial();
+    setTab("profiles");
+    setForm(blankForm());
+  };
+
   return (
     <Panel id={BOT_PANEL_ID} title="ผู้ช่วยนักล่า" widthPx={420}>
       <div className="dp-text-body-sm flex flex-col gap-3">
@@ -253,6 +311,39 @@ export function BotPanel({ getHandle }: BotPanelProps) {
             </Button>
           ))}
         </div>
+
+        {!tutorial.dismissed && (
+          <div className="flex flex-col gap-2 rounded-(--dp-radius-sm) border border-(--dp-resonance-teal) bg-(--dp-deep-ink) px-3 py-2">
+            <div className="flex items-center justify-between gap-2">
+              <span className="dp-text-label text-(--dp-resonance-light)">
+                {BOT_TUTORIAL_SLIDES[tutorialSlide].title} ({tutorialSlide + 1}/{BOT_TUTORIAL_SLIDES.length})
+              </span>
+              <button
+                type="button"
+                aria-label="ข้ามการแนะนำ"
+                onClick={dismissTutorial}
+                className="dp-focus-ring shrink-0 rounded-(--dp-radius-sm) px-1.5 text-(--dp-sand) hover:text-(--dp-highlight)"
+              >
+                ✕
+              </button>
+            </div>
+            <div className="text-(--dp-parchment)">{BOT_TUTORIAL_SLIDES[tutorialSlide].body}</div>
+            <div className="flex justify-end gap-2">
+              <Button variant="ghost" size="sm" onClick={dismissTutorial}>
+                ข้าม
+              </Button>
+              {tutorialSlide < BOT_TUTORIAL_SLIDES.length - 1 ? (
+                <Button variant="primary" size="sm" onClick={() => setTutorialSlide((s) => s + 1)}>
+                  ถัดไป
+                </Button>
+              ) : (
+                <Button variant="primary" size="sm" onClick={onFinishTutorial}>
+                  สร้างแผนแรก
+                </Button>
+              )}
+            </div>
+          </div>
+        )}
 
         {opMessage && (
           <div
@@ -315,7 +406,7 @@ export function BotPanel({ getHandle }: BotPanelProps) {
             )}
 
             {!profiles || profiles.length === 0 ? (
-              <div className="text-(--dp-sand)">ยังไม่มีโปรไฟล์ — ไปที่แท็บ “โปรไฟล์” เพื่อสร้างงานแรก</div>
+              <div className="text-(--dp-sand)">ยังไม่มีแผน — ไปที่แท็บ “แผนงาน” เพื่อสร้างแผนแรก</div>
             ) : (
               <div className="flex flex-col gap-2">
                 {profiles.map((p) => {
@@ -337,7 +428,14 @@ export function BotPanel({ getHandle }: BotPanelProps) {
                       </div>
                       {running && status ? (
                         <>
-                          <div className="text-(--dp-resonance-light)">{botActionLabel(status.action)}</div>
+                          <div className="text-(--dp-resonance-light)">
+                            {botStatusStateLabel(status.continuity, status.action)}
+                          </div>
+                          {status.workflow && (
+                            <div className="dp-text-caption text-(--dp-resonance-light)">
+                              {formatWorkflowStepProgress(status.workflow)}
+                            </div>
+                          )}
                           <div className="dp-text-caption text-(--dp-sand)">
                             ฆ่า {status.killCount} · gold {status.goldEarned} · exp {status.expEarned} · HP{" "}
                             {formatHpPercent(status.hpFraction)} · เวลา {formatDurationShort(status.uptimeMs)}
@@ -374,6 +472,16 @@ export function BotPanel({ getHandle }: BotPanelProps) {
                                 ? "บันทึกจุดทำงานแล้ว — พร้อมทำต่อ"
                                 : "บันทึกจุดทำงานไม่สำเร็จ"}
                           </div>
+                          {interrupted.state !== "saving" && (
+                            <>
+                              {botCheckpointRestartBadge(interrupted.kind) && (
+                                <div className="dp-text-caption text-(--dp-fire-light)">
+                                  {botCheckpointRestartBadge(interrupted.kind)}
+                                </div>
+                              )}
+                              <div className="dp-text-caption text-(--dp-sand)">{BOT_RESUME_REASSURANCE}</div>
+                            </>
+                          )}
                           <Button
                             variant="primary"
                             size="sm"
@@ -386,7 +494,7 @@ export function BotPanel({ getHandle }: BotPanelProps) {
                               }
                             }}
                           >
-                            {interrupted.state === "failed" ? "เริ่มแผนใหม่" : "ทำต่อ"}
+                            {interrupted.state === "failed" ? "มอบการควบคุม" : botResumeCtaLabel(interrupted.kind)}
                           </Button>
                         </>
                       ) : (
@@ -396,7 +504,7 @@ export function BotPanel({ getHandle }: BotPanelProps) {
                           disabled={busy || p.readOnly || authorityActive || status !== null || checkpoint?.state === "saving"}
                           onClick={() => send("start", (net) => net.sendBotStart({ profileId: p.id }))}
                         >
-                          เริ่ม
+                          มอบการควบคุม
                         </Button>
                       )}
                     </div>
@@ -426,12 +534,12 @@ export function BotPanel({ getHandle }: BotPanelProps) {
                 disabled={busy || form !== null || (caps !== null && !canCreateMoreProfiles(profiles?.length ?? 0, caps.profiles))}
                 onClick={() => setForm(blankForm())}
               >
-                + สร้างโปรไฟล์ใหม่
+                + สร้างแผนใหม่
               </Button>
             </div>
 
             {(!profiles || profiles.length === 0) && !form && (
-              <div className="text-(--dp-sand)">— ยังไม่มีโปรไฟล์ —</div>
+              <div className="text-(--dp-sand)">— ยังไม่มีแผน —</div>
             )}
 
             {!form &&
@@ -465,14 +573,22 @@ export function BotPanel({ getHandle }: BotPanelProps) {
 
             {form && (
               <div className="flex flex-col gap-2 rounded-(--dp-radius-sm) border border-(--dp-soil-brown) bg-(--dp-warm-ink) px-3 py-2">
+                {form.mode === "create" && (
+                  <div className="dp-text-caption text-(--dp-sand)">
+                    ขั้น {BOT_WIZARD_STEPS.indexOf(form.wizardStep) + 1}/{BOT_WIZARD_STEPS.length} ·{" "}
+                    {BOT_WIZARD_STEP_LABELS[form.wizardStep]}
+                  </div>
+                )}
+
                 <TextInput
-                  placeholder="ชื่อโปรไฟล์"
+                  placeholder="ชื่อแผน"
                   value={form.name}
                   maxLength={40}
                   showCounter
                   onChange={(e) => setForm({ ...form, name: e.target.value })}
                 />
-                <div className="flex gap-2">
+
+                {(form.mode === "edit" || form.wizardStep === "map") && (
                   <select
                     value={form.mapId}
                     onChange={(e) => {
@@ -487,6 +603,9 @@ export function BotPanel({ getHandle }: BotPanelProps) {
                       </option>
                     ))}
                   </select>
+                )}
+
+                {(form.mode === "edit" || form.wizardStep === "pocket") && (
                   <select
                     value={form.pocketId}
                     onChange={(e) => setForm({ ...form, pocketId: e.target.value })}
@@ -498,148 +617,295 @@ export function BotPanel({ getHandle }: BotPanelProps) {
                       </option>
                     ))}
                   </select>
-                </div>
+                )}
 
-                <div className="dp-text-label text-(--dp-sand)">ใช้สกิลช่อง</div>
-                <div className="flex flex-wrap gap-3">
-                  {BOT_RULE_SKILL_SLOTS.map((slot) => (
-                    <label key={slot} className="flex items-center gap-1.5 text-(--dp-parchment)">
+                {form.mode === "create" && form.wizardStep === "preset" && (
+                  <div className="flex flex-col gap-2">
+                    <div className="dp-text-label text-(--dp-sand)">เลือกชุดเริ่มต้น — ปรับต่อได้ที่ขั้น “ปรับกฎ”</div>
+                    {BOT_RULE_PRESETS.map((preset) => (
+                      <Button
+                        key={preset.id}
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => setForm({ ...form, rules: applyBotRulePreset(form.rules, preset.id) })}
+                      >
+                        {preset.label}
+                      </Button>
+                    ))}
+                  </div>
+                )}
+
+                {(form.mode === "edit" || form.wizardStep === "rules") && (
+                  <>
+                    <div className="dp-text-label text-(--dp-sand)">ใช้สกิลช่อง</div>
+                    <div className="flex flex-wrap gap-3">
+                      {BOT_RULE_SKILL_SLOTS.map((slot) => (
+                        <label key={slot} className="flex items-center gap-1.5 text-(--dp-parchment)">
+                          <input
+                            type="checkbox"
+                            checked={form.rules.skillSlots.includes(slot)}
+                            onChange={() => setForm({ ...form, rules: toggleBotSkillSlot(form.rules, slot) })}
+                            className="h-4 w-4 accent-(--dp-resonance-teal)"
+                          />
+                          S{slot + 1}
+                        </label>
+                      ))}
+                    </div>
+                    <label className="flex items-center gap-1.5 text-(--dp-parchment)">
                       <input
                         type="checkbox"
-                        checked={form.rules.skillSlots.includes(slot)}
-                        onChange={() => setForm({ ...form, rules: toggleBotSkillSlot(form.rules, slot) })}
+                        checked={form.rules.lootAll}
+                        onChange={(e) => setForm({ ...form, rules: setBotLootAll(form.rules, e.target.checked) })}
                         className="h-4 w-4 accent-(--dp-resonance-teal)"
                       />
-                      S{slot + 1}
+                      เก็บของทุกอย่างที่บอทฟาร์มได้
                     </label>
-                  ))}
-                </div>
-                <label className="flex items-center gap-1.5 text-(--dp-parchment)">
-                  <input
-                    type="checkbox"
-                    checked={form.rules.lootAll}
-                    onChange={(e) => setForm({ ...form, rules: setBotLootAll(form.rules, e.target.checked) })}
-                    className="h-4 w-4 accent-(--dp-resonance-teal)"
-                  />
-                  เก็บของทุกอย่างที่บอทฟาร์มได้
-                </label>
-                <label className="flex items-center gap-1.5 text-(--dp-sand) opacity-60">
-                  <input type="checkbox" disabled className="h-4 w-4" />
-                  HP potion threshold — รอระบบโพชั่น
-                </label>
+                    <label className="flex items-center gap-1.5 text-(--dp-sand) opacity-60">
+                      <input type="checkbox" disabled className="h-4 w-4" />
+                      HP potion threshold — รอระบบโพชั่น
+                    </label>
 
-                {/* PR6b งานหลายขั้น (Pro) — เส้นตรง: เพิ่ม/ลบ step (farm goal / แวะเมือง). branch เป็นของ PR7 */}
-                <div className="flex flex-col gap-2 rounded-(--dp-radius-sm) border border-(--dp-soil-brown) bg-(--dp-deep-ink) px-3 py-2">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="dp-text-label text-(--dp-sand)">งานหลายขั้น (Pro)</span>
-                    {!isPro && <span className="dp-text-caption text-(--dp-fire-light)">อัปเกรด Pro เพื่อใช้</span>}
-                  </div>
-
-                  {isPro ? (
-                    <>
-                      {(form.rules.workflow?.steps ?? []).map((step, i) => (
-                        <div
-                          key={step.id}
-                          className="flex flex-col gap-1 border-b border-(--dp-soil-brown) pb-1.5 last:border-b-0 last:pb-0"
-                        >
-                          <div className="flex items-center justify-between gap-2">
-                            <span className="text-(--dp-parchment)">{botWorkflowStepLabel(step, i)}</span>
-                            <button
-                              type="button"
-                              aria-label="ลบขั้น"
-                              onClick={() => updateWorkflow(removeWorkflowStep(form.rules.workflow!, i))}
-                              className="dp-focus-ring shrink-0 rounded-(--dp-radius-sm) px-1.5 text-(--dp-sand) hover:text-(--dp-danger-red)"
-                            >
-                              ✕
-                            </button>
-                          </div>
-                          {step.kind === "farm" && (
-                            <div className="flex gap-2">
-                              <select
-                                value={step.goal.type}
-                                onChange={(e) =>
-                                  updateWorkflow(
-                                    setWorkflowFarmGoal(
-                                      form.rules.workflow!,
-                                      i,
-                                      e.target.value as BotWorkflowMetric,
-                                      goalMinutesOrCount(step.goal.target, step.goal.type),
-                                    ),
-                                  )
-                                }
-                                className={SELECT_CLASS}
-                              >
-                                {BOT_WORKFLOW_GOAL_TYPES.map((t) => (
-                                  <option key={t} value={t}>
-                                    {BOT_WORKFLOW_METRIC_LABELS[t]}
-                                  </option>
-                                ))}
-                              </select>
-                              <input
-                                type="number"
-                                min={1}
-                                value={goalMinutesOrCount(step.goal.target, step.goal.type)}
-                                onChange={(e) =>
-                                  updateWorkflow(
-                                    setWorkflowFarmGoal(form.rules.workflow!, i, step.goal.type, Number(e.target.value)),
-                                  )
-                                }
-                                className="h-10 w-20 rounded-(--dp-radius-sm) border border-(--dp-soil-brown) bg-(--dp-deep-ink) px-2 text-(--dp-highlight) dp-focus-ring"
-                              />
-                            </div>
-                          )}
-                        </div>
-                      ))}
-
-                      <div className="flex gap-2">
-                        <Button
-                          variant="secondary"
-                          size="sm"
-                          disabled={(form.rules.workflow?.steps.length ?? 0) >= BOT_WORKFLOW_MAX_STEPS_CLIENT}
-                          onClick={() =>
-                            updateWorkflow(
-                              addWorkflowStep(
-                                form.rules.workflow,
-                                newWorkflowFarmStep(nextWorkflowStepId(form.rules.workflow), form.mapId, form.pocketId),
-                              ),
-                            )
-                          }
-                        >
-                          + ขั้นฟาร์ม
-                        </Button>
-                        <Button
-                          variant="secondary"
-                          size="sm"
-                          disabled={(form.rules.workflow?.steps.length ?? 0) >= BOT_WORKFLOW_MAX_STEPS_CLIENT}
-                          onClick={() =>
-                            updateWorkflow(
-                              addWorkflowStep(form.rules.workflow, newWorkflowTownStep(nextWorkflowStepId(form.rules.workflow))),
-                            )
-                          }
-                        >
-                          + ขั้นแวะเมือง
-                        </Button>
+                    {/* งานหลายขั้น (Pro) — farm/town/branch: เพิ่ม/ลบ step, branch เลือกเงื่อนไข + then/else */}
+                    <div className="flex flex-col gap-2 rounded-(--dp-radius-sm) border border-(--dp-soil-brown) bg-(--dp-deep-ink) px-3 py-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="dp-text-label text-(--dp-sand)">งานหลายขั้น (Pro)</span>
+                        {!isPro && <span className="dp-text-caption text-(--dp-fire-light)">อัปเกรด Pro เพื่อใช้</span>}
                       </div>
-                      <div className="dp-text-caption text-(--dp-sand)">ว่างไว้ = ฟาร์มจุดเดียวตามด้านบน · ขั้นฟาร์มใหม่ใช้ map/pocket ที่เลือกด้านบน</div>
-                    </>
-                  ) : (
-                    <div className="dp-text-caption text-(--dp-sand)">
-                      ให้บอททำงานหลายขั้นต่อเนื่อง (ฟาร์มครบเป้า → แวะเมือง → ทำต่อ) — เฉพาะแพ็กเกจ Pro
+
+                      {isPro ? (
+                        <>
+                          {(form.rules.workflow?.steps ?? []).map((step, i) => (
+                            <div
+                              key={step.id}
+                              className="flex flex-col gap-1 border-b border-(--dp-soil-brown) pb-1.5 last:border-b-0 last:pb-0"
+                            >
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="text-(--dp-parchment)">{botWorkflowStepLabel(step, i)}</span>
+                                <button
+                                  type="button"
+                                  aria-label="ลบขั้น"
+                                  onClick={() => updateWorkflow(removeWorkflowStep(form.rules.workflow!, i))}
+                                  className="dp-focus-ring shrink-0 rounded-(--dp-radius-sm) px-1.5 text-(--dp-sand) hover:text-(--dp-danger-red)"
+                                >
+                                  ✕
+                                </button>
+                              </div>
+                              {step.kind === "farm" && (
+                                <div className="flex gap-2">
+                                  <select
+                                    value={step.goal.type}
+                                    onChange={(e) =>
+                                      updateWorkflow(
+                                        setWorkflowFarmGoal(
+                                          form.rules.workflow!,
+                                          i,
+                                          e.target.value as BotWorkflowMetric,
+                                          goalMinutesOrCount(step.goal.target, step.goal.type),
+                                        ),
+                                      )
+                                    }
+                                    className={SELECT_CLASS}
+                                  >
+                                    {BOT_WORKFLOW_GOAL_TYPES.map((t) => (
+                                      <option key={t} value={t}>
+                                        {BOT_WORKFLOW_METRIC_LABELS[t]}
+                                      </option>
+                                    ))}
+                                  </select>
+                                  <input
+                                    type="number"
+                                    min={1}
+                                    value={goalMinutesOrCount(step.goal.target, step.goal.type)}
+                                    onChange={(e) =>
+                                      updateWorkflow(
+                                        setWorkflowFarmGoal(form.rules.workflow!, i, step.goal.type, Number(e.target.value)),
+                                      )
+                                    }
+                                    className="h-10 w-20 rounded-(--dp-radius-sm) border border-(--dp-soil-brown) bg-(--dp-deep-ink) px-2 text-(--dp-highlight) dp-focus-ring"
+                                  />
+                                </div>
+                              )}
+                              {step.kind === "branch" && (
+                                <div className="flex flex-col gap-1">
+                                  <div className="flex gap-2">
+                                    <select
+                                      value={step.when.type}
+                                      onChange={(e) =>
+                                        updateWorkflow(
+                                          setWorkflowBranchWhen(
+                                            form.rules.workflow!,
+                                            i,
+                                            e.target.value as BotWorkflowMetric,
+                                            goalMinutesOrCount(step.when.target, step.when.type),
+                                          ),
+                                        )
+                                      }
+                                      className={SELECT_CLASS}
+                                    >
+                                      {BOT_WORKFLOW_GOAL_TYPES.map((t) => (
+                                        <option key={t} value={t}>
+                                          {BOT_WORKFLOW_METRIC_LABELS[t]}
+                                        </option>
+                                      ))}
+                                    </select>
+                                    <input
+                                      type="number"
+                                      min={1}
+                                      value={goalMinutesOrCount(step.when.target, step.when.type)}
+                                      onChange={(e) =>
+                                        updateWorkflow(
+                                          setWorkflowBranchWhen(form.rules.workflow!, i, step.when.type, Number(e.target.value)),
+                                        )
+                                      }
+                                      className="h-10 w-20 rounded-(--dp-radius-sm) border border-(--dp-soil-brown) bg-(--dp-deep-ink) px-2 text-(--dp-highlight) dp-focus-ring"
+                                    />
+                                  </div>
+                                  <div className="flex flex-wrap items-center gap-2 text-(--dp-sand)">
+                                    <span>ผ่าน→</span>
+                                    <select
+                                      value={step.thenStepId}
+                                      onChange={(e) =>
+                                        updateWorkflow(setWorkflowBranchTarget(form.rules.workflow!, i, "then", e.target.value))
+                                      }
+                                      className={SELECT_CLASS}
+                                    >
+                                      {workflowBranchTargetOptions(form.rules.workflow!, i).map((opt) => (
+                                        <option key={opt.id} value={opt.id}>
+                                          {opt.label}
+                                        </option>
+                                      ))}
+                                    </select>
+                                    <span>ไม่ผ่าน→</span>
+                                    <select
+                                      value={step.elseStepId}
+                                      onChange={(e) =>
+                                        updateWorkflow(setWorkflowBranchTarget(form.rules.workflow!, i, "else", e.target.value))
+                                      }
+                                      className={SELECT_CLASS}
+                                    >
+                                      {workflowBranchTargetOptions(form.rules.workflow!, i).map((opt) => (
+                                        <option key={opt.id} value={opt.id}>
+                                          {opt.label}
+                                        </option>
+                                      ))}
+                                    </select>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          ))}
+
+                          <div className="flex flex-wrap gap-2">
+                            <Button
+                              variant="secondary"
+                              size="sm"
+                              disabled={(form.rules.workflow?.steps.length ?? 0) >= BOT_WORKFLOW_MAX_STEPS_CLIENT}
+                              onClick={() =>
+                                updateWorkflow(
+                                  addWorkflowStep(
+                                    form.rules.workflow,
+                                    newWorkflowFarmStep(nextWorkflowStepId(form.rules.workflow), form.mapId, form.pocketId),
+                                  ),
+                                )
+                              }
+                            >
+                              + ขั้นฟาร์ม
+                            </Button>
+                            <Button
+                              variant="secondary"
+                              size="sm"
+                              disabled={(form.rules.workflow?.steps.length ?? 0) >= BOT_WORKFLOW_MAX_STEPS_CLIENT}
+                              onClick={() =>
+                                updateWorkflow(
+                                  addWorkflowStep(form.rules.workflow, newWorkflowTownStep(nextWorkflowStepId(form.rules.workflow))),
+                                )
+                              }
+                            >
+                              + ขั้นแวะเมือง
+                            </Button>
+                            <Button
+                              variant="secondary"
+                              size="sm"
+                              disabled={
+                                (form.rules.workflow?.steps.length ?? 0) === 0 ||
+                                (form.rules.workflow?.steps.length ?? 0) >= BOT_WORKFLOW_MAX_STEPS_CLIENT
+                              }
+                              onClick={() => {
+                                const wf = form.rules.workflow;
+                                if (!wf || wf.steps.length === 0) return;
+                                const targetId = wf.steps[0].id;
+                                updateWorkflow(
+                                  addWorkflowStep(
+                                    wf,
+                                    newWorkflowBranchStep(nextWorkflowStepId(wf), { type: "kills", target: 1 }, targetId, targetId),
+                                  ),
+                                );
+                              }}
+                            >
+                              + ขั้นเงื่อนไข
+                            </Button>
+                          </div>
+                          <div className="dp-text-caption text-(--dp-sand)">
+                            ว่างไว้ = ฟาร์มจุดเดียวตามด้านบน · ขั้นฟาร์มใหม่ใช้ map/pocket ที่เลือกด้านบน · ขั้นเงื่อนไขต้องมีขั้นอื่นอยู่ก่อนให้ชี้ไป
+                          </div>
+                        </>
+                      ) : (
+                        <div className="dp-text-caption text-(--dp-sand)">
+                          ให้บอททำงานหลายขั้นต่อเนื่อง (ฟาร์มครบเป้า → แวะเมือง → ทำต่อ) — เฉพาะแพ็กเกจ Pro
+                        </div>
+                      )}
                     </div>
-                  )}
-                </div>
+                  </>
+                )}
+
+                {form.mode === "create" && form.wizardStep === "stop_policy" && (
+                  <div className="flex flex-col gap-1.5">
+                    <div className="dp-text-label text-(--dp-sand)">ระบบหยุดปลอดภัยอัตโนมัติเมื่อเจอ</div>
+                    <ul className="list-inside list-disc text-(--dp-parchment)">
+                      {BOT_GLOBAL_SAFETY_STOP_REASONS.map((reason) => (
+                        <li key={reason}>{botStopReasonLabel(reason)}</li>
+                      ))}
+                    </ul>
+                    {tierState && (
+                      <div className="dp-text-caption text-(--dp-sand)">{botTierRecoveryLabel(tierState.tier)}</div>
+                    )}
+                  </div>
+                )}
 
                 <div className="dp-text-caption text-(--dp-sand)">
                   {caps ? ruleCountLabel(countBotRules(form.rules), caps.rules) : ""}
                 </div>
 
-                <div className="flex justify-end gap-2">
+                <div className="flex items-center justify-between gap-2">
                   <Button variant="secondary" size="sm" disabled={busy} onClick={() => setForm(null)}>
                     ยกเลิก
                   </Button>
-                  <Button variant="primary" size="sm" disabled={busy || formInvalid} onClick={onSubmitForm}>
-                    {form.mode === "create" ? "สร้างโปรไฟล์" : "บันทึก"}
-                  </Button>
+                  <div className="flex gap-2">
+                    {form.mode === "create" && prevBotWizardStep(form.wizardStep) && (
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        disabled={busy}
+                        onClick={() => setForm({ ...form, wizardStep: prevBotWizardStep(form.wizardStep)! })}
+                      >
+                        ย้อนกลับ
+                      </Button>
+                    )}
+                    {form.mode === "create" && nextBotWizardStep(form.wizardStep) ? (
+                      <Button
+                        variant="primary"
+                        size="sm"
+                        disabled={busy || !wizardStepValid}
+                        onClick={() => setForm({ ...form, wizardStep: nextBotWizardStep(form.wizardStep)! })}
+                      >
+                        ถัดไป
+                      </Button>
+                    ) : (
+                      <Button variant="primary" size="sm" disabled={busy || formInvalid} onClick={onSubmitForm}>
+                        {form.mode === "create" ? "สร้างแผน" : "บันทึก"}
+                      </Button>
+                    )}
+                  </div>
                 </div>
               </div>
             )}
@@ -763,7 +1029,7 @@ export function BotPanel({ getHandle }: BotPanelProps) {
 
             <div className="dp-text-caption text-(--dp-fire-light)">ทดสอบ — ยังไม่ตัดเงินจริง (D-061)</div>
             <div className="dp-text-caption text-(--dp-sand)">
-              Free ใช้ได้ตลอดไป 24/7 — จ่ายเพื่อความสะดวก (หลาย profile, กฎเยอะ, ตั้งเวลา, รายงานยาว)
+              Free ใช้ได้ตลอดไป 24/7 — จ่ายเพื่อความสะดวก (หลายแผน, กฎเยอะ, รายงานยาว)
             </div>
           </div>
         )}
@@ -771,11 +1037,11 @@ export function BotPanel({ getHandle }: BotPanelProps) {
 
       <ConfirmDialog
         open={deleteTarget !== null}
-        title="ลบโปรไฟล์"
-        description={deleteTarget ? `ลบโปรไฟล์ "${deleteTarget.name}" ถาวร — ต้องสร้างใหม่ถ้าต้องการใช้อีก` : undefined}
+        title="ลบแผน"
+        description={deleteTarget ? `ลบแผน "${deleteTarget.name}" ถาวร — ต้องสร้างใหม่ถ้าต้องการใช้อีก` : undefined}
         variant="high-risk"
         requireCheckbox
-        checkboxLabel="เข้าใจแล้วว่าโปรไฟล์นี้จะถูกลบถาวร"
+        checkboxLabel="เข้าใจแล้วว่าแผนนี้จะถูกลบถาวร"
         confirmLabel="ลบ"
         cancelLabel="ยกเลิก"
         committing={busy}
