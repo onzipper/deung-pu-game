@@ -24,6 +24,9 @@ import { createAssetRegistry } from "../assets/registry";
 import { collectMapAssetIds } from "../assets/collect";
 import { createLocalPlayer, type LocalPlayerHandle } from "../player/local-player";
 import { createAutoPilot, type AutoPilotHandle } from "../player/auto-pilot";
+import { createCompanion, type CompanionHandle } from "../player/companion";
+import { resolveDungPresence } from "../player/dung-presence";
+import { CITY_HUB_ID } from "../map/city-hub";
 import { createMobViewManager, type MobViewHandle, type MobBlip } from "@/game/mob/manager";
 import { createMobSimulation, type MobSimulation } from "@/game/mob/simulation";
 import { createNpcManager, type NpcManagerHandle } from "@/game/npc/manager";
@@ -109,6 +112,8 @@ import {
   setPlayerExp,
   setPlayerLevel,
   setPlayerVitals,
+  requestHelpPanel,
+  gameStore,
   setShopList,
   setShopResult,
   setSkillSlots,
@@ -402,6 +407,44 @@ export async function createEngine(
     // the same actor. PR2 will turn manual input into an explicit takeover; PR1 ignores it while locked.
     let characterAutonomyActive = false;
     let engageState: EngageState = IDLE_ENGAGE_STATE;
+
+    // --- ดึ๋งๆ companion (D-068 §0.0 PR10 — contextual guide, ไม่ follow ผู้เล่นแล้ว) ---
+    //   ตำแหน่งประจำเดียว = config.companion.hubAnchor, เฉพาะ world นี้ = city hub เท่านั้น (dung-presence.ts
+    //   ตัดสิน "ตอนไหน" ผ่าน resolveDungPresence จาก mapId ปัจจุบัน + summon trigger จาก game-store; ที่นี่แค่
+    //   ตัดสิน "ที่ไหน" = hubAnchor เสมอ). นอก hub: presence อาจ resolve เป็น SUMMONED_CONTEXT ชั่วคราวได้ (สเปก
+    //   เผื่ออนาคต — ยังไม่มีปุ่มเรียกจริงใน PR นี้) แต่ engine ยังไม่วาด world entity ที่นั่น (นั่นคือ portrait/
+    //   bubble ฝั่ง UI, §0.0-D "portrait, bubble หรือ world presentation" ไม่ได้บังคับเป็น world entity ทุกกรณี —
+    //   ทำเมื่อ PR ที่มีปุ่มเรียกจริงมาต่อ). config.companion.enabled=false → ปิดทั้งระบบเสมอ.
+    const isCityHubWorld = map.mapId === CITY_HUB_ID;
+    const dungHubAnchor: TilePoint = { tx: config.companion.hubAnchor.x, ty: config.companion.hubAnchor.y };
+    let dung: CompanionHandle | null = null;
+    const updateDungPresence = (): void => {
+      if (!config.companion.enabled || !isCityHubWorld) {
+        if (dung) {
+          dung.destroy();
+          dung = null;
+        }
+        return;
+      }
+      const presence = resolveDungPresence(
+        {
+          currentMapId: map.mapId,
+          cityHubMapId: CITY_HUB_ID,
+          summonRequestedAt: gameStore.getState().dungSummonRequestedAt,
+          now: performance.now(),
+        },
+        config.companion.appearDurationMs,
+      );
+      if (presence === "HIDDEN") {
+        if (dung) {
+          dung.destroy();
+          dung = null;
+        }
+        return;
+      }
+      if (!dung) dung = createCompanion(scene, config, registry, dungHubAnchor, nameplateLayer);
+    };
+    updateDungPresence(); // ตัดสิน state แรกทันทีที่ mount (ก่อน tick แรก — เห็นดึ๋งๆ ตั้งแต่เฟรมแรกถ้าอยู่ hub)
 
     // --- mobs (P1-03): server-authoritative → view manager render จาก snapshot ---
     const mobView: MobViewHandle = createMobViewManager(
@@ -948,6 +991,19 @@ export async function createEngine(
         net?.sendClientEvent({ type: "npc.talk", payload: { npcId: npc.npcId } });
         return;
       }
+      // D-068 §0.0 (§5.1 click radius knob ยังใช้ต่อ): คลิกโดนดึ๋งๆ (client-only cosmetic, มีจริงเฉพาะตอน
+      // presence ≠ HIDDEN) — เช็คหลัง NPC (NPC ชนะ tie) ก่อน mob. คลิก = deep-link เปิด help panel เฉย ๆ
+      // (ดึ๋งๆ ไม่ใช่เจ้าของ Help — §0.0-B) — ยกเลิก engage/path ค้างก่อน แล้วจบ (ไม่ตกไป engage มอน/เดินตามเมาส์).
+      if (dung) {
+        const dp = dung.getPosition();
+        const dsq = (dp.tx - foot.tx) ** 2 + (dp.ty - foot.ty) ** 2;
+        if (dsq <= config.companion.clickRadiusTiles ** 2) {
+          engageState = cancelEngage();
+          player.cancelPath();
+          requestHelpPanel();
+          return;
+        }
+      }
       // P2-15: รัศมี pick ตาม input mode (mouse 0.60 / touch 0.80, Combat Bible §3).
       const assistRadius = resolveTargetAssistRadius(
         inputModeFromPointerType(e.pointerType),
@@ -1119,6 +1175,12 @@ export async function createEngine(
           // Auto Pilot monitor: arrival / manual-WASD / no-path + replan ตามคาบ (ต้องรันหลัง player.update).
           autoPilot.update(dtSeconds);
         }
+        // D-068 §0.0 PR10: re-evaluate presence (summon trigger อาจมาระหว่างเฟรม) + play idle anim — freeze
+        // คู่กับ world อื่น (ไม่ spawn/despawn/เล่น anim ระหว่าง transition lock/tab hidden/autonomy).
+        if (!frozen) {
+          updateDungPresence();
+          dung?.update(dtSeconds);
+        }
         // calc: mobs (server interpolation / offline sim) — render ต่อเนื่องแม้ frozen
         updateMobs(dtSeconds, deltaMs);
         if (!frozen) {
@@ -1205,6 +1267,7 @@ export async function createEngine(
         combat.destroy();
         mobView.destroy();
         npcManager.destroy();
+        dung?.destroy();
         player.destroy();
         scene.destroy();
       },

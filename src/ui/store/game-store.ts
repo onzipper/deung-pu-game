@@ -252,6 +252,13 @@ export interface HudState {
    */
   helpPanelRequestedAt: number | null;
   /**
+   * D-068 §0.0 PR10: timestamp (ms) ล่าสุดที่ผู้เล่นขอเรียกดึ๋งๆ (summon — เช่นปุ่มเรียก, ยังไม่มี UI ผูกใน
+   * PR นี้) — engine (dung-presence.ts ผ่าน app.ts) อ่านค่านี้เป็น input `summonRequestedAt`. pattern เดียวกับ
+   * helpPanelRequestedAt แต่ทิศทางกลับด้าน (UI → engine แทน engine → UI): UI เรียก stampDungSummonRequestedAt(),
+   * engine poll ค่านี้ทุก frame. null = ยังไม่เคยเรียกใน session นี้.
+   */
+  dungSummonRequestedAt: number | null;
+  /**
    * Auto Pilot (Batch 7a, D-037): กำลัง auto-walk อยู่ไหม (engine publish จาก AutoPilotStateChange). true =
    * แสดง HUD chip "กำลังเดินอัตโนมัติ… ✖หยุด" + gold dot บน minimap. false = ไม่เดิน.
    */
@@ -325,6 +332,7 @@ export const INITIAL_HUD_STATE: HudState = {
   weather: null,
   activeDialogue: null,
   helpPanelRequestedAt: null,
+  dungSummonRequestedAt: null,
   autoPilotActive: false,
   autoPilotDestination: null,
   autoPilotStopReason: null,
@@ -635,6 +643,20 @@ export function requestHelpPanel(nowMs: number = performance.now()): void {
 
 /** typed selector — timestamp ล่าสุดที่ขอเปิด help panel (C4 companion click) */
 export const selectHelpPanelRequestedAt = (state: HudState): number | null => state.helpPanelRequestedAt;
+
+/**
+ * D-068 §0.0 PR10: UI เรียกฟังก์ชันนี้ตอนผู้เล่นขอเรียกดึ๋งๆ (summon — ยังไม่มีปุ่มเรียกใน PR นี้, ผูกไว้ให้ PR
+ * หน้าต่อ) → stamp timestamp ให้ engine (dung-presence.ts resolveDungPresence input.summonRequestedAt) เห็นว่า
+ * มี trigger ใหม่ → โผล่ชั่วคราว (SUMMONED_CONTEXT) จนกว่าจะหมดอายุ (appearDurationMs). `nowMs` inject ได้
+ * (เทสต์); default performance.now(). ทิศทางตรงข้าม requestHelpPanel (นี่คือ UI → engine, ไม่ใช่ engine → UI).
+ */
+export function stampDungSummonRequestedAt(nowMs: number = performance.now()): void {
+  gameStore.setState({ dungSummonRequestedAt: nowMs });
+}
+
+/** typed selector — timestamp ล่าสุดที่ขอเรียกดึ๋งๆ (D-068 §0.0 summon trigger) */
+export const selectDungSummonRequestedAt = (state: HudState): number | null =>
+  state.dungSummonRequestedAt;
 
 /**
  * Auto Pilot (Batch 7a, D-037): engine เรียกจาก AutoPilotStateChange callback (app.ts) — event-driven, ไม่
