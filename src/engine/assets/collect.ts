@@ -31,10 +31,6 @@ export function collectMapAssetIds(
   // 1. player
   push((config.player.animation.style as MaybeAsset).assetId);
 
-  // 1b. ดึ๋งๆ companion (C4, §12.2) — client-only follow entity, มีทุก map (preload คู่ player).
-  //     optional-chain กัน config ที่ยังไม่มี companion (tolerant read เหมือน MaybeAsset ด้านบน).
-  if (config.companion?.enabled) push(config.companion.assetId);
-
   // 2. mobs — เฉพาะ mobType ที่ pocket ในแมพนี้ใช้จริง
   for (const pocket of map.mobPockets) {
     const style = config.mob.styles[pocket.mobType] ?? config.mob.defaultStyle;
