@@ -29,9 +29,20 @@ import {
   ruleCountLabel,
   setBotLootAll,
   toggleBotSkillSlot,
+  addWorkflowStep,
+  botWorkflowStepLabel,
+  formatWorkflowGoal,
+  formatWorkflowProgress,
+  isValidBotWorkflowClient,
+  newWorkflowFarmStep,
+  newWorkflowTownStep,
+  nextWorkflowStepId,
+  removeWorkflowStep,
+  setWorkflowFarmGoal,
   type BotOpPhase,
 } from "@/ui/panels/bot/bot-view";
 import type { BotOpResultMessage, BotTierStateMessage } from "@/shared/net-protocol";
+import type { BotWorkflowV1 } from "@/shared/bot-workflow";
 
 describe("BOT_PANEL_ID / BOT_TAB_ORDER", () => {
   test("panel id คงที่", () => {
@@ -227,6 +238,71 @@ describe("countBotRules (mirror server/bot/profiles.ts countRules)", () => {
     expect(countBotRules({ skillSlots: [0], potionThresholdPct: null, lootAll: true })).toBe(2);
     expect(countBotRules({ skillSlots: [0, 1], potionThresholdPct: 30, lootAll: true })).toBe(4);
     expect(countBotRules({ skillSlots: [], potionThresholdPct: null, lootAll: false })).toBe(1);
+  });
+  test("PR6b: แต่ละ workflow step นับเป็น 1 rule ด้วย", () => {
+    const workflow: BotWorkflowV1 = {
+      version: 1,
+      steps: [
+        { id: "s1", kind: "farm", mapId: "map1", pocketId: "map1-slime-center", goal: { type: "kills", target: 10 }, fallbacks: [] },
+        { id: "s2", kind: "town_service" },
+      ],
+    };
+    expect(countBotRules({ skillSlots: [0], potionThresholdPct: null, lootAll: true, workflow })).toBe(4); // 1+0+1+2
+  });
+});
+
+describe("PR6b งานหลายขั้น helpers", () => {
+  test("botOpRejectionLabel รู้จัก 3 reason ใหม่ ไม่ fallback", () => {
+    expect(botOpRejectionLabel("workflow_requires_pro")).toContain("Pro");
+    expect(botOpRejectionLabel("workflow_map_not_allowed")).toContain("พื้นที่");
+    expect(botOpRejectionLabel("workflow_invalid_step")).not.toBe("ตั้งค่ากฎไม่ถูกต้อง");
+  });
+
+  test("formatWorkflowGoal: kills/gold/exp ปกติ · durationMs แสดงเป็นนาที", () => {
+    expect(formatWorkflowGoal({ type: "kills", target: 50 })).toContain("50");
+    expect(formatWorkflowGoal({ type: "durationMs", target: 300000 })).toContain("5 นาที");
+  });
+
+  test("formatWorkflowProgress: done/target clamp ไม่ติดลบ", () => {
+    expect(formatWorkflowProgress(12, 50)).toBe("12/50");
+    expect(formatWorkflowProgress(-3, 50)).toBe("0/50");
+  });
+
+  test("botWorkflowStepLabel: farm มี pocket + goal · town เป็นข้อความเดียว · 1-based", () => {
+    const farm = newWorkflowFarmStep("s1", "map1", "map1-slime-center");
+    expect(botWorkflowStepLabel(farm, 0)).toMatch(/^1\./);
+    expect(botWorkflowStepLabel(farm, 0)).toContain("ฟาร์ม");
+    expect(botWorkflowStepLabel(newWorkflowTownStep("s2"), 1)).toContain("แวะเมือง");
+  });
+
+  test("add/remove/nextId + goal edit + client mirror validation", () => {
+    const id1 = nextWorkflowStepId(undefined);
+    let wf = addWorkflowStep(undefined, newWorkflowFarmStep(id1, "map1", "map1-slime-center"));
+    expect(wf.steps).toHaveLength(1);
+    expect(isValidBotWorkflowClient(wf)).toBe(true);
+
+    const id2 = nextWorkflowStepId(wf);
+    expect(id2).not.toBe(id1);
+    wf = addWorkflowStep(wf, newWorkflowTownStep(id2));
+    expect(wf.steps).toHaveLength(2);
+
+    // durationMs goal: UI enters minutes (2) → stored as ms (120000).
+    wf = setWorkflowFarmGoal(wf, 0, "durationMs", 2);
+    const farm0 = wf.steps[0];
+    expect(farm0.kind === "farm" && farm0.goal).toEqual({ type: "durationMs", target: 120000 });
+
+    // removing the last step yields undefined (back to a single-pocket run).
+    expect(removeWorkflowStep(wf, 0)!.steps).toHaveLength(1);
+    const single = { version: 1 as const, steps: [wf.steps[0]] };
+    expect(removeWorkflowStep(single, 0)).toBeUndefined();
+  });
+
+  test("client mirror rejects a forbidden pocket (server is truth, this is defense-in-depth)", () => {
+    const bad: BotWorkflowV1 = {
+      version: 1,
+      steps: [{ id: "s1", kind: "farm", mapId: "map1", pocketId: "map1-boss-arena", goal: { type: "kills", target: 5 }, fallbacks: [] }],
+    };
+    expect(isValidBotWorkflowClient(bad)).toBe(false);
   });
 });
 

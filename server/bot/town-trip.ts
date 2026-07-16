@@ -20,9 +20,13 @@ import type { Vec2 } from "./agent";
 import type { BotBagItemView, BotHost, BotTownTxResult } from "./runtime";
 import type { BotContinuityOperationalStateWire } from "../../src/shared/bot-continuity";
 import { DEFAULT_INVENTORY_CAPACITY } from "../../src/server/inventory/item-catalog";
+import { transferActor, type TransferResult } from "./warp";
 
-/** What kicked off a trip. `bag_full` = a real overflow; `preflight` = an already-full proactive check. */
-export type TownTripTrigger = "bag_full" | "preflight";
+/**
+ * What kicked off a trip. `bag_full` = a real overflow; `preflight` = an already-full proactive check;
+ * `workflow` = a Pro goal-chain town_service step (PR6b) — an explicit service run, not bag pressure.
+ */
+export type TownTripTrigger = "bag_full" | "preflight" | "workflow";
 
 /**
  * The narrow runtime surface the controller drives. The runtime builds this from private closures (keeping its own
@@ -65,9 +69,6 @@ export interface TownTripFacade {
 
 /** Internal trip phase. `route_home` reuses the runtime's recovery "returning" machinery to walk back to the pocket. */
 type TripPhase = "warp_out" | "selling" | "depositing" | "restocking" | "warp_back" | "route_home" | "done";
-
-/** Outcome of one synchronous actor transfer (reserve → export → attach → rebind). */
-type TransferResult = "ok" | "reserve_fail" | "export_null" | "attach_recovered" | "attach_fatal";
 
 /** Rarity ladder (Economy §5.1: common/uncommon/rare). Unknown rarities fall outside every "up to max" band. */
 const RARITY_LADDER: readonly string[] = ["common", "uncommon", "rare"];
@@ -331,20 +332,7 @@ export class TownTripController {
    * the actor is re-attached to `source` (recovered) or, if that also fails, is unrecoverable (fatal).
    */
   private doTransfer(source: BotHost, target: BotHost, anchor: Vec2): TransferResult {
-    if (!target.botReserveWarpSeat(this.actorId)) return "reserve_fail";
-    const exported = source.botExportActor(this.actorId);
-    if (!exported) {
-      target.botReleaseWarpSeat(this.actorId);
-      return "export_null";
-    }
-    if (!target.botAttachWarpedActor(exported, anchor)) {
-      const reattached = source.botAttachWarpedActor(exported, source.botSafeCampAnchor());
-      target.botReleaseWarpSeat(this.actorId);
-      return reattached ? "attach_recovered" : "attach_fatal";
-    }
-    target.botReleaseWarpSeat(this.actorId); // attach counted the actor into players — release the reservation.
-    this.f.rebindHost(target);
-    return "ok";
+    return transferActor(this.actorId, source, target, anchor, (next) => this.f.rebindHost(next));
   }
 
   private async txWithRetry(fn: () => Promise<BotTownTxResult>): Promise<BotTownTxResult> {

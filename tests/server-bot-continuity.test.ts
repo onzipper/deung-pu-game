@@ -93,12 +93,12 @@ describe("tier-neutral operational topology", () => {
     }
   });
 
-  test("PR5 Phase C opens the town cycle and keeps only LOOTING inert", () => {
+  test("PR6b opens the cross-map + loot edges; the town cycle is unchanged", () => {
     expect(BOT_CONTINUITY_ADVANCE_GRAPH).toMatchObject({
       WORKING: ["TRAVELING", "COMBAT", "RECOVERING", "RETURNING_TO_TOWN"],
-      TRAVELING: ["WORKING", "COMBAT", "RECOVERING", "RETURNING_TO_TOWN"],
-      COMBAT: ["WORKING", "TRAVELING", "RECOVERING", "RETURNING_TO_TOWN"],
-      LOOTING: [],
+      TRAVELING: ["WORKING", "COMBAT", "RECOVERING", "RETURNING_TO_TOWN", "RETURNING_TO_WORK"],
+      COMBAT: ["WORKING", "TRAVELING", "RECOVERING", "RETURNING_TO_TOWN", "LOOTING"],
+      LOOTING: ["WORKING", "TRAVELING", "RETURNING_TO_TOWN"],
       RECOVERING: ["RETURNING_TO_WORK", "WORKING", "RETURNING_TO_TOWN"],
       RETURNING_TO_TOWN: ["SELLING", "WORKING"],
       SELLING: ["DEPOSITING"],
@@ -106,11 +106,29 @@ describe("tier-neutral operational topology", () => {
       RESTOCKING: ["RETURNING_TO_WORK"],
       RETURNING_TO_WORK: ["WORKING", "RECOVERING"],
     });
-    // LOOTING is the only state still inert (PR6): no outbound edge exists yet.
+    // LOOTING is no longer inert (PR6b) — it returns to farming or diverts to town.
     const looting = snapshot("LOOTING");
     expect(
       applyBotContinuityTransition(looting, { kind: "advance", to: "WORKING", ...meta() }),
-    ).toEqual({ ok: false, error: "invalid_transition", snapshot: looting });
+    ).toMatchObject({ ok: true, snapshot: { state: "WORKING", previousState: "LOOTING" } });
+  });
+
+  test("accepts the PR6b cross-map + loot edges", () => {
+    const cases: Array<[BotContinuityOperationalStateWire, BotContinuityOperationalStateWire]> = [
+      ["TRAVELING", "RETURNING_TO_WORK"], // a cross-map farm-step transfer lands, then routes into the pocket
+      ["COMBAT", "LOOTING"], // a kill that yielded loot under a loot rule
+      ["LOOTING", "WORKING"], // resume farming
+      ["LOOTING", "TRAVELING"], // resume travel
+      ["LOOTING", "RETURNING_TO_TOWN"], // a bag-full divert from the loot beat
+    ];
+    for (const [from, to] of cases) {
+      const result = applyBotContinuityTransition(snapshot(from), { kind: "advance", to, ...meta() });
+      expect(result, `${from}->${to}`).toMatchObject({
+        ok: true,
+        changed: true,
+        snapshot: { state: to, revision: 5, previousState: from },
+      });
+    }
   });
 
   test("accepts the PR5 recovery edges", () => {
@@ -154,13 +172,14 @@ describe("tier-neutral operational topology", () => {
     }
   });
 
-  test("rejects out-of-order town-cycle edges and the still-inert loot edge", () => {
+  test("rejects out-of-order town-cycle edges", () => {
     const rejections: Array<[BotContinuityOperationalStateWire, BotContinuityOperationalStateWire]> = [
       ["RECOVERING", "COMBAT"], // recovery never re-enters combat directly
       ["SELLING", "RESTOCKING"], // cannot skip DEPOSITING
       ["RETURNING_TO_TOWN", "DEPOSITING"], // cannot skip SELLING
       ["WORKING", "SELLING"], // a town service run only begins via RETURNING_TO_TOWN
-      ["COMBAT", "LOOTING"], // LOOTING still has no inbound edge (PR6)
+      ["WORKING", "LOOTING"], // LOOTING is only entered from COMBAT (a kill), never idle work
+      ["LOOTING", "COMBAT"], // the loot beat resumes farming, it never re-enters combat directly
     ];
     for (const [from, to] of rejections) {
       const current = snapshot(from);

@@ -59,15 +59,19 @@ export type BotContinuityTransitionResult =
  * PR5 Phase C (D-069/D-070) opens the town cycle: any farm/recovery state may enter RETURNING_TO_TOWN;
  * RETURNING_TO_TOWN->SELLING starts the in-town service run, or RETURNING_TO_TOWN->WORKING aborts an outbound
  * trip before the actor moved. The fixed SELLING->DEPOSITING->RESTOCKING->RETURNING_TO_WORK order returns to
- * farming. LOOTING alone stays inert until its authoritative behavior lands (PR6).
+ * farming.
+ * PR6b (Pro goal chain) opens two more: TRAVELING->RETURNING_TO_WORK completes a cross-map farm-step transfer
+ * (arrive on the new map, then walk into the pocket via the recovery return machinery); and LOOTING finally gains
+ * its edges — COMBAT->LOOTING annotates a kill that yielded loot under a loot rule, and LOOTING returns to
+ * WORKING/TRAVELING (resume farming) or RETURNING_TO_TOWN (a bag-full divert). LOOTING issues no world command.
  */
 export const BOT_CONTINUITY_ADVANCE_GRAPH: Readonly<
   Record<BotContinuityOperationalStateWire, readonly BotContinuityOperationalStateWire[]>
 > = {
   WORKING: ["TRAVELING", "COMBAT", "RECOVERING", "RETURNING_TO_TOWN"],
-  TRAVELING: ["WORKING", "COMBAT", "RECOVERING", "RETURNING_TO_TOWN"],
-  COMBAT: ["WORKING", "TRAVELING", "RECOVERING", "RETURNING_TO_TOWN"],
-  LOOTING: [],
+  TRAVELING: ["WORKING", "COMBAT", "RECOVERING", "RETURNING_TO_TOWN", "RETURNING_TO_WORK"],
+  COMBAT: ["WORKING", "TRAVELING", "RECOVERING", "RETURNING_TO_TOWN", "LOOTING"],
+  LOOTING: ["WORKING", "TRAVELING", "RETURNING_TO_TOWN"],
   RECOVERING: ["RETURNING_TO_WORK", "WORKING", "RETURNING_TO_TOWN"],
   RETURNING_TO_TOWN: ["SELLING", "WORKING"], // WORKING = outbound abort (actor never moved)
   SELLING: ["DEPOSITING"],

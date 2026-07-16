@@ -47,6 +47,8 @@ import {
 } from "./continuity";
 import { settlementForStoppedPlan } from "./policy";
 import { TownTripController, type TownTripFacade, type TownTripTrigger } from "./town-trip";
+import { WorkflowController, type WorkflowFacade } from "./workflow";
+import type { BotWorkflowStatusCursor } from "../../src/shared/bot-workflow";
 import type { SkillDefinition } from "../../src/game/skill/types";
 
 /**
@@ -335,6 +337,11 @@ export interface BotRuntimeDeps {
    * every tier's in-process behavior is byte-identical to before. The manager reads {@link BotRuntime.runningCheckpoint}.
    */
   persistRunningCheckpoint?: () => void;
+  /**
+   * PR6b (Pro goal chain): the step to resume a workflow at (a checkpoint cursor). Absent/0 = start at the first
+   * step. Only used when the profile carries a workflow AND the tier is Pro; the counters always start fresh.
+   */
+  workflowStartStepIndex?: number;
 }
 
 export class BotRuntime {
@@ -394,6 +401,10 @@ export class BotRuntime {
   /** One-shot proactive preflight: the first paid tick opens a town trip before farming (D-069/D-070). */
   private initialTownTripPending = false;
 
+  // ── PR6b Pro goal-chain state (Pro + a profile workflow only — every other run is null here) ────────────────
+  /** The goal-chain engine, or null when the run has no workflow (Free/Plus, or Pro without a chain). */
+  private readonly workflowController: WorkflowController | null;
+
   constructor(deps: BotRuntimeDeps) {
     this.d = deps;
     this.currentHost = deps.host;
@@ -404,6 +415,12 @@ export class BotRuntime {
     this.activePocketId = deps.pocketId;
     this.currentTier = deps.tier;
     this.initialTownTripPending = deps.initialTownTrip === true;
+    // A goal chain is a Pro capability (validateRules + start re-gate it). Constructing the engine here means tick
+    // routes Pro+workflow to tickWorkflow; any non-Pro run (or a Pro run with no chain) keeps the pre-PR6b path.
+    this.workflowController =
+      deps.tier === "pro" && deps.rules.workflow
+        ? new WorkflowController(this.makeWorkflowFacade(), deps.rules.workflow, deps.workflowStartStepIndex ?? 0)
+        : null;
   }
 
   get actorId(): string {
@@ -442,12 +459,23 @@ export class BotRuntime {
    * `pocketId` are where the actor currently farms; `continuity` is diagnostic only — resume starts a NEW run at
    * WORKING and re-validates the live actor. Never replayed.
    */
-  get runningCheckpoint(): { mapId: string; pocketId: string; continuity: BotContinuitySnapshotWire } {
+  get runningCheckpoint(): {
+    mapId: string;
+    pocketId: string;
+    continuity: BotContinuitySnapshotWire;
+    workflow?: { stepIndex: number };
+  } {
     return {
       mapId: this.currentHost.mapId,
       pocketId: this.activePocketId,
       continuity: toBotContinuityWire(this.continuity),
+      workflow: this.workflowController?.checkpointCursor(),
     };
+  }
+
+  /** PR6b: the goal-chain cursor captured into a takeover checkpoint (absent for a single-pocket run). */
+  get workflowCheckpoint(): { stepIndex: number } | undefined {
+    return this.workflowController?.checkpointCursor();
   }
 
   /** advance one host sim tick; may stop the bot. */
@@ -458,6 +486,12 @@ export class BotRuntime {
     // host calls. `activePocketId` never leaves the assigned pocket for Free, and the inline low-hp stop stays.
     if (this.currentTier === "free") {
       this.runFarmBody(dtMs, false);
+      return;
+    }
+
+    // Pro goal chain (PR6b): the engine owns the tick, reusing the same recovery/farm loop + town trip below.
+    if (this.workflowController) {
+      this.tickWorkflow(dtMs);
       return;
     }
 
@@ -510,7 +544,7 @@ export class BotRuntime {
           this.decisionTimer = 0;
           this.idleDecisions += 1;
           const stuck = stopForStuck(this.idleDecisions, config.stuckTickLimit);
-          if (stuck) return void this.stop(stuck);
+          if (stuck) return void this.onFarmBlocked("stuck"); // a reachable-but-blocked target
         }
       } else if (!this.advanceContinuity("COMBAT", "target_in_range")) {
         return;
@@ -531,7 +565,7 @@ export class BotRuntime {
         this.decisionTimer = 0;
         this.idleDecisions += 1;
         const stuck = stopForStuck(this.idleDecisions, config.stuckTickLimit);
-        if (stuck) return void this.stop(stuck);
+        if (stuck) return void this.onFarmBlocked("pocket_empty"); // no reachable target in the pocket
       }
     }
 
@@ -587,13 +621,57 @@ export class BotRuntime {
       return;
     }
 
-    // (c) one deterministic recovery decision for this tick.
+    // (c)+(d) one deterministic recovery decision + the farm loop.
+    this.runRecoveryFarm(dtMs);
+  }
+
+  /**
+   * PR6b Pro goal-chain tick: the SAME periodic tier recheck (a mid-run Pro downgrade stops the chain), the SAME
+   * town-trip delegation (a workflow town step and a bag-full divert both run through the trip), then the engine
+   * drives the chain — reusing runRecoveryFarm for every farm step so the kill cadence equals the paid baseline.
+   */
+  private tickWorkflow(dtMs: number): void {
+    const config = this.d.config;
+
+    // (a) periodic tier recheck — a Pro→(Plus/Free) downgrade stops the chain (expired_readonly); see recheckTier.
+    this.sinceTierCheckMs += dtMs;
+    if (this.sinceTierCheckMs >= config.recovery.tierRecheckIntervalMs && !this.tierCheckInFlight) {
+      this.recheckTier();
+    }
+
+    // (a2) proactive preflight: the bag was already full at start → town-trip before farming a single mob.
+    if (this.initialTownTripPending) {
+      this.initialTownTripPending = false;
+      this.beginTownTrip("preflight");
+    }
+
+    // (b) an active town trip owns the whole tick (a workflow town step, or a bag-full divert).
+    if (this.tripController) {
+      if (this.hasPendingAttack()) return;
+      this.tripController.tickTrip();
+      return;
+    }
+
+    // (c) drive the chain (farm steps call runRecoveryFarm; branch/town/travel are owned by the engine).
+    this.workflowController?.tickWorkflow(dtMs);
+  }
+
+  /**
+   * One deterministic recovery decision + the farm loop, shared by the paid single-pocket tick and every Pro
+   * goal-chain farm step. For a workflow the pocket is PINNED to the active step (allowedPockets = [active];
+   * assigned := active), so the recovery pocket-fallback never wanders — the chain owns pocket changes.
+   */
+  private runRecoveryFarm(dtMs: number): void {
+    const host = this.currentHost;
+    const config = this.d.config;
+    const workflow = this.workflowController !== null;
+
     const snapshot: RecoverySnapshot = {
       nowMs: this.d.now(),
       tier: this.currentTier,
       hpFraction: host.botHpFraction(this.d.actorId),
       position: host.botPos(this.d.actorId),
-      assignedPocketId: this.d.pocketId,
+      assignedPocketId: workflow ? this.activePocketId : this.d.pocketId,
       activePocketId: this.activePocketId,
       allowedPockets: this.allowedPockets(),
       pocketsWithAliveMobs: pocketsWithAliveMobs(host.botMobs()),
@@ -606,7 +684,7 @@ export class BotRuntime {
     };
     const decision = planRecovery(snapshot, config.recovery);
 
-    // (d) apply the single decision (state transition before side effect, revision-fenced).
+    // apply the single decision (state transition before side effect, revision-fenced).
     switch (decision.kind) {
       case "baseline":
         this.runFarmBody(dtMs, true);
@@ -647,6 +725,9 @@ export class BotRuntime {
     // unwinds on its next entry without transferring the actor.
     if (this.tripController) return void this.stop("death");
     if (this.deathRecoveryCount >= this.d.config.recovery.maxDeathRecoveriesPerSession) {
+      // PR6b: a Pro goal chain routes a death-capped pocket to its fallback rules (switch pocket / next step / stop)
+      // instead of the blanket death stop. With no chain this stays the pre-PR6b safe stop.
+      if (this.workflowController) return void this.workflowController.onFallbackTrigger("death_capped");
       return void this.stop("death");
     }
     // State before side effect: enter RECOVERING first; a lost fence (takeover raced) falls back to a safe stop.
@@ -661,7 +742,10 @@ export class BotRuntime {
     void this.d
       .resolveTier()
       .then((tier) => {
-        if (tier === "free") {
+        // A single-pocket paid run needs any paid tier; a Pro goal chain needs Pro specifically (a Pro→Plus
+        // downgrade pauses the chain too — it is a Pro-only capability). Below-threshold → stop expired_readonly.
+        const belowThreshold = this.workflowController ? tier !== "pro" : tier === "free";
+        if (belowThreshold) {
           if (this.currentTier !== "free" && !this.stopped) {
             // Mid-trip expiry: skip the remaining paid transactions but let the return warp finish (getting the
             // actor home is safety, not paid value); the controller settles expired_readonly after it lands.
@@ -801,11 +885,24 @@ export class BotRuntime {
 
   /** Allowed pockets for this map (config ∩ existing), lazily cached; falls back to the assigned pocket if empty. */
   private allowedPockets(): readonly string[] {
+    // PR6b: a goal chain pins the recovery loop to the step's active pocket (the chain owns pocket changes via its
+    // own fallbacks), so the recovery pocket-fallback never wanders. Not cached — the active pocket changes per step.
+    if (this.workflowController) return [this.activePocketId];
     if (this.allowedPocketsCache) return this.allowedPocketsCache;
     const configured = this.d.config.botAllowedPockets[this.d.mapId] ?? [];
     const existing = configured.filter((p) => this.currentHost.pocketExists(p));
     this.allowedPocketsCache = existing.length > 0 ? existing : [this.d.pocketId];
     return this.allowedPocketsCache;
+  }
+
+  /**
+   * PR6b: a farm terminal (a blocked/dry pocket) routes to the goal chain's fallback rules instead of stopping;
+   * with no workflow it is byte-identical to the pre-PR6b `stop("stuck")`. `trigger` distinguishes an unreachable
+   * target (`stuck`) from an empty pocket (`pocket_empty`) for the chain's `when` matching.
+   */
+  private onFarmBlocked(trigger: "stuck" | "pocket_empty"): void {
+    if (this.workflowController) this.workflowController.onFallbackTrigger(trigger);
+    else this.stop("stuck");
   }
 
   /** Anchor tile per allowed pocket, built once on first paid need (anchors are static per map). */
@@ -885,6 +982,10 @@ export class BotRuntime {
       };
       this.ownerSendMessage(MSG_BOT_ALERT, alert);
     }
+    // PR6b: a Pro goal chain annotates a kill that yielded loot under a loot rule with a LOOTING beat (COMBAT→
+    // LOOTING→WORKING). It issues no world command and never resets the attack cadence — only continuity revisions
+    // change — so the ceiling (§6.2) is untouched. Gated to Pro+workflow, so Free/Plus stay byte-identical.
+    this.maybeLootBeat(o);
     // Bag overflow is the town-trip trigger (D-069/D-070). Free stays byte-identical to PR4 — one area, one goal
     // → stop safely and report. A paid tier diverts to a town trip instead; beginTownTrip refuses on cooldown /
     // active trip / stopped / no warp dep, and the fallback stop keeps every refusal honest (farming on with a
@@ -895,6 +996,19 @@ export class BotRuntime {
     if (bag) {
       if (this.currentTier === "free" || !this.beginTownTrip("bag_full")) this.stop(bag);
     }
+  }
+
+  /**
+   * PR6b: annotate a loot-yielding kill with a LOOTING beat for a Pro goal chain (opens COMBAT→LOOTING→WORKING).
+   * Purely a continuity marker — no world command, no cadence change. Only runs from COMBAT so the advance never
+   * hits an invalid edge; a lost fence (takeover raced) simply skips the beat.
+   */
+  private maybeLootBeat(o: BotAttackOutcome): void {
+    if (!this.workflowController) return; // Pro goal chain only — every other run stays byte-identical.
+    if (this.continuity.state !== "COMBAT") return;
+    if (o.loot.length === 0 || !this.d.rules.lootAll) return; // needs loot AND a loot rule.
+    if (!this.advanceContinuity("LOOTING", "loot_pickup")) return;
+    this.advanceContinuity("WORKING", "loot_done");
   }
 
   /** stop the bot for a reason (mandatory / manual / death / restart). Idempotent. */
@@ -983,7 +1097,12 @@ export class BotRuntime {
     const now = this.d.now();
     if (now < this.townTripRetryUntil) return false;
     if (now - this.lastTownTripAt < this.d.config.townTrip.cooldownMs) return false;
-    const reason = trigger === "bag_full" ? "bag_full_town_trip" : "preflight_town_trip";
+    const reason =
+      trigger === "bag_full"
+        ? "bag_full_town_trip"
+        : trigger === "workflow"
+          ? "workflow_town_step"
+          : "preflight_town_trip";
     if (!this.advanceContinuity("RETURNING_TO_TOWN", reason)) return false; // fence lost (takeover/stop raced).
     this.tripController = new TownTripController(this.makeTripFacade(), this.tripSeq);
     return true;
@@ -1049,6 +1168,45 @@ export class BotRuntime {
     };
   }
 
+  /** Build the narrow facade the goal-chain engine drives the runtime through (PR6b). */
+  private makeWorkflowFacade(): WorkflowFacade {
+    return {
+      config: this.d.config,
+      actorId: this.d.actorId,
+      sessionRowId: this.d.sessionRowId,
+      now: () => this.d.now(),
+      runStartedAtMs: () => this.d.startedAtMs,
+      isStopped: () => this.stopped,
+      counters: () => ({
+        killCount: this.counters.killCount,
+        goldEarned: this.counters.goldEarned,
+        expEarned: this.counters.expEarned,
+      }),
+      currentHost: () => this.currentHost,
+      currentHostMapId: () => this.currentHost.mapId,
+      setActivePocket: (pocketId) => {
+        this.activePocketId = pocketId;
+      },
+      activePocketId: () => this.activePocketId,
+      resetIdle: () => {
+        this.idleDecisions = 0;
+      },
+      runFarmTick: (dtMs) => this.runRecoveryFarm(dtMs),
+      advance: (to, reasonCode) => this.advanceContinuity(to, reasonCode),
+      acquireHostForMap: (mapId) =>
+        this.d.acquireHostForMap ? this.d.acquireHostForMap(mapId) : Promise.resolve(null),
+      rebindHost: (next) => this.rebindHost(next),
+      persistNow: () => this.currentHost.botPersistNow(this.d.actorId),
+      beginReturnRouteFromCurrent: (pocketId) => this.beginReturnRouteFromCurrent(pocketId),
+      acquireLease: () => this.acquireLease("town"),
+      releaseLease: (token) => this.releaseLease(token),
+      beginTownTrip: () => this.beginTownTrip("workflow"),
+      hasActiveTrip: () => this.tripController !== null,
+      stop: (reason) => this.stop(reason),
+      ownerStatusPush: () => this.pushStatus(),
+    };
+  }
+
   private releaseAuthorityOnce(): void {
     if (this.authorityReleased) return;
     this.authorityReleased = true;
@@ -1102,8 +1260,14 @@ export class BotRuntime {
       expEarned: this.counters.expEarned,
       hpFraction: this.currentHost.botHpFraction(this.d.actorId),
       uptimeMs: this.d.now() - this.d.startedAtMs,
+      workflow: this.workflowStatusView(),
     };
     this.ownerSendMessage(MSG_BOT_STATUS, msg);
+  }
+
+  /** PR6b: the goal-chain cursor for bot:status (undefined for a single-pocket run — the field is omitted). */
+  private workflowStatusView(): BotWorkflowStatusCursor | undefined {
+    return this.workflowController?.statusView();
   }
 
   private advanceContinuity(to: BotContinuityOperationalStateWire, reasonCode: string): boolean {

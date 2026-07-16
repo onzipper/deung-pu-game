@@ -231,6 +231,8 @@ export interface BotCheckpointRow {
   kind: BotCheckpointKindWire;
   state: BotCheckpointStateWire;
   continuity: BotContinuitySnapshotWire;
+  /** PR6b: the Pro goal-chain cursor to resume at (absent for a single-pocket checkpoint). */
+  workflow?: { stepIndex: number };
   savedAt: number;
   updatedAt: number;
 }
@@ -257,6 +259,7 @@ function toCheckpointRow(r: {
   kind: string;
   state: string;
   continuityJson: unknown;
+  workflowJson?: unknown;
   savedAt: Date;
   updatedAt: Date;
 }): BotCheckpointRow {
@@ -271,6 +274,7 @@ function toCheckpointRow(r: {
     kind: r.kind as BotCheckpointKindWire,
     state: r.state as BotCheckpointStateWire,
     continuity: r.continuityJson as BotContinuitySnapshotWire,
+    workflow: (r.workflowJson as { stepIndex: number } | null | undefined) ?? undefined,
     savedAt: reqMs(r.savedAt),
     updatedAt: reqMs(r.updatedAt),
   };
@@ -292,6 +296,7 @@ export const prismaCheckpointRepo: CheckpointRepo = {
       kind: row.kind,
       state: row.state,
       continuityJson: row.continuity as unknown as object,
+      workflowJson: (row.workflow ?? null) as unknown as object,
       savedAt: new Date(row.savedAt),
     };
     await getPrisma().botCheckpoint.upsert({

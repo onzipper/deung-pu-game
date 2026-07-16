@@ -73,7 +73,8 @@ export type BotStopReason =
   | "profile_deleted" // the active plan definition was deleted; this run cannot resume
   | "server_restart" // process restarted — sessions with stoppedAt IS NULL are marked this on boot, NOT resumed
   | "expired_readonly" // tier downgrade paused this profile (excess) — running bot stopped safely
-  | "town_trip_failed"; // D-069: warp to city-hub for services failed; actor parked safely in town → wait_for_owner
+  | "town_trip_failed" // D-069: warp to city-hub for services failed; actor parked safely in town → wait_for_owner
+  | "workflow_complete"; // PR6b: a Pro goal chain ran every step to the end → settles `complete` (like manual stop)
 
 export interface BotConfig {
   /** tier caps + passes (D-063). Keyed by tier. */
@@ -162,6 +163,14 @@ export interface BotConfig {
     maxTxRetries: number;
     /** start a trip on the first bag overflow instead of waiting for a later cue. */
     tripOnFirstOverflow: boolean;
+  };
+  /**
+   * PR6b Pro goal-chain knobs. Pro-only — Free/Plus never carry a workflow (validateRules rejects it, start
+   * re-gates it). Only the dials live here; the workflow engine (server/bot/workflow.ts) reads them.
+   */
+  workflow: {
+    /** max steps a single goal chain may hold (rule-cap counts each step separately). */
+    maxSteps: number;
   };
 }
 
@@ -260,5 +269,9 @@ export const DEFAULT_BOT_CONFIG: BotConfig = {
     resumeMinFreeSlots: 5, // trip success criterion (D-070) — of 40 bag slots
     maxTxRetries: 1, // retry-once per transaction (D-070)
     tripOnFirstOverflow: true,
+  },
+  // PR6b Pro goal-chain (locked 2026-07-16)
+  workflow: {
+    maxSteps: 10,
   },
 };

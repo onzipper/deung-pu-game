@@ -6,6 +6,7 @@
 // ⛔ SERVER-ONLY. Field names mirror the Prisma models (camelCase) — the store layer maps to snake_case columns.
 
 import type { BotTier, BotStopReason } from "../config/bot";
+import type { BotWorkflowV1 } from "../../src/shared/bot-workflow";
 
 /**
  * Rules v1 schema (JSON stored in bot_profiles.rulesJson). Declarative bot behaviour (P3 §4 Rule Builder,
@@ -24,6 +25,11 @@ export interface BotRulesV1 {
   potionThresholdPct?: number | null;
   /** keep all loot (v1); an ordinary rare drop is not a universal stop condition. */
   lootAll: boolean;
+  /**
+   * PR6b Pro goal chain (optional). Present ⇒ the account must be Pro (validateRules rejects it otherwise, start
+   * re-gates it). Each step counts toward the rule cap. Absent ⇒ the pre-PR6b single-pocket behavior, unchanged.
+   */
+  workflow?: BotWorkflowV1;
 }
 
 /** Result of validating a rules payload — either the sanitized rules or a reason string. */
