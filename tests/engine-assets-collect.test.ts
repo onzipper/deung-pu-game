@@ -81,4 +81,45 @@ describe("collectMapAssetIds", () => {
     } as unknown as EngineConfig;
     expect(collectMapAssetIds(mapWith(["slime"]), config)).toEqual(["shared"]);
   });
+
+  // D-068 §0.0 PR10: ดึ๋งๆ companion — preload เฉพาะ city hub (bandwidth: field map ไม่มีทางเห็นมันเลย)
+  describe("companion (D-068 §0.0 PR10)", () => {
+    const withCompanion = (enabled: boolean): EngineConfig =>
+      ({ ...CONFIG, companion: { enabled, assetId: "cmp_dungdung" } }) as unknown as EngineConfig;
+    const mapWithId = (mapId: string): MapConfig =>
+      ({ mapId, mobPockets: [], props: [] }) as unknown as MapConfig;
+
+    test("enabled + map.mapId = city-hub → assetId ต่อท้าย", () => {
+      expect(collectMapAssetIds(mapWithId("city-hub"), withCompanion(true))).toEqual([
+        "char_hero",
+        "prop_tree",
+        "prop_default",
+        "cmp_dungdung",
+      ]);
+    });
+
+    test("enabled แต่ map.mapId ≠ city-hub → ไม่ต่อท้าย", () => {
+      expect(collectMapAssetIds(mapWithId("map1"), withCompanion(true))).toEqual([
+        "char_hero",
+        "prop_tree",
+        "prop_default",
+      ]);
+    });
+
+    test("disabled แม้อยู่ city-hub → ไม่ต่อท้าย", () => {
+      expect(collectMapAssetIds(mapWithId("city-hub"), withCompanion(false))).toEqual([
+        "char_hero",
+        "prop_tree",
+        "prop_default",
+      ]);
+    });
+
+    test("config ไม่มี field companion เลย (fake config เดิม) → ไม่พัง, ไม่ต่อท้าย", () => {
+      expect(collectMapAssetIds(mapWithId("city-hub"), CONFIG)).toEqual([
+        "char_hero",
+        "prop_tree",
+        "prop_default",
+      ]);
+    });
+  });
 });

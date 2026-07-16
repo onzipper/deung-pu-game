@@ -10,7 +10,7 @@
 - `src/engine/iso/` — iso projection + depth-sort math (**never-downgrade zone**)
 - `src/engine/movement/` — mover (stepMovement), direction resolver, path-follower
 - `src/engine/pathfinding/` — A* on the iso grid (click-to-move)
-- `src/engine/player/` — local player/correction + autonomy lock/takeover intent + auto-pilot (D-037, ≠ bot) + companion.ts (entity creation, disabled by default, D-068)
+- `src/engine/player/` — local player/correction + autonomy lock/takeover intent + auto-pilot (D-037, ≠ bot) + companion.ts (entity creation, fixed spawnAt) + dung-presence.ts (pure resolveDungPresence state machine, D-068 §0.0 contextual guide — HUB_IDLE/SUMMONED_CONTEXT/REPORT_NARRATION/STORY_APPEARANCE/HIDDEN)
 - `src/engine/net/` — Colyseus glue, stable controller→actor self binding, reconnect/interpolation, party, visibility
 - `src/engine/net/net-client.ts` — connect/reconnect, stable self actor, cast + Bot takeover/checkpoint/resume messages
 - `src/engine/animation/` — animation manifest (5-dir+mirror), sprite animator, placeholder textures, texture-set (non-owning handles)

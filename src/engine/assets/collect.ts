@@ -8,6 +8,7 @@
 
 import type { EngineConfig } from "@/engine/config";
 import type { MapConfig } from "@/engine/map/types";
+import { CITY_HUB_ID } from "@/engine/map/city-hub";
 
 /** shape ของ style ใด ๆ ที่ *อาจ* พก assetId (art จริง) — tolerant ต่อ config types ที่ยังไม่มี field นี้. */
 type MaybeAsset = { assetId?: string };
@@ -17,6 +18,8 @@ type MaybeAsset = { assetId?: string };
  *   1. player (ถ้า style มี assetId)
  *   2. mob ต่อ mobType ของ pocket ในแมพ (styles[mobType] ?? defaultStyle)
  *   3. prop styles ของ theme (theme.props + defaultProp)
+ *   4. ground tiles ของ theme (ถ้ามี)
+ *   5. ดึ๋งๆ companion (D-068 §0.0 PR10) — เฉพาะ map นี้ = city hub + enabled
  * style ที่ไม่มี assetId → ข้าม. ใช้เตรียม preload atlas ก่อน mount map.
  */
 export function collectMapAssetIds(
@@ -46,6 +49,12 @@ export function collectMapAssetIds(
   // 4. ground tiles (F1 v2) — theme-level (global today, not per-map). real field บน SceneTheme
   // (ไม่ต้อง cast MaybeAsset เหมือน prop/mob); push() no-op เมื่อ item ว่างอยู่แล้ว.
   for (const id of config.theme.groundTileAssetIds ?? []) push(id);
+
+  // 5. ดึ๋งๆ companion (D-068 §0.0 PR10) — spawn เฉพาะ city hub (app.ts: isCityHubWorld gate) → preload
+  // เฉพาะ map นั้น เพื่อไม่เสีย bandwidth โหลด atlas นี้ใน field map ที่ไม่มีทางเห็นมันเลย. optional chaining
+  // (`config.companion?.`) เพื่อ tolerant เหมือน MaybeAsset ด้านบน — เทสไฟล์นี้ฉีด config บางส่วนที่ไม่มี
+  // field companion เลย.
+  if (config.companion?.enabled && map.mapId === CITY_HUB_ID) push(config.companion.assetId);
 
   // dedupe คงลำดับพบครั้งแรก
   return [...new Set(ids)];

@@ -1,10 +1,11 @@
-// ดึ๋งๆ COMPANION entity — spawn/atlas/nameplate creation only (D-068 PR8: follower model ถอดออกแล้ว).
+// ดึ๋งๆ COMPANION entity — spawn/atlas/nameplate creation only (D-068 §0.0: contextual guide, not a follower).
 // Plain TS + PixiJS เท่านั้น (engine layer contract — ห้าม import React/Next).
 //
-// Client-only cosmetic entity (§3.2): no stats, no damage, cannot be hit — purely visual. Kept **disabled by
-// default** (config.companion.enabled=false, D-068) — PR10 reuses this entity-creation code for a contextual
-// (spawns-by-context, not a permanent follower) redesign. No follow-step / no per-frame chase-the-player logic
-// here anymore (that pure calc lived in companion-follow.ts — deleted with the follower model).
+// Client-only cosmetic entity (§3.2): no stats, no damage, cannot be hit — purely visual. PR10: spawns at a
+// FIXED anchor point (config.companion.hubAnchor, city hub only — dung-presence.ts decides *when* via
+// resolveDungPresence; app.ts decides *where* by passing that anchor here) — no more "behind the player"
+// offset math (dead since D-068 removed following) and no follow-step / per-frame chase logic (that pure calc
+// lived in companion-follow.ts — deleted with the follower model, PR8).
 //
 // Fail-soft: peek atlas ไม่เจอ (ยังไม่ preload / โหลดพลาด / anim ไม่ครบ) → teal Graphics blob placeholder
 //   (mirror NPC manager's placeholder approach) — ไม่มี animator, แค่ก้อนนิ่งที่จุด spawn.
@@ -24,8 +25,6 @@ import type { NameplateLayerHandle } from "@/engine/render/nameplate-layer";
 export const COMPANION_ENTITY_ID = "companion";
 /** ทิศเริ่มต้น (หันเข้ากล้อง, ลงจอ). */
 const INITIAL_FACING: Direction = "S";
-/** offset จาก player ตอนเกิด (tile) — เกิดข้างหลังผู้เล่นเล็กน้อย (มุมซ้ายบน). */
-const SPAWN_OFFSET = 0.8;
 /** y (local) ของป้ายชื่อเหนือหัว companion (px) — cosmetic, ยอดหัว sprite/placeholder โดยประมาณ. */
 const COMPANION_LABEL_BASE_OFFSET_Y = -46;
 
@@ -51,7 +50,7 @@ function drawPlaceholder(): Graphics {
 }
 
 export interface CompanionHandle {
-  /** ตำแหน่ง foot ปัจจุบัน (read-only). */
+  /** ตำแหน่ง foot ปัจจุบัน (read-only, คงที่ — ไม่ขยับหลัง spawn, D-068). */
   getPosition(): Readonly<TilePoint>;
   /** เรียกทุก frame (วินาที) — anim only (ไม่มี follow-step, D-068 PR8). */
   update(dtSeconds: number): void;
@@ -60,24 +59,21 @@ export interface CompanionHandle {
 }
 
 /**
- * สร้าง companion: spawn ที่ player offset (0.8,0.8) ข้างหลัง, atlas art (fail-soft → placeholder),
- * เข้า scene entity layer (depth-sort เหมือน mob/NPC) + ป้ายชื่อบน full-res nameplate overlay.
- * ไม่มี follow-step — นิ่งอยู่จุด spawn (D-068 PR8 ถอด follower model; PR10 reuse ฟังก์ชันนี้สำหรับ contextual spawn).
+ * สร้าง companion: spawn นิ่งที่ `spawnAt` เป๊ะ ๆ (ไม่มี offset/follow — D-068 §0.0), atlas art (fail-soft →
+ * placeholder), เข้า scene entity layer (depth-sort เหมือน mob/NPC) + ป้ายชื่อบน full-res nameplate overlay.
  *
- * @param player ต้องมี `position` (foot ปัจจุบัน) — ใช้แค่คำนวณจุด spawn offset ครั้งเดียว.
+ * @param spawnAt จุด foot ที่จะสร้าง (tile) — PR10: `config.companion.hubAnchor` (city hub, dung-presence.ts
+ *   ตัดสินว่า "ตอนไหน" ผ่าน resolveDungPresence, ที่นี่แค่รับจุดที่ caller ตัดสินใจแล้วว่า "ที่ไหน").
  */
 export function createCompanion(
   scene: MapSceneHandle,
   config: EngineConfig,
   registry: AssetRegistry | undefined,
-  player: { readonly position: Readonly<TilePoint> },
+  spawnAt: Readonly<TilePoint>,
   nameplates?: NameplateLayerHandle,
 ): CompanionHandle {
   const { companion } = config;
-  const pos: TilePoint = {
-    tx: player.position.tx - SPAWN_OFFSET,
-    ty: player.position.ty - SPAWN_OFFSET,
-  };
+  const pos: TilePoint = { tx: spawnAt.tx, ty: spawnAt.ty };
   const facing: Direction = INITIAL_FACING;
 
   // atlas (fail-soft): มี assetId + peek เจอ + anim ครบ → animator; ไม่งั้น teal blob placeholder (ไม่มี animator).
