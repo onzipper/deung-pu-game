@@ -1,0 +1,9 @@
+# Normalize all text files to LF in the repo and on checkout.
+# Reason: Node/agent tooling always writes LF; Windows core.autocrlf=true was
+# fighting that, so every asset script run re-flipped tracked files to "modified"
+# with a pure line-ending diff (no content change). This ends the tug-of-war.
+* text=auto eol=lf
+
+# Binary — never touch line endings, never text-diff.
+*.png binary
+*.ico binary
