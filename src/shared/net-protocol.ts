@@ -11,6 +11,7 @@
 
 import type { Direction } from "@/engine/movement/direction";
 import type { BotContinuitySnapshotWire } from "./bot-continuity";
+import type { BotWorkflowStatusCursor, BotWorkflowV1 } from "./bot-workflow";
 
 export type {
   BotContinuityOperationalStateWire,
@@ -947,6 +948,8 @@ export interface BotRulesWire {
   skillSlots: number[];
   potionThresholdPct?: number | null;
   lootAll: boolean;
+  /** PR6b Pro goal chain (optional). Sent with profile create/update; server re-validates + gates it to Pro. */
+  workflow?: BotWorkflowV1;
 }
 
 /** A profile as the client sees it (adds `readOnly` = excess-after-downgrade, D-063 §12.4). */
@@ -1037,6 +1040,8 @@ export interface BotTierStateMessage {
   caps: BotTierCapsWire;
   pausedProfileIds: string[];
 }
+/** PR6b: the live goal-chain cursor projection (Pro workflow runs only; absent for single-pocket runs). */
+export type BotWorkflowStatusWire = BotWorkflowStatusCursor;
 /** S→C: live status stream (§13 bot:status) — pushed to the owner if connected in the host room. */
 export const MSG_BOT_STATUS = "bot:status";
 export interface BotStatusMessage {
@@ -1053,6 +1058,8 @@ export interface BotStatusMessage {
   expEarned: number;
   hpFraction: number;
   uptimeMs: number;
+  /** PR6b Pro goal-chain cursor (absent for single-pocket runs). */
+  workflow?: BotWorkflowStatusWire;
 }
 /** S→C: the plan stopped (§13 bot:stopped) — carries the current stop reason + session totals. */
 export const MSG_BOT_STOPPED = "bot:stopped";
@@ -1086,6 +1093,8 @@ export interface BotCheckpointWire {
   continuity: BotContinuitySnapshotWire;
   /** PR6a durable-resume provenance; `restart` requires Pro to resume (D-067). Absent = in-process takeover. */
   kind?: BotCheckpointKindWire;
+  /** PR6b Pro goal-chain cursor at capture time; resume restarts at this step (counters reset). Absent = no chain. */
+  workflow?: { stepIndex: number };
 }
 /** S→C: current manual-takeover checkpoint; null means consumed/cleared by a successful start or resume. */
 export const MSG_BOT_CHECKPOINT = "bot:checkpoint";

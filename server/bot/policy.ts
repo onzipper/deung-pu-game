@@ -18,7 +18,8 @@ export function isForbiddenAutomationMobClass(mobClass: "normal" | "elite" | "bo
  * fails closed. Manual takeover does not use this mapping: it owns PAUSED + checkpoint in `BotRuntime.takeover`.
  */
 export function settlementForStoppedPlan(reason: BotStopReason): BotStopSettlement {
-  if (reason === "manual") return "complete";
+  // A manual Stop completes this one goal; a Pro goal chain that reached its end completes the whole plan (PR6b).
+  if (reason === "manual" || reason === "workflow_complete") return "complete";
   if (
     reason === "map_unsafe" ||
     reason === "server_restart" ||

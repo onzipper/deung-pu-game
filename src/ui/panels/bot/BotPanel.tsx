@@ -65,9 +65,21 @@ import {
   ruleCountLabel,
   setBotLootAll,
   toggleBotSkillSlot,
+  addWorkflowStep,
+  botWorkflowStepLabel,
+  isValidBotWorkflowClient,
+  newWorkflowFarmStep,
+  newWorkflowTownStep,
+  nextWorkflowStepId,
+  removeWorkflowStep,
+  setWorkflowFarmGoal,
+  BOT_WORKFLOW_GOAL_TYPES,
+  BOT_WORKFLOW_METRIC_LABELS,
+  BOT_WORKFLOW_MAX_STEPS_CLIENT,
   type BotOpPhase,
   type BotTab,
 } from "./bot-view";
+import type { BotWorkflowMetric, BotWorkflowV1 } from "@/shared/bot-workflow";
 
 export interface BotPanelProps {
   /** อ่าน engine handle ปัจจุบัน (pattern เดียวกับ InventoryPanel.getHandle — เรียกใหม่ทุกครั้ง ไม่ cache) */
@@ -214,11 +226,22 @@ export function BotPanel({ getHandle }: BotPanelProps) {
     send("mockPurchase", (net) => net.sendBotMockPurchase({ tier, days }));
   };
 
+  const isPro = tierState?.tier === "pro";
+
+  // PR6b: edit the profile draft's goal chain (form.rules.workflow); undefined = back to a single-pocket run.
+  const updateWorkflow = (workflow: BotWorkflowV1 | undefined): void => {
+    if (!form) return;
+    setForm({ ...form, rules: { ...form.rules, workflow } });
+  };
+  const goalMinutesOrCount = (target: number, type: BotWorkflowMetric): number =>
+    type === "durationMs" ? Math.round(target / 60000) : target;
+
   const formInvalid =
     !form ||
     !isValidBotProfileName(form.name) ||
     !hasAtLeastOneSkillSlot(form.rules) ||
-    (caps !== null && countBotRules(form.rules) > caps.rules);
+    (caps !== null && countBotRules(form.rules) > caps.rules) ||
+    (!!form.rules.workflow && !isValidBotWorkflowClient(form.rules.workflow));
 
   return (
     <Panel id={BOT_PANEL_ID} title="ผู้ช่วยนักล่า" widthPx={420}>
@@ -504,6 +527,107 @@ export function BotPanel({ getHandle }: BotPanelProps) {
                   <input type="checkbox" disabled className="h-4 w-4" />
                   HP potion threshold — รอระบบโพชั่น
                 </label>
+
+                {/* PR6b งานหลายขั้น (Pro) — เส้นตรง: เพิ่ม/ลบ step (farm goal / แวะเมือง). branch เป็นของ PR7 */}
+                <div className="flex flex-col gap-2 rounded-(--dp-radius-sm) border border-(--dp-soil-brown) bg-(--dp-deep-ink) px-3 py-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="dp-text-label text-(--dp-sand)">งานหลายขั้น (Pro)</span>
+                    {!isPro && <span className="dp-text-caption text-(--dp-fire-light)">อัปเกรด Pro เพื่อใช้</span>}
+                  </div>
+
+                  {isPro ? (
+                    <>
+                      {(form.rules.workflow?.steps ?? []).map((step, i) => (
+                        <div
+                          key={step.id}
+                          className="flex flex-col gap-1 border-b border-(--dp-soil-brown) pb-1.5 last:border-b-0 last:pb-0"
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-(--dp-parchment)">{botWorkflowStepLabel(step, i)}</span>
+                            <button
+                              type="button"
+                              aria-label="ลบขั้น"
+                              onClick={() => updateWorkflow(removeWorkflowStep(form.rules.workflow!, i))}
+                              className="dp-focus-ring shrink-0 rounded-(--dp-radius-sm) px-1.5 text-(--dp-sand) hover:text-(--dp-danger-red)"
+                            >
+                              ✕
+                            </button>
+                          </div>
+                          {step.kind === "farm" && (
+                            <div className="flex gap-2">
+                              <select
+                                value={step.goal.type}
+                                onChange={(e) =>
+                                  updateWorkflow(
+                                    setWorkflowFarmGoal(
+                                      form.rules.workflow!,
+                                      i,
+                                      e.target.value as BotWorkflowMetric,
+                                      goalMinutesOrCount(step.goal.target, step.goal.type),
+                                    ),
+                                  )
+                                }
+                                className={SELECT_CLASS}
+                              >
+                                {BOT_WORKFLOW_GOAL_TYPES.map((t) => (
+                                  <option key={t} value={t}>
+                                    {BOT_WORKFLOW_METRIC_LABELS[t]}
+                                  </option>
+                                ))}
+                              </select>
+                              <input
+                                type="number"
+                                min={1}
+                                value={goalMinutesOrCount(step.goal.target, step.goal.type)}
+                                onChange={(e) =>
+                                  updateWorkflow(
+                                    setWorkflowFarmGoal(form.rules.workflow!, i, step.goal.type, Number(e.target.value)),
+                                  )
+                                }
+                                className="h-10 w-20 rounded-(--dp-radius-sm) border border-(--dp-soil-brown) bg-(--dp-deep-ink) px-2 text-(--dp-highlight) dp-focus-ring"
+                              />
+                            </div>
+                          )}
+                        </div>
+                      ))}
+
+                      <div className="flex gap-2">
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          disabled={(form.rules.workflow?.steps.length ?? 0) >= BOT_WORKFLOW_MAX_STEPS_CLIENT}
+                          onClick={() =>
+                            updateWorkflow(
+                              addWorkflowStep(
+                                form.rules.workflow,
+                                newWorkflowFarmStep(nextWorkflowStepId(form.rules.workflow), form.mapId, form.pocketId),
+                              ),
+                            )
+                          }
+                        >
+                          + ขั้นฟาร์ม
+                        </Button>
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          disabled={(form.rules.workflow?.steps.length ?? 0) >= BOT_WORKFLOW_MAX_STEPS_CLIENT}
+                          onClick={() =>
+                            updateWorkflow(
+                              addWorkflowStep(form.rules.workflow, newWorkflowTownStep(nextWorkflowStepId(form.rules.workflow))),
+                            )
+                          }
+                        >
+                          + ขั้นแวะเมือง
+                        </Button>
+                      </div>
+                      <div className="dp-text-caption text-(--dp-sand)">ว่างไว้ = ฟาร์มจุดเดียวตามด้านบน · ขั้นฟาร์มใหม่ใช้ map/pocket ที่เลือกด้านบน</div>
+                    </>
+                  ) : (
+                    <div className="dp-text-caption text-(--dp-sand)">
+                      ให้บอททำงานหลายขั้นต่อเนื่อง (ฟาร์มครบเป้า → แวะเมือง → ทำต่อ) — เฉพาะแพ็กเกจ Pro
+                    </div>
+                  )}
+                </div>
 
                 <div className="dp-text-caption text-(--dp-sand)">
                   {caps ? ruleCountLabel(countBotRules(form.rules), caps.rules) : ""}

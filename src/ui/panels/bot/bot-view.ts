@@ -15,6 +15,16 @@ import type {
   BotTierStateMessage,
   BotTierWire,
 } from "@/shared/net-protocol";
+import {
+  validateWorkflow,
+  type BotWorkflowCondition,
+  type BotWorkflowFarmStep,
+  type BotWorkflowMetric,
+  type BotWorkflowStep,
+  type BotWorkflowTownStep,
+  type BotWorkflowV1,
+  BOT_WORKFLOW_VERSION,
+} from "@/shared/bot-workflow";
 import type { PanelId } from "@/ui/panels";
 
 /** panel id คงที่ของ bot hub (7b-UI) — ใช้ทั้ง openPanel/closePanel และ <Panel id> */
@@ -249,6 +259,13 @@ export function botOpRejectionLabel(reason: string | undefined): string {
     case "unknown_tier":
     case "unknown_pass_duration":
       return "แพ็กเกจ/ระยะเวลานี้ไม่ถูกต้อง";
+    // PR6b Pro goal chain
+    case "workflow_requires_pro":
+      return "งานหลายขั้นใช้ได้เฉพาะแพ็กเกจ Pro";
+    case "workflow_map_not_allowed":
+      return "งานหลายขั้นมีขั้นที่ใช้พื้นที่ที่ไม่อนุญาตให้บอท";
+    case "workflow_invalid_step":
+      return "ลำดับงานหลายขั้นไม่ถูกต้อง";
     default:
       return "ตั้งค่ากฎไม่ถูกต้อง";
   }
@@ -308,7 +325,8 @@ export function countBotRules(rules: BotRulesWire): number {
   const skill = rules.skillSlots.length;
   const potion = rules.potionThresholdPct != null ? 1 : 0;
   const loot = 1; // loot filter นับเป็น 1 rule เสมอ (v1)
-  return skill + potion + loot;
+  const workflow = rules.workflow ? rules.workflow.steps.length : 0; // PR6b: แต่ละ step นับเป็น 1 rule
+  return skill + potion + loot + workflow;
 }
 
 export function ruleCountLabel(used: number, cap: number): string {
@@ -448,4 +466,98 @@ export function formatDurationShort(ms: number): string {
 export function formatEpochMs(ms: number): string {
   const d = new Date(ms);
   return `${pad2(d.getUTCDate())}/${pad2(d.getUTCMonth() + 1)} ${pad2(d.getUTCHours())}:${pad2(d.getUTCMinutes())}`;
+}
+
+// ── PR6b งานหลายขั้น (Pro goal chain) — pure helpers (label / progress / mirror validation / draft edits) ──────
+//
+// ⚠ ต้องตรงกับ server/config/bot.ts workflow.maxSteps เสมอ (Design Knob) — client mirror เพื่อ defense-in-depth
+// เท่านั้น; server validate ซ้ำทุก create/update/start (validateWorkflow เดียวกัน, allow-list ฝั่ง server เป็นจริง).
+// UI ขั้นต่ำของ PR6b รองรับ step ชนิด farm + town_service (branch เป็น contract-only ไว้ให้ PR7 ทำ UI).
+
+export const BOT_WORKFLOW_MAX_STEPS_CLIENT = 10;
+
+export const BOT_WORKFLOW_METRIC_LABELS: Readonly<Record<BotWorkflowMetric, string>> = {
+  kills: "จำนวนที่ล่า",
+  gold: "ทองที่ได้",
+  exp: "EXP ที่ได้",
+  durationMs: "เวลา (นาที)",
+};
+
+/** ตัวเลือก goal ที่ UI ให้เลือก (ตรงกับ BotWorkflowMetric) */
+export const BOT_WORKFLOW_GOAL_TYPES: readonly BotWorkflowMetric[] = ["kills", "gold", "exp", "durationMs"];
+
+/** ป้าย goal แบบสั้น เช่น "ล่า 50" / "เวลา 5 นาที" (durationMs แสดงเป็นนาที เพื่อ owner อ่านง่าย) */
+export function formatWorkflowGoal(goal: BotWorkflowCondition): string {
+  if (goal.type === "durationMs") return `${BOT_WORKFLOW_METRIC_LABELS.durationMs} ${Math.round(goal.target / 60000)} นาที`;
+  return `${BOT_WORKFLOW_METRIC_LABELS[goal.type]} ${goal.target}`;
+}
+
+/** ความคืบหน้าเทียบเป้า เช่น "12/50" — done/target ตาม goalDone/goalTarget ใน bot:status.workflow */
+export function formatWorkflowProgress(done: number, target: number): string {
+  return `${Math.max(0, done)}/${Math.max(0, target)}`;
+}
+
+/** ป้ายหนึ่ง step ในลิสต์ (1-based ให้ owner) เช่น "1. ฟาร์ม กลางทุ่ง (สไลม์) · ล่า 50" หรือ "2. แวะเมือง" */
+export function botWorkflowStepLabel(step: BotWorkflowStep, index: number): string {
+  const n = index + 1;
+  if (step.kind === "farm") {
+    return `${n}. ฟาร์ม ${botPocketLabel(step.pocketId)} · ${formatWorkflowGoal(step.goal)}`;
+  }
+  if (step.kind === "town_service") return `${n}. แวะเมือง (ขาย/ฝาก/ซื้อคืน)`;
+  return `${n}. เงื่อนไข (${BOT_WORKFLOW_METRIC_LABELS[step.when.type]} ≥ ${step.when.target})`;
+}
+
+/** mirror ของ server validateWorkflow ด้วย allow-list ฝั่ง client — true = ผ่าน (server เป็น truth สุดท้ายเสมอ) */
+export function isValidBotWorkflowClient(workflow: BotWorkflowV1): boolean {
+  return validateWorkflow(workflow, {
+    maxSteps: BOT_WORKFLOW_MAX_STEPS_CLIENT,
+    isAllowedPocket: (mapId, pocketId) => isBotAllowedPocketClient(mapId, pocketId),
+  }).ok;
+}
+
+/** true = โปรไฟล์นี้ตั้งงานหลายขั้นไว้ (มี step อย่างน้อย 1) */
+export function hasWorkflow(rules: BotRulesWire): boolean {
+  return !!rules.workflow && rules.workflow.steps.length > 0;
+}
+
+/** สร้าง step id ใหม่ที่ไม่ชนของเดิม (deterministic: step-1, step-2, …) */
+export function nextWorkflowStepId(workflow: BotWorkflowV1 | undefined): string {
+  const existing = new Set((workflow?.steps ?? []).map((s) => s.id));
+  let n = (workflow?.steps.length ?? 0) + 1;
+  while (existing.has(`step-${n}`)) n += 1;
+  return `step-${n}`;
+}
+
+/** farm step ใหม่ (goal ค่าเริ่มต้น: ล่า 50) — pocket ต้องมาจาก allow-list ของ map */
+export function newWorkflowFarmStep(id: string, mapId: string, pocketId: string): BotWorkflowFarmStep {
+  return { id, kind: "farm", mapId, pocketId, goal: { type: "kills", target: 50 }, fallbacks: [] };
+}
+
+/** town_service step ใหม่ (ปุ่มเดียว ไม่มีพารามิเตอร์) */
+export function newWorkflowTownStep(id: string): BotWorkflowTownStep {
+  return { id, kind: "town_service" };
+}
+
+/** เพิ่ม step ต่อท้าย (คืน workflow ใหม่ — immutable) */
+export function addWorkflowStep(workflow: BotWorkflowV1 | undefined, step: BotWorkflowStep): BotWorkflowV1 {
+  const steps = [...(workflow?.steps ?? []), step];
+  return { version: BOT_WORKFLOW_VERSION, steps };
+}
+
+/** ลบ step ตาม index; คืน undefined เมื่อไม่เหลือ step (ไม่มี workflow แล้ว → กลับเป็นโหมด pocket เดียว) */
+export function removeWorkflowStep(workflow: BotWorkflowV1, index: number): BotWorkflowV1 | undefined {
+  const steps = workflow.steps.filter((_, i) => i !== index);
+  return steps.length === 0 ? undefined : { version: BOT_WORKFLOW_VERSION, steps };
+}
+
+/** อัปเดต goal ของ farm step ตาม index (ชนิด + ตัวเลข); durationMs รับเป็น "นาที" แล้วแปลงเป็น ms */
+export function setWorkflowFarmGoal(
+  workflow: BotWorkflowV1,
+  index: number,
+  type: BotWorkflowMetric,
+  rawTarget: number,
+): BotWorkflowV1 {
+  const target = type === "durationMs" ? Math.max(1, Math.round(rawTarget)) * 60000 : Math.max(1, Math.round(rawTarget));
+  const steps = workflow.steps.map((s, i) => (i === index && s.kind === "farm" ? { ...s, goal: { type, target } } : s));
+  return { version: BOT_WORKFLOW_VERSION, steps };
 }

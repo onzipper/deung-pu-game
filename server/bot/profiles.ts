@@ -9,6 +9,7 @@ import { randomUUID } from "node:crypto";
 import { DEFAULT_BOT_CONFIG, type BotConfig, type BotTier } from "../config/bot";
 import { capsFor } from "./tier";
 import type { BotProfileRow, BotProfileView, BotRulesV1, RulesValidation } from "./types";
+import { validateWorkflow } from "../../src/shared/bot-workflow";
 
 /** Upper bound on skill-slot indices at create time (class binding + range check happens at start). */
 export const MAX_SKILL_SLOTS = 8;
@@ -22,7 +23,8 @@ export function countRules(rules: BotRulesV1): number {
   const skill = rules.skillSlots.length;
   const potion = rules.potionThresholdPct != null ? 1 : 0;
   const loot = 1; // the loot filter is always one configured rule
-  return skill + potion + loot;
+  const workflow = rules.workflow ? rules.workflow.steps.length : 0; // PR6b: each chain step is one rule
+  return skill + potion + loot + workflow;
 }
 
 /**
@@ -55,6 +57,20 @@ export function validateRules(raw: unknown, tier: BotTier, config: BotConfig = D
   if (typeof r.lootAll !== "boolean") return { ok: false, reason: "bad_loot_all" };
 
   const rules: BotRulesV1 = { skillSlots: slots, potionThresholdPct, lootAll: r.lootAll };
+
+  // PR6b: an optional Pro goal chain. A workflow is a Pro-only capability (tier gate here, re-gated at start +
+  // mid-run). Structural validation (allow-list / branch cycle / maxSteps) is the pure shared validator; each
+  // step counts toward the same rule cap.
+  if (r.workflow != null) {
+    if (tier !== "pro") return { ok: false, reason: "workflow_requires_pro" };
+    const validated = validateWorkflow(r.workflow, {
+      maxSteps: config.workflow.maxSteps,
+      isAllowedPocket: (mapId, pocketId) => isBotAllowedPocket(mapId, pocketId, config),
+    });
+    if (!validated.ok) return { ok: false, reason: validated.reason };
+    rules.workflow = validated.workflow;
+  }
+
   const ruleCount = countRules(rules);
   const cap = capsFor(tier, config).rules;
   if (ruleCount > cap) return { ok: false, reason: "rules_over_cap" };

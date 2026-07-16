@@ -93,6 +93,8 @@ interface StoredCheckpoint extends BotCheckpointWire {
    * must tell the truth about the current host rather than the profile's farm map (D-069).
    */
   runtime?: BotRuntime;
+  /** PR6b: the Pro goal-chain cursor captured at checkpoint time; resume restarts at this step (counters reset). */
+  workflow?: { stepIndex: number };
 }
 
 interface StartingActorPresence {
@@ -219,8 +221,11 @@ export class BotManager {
 
   private checkpointMessage(checkpoint: StoredCheckpoint | null): BotCheckpointMessage {
     if (!checkpoint) return { checkpoint: null };
-    const { id, profileId, sourceSessionId, mapId, pocketId, savedAt, state, continuity, kind } = checkpoint;
-    return { checkpoint: { id, profileId, sourceSessionId, mapId, pocketId, savedAt, state, continuity, kind } };
+    const { id, profileId, sourceSessionId, mapId, pocketId, savedAt, state, continuity, kind, workflow } =
+      checkpoint;
+    return {
+      checkpoint: { id, profileId, sourceSessionId, mapId, pocketId, savedAt, state, continuity, kind, workflow },
+    };
   }
 
   private settleTakeoverCheckpoint(accountId: string, checkpointId: string, saved: boolean): void {
@@ -272,6 +277,7 @@ export class BotManager {
           kind: "takeover",
           state: "ready",
           continuity: checkpoint.continuity,
+          workflow: checkpoint.workflow,
           savedAt: checkpoint.savedAt,
         });
       } catch (e) {
@@ -302,6 +308,7 @@ export class BotManager {
         kind: "running",
         state: "ready",
         continuity: snap.continuity,
+        workflow: snap.workflow,
         savedAt: this.d.now(),
       })
       .catch((e: unknown) => this.checkpointError("persist running", e));
@@ -351,6 +358,7 @@ export class BotManager {
       state: row.state,
       continuity: row.continuity,
       kind: "restart",
+      workflow: row.workflow,
     };
     this.checkpoints.set(accountId, hydrated);
     return hydrated;
@@ -692,6 +700,7 @@ export class BotManager {
       send,
       { profileId: checkpoint.profileId },
       "resume",
+      checkpoint.workflow?.stepIndex, // PR6b: resume a goal chain at the captured step (ignored without a workflow)
     );
   }
 
@@ -703,6 +712,7 @@ export class BotManager {
     send: Send,
     m: BotStartMessage,
     op: "start" | "resume",
+    workflowStartStepIndex?: number,
   ): Promise<void> {
     if (!accountId || !this.guardDb(send, op)) return;
     if (!characterId) return this.reject(send, op, "no_character");
@@ -716,7 +726,16 @@ export class BotManager {
     this.startingProfileIds.set(accountId, String(m?.profileId ?? ""));
 
     try {
-      await this.startReserved(requestHost, controllerSessionId, accountId, characterId, send, m, op);
+      await this.startReserved(
+        requestHost,
+        controllerSessionId,
+        accountId,
+        characterId,
+        send,
+        m,
+        op,
+        workflowStartStepIndex,
+      );
     } finally {
       this.startingAccounts.delete(accountId);
       this.startingProfileIds.delete(accountId);
@@ -733,6 +752,7 @@ export class BotManager {
     send: Send,
     m: BotStartMessage,
     op: "start" | "resume",
+    workflowStartStepIndex?: number,
   ): Promise<void> {
 
     const tier = await this.resolveTierFor(accountId);
@@ -874,6 +894,8 @@ export class BotManager {
       // PR6a (D-067): the runtime piggybacks a Pro-only durable running checkpoint on its flush cadence + graceful
       // server_restart. The manager reads the runtime's live snapshot here (no-op without a checkpoint repo wired).
       persistRunningCheckpoint: () => this.persistRunningCheckpoint(accountId),
+      // PR6b: resume a Pro goal chain at the checkpoint's step (ignored when the profile carries no workflow).
+      workflowStartStepIndex,
     });
     this.bots.set(accountId, runtime);
     this.actorToAccount.set(actorId, accountId);
@@ -924,6 +946,7 @@ export class BotManager {
       savedAt: this.d.now(),
       state: "saving",
       continuity: runtime.continuitySnapshot,
+      workflow: runtime.workflowCheckpoint, // PR6b: the goal-chain cursor (undefined for a single-pocket run)
     };
     this.checkpoints.set(accountId, checkpoint);
     this.drainingAccounts.add(accountId);
