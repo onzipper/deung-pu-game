@@ -23,42 +23,42 @@
       "h": 64
     },
     {
-      "key": "idle_sw_0",
+      "key": "idle_se_0",
       "x": 0,
       "y": 64,
       "w": 64,
       "h": 64
     },
     {
-      "key": "idle_sw_1",
+      "key": "idle_se_1",
       "x": 64,
       "y": 64,
       "w": 64,
       "h": 64
     },
     {
-      "key": "idle_w_0",
+      "key": "idle_e_0",
       "x": 0,
       "y": 128,
       "w": 64,
       "h": 64
     },
     {
-      "key": "idle_w_1",
+      "key": "idle_e_1",
       "x": 64,
       "y": 128,
       "w": 64,
       "h": 64
     },
     {
-      "key": "idle_nw_0",
+      "key": "idle_ne_0",
       "x": 0,
       "y": 192,
       "w": 64,
       "h": 64
     },
     {
-      "key": "idle_nw_1",
+      "key": "idle_ne_1",
       "x": 64,
       "y": 192,
       "w": 64,
@@ -107,84 +107,84 @@
       "h": 64
     },
     {
-      "key": "walk_sw_0",
+      "key": "walk_se_0",
       "x": 0,
       "y": 384,
       "w": 64,
       "h": 64
     },
     {
-      "key": "walk_sw_1",
+      "key": "walk_se_1",
       "x": 64,
       "y": 384,
       "w": 64,
       "h": 64
     },
     {
-      "key": "walk_sw_2",
+      "key": "walk_se_2",
       "x": 128,
       "y": 384,
       "w": 64,
       "h": 64
     },
     {
-      "key": "walk_sw_3",
+      "key": "walk_se_3",
       "x": 192,
       "y": 384,
       "w": 64,
       "h": 64
     },
     {
-      "key": "walk_w_0",
+      "key": "walk_e_0",
       "x": 0,
       "y": 448,
       "w": 64,
       "h": 64
     },
     {
-      "key": "walk_w_1",
+      "key": "walk_e_1",
       "x": 64,
       "y": 448,
       "w": 64,
       "h": 64
     },
     {
-      "key": "walk_w_2",
+      "key": "walk_e_2",
       "x": 128,
       "y": 448,
       "w": 64,
       "h": 64
     },
     {
-      "key": "walk_w_3",
+      "key": "walk_e_3",
       "x": 192,
       "y": 448,
       "w": 64,
       "h": 64
     },
     {
-      "key": "walk_nw_0",
+      "key": "walk_ne_0",
       "x": 0,
       "y": 512,
       "w": 64,
       "h": 64
     },
     {
-      "key": "walk_nw_1",
+      "key": "walk_ne_1",
       "x": 64,
       "y": 512,
       "w": 64,
       "h": 64
     },
     {
-      "key": "walk_nw_2",
+      "key": "walk_ne_2",
       "x": 128,
       "y": 512,
       "w": 64,
       "h": 64
     },
     {
-      "key": "walk_nw_3",
+      "key": "walk_ne_3",
       "x": 192,
       "y": 512,
       "w": 64,
@@ -240,63 +240,63 @@
       "h": 64
     },
     {
-      "key": "attack_sw_0",
+      "key": "attack_se_0",
       "x": 0,
       "y": 704,
       "w": 64,
       "h": 64
     },
     {
-      "key": "attack_sw_1",
+      "key": "attack_se_1",
       "x": 64,
       "y": 704,
       "w": 64,
       "h": 64
     },
     {
-      "key": "attack_sw_2",
+      "key": "attack_se_2",
       "x": 128,
       "y": 704,
       "w": 64,
       "h": 64
     },
     {
-      "key": "attack_w_0",
+      "key": "attack_e_0",
       "x": 0,
       "y": 768,
       "w": 64,
       "h": 64
     },
     {
-      "key": "attack_w_1",
+      "key": "attack_e_1",
       "x": 64,
       "y": 768,
       "w": 64,
       "h": 64
     },
     {
-      "key": "attack_w_2",
+      "key": "attack_e_2",
       "x": 128,
       "y": 768,
       "w": 64,
       "h": 64
     },
     {
-      "key": "attack_nw_0",
+      "key": "attack_ne_0",
       "x": 0,
       "y": 832,
       "w": 64,
       "h": 64
     },
     {
-      "key": "attack_nw_1",
+      "key": "attack_ne_1",
       "x": 64,
       "y": 832,
       "w": 64,
       "h": 64
     },
     {
-      "key": "attack_nw_2",
+      "key": "attack_ne_2",
       "x": 128,
       "y": 832,
       "w": 64,
