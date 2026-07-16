@@ -42,10 +42,21 @@ describe("createCharacter", () => {
     const r = await createCharacter(repo, {
       accountId: ACCOUNT_A,
       name: "ValidName",
-      classId: "archer", // ยังไม่มี classId นี้ใน CLASS_IDS (§ src/shared/character-class.ts)
+      classId: "mage", // ยังไม่มี classId นี้ใน CLASS_IDS (§ src/shared/character-class.ts — P2B)
       characterSlots: 5,
     });
     expect(r).toEqual({ ok: false, reason: "invalid_class" });
+  });
+
+  it("accepts archer classId (Batch 6 — เพิ่มเข้า CLASS_IDS)", async () => {
+    const repo = createInMemoryCharacterRepository();
+    const r = await createCharacter(repo, {
+      accountId: ACCOUNT_A,
+      name: "Robin",
+      classId: "archer",
+      characterSlots: 5,
+    });
+    expect(r.ok).toBe(true);
   });
 
   it("blocks the 6th character when slots = 5 (§3.1/§3.4)", async () => {

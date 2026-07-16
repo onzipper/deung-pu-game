@@ -1,0 +1,79 @@
+{
+  "assetId": "chr_crimson_knight",
+  "category": "characters",
+  "frameSize": [
+    96,
+    96
+  ],
+  "pivot": [
+    48,
+    81
+  ],
+  "mirrorSafe": true,
+  "drawnDirections": [
+    "S",
+    "SW",
+    "W",
+    "NW",
+    "N"
+  ],
+  "mirrorMap": {
+    "SE": "SW",
+    "E": "W",
+    "NE": "NW"
+  },
+  "animations": {
+    "idle": {
+      "frames": [
+        0,
+        1
+      ],
+      "frameDuration": 250,
+      "loop": true,
+      "fps": 4,
+      "directions": [
+        "s",
+        "sw",
+        "w",
+        "nw",
+        "n"
+      ]
+    },
+    "walk": {
+      "frames": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "frameDuration": 125,
+      "loop": true,
+      "fps": 8,
+      "directions": [
+        "s",
+        "sw",
+        "w",
+        "nw",
+        "n"
+      ]
+    },
+    "attack": {
+      "frames": [
+        0,
+        1,
+        2
+      ],
+      "frameDuration": 100,
+      "loop": false,
+      "fps": 10,
+      "directions": [
+        "s",
+        "sw",
+        "w",
+        "nw",
+        "n"
+      ],
+      "contactFrame": 1
+    }
+  }
+}

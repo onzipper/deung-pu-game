@@ -25,6 +25,8 @@ import {
 } from "./net";
 import type { PathfindingConfig, PlayerConfig } from "./player";
 import { DEFAULT_PATHFINDING_CONFIG, DEFAULT_PLAYER_CONFIG } from "./player";
+import type { AutoPilotConfig } from "./auto-pilot";
+import { DEFAULT_AUTO_PILOT_CONFIG } from "./auto-pilot";
 import type { CompanionConfig } from "./companion";
 import { DEFAULT_COMPANION_CONFIG } from "./companion";
 import type { RenderStyleConfig } from "./render";
@@ -87,6 +89,8 @@ export interface EngineConfig {
   companion: CompanionConfig;
   /** pathfinding + click-to-move + touch knob (P1-09, TA §17.3 · L11) */
   pathfinding: PathfindingConfig;
+  /** Auto Pilot knob (Batch 7a, D-037) — client-side auto-walk ไปจุดหมายที่ผู้เล่นยืนยัน (ไม่ใช่บอท) */
+  autoPilot: AutoPilotConfig;
   /** input knob (P2-15) — virtual joystick touch (deadzone + ขนาดวาด) */
   input: InputConfig;
   /** map transition fade knob (P1-10, GS §57.3) — fade overlay ตอนข้าม map */
@@ -136,6 +140,7 @@ export const DEFAULT_ENGINE_CONFIG: EngineConfig = {
   player: DEFAULT_PLAYER_CONFIG,
   companion: DEFAULT_COMPANION_CONFIG,
   pathfinding: DEFAULT_PATHFINDING_CONFIG,
+  autoPilot: DEFAULT_AUTO_PILOT_CONFIG,
   input: DEFAULT_INPUT_CONFIG,
   transition: DEFAULT_TRANSITION_CONFIG,
   exitMarker: DEFAULT_EXIT_MARKER_CONFIG,
@@ -185,6 +190,8 @@ export function createEngineConfig(
     player: overrides.player ?? DEFAULT_ENGINE_CONFIG.player,
     companion: overrides.companion ?? DEFAULT_ENGINE_CONFIG.companion,
     pathfinding: overrides.pathfinding ?? DEFAULT_ENGINE_CONFIG.pathfinding,
+    // autoPilot = shallow-merge (override เช่น enabled/replanIntervalMs โดยคงค่าอื่นเดิม)
+    autoPilot: { ...DEFAULT_ENGINE_CONFIG.autoPilot, ...overrides.autoPilot },
     input: overrides.input ?? DEFAULT_ENGINE_CONFIG.input,
     movementValidation:
       overrides.movementValidation ?? DEFAULT_ENGINE_CONFIG.movementValidation,

@@ -41,6 +41,12 @@ export interface DamageParams {
   pvpModifier: number;
   /** ตัวคูณลด damage ตาม tier ของเป้า (§15.5, normal = 1.0) */
   tierReduction: number;
+  /**
+   * Batch 6 (ARCHER_CLASS_SPEC §3 S3 archer_target_mark, §6 note 3): ตัวคูณดาเมจที่ **เป้า** รับ จาก debuff
+   * บนเป้า (mark_dmg_taken_15 = 1.15). caller ส่ง 1.0 ถ้าเป้าไม่มีตรา. คูณในลูกโซ่เดียวกับ bossModifier/
+   * tierReduction (หลัง mitigation) → คงการปัดครั้งเดียว (never-downgrade). ค่าไม่ระบุ = ถือ 1.0.
+   */
+  damageTakenMultiplier?: number;
 }
 
 /** ผลของ damage 1 hit — pure (ไม่แตะ state; caller apply กับ mob hp เอง). */
@@ -80,7 +86,10 @@ function computeDamageExact(params: DamageParams, rng: RngFn): { damage: number;
   const crit = rng() < params.critRate;
   if (crit) dmg *= 1 + params.critDmg;
 
-  dmg *= params.bossModifier * params.pvpModifier * params.tierReduction;
+  // Batch 6: debuff บนเป้า (damageTakenMultiplier) คูณในลูกโซ่เดียวกับ bossModifier/tierReduction (หลัง
+  //   mitigation) → คงการปัดครั้งเดียว. undefined = 1.0 (นักดาบ/เป้าไม่มีตรา → พฤติกรรมเดิมเป๊ะ).
+  const damageTakenMultiplier = params.damageTakenMultiplier ?? 1.0;
+  dmg *= params.bossModifier * params.pvpModifier * params.tierReduction * damageTakenMultiplier;
 
   return { damage: Math.max(0, dmg), crit };
 }
@@ -265,4 +274,49 @@ export function damageReductionFromStatus(
     if (typeof v === "number" && v > max) max = v;
   }
   return Math.min(1, Math.max(0, max));
+}
+
+// ── Batch 6 target/self status seams (ARCHER_CLASS_SPEC §3 S3/S4 · §6 note 3) ──────────────────────────
+// mark debuff (S3) = target-side damage-taken multiplier; swift_step (S4) = self moveSpeed bonus. ค่าตัวเลข
+// อยู่ config (statusEffectDamageTakenMultiplier / statusEffectMoveSpeedBonus) — ไม่ใช่ field §50.1 (§59.4-free).
+// ฟังก์ชันด้านล่าง resolve "มี effect ไหม + ค่าเท่าไหร่" จาก statusEffects tag ของ skill (pure, server-only).
+
+/** entry ของ damage-taken debuff (Batch 6 §3 S3) — mirror StatusEffectDamageTakenEntry (แยกไว้กัน import config). */
+export interface DamageTakenDebuff {
+  multiplier: number;
+  durationSeconds: number;
+}
+
+/**
+ * resolve debuff "เป้ารับดาเมจเพิ่ม" จาก statusEffects ของสกิล เทียบ table (config knob). คืน entry ที่ multiplier
+ * **มากสุด** (กันสแต็กหลาย effect) หรือ null ถ้าไม่มี. ใช้ปักตราลง mob ตอน cast (server). pure.
+ */
+export function resolveDamageTakenDebuff(
+  statusEffects: readonly string[] | null | undefined,
+  table: Record<string, DamageTakenDebuff>,
+): DamageTakenDebuff | null {
+  if (!statusEffects) return null;
+  let best: DamageTakenDebuff | null = null;
+  for (const s of statusEffects) {
+    const v = table[s];
+    if (v && typeof v.multiplier === "number" && (!best || v.multiplier > best.multiplier)) best = v;
+  }
+  return best;
+}
+
+/**
+ * ค่า moveSpeed bonus (fraction ≥ 0) จาก statusEffects ของสกิล เทียบ table (config knob). คืนค่า **มากสุด**
+ * (ไม่สแต็กบวก). id ไม่อยู่ในตาราง = 0. null/ว่าง = 0. ใช้ resolve swift_step buff (§3 S4). pure.
+ */
+export function moveSpeedBonusFromStatus(
+  statusEffects: readonly string[] | null | undefined,
+  table: Record<string, number>,
+): number {
+  if (!statusEffects) return 0;
+  let max = 0;
+  for (const s of statusEffects) {
+    const v = table[s];
+    if (typeof v === "number" && v > max) max = v;
+  }
+  return Math.max(0, max);
 }

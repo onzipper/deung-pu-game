@@ -51,6 +51,12 @@ const SKILL_VFX_CATALOG: Readonly<Record<string, SkillVfxCatalogEntry>> = {
   sword_royal_wave: { assetId: "vfx_royal_wave", anchoredAtCaster: false },
   sword_solar_cleave: { assetId: "vfx_solar_cleave", anchoredAtCaster: false },
   sword_guard_domain: { assetId: "vfx_guard_domain", anchoredAtCaster: true },
+  // Batch 6 (นักธนู) — reuse warrior VFX assets เป็น placeholder (ยังไม่มี art เฉพาะนักธนู, ARCHER_CLASS_SPEC §8).
+  // TODO(archer-art): เปลี่ยนเป็น fx_arrow_* / fx_mark_ring / fx_swift_step_dash เมื่อมี asset จริง (L2 owner order).
+  archer_basic_shot: { assetId: "vfx_slash_arc", anchoredAtCaster: false },
+  archer_moon_rain: { assetId: "vfx_royal_wave", anchoredAtCaster: false },
+  archer_target_mark: { assetId: "vfx_solar_cleave", anchoredAtCaster: false },
+  archer_swift_step: { assetId: "vfx_guard_domain", anchoredAtCaster: true },
 };
 
 /** หา VFX entry ของ skillId — ไม่รู้จัก (สกิลไม่มี VFX ผูก/skillId พิมพ์ผิด) → null (caller no-op, ไม่ throw). */

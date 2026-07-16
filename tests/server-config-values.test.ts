@@ -35,14 +35,20 @@ describe("enhancement curve (D-054 / Economy §16.3.1)", () => {
 describe("EXP curve (Economy §9)", () => {
   const exp = DEFAULT_ECONOMY_CONFIG.expCurve;
 
-  test("level cap = 10 (§9.1)", () => {
-    expect(exp.levelCap).toBe(10);
-    expect(exp.levels).toHaveLength(10);
+  test("level cap = 22 (§9.1 base 10 → Batch 5b: Maps 2–4 band lv8–22 LIVE)", () => {
+    expect(exp.levelCap).toBe(22);
+    expect(exp.levels).toHaveLength(22);
   });
 
-  test("expToNext + cumulative ตรง §9.2 ทุกแถว", () => {
-    expect(exp.levels.map((l) => l.expToNext)).toEqual([120, 220, 360, 520, 720, 950, 1200, 1500, 1850, 0]);
-    expect(exp.levels.map((l) => l.cumulative)).toEqual([120, 340, 700, 1220, 1940, 2890, 4090, 5590, 7440, 7440]);
+  test("expToNext + cumulative ตรง §9.2 (lv1–9 Map 1) + Maps 2–4 extension (lv10–22)", () => {
+    expect(exp.levels.map((l) => l.expToNext)).toEqual([
+      120, 220, 360, 520, 720, 950, 1200, 1500, 1850, // lv1–9 (Map 1 P2, §9.2 verbatim)
+      2280, 2800, 3440, 4230, 5200, 6400, 7870, 9680, 11910, 14650, 18020, 22160, 0, // lv10–22 (Maps 2–4, cap lv22)
+    ]);
+    expect(exp.levels.map((l) => l.cumulative)).toEqual([
+      120, 340, 700, 1220, 1940, 2890, 4090, 5590, 7440, // lv1–9
+      9720, 12520, 15960, 20190, 25390, 31790, 39660, 49340, 61250, 75900, 93920, 116080, 116080, // lv10–22
+    ]);
   });
 
   test("cumulative = running sum ของ expToNext (สอดคล้องกันเอง)", () => {
@@ -77,17 +83,48 @@ describe("EXP curve (Economy §9)", () => {
   });
 });
 
-describe("player baseline lv1–10 (D-055 §2, production lock)", () => {
-  const byLevel = new Map(DEFAULT_ECONOMY_CONFIG.playerBaseline.map((b) => [b.level, b]));
+describe("party reward sharing (Economy §10.2/§10.3 — G-lite)", () => {
+  const pr = DEFAULT_ECONOMY_CONFIG.partyReward;
 
-  test("10 แถวครบ lv1–10", () => {
-    expect(DEFAULT_ECONOMY_CONFIG.playerBaseline).toHaveLength(10);
+  test("share thresholds ตรง spec (§10.2 15% · §10.3 5%)", () => {
+    expect(pr.normalMinSharePct).toBe(15); // §10.2 normalEligibility.minimumDamageContributionPercent
+    expect(pr.eliteBossMinSharePct).toBe(5); // §10.3 eliteBossEligibility.minimumDamageContributionPercent
   });
 
-  test("ค่าจริงตรง D-055 §2 (lv1=100/12/8, lv5=180/24/14, lv10=280/40/22)", () => {
+  test("rewardRadiusTiles = provisional knob (spec ไม่ระบุค่า — owner ล็อกภายหลัง)", () => {
+    expect(pr.rewardRadiusTiles).toBeGreaterThan(0);
+    expect(pr.rewardRadiusTiles).toBe(12);
+  });
+});
+
+describe("player baseline lv1–22 (D-055 §2 lv1–10 Locked + Maps 2-4 TTK model lv11–22)", () => {
+  const byLevel = new Map(DEFAULT_ECONOMY_CONFIG.playerBaseline.map((b) => [b.level, b]));
+
+  test("22 แถวครบ lv1–22 (Batch 5c — baseline ต่อเส้นจน band cap)", () => {
+    expect(DEFAULT_ECONOMY_CONFIG.playerBaseline).toHaveLength(22);
+    expect(byLevel.get(22)!.level).toBe(22);
+  });
+
+  test("lv1–10 = D-055 §2 (lv1=100/12/8, lv5=180/24/14, lv10=280/40/22)", () => {
     expect(byLevel.get(1)).toEqual({ level: 1, hp: 100, atk: 12, def: 8 });
     expect(byLevel.get(5)).toEqual({ level: 5, hp: 180, atk: 24, def: 14 });
     expect(byLevel.get(10)).toEqual({ level: 10, hp: 280, atk: 40, def: 22 });
+  });
+
+  test("lv11–22 = anchor locked lv10 + rate HP+20/ATK+3/DEF+1.5 (owner-delegated 2026-07-14)", () => {
+    // HP = 280+20·(lv−10) · ATK = 40+3·(lv−10) · DEF = round(22+1.5·(lv−10))
+    expect(byLevel.get(11)).toEqual({ level: 11, hp: 300, atk: 43, def: 24 });
+    expect(byLevel.get(14)).toEqual({ level: 14, hp: 360, atk: 52, def: 28 });
+    expect(byLevel.get(18)).toEqual({ level: 18, hp: 440, atk: 64, def: 34 });
+    expect(byLevel.get(22)).toEqual({ level: 22, hp: 520, atk: 76, def: 40 });
+    // smooth continuity across the D-055 → extension seam (lv10 40/22 → lv11 43/24, no frozen level).
+    for (let lv = 11; lv <= 22; lv++) {
+      const cur = byLevel.get(lv)!;
+      const prev = byLevel.get(lv - 1)!;
+      expect(cur.hp - prev.hp, `hp Δ lv${lv}`).toBe(20);
+      expect(cur.atk - prev.atk, `atk Δ lv${lv}`).toBe(3);
+      expect(cur.def, `def lv${lv}`).toBe(Math.round(22 + 1.5 * (lv - 10)));
+    }
   });
 
   test("lv1 primary ตรงกับ engine lv1 baseline (คู่กันตาม D-055)", () => {
@@ -148,29 +185,20 @@ describe("monster rewards (Economy §10.1 / D-055 §9.1)", () => {
 describe("drop tables (Economy §11 — Kraeng rows SUPERSEDED → 0%)", () => {
   const tables = DEFAULT_ECONOMY_CONFIG.dropTables;
 
-  test("ไม่มี upg_kraeng ในตารางไหนเลย (R10); upg_reinforcement ดรอปได้เฉพาะ Field Boss (D-064)", () => {
+  test("ไม่มี upg_kraeng/upg_reinforcement/เศษ ในตารางดรอปไหนเลย (B4 §4.2/§3.5 — มาจาก pity path, ไม่ใช่ drop table)", () => {
     const json = JSON.stringify(tables);
     expect(json).not.toMatch(/upg_kraeng/);
-    // OB: Field Boss หมูป่าหม้อเดือด = แหล่งวัสดุเสริมแกร่งเดียว → upg_reinforcement อยู่ในตารางนั้นตารางเดียว
-    for (const t of tables) {
-      const hasReinforcement = JSON.stringify(t).includes("upg_reinforcement");
-      if (t.dropTableId === "drop_map1_field_boss_v1") {
-        expect(hasReinforcement, "field boss table ต้องดรอป upg_reinforcement").toBe(true);
-      } else {
-        expect(hasReinforcement, `${t.dropTableId} ต้องไม่ดรอป reinforcement (R8)`).toBe(false);
-      }
-    }
-    // fragment ยังไม่ดรอปดิบจากตารางไหน (fragment/exchange = post-OB)
-    expect(json).not.toMatch(/upg_reinforcement_fragment/);
+    // B4: เสริมแกร่ง (ตัวเต็ม) + เศษ ไม่ได้ดรอปจาก drop table แล้ว — pity ladder (§4.2) + fragment roll (§3.5) ใน
+    //     server/economy/reinforcement-pity.ts เป็นแหล่งเดียว (R8 guard กันทั้งสอง id ออกจากทุก generic roll).
+    expect(json).not.toMatch(/upg_reinforcement/);
   });
 
-  test("Field Boss table = phase P2 (ship OB) + guaranteed upg_reinforcement + boss core (D-064)", () => {
+  test("Field Boss table = phase P2 (ship OB) + guaranteed boss core เท่านั้น (B4: ไม่มี guaranteed เสริมแกร่งแล้ว)", () => {
     const fb = tables.find((t) => t.dropTableId === "drop_map1_field_boss_v1")!;
     expect(fb.phase).toBe("P2");
     expect(fb.monsterId).toBe("boss_map1_boiling_boar");
     const guaranteedIds = fb.guaranteed.map((g) => g.itemId);
-    expect(guaranteedIds).toContain("upg_reinforcement");
-    expect(guaranteedIds).toContain("mat_boss_resonance_core");
+    expect(guaranteedIds).toEqual(["mat_boss_resonance_core"]); // B4: เสริมแกร่ง ย้ายไป pity path
   });
 
   test("drop chance ทุก roll อยู่ในช่วง 0–100", () => {

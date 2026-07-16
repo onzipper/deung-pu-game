@@ -5,17 +5,82 @@ import {
   coerceAnim,
   coerceDirection,
   computePlayerCount,
+  parseCharacterActorRoomRedirect,
+  isCharacterWorldCapacityError,
+  planMapReentry,
+  resolveMapReentry,
+  resolveSelfActorId,
   snapshotChanged,
   toMoveMessage,
 } from "@/engine/net/sync";
 import type { JoinOptions, PlayerSnapshot } from "@/shared/net-protocol";
 import {
+  CHARACTER_ACTOR_ROOM_REDIRECT_CODE,
+  CHARACTER_ACTOR_ROOM_REDIRECT_PREFIX,
+  CHARACTER_WORLD_CAPACITY_CODE,
   DEFAULT_CHANNEL_ID,
   DEFAULT_MAP_ID,
   DEFAULT_PARTY_ID,
   MAP_ROOM_NAME,
   channelLabel,
 } from "@/shared/net-protocol";
+
+describe("net sync — stable character actor binding", () => {
+  test("resolves self from the server controller table with a legacy fallback", () => {
+    const controllers = new Map([["controller-1", "actor:opaque-1"]]);
+    expect(resolveSelfActorId("controller-1", controllers)).toBe("actor:opaque-1");
+    expect(resolveSelfActorId("legacy-session", undefined)).toBe("legacy-session");
+    expect(resolveSelfActorId("missing", controllers)).toBe("missing");
+  });
+
+  test("accepts only the dedicated, well-formed room redirect error", () => {
+    expect(parseCharacterActorRoomRedirect({
+      code: CHARACTER_ACTOR_ROOM_REDIRECT_CODE,
+      message: `join rejected: ${CHARACTER_ACTOR_ROOM_REDIRECT_PREFIX}room_ABC-123`,
+    })).toBe("room_ABC-123");
+    expect(parseCharacterActorRoomRedirect({
+      code: CHARACTER_ACTOR_ROOM_REDIRECT_CODE,
+      message: `${CHARACTER_ACTOR_ROOM_REDIRECT_PREFIX}../other`,
+    })).toBeNull();
+    expect(parseCharacterActorRoomRedirect({ code: 4215, message: "room_ABC-123" })).toBeNull();
+    expect(parseCharacterActorRoomRedirect(new Error("not a matchmaking redirect"))).toBeNull();
+  });
+
+  test("recognizes the dedicated effective-world-capacity retry signal", () => {
+    expect(isCharacterWorldCapacityError({ code: CHARACTER_WORLD_CAPACITY_CODE })).toBe(true);
+    expect(isCharacterWorldCapacityError({ code: CHARACTER_ACTOR_ROOM_REDIRECT_CODE })).toBe(false);
+    expect(isCharacterWorldCapacityError(null)).toBe(false);
+  });
+});
+
+describe("net sync — resolveMapReentry (PR5-fix: 4216 redirect into a different map's room)", () => {
+  test("server map == loaded map → no re-entry (normal join / correct settle)", () => {
+    expect(resolveMapReentry("map1", "map1")).toBeNull();
+  });
+
+  test("server map != loaded map → re-enter on the server's map (bot warped the real actor)", () => {
+    // loaded "map1" from sessionStorage but the 4216 redirect landed us in the city-hub room → render city-hub
+    expect(resolveMapReentry("map1", "city-hub")).toBe("city-hub");
+  });
+
+  test("server map not yet published (empty/undefined/null) → wait, no re-entry", () => {
+    expect(resolveMapReentry("map1", "")).toBeNull();
+    expect(resolveMapReentry("map1", undefined)).toBeNull();
+    expect(resolveMapReentry("map1", null)).toBeNull();
+  });
+});
+
+describe("net sync — planMapReentry (PR5-fix loop-guard: warp-during-reload)", () => {
+  test("under the cap → reenter", () => {
+    expect(planMapReentry(0, 2)).toBe("reenter");
+    expect(planMapReentry(1, 2)).toBe("reenter");
+  });
+
+  test("at/over the cap → abort (surface offline UX instead of looping)", () => {
+    expect(planMapReentry(2, 2)).toBe("abort");
+    expect(planMapReentry(3, 2)).toBe("abort");
+  });
+});
 
 const snap = (over: Partial<PlayerSnapshot> = {}): PlayerSnapshot => ({
   tx: 5,

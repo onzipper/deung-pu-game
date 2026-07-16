@@ -1,15 +1,14 @@
 # Current state
 
-_Last updated: 2026-07-13 · Status board only — history & detail: `docs/history/` (full pre-restructure snapshot: `docs/history/2026-07-13-current-state-archive.md`)_
+_Updated 2026-07-16 · History: `docs/history/`_
 
 ## Now
 
-- **OB push:** PR #21-23 merged → develop (combat two-way + boss depth + UI foundation + A3 hotbar + E3 HP/EXP/level cluster + E4 death toast). **Title splash** (§6 → /hub, แทน Next default) = `feat/title-screen`→develop. B4 = post-OB (D-064). Next: minimap/D.
-- **Phase:** P2 wave 3 **code-complete** (P2-07..17 ✅, merged). Post-merge todo: **P2-16** handoff (rename `upg_kraeng`→`upg_reinforcement`, wipe test data, verify migrations).
-- **SVG-01** merged (PR #15); rasterizer = `@resvg/resvg-js`.
+- **OB:** PR #21-23 + title splash merged. B4 post-OB (D-064).
+- **Phase:** P2 wave 3 **code-complete**. P2-16 handoff remains (rename reinforcement ID, wipe test data, verify migrations).
 - **Live:** server `https://deung-pu-game.onrender.com` (Render free tier + UptimeRobot, `/healthz`, D-058) · client `https://deung-pu.softrock.space/game` (Hostinger). Guest login + realtime connect verified 2026-07-13.
-- **Spec:** game v15.3 / tech v1.5.2 + Production Bible Set v1. Reinforcement → D-048..D-055. P2B value-loop rulings → D-063/064/065 (bot pricing, merchant dual-sink, event calendar, boss tiers, Arc1 Ch1, audio, art; Open Beta = full systems + Map 1 only). Amendment 0.0.4 done. Field Boss Map 1 id = `boss_map1_boiling_boar` (pity/fragment rebound in config).
-- **DB:** Hostinger MariaDB is production (D-057), migrations `0001_init`+`0002` applied.
+- **Spec:** v15.5 / tech v1.5.3; D-063–070 locked (D-067 autonomy, D-068 Dung, D-069 town warp, D-070 town policy). **PR1–5 aligned:** one real actor + takeover/checkpoint; Free one-area/one-goal safe baseline (obstacle → WAITING_FOR_OWNER, owner stop → COMPLETED, invalid/forbidden → FAILED). PR5 live: Plus same-map recovery (opt-in potion via shared MSG_USE_ITEM, death revive-return, pocket fallback), live tier recheck (expired_readonly), server-owned town warp — Plus/Pro วาป city-hub ขาย/ฝาก/ซื้อคืน (D-070) แล้ววาปกลับ (finish-and-return takeover; bag preflight; town_trip_failed → รอเจ้าของ). **PR6–10 pending:** Pro workflows/restart resume, Bot UX, follower removal, searchable Help, contextual Dung; goal-chain/schedule states contract-only; Dung/Help noncanonical.
+- **DB:** Hostinger MariaDB production (D-057); 0001-0002 applied · 0003/0004_bot hand-authored, unapplied.
 
 ## Task board — P2 wave 3 (code-complete)
 
@@ -27,7 +26,7 @@ _Last updated: 2026-07-13 · Status board only — history & detail: `docs/histo
 
 ## Follow-up (P2B, not blocking PR merge)
 
-Ground-loot entity (full inventory → lootOverflow reported, not persisted) · party share (§10.2, waits for party system) · starter loadout §7.7 not yet granted · shop unlockCondition tutorial not enforced · config loader DB override not wired into MapRoom (uses DEFAULT) · Field Boss `boss_map1_boiling_boar`: E3 stats + boss loot rebinding = P2B prep (D-064).
+Ground-loot entity (lootOverflow reported, not persisted) · party share (§10.2, waits for party system) · starter loadout §7.7 not yet granted · shop unlockCondition tutorial not enforced · config loader DB override not wired into MapRoom (uses DEFAULT) · Field Boss `boss_map1_boiling_boar`: E3 stats + boss loot rebinding = P2B prep (D-064).
 
 ## Open with owner (not blocking structure)
 

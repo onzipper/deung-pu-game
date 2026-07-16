@@ -23,6 +23,7 @@ import { buildExitMarkerPolygons } from "../render/exit-marker";
 import { createAssetRegistry } from "../assets/registry";
 import { collectMapAssetIds } from "../assets/collect";
 import { createLocalPlayer, type LocalPlayerHandle } from "../player/local-player";
+import { createAutoPilot, type AutoPilotHandle } from "../player/auto-pilot";
 import { createCompanion, type CompanionHandle } from "../player/companion";
 import { createMobViewManager, type MobViewHandle, type MobBlip } from "@/game/mob/manager";
 import { createMobSimulation, type MobSimulation } from "@/game/mob/simulation";
@@ -43,6 +44,8 @@ import {
 } from "@/engine/input/target-assist";
 import type { EffectQuality } from "@/engine/config";
 import { WARRIOR_SKILLS_CLIENT } from "@/game/skill/data/warrior-skills-client";
+import { ARCHER_SKILLS_CLIENT } from "@/game/skill/data/archer-skills-client";
+import { screenAngleForDirection, tileUnitVectorForScreenAngle } from "@/game/combat/hit-test";
 import { createNetClient, type NetClientHandle } from "../net/net-client";
 import {
   clampDtMs,
@@ -54,20 +57,26 @@ import { createRemotePlayerManager } from "../net/remote-player-manager";
 import {
   advanceSendTimer,
   coerceAnim,
+  planMapReentry,
   snapshotChanged,
   toMoveMessage,
 } from "../net/sync";
-import { DEFAULT_MAP_ID, type PlayerSnapshot } from "@/shared/net-protocol";
+import {
+  DEFAULT_MAP_ID,
+  type BotTakeoverSourceWire,
+  type PlayerSnapshot,
+} from "@/shared/net-protocol";
 import { partyIdFromLocation } from "../net/party";
 import {
   readSelectedCharacterId,
+  readSelectedCharacterClassId,
   readSelectedCharacterMapId,
   rememberSelectedCharacterMapId,
   pickBootMapId,
 } from "../net/character-session";
 import { createTransitionController } from "./transition";
 import { phaseAt, phaseTintAt, realMsPerGameMinute, worldMinuteAt } from "./world-clock";
-import type { WeatherKind } from "@/engine/config";
+import type { WeatherKind, WorldPhase } from "@/engine/config";
 import { attachResize } from "./resize";
 import { screenToTile, snapToTile, type TilePoint } from "../iso/coords";
 import { buildDebugInfo, IDLE_NET_DEBUG_INFO, type EngineDebugInfo } from "./debug-info";
@@ -75,14 +84,28 @@ import {
   createHudPublisher,
   resetHudState,
   setActiveDialogue,
+  setAutoPilotState,
   setDeathNotice,
   setDeliveryResult,
   setDeliveryState,
   setEnhanceResult,
+  setFragmentExchangeResult,
   setGoldFromProgress,
   setInventoryRejection,
   setInventoryState,
   setMilestoneNotice,
+  setAchievementUnlocked,
+  setAchievementsSnapshot,
+  setBotTierState,
+  setBotProfiles,
+  setBotStatus,
+  setBotStopped,
+  setBotAlert,
+  setBotReports,
+  setBotReportDetail,
+  setBotOpResult,
+  setBotCheckpoint,
+  setBotAuthorityActive,
   setPlayerDead,
   setPlayerExp,
   setPlayerLevel,
@@ -93,6 +116,7 @@ import {
   setSkillSlots,
   setStorageResult,
   setStorageState,
+  setUseItemResult,
 } from "@/ui/store/game-store";
 import { getSoundManager } from "@/engine/audio/sound-manager";
 
@@ -140,6 +164,14 @@ export interface EngineHandle {
    * store read-only ฝั่ง UI, imperative command ต้องผ่าน EngineHandle).
    */
   closeDialogue(): void;
+  /**
+   * Auto Pilot (Batch 7a, D-037): เริ่ม auto-walk ไป tile ที่ผู้เล่นยืนยันจาก minimap (Minimap confirm chip
+   * เรียกผ่านนี้). engine ตรวจ walkable+path เอง — เดินไม่ถึง → publish stopReason "noPath" (chip โชว์เหตุผล).
+   * ไม่ใช่บอท (D-037): auto-walk เท่านั้น. delegate ไป world ปัจจุบัน (getter live เหมือน pressAttack).
+   */
+  startAutoPilot(dest: TilePoint): void;
+  /** Auto Pilot (D-037): หยุด auto-walk (ผู้เล่นกด ✖หยุดบน HUD chip) — reason "manual". delegate ไป world. */
+  stopAutoPilot(): void;
   /** เก็บกวาดครบ: ticker, resize observer, canvas, GPU resources */
   destroy(): void;
 }
@@ -152,6 +184,14 @@ const FPS_SAMPLE_INTERVAL_MS = 250;
  * อยู่แล้ว; ทำซ้ำที่นี่ให้ชัด/รับประกันไม่ว่า ticker จะถูกตั้งค่าใด (operational const ไม่ใช่ balance).
  */
 const MAX_TICK_DELTA_MS = 100;
+
+/**
+ * PR5-fix loop-guard: max consecutive map-mismatch re-entries (a 4216 redirect / reconnect that lands the
+ * client in a DIFFERENT map's room than it loaded, because the server-owned bot "warp" moved the real
+ * actor). 2 re-entries absorb a warp that happens mid-boot; a 3rd fresh mismatch means the actor keeps
+ * moving between reload windows → abort to the offline UX instead of looping (operational const, not balance).
+ */
+const MAX_MAP_MISMATCH_RETRIES = 2;
 
 /**
  * "world" ต่อ 1 map (P1-10) — ทุกอย่างที่ผูกกับ map (scene/player/mobs/combat/net/input). สร้างใหม่
@@ -167,6 +207,9 @@ interface WorldHandle {
   pressAttack(): void;
   /** A3 (P2 UI §8.3): cast สกิลช่อง slot (1-4) — ตรวจ unlock/cooldown แล้วส่ง cast (ดู castSlot ใน mountWorld). */
   castSlot(slot: number): void;
+  /** Auto Pilot (D-037): เริ่ม/หยุด auto-walk ของ world ปัจจุบัน (ดู startAutoPilot/stopAutoPilot ใน mountWorld). */
+  startAutoPilot(dest: TilePoint): void;
+  stopAutoPilot(): void;
   getDebugInfo(fps: number): EngineDebugInfo;
   /** Minimap (§8.4) danger/elite/normal blips — mob view render positions, throttled ผ่าน hudPublisher เดียวกับ debugInfo (ไม่ publish ทุก frame) */
   getBlips(): MobBlip[];
@@ -254,6 +297,12 @@ export async function createEngine(
   // undefined = anonymous (เข้า /game ตรง ๆ / dev) → server spawn default, ไม่ persist. คงที่ทั้ง session.
   const localCharacterId = readSelectedCharacterId();
 
+  // Batch 6 (ARCHER_CLASS_SPEC §6 note 4): classId ที่ Game Hub เขียนไว้ (sessionStorage) — เลือกชุดสกิล client
+  //   (hotbar/aim) ตั้งแต่ mount + แนบ joinOptions.classId (fallback dev/no-DB). server เป็น authority สุดท้าย
+  //   (Character.classId re-validate ที่ handleCast). ไม่รู้จัก/ไม่มี → "swordsman" (default นักดาบ, flow เดิม).
+  const localClassId = readSelectedCharacterClassId() ?? "swordsman";
+  const localSkills = localClassId === "archer" ? ARCHER_SKILLS_CLIENT : WARRIOR_SKILLS_CLIENT;
+
   // P1-07-fix (§59.1): per-tab reconnect token store (sessionStorage) — คงข้าม refresh/reopen เพื่อ
   // reconnect เข้า seat เดิม (token in-memory หายตอน reload). ตัวเดียวทั้ง session (ทุก world/map ใช้ key
   // เดียว — token ตามหลัง map ปัจจุบัน; transition = consented leave ล้าง token → world ใหม่ fresh join).
@@ -266,8 +315,18 @@ export async function createEngine(
   // state ระดับ engine (คงข้ามการสลับ world/ข้าม map). rain แสดงเฉพาะ map ใน config.world.rainMapIds (§4.1 Map 1).
   // TODO LW1: world clock → server-authoritative (MSG_WORLD_TIME §3.2) + weather §4.2/§4.3 scheduler.
   let currentMapId = "";
+  // PR5-fix: consecutive map-mismatch re-entries (server warped the real actor to another map's room while
+  // we booted; net-client detects it via room state.mapId). Lives at engine scope so it survives the world
+  // remount each re-entry performs (each rebuilds its own net client). Reset on a correct settle (onSelfSpawn
+  // with matching map); capped by MAX_MAP_MISMATCH_RETRIES to break warp-during-reload loops.
+  let mapMismatchRetries = 0;
   let weather: WeatherKind = "clear";
   let phaseOffsetMs = 0; // debug fast-forward (cyclePhaseKeyCode) — บวกกับ Date.now() เพื่อ demo phase
+  // C2b (§13): living-world client-event edge state — report weather/phase only on TRANSITION edges + a rain
+  //   accumulator (1 tick/min while raining on the rain map) for ach_rain_walk_30. engine-scope (คงข้าม world).
+  let prevRainWeather: WeatherKind = "clear";
+  let prevPhaseId: WorldPhase | null = null;
+  let rainTickAccumMs = 0;
 
   /**
    * P1-10: ขอข้าม map. schedule swap ผ่าน transition controller — จอมืดสุด → teardown world เดิม +
@@ -322,6 +381,30 @@ export async function createEngine(
     );
     player.applyCorrection(spawn.x, spawn.y); // ย้าย + snap กล้องมาที่จุดเกิดจริง (idempotent ถ้า = spawnPoint)
 
+    // --- Auto Pilot (Batch 7a, D-037 LOCKED) — client-side auto-walk ไปจุดหมายที่ผู้เล่นยืนยัน (ไม่ใช่บอท).
+    //     ขับ player ผ่าน moveTo/path เดียวกับ click-to-move. stop conditions ถูก hook ที่ integration hub นี้
+    //     (visibility/hp/disconnect/transition/attack/manual click) → autoPilot.stop(reason). controller เอง
+    //     ตรวจ arrival/manual-WASD/no-path ใน update(). publish state → game-store (HUD chip + minimap dot). ---
+    const autoPilot: AutoPilotHandle = createAutoPilot(player, map, config.autoPilot, {
+      maxSearchNodes: config.pathfinding.maxSearchNodes,
+      onChange: (change) =>
+        setAutoPilotState({
+          active: change.active,
+          destination: change.destination
+            ? { tx: change.destination.tx, ty: change.destination.ty }
+            : null,
+          stopReason: change.stopReason,
+        }),
+    });
+    // D-037 combat hook (โดน damage): hp ของ self ลด ระหว่าง auto-pilot → stop("combat"). onSelfVitals อัปเดตค่านี้.
+    let lastKnownHp: number | null = null;
+    // D-037 combat hook (ออกโจมตี): isAttacking rising-edge (Space/คลิก/ปุ่มมือถือ) ระหว่าง auto-pilot → stop("combat").
+    let prevAttacking = false;
+    // PR1 character authority: server automation and local prediction are mutually exclusive controllers of
+    // the same actor. PR2 will turn manual input into an explicit takeover; PR1 ignores it while locked.
+    let characterAutonomyActive = false;
+    let engageState: EngageState = IDLE_ENGAGE_STATE;
+
     // --- ดึ๋งๆ companion (C4-MVP, §12.2/§5.1) — client-only cosmetic follow entity, มีทุก map (เมือง+field).
     //     ตามผู้เล่น local, no collision/combat (§3.2), depth-sort เข้า entity layer เหมือน mob/NPC. คลิก →
     //     help panel (onPointerDown ด้านล่าง). config.companion.enabled=false → ข้าม (null, update/destroy no-op). ---
@@ -346,13 +429,48 @@ export async function createEngine(
       nameplateLayer,
     );
 
-    // --- combat (P1-05 server-authoritative): S1 นักดาบจาก client manifest ---
+    // --- combat (P1-05 server-authoritative): S1 จาก client manifest ของ **อาชีพ local** (Batch 6) ---
     // P1-11 (GS §14): ปิด combat ในโซน safe (เมือง) — disable ปุ่มโจมตี client (server ปฏิเสธ cast ซ้ำอีกชั้น).
     const combatAllowed = map.zoneType !== "safe";
-    const firstWarriorSkill = WARRIOR_SKILLS_CLIENT[0];
+    const firstSkill = localSkills[0]; // S1 basic ของอาชีพ (นักดาบ sword_basic_slash / นักธนู archer_basic_shot)
+    // FEATURE 2 (hold-to-walk) + Batch 6 (ground-circle aim): tile ใต้เคอร์เซอร์ล่าสุด — ประกาศก่อน castSlot ใช้.
+    let pointerTile: TilePoint | null = null;
     let net: NetClientHandle | null = null;
+    let takeoverRequestSeq = 0;
+    let pendingTakeover: {
+      requestId: string;
+      schemaManual: boolean;
+      acked: boolean;
+      replay: (() => void) | null;
+    } | null = null;
+
+    const releaseLocalAuthority = (replay: (() => void) | null): void => {
+      characterAutonomyActive = false;
+      player.setAuthorityLocked(false);
+      lastSent = null;
+      sendAccumMs = 0;
+      replay?.();
+    };
+
+    const finishPendingTakeover = (): void => {
+      const pending = pendingTakeover;
+      if (!pending || !pending.schemaManual || !pending.acked) return;
+      pendingTakeover = null;
+      releaseLocalAuthority(pending.replay);
+    };
+
+    const requestManualTakeover = (source: BotTakeoverSourceWire, replay: (() => void) | null): void => {
+      if (!characterAutonomyActive) {
+        replay?.();
+        return;
+      }
+      if (pendingTakeover || !net || net.status.state !== "online") return;
+      const requestId = `takeover:${Date.now()}:${++takeoverRequestSeq}`;
+      pendingTakeover = { requestId, schemaManual: false, acked: false, replay };
+      net.sendBotTakeover({ requestId, source });
+    };
     const combat: CombatStubHandle = createCombatStub(scene, player, mobView, config, {
-      skill: firstWarriorSkill,
+      skill: firstSkill,
       castSkill: (msg) => net?.sendCast(msg),
       isOnline: () => net?.status.state === "online",
       combatEnabled: combatAllowed,
@@ -367,7 +485,7 @@ export async function createEngine(
     let hotbarPlayerLevel = 1; // จาก MSG_PLAYER_PROGRESS.level (default 1 ก่อนรู้ค่า → เฉพาะ S1 ปลด, S2-4 locked)
     const publishSkillSlots = (): void => {
       setSkillSlots(
-        WARRIOR_SKILLS_CLIENT.map((s, i) => ({
+        localSkills.map((s, i) => ({
           slot: i + 1,
           skillId: s.skillId,
           displayName: s.skillName,
@@ -380,9 +498,35 @@ export async function createEngine(
         })),
       );
     };
-    const castSlot = (slot: number): void => {
+    // Batch 6 (ARCHER_CLASS_SPEC §6 note 1 / IMPLEMENT #5): aim ของ cast — ground-target circle (นักธนู
+    //   moon_rain, targetShape "circle" + range>0) เล็ง **จุดพื้นใต้เคอร์เซอร์** clamp เข้าระยะ; อื่น = ตำแหน่ง caster.
+    //   server clamp/validate ซ้ำ (authority). mobile fallback (ไม่มี pointer) = จุดหน้า facing ระยะ min(range, มอนใกล้สุด).
+    const aimForSkill = (skill: (typeof localSkills)[number]): { tx: number; ty: number } => {
+      const isGroundCircle = skill.targetShape === "circle" && skill.range > 0;
+      if (!isGroundCircle) return { tx: player.position.tx, ty: player.position.ty };
+      const p = player.position;
+      if (pointerTile) {
+        const dtx = pointerTile.tx - p.tx;
+        const dty = pointerTile.ty - p.ty;
+        const dist = Math.hypot(dtx, dty);
+        if (dist > skill.range && dist > 1e-9) {
+          const s = skill.range / dist;
+          return { tx: p.tx + dtx * s, ty: p.ty + dty * s };
+        }
+        return { tx: pointerTile.tx, ty: pointerTile.ty };
+      }
+      // mobile/no-pointer fallback: จุดหน้า facing ระยะ min(range, ระยะมอนใกล้สุด)
+      let nearest = skill.range;
+      for (const t of mobView.getAliveTargets()) {
+        const d = Math.hypot(t.pos.tx - p.tx, t.pos.ty - p.ty);
+        if (d < nearest) nearest = d;
+      }
+      const fwd = tileUnitVectorForScreenAngle(screenAngleForDirection(player.facing), config.tileSize);
+      return { tx: p.tx + fwd.tx * nearest, ty: p.ty + fwd.ty * nearest };
+    };
+    const castSlotNow = (slot: number): void => {
       if (!combatAllowed) return; // P1-11 safe zone (เมือง) → ไม่ cast (server ปฏิเสธซ้ำ)
-      const skill = WARRIOR_SKILLS_CLIENT[slot - 1];
+      const skill = localSkills[slot - 1];
       if (!skill) return;
       if (hotbarPlayerLevel < skill.unlockLevel) return; // ยังไม่ปลด (server re-validate → reject "locked")
       const now = performance.now();
@@ -391,16 +535,24 @@ export async function createEngine(
         player.requestAttack(); // S1 basic → auto-attack path เดิม (cooldown/aim/juice ของ basic)
         return;
       }
-      // S2-4: discrete cast — สกิลนักดาบ anchor ที่ caster (ไม่ ground-target) → aim = ตำแหน่ง+ทิศ caster ปัจจุบัน
+      // S2-4: discrete cast — aim ตาม shape (ground-circle = pointerTile clamp; อื่น = caster). direction = facing.
+      const aim = aimForSkill(skill);
       net?.sendCast({
         skillId: skill.skillId,
-        aimTx: player.position.tx,
-        aimTy: player.position.ty,
+        aimTx: aim.tx,
+        aimTy: aim.ty,
         direction: player.facing,
       });
       combat.playSkillVfx(skill.skillId); // F4: เล่น VFX สกิล client-side (juice — ไม่กระทบ authority)
       skillCooldownReadyAt.set(skill.skillId, now + skill.cooldown * 1000);
       publishSkillSlots();
+    };
+    const castSlot = (slot: number): void => {
+      if (characterAutonomyActive) {
+        requestManualTakeover("skill", () => castSlotNow(slot));
+        return;
+      }
+      castSlotNow(slot);
     };
     publishSkillSlots(); // init (S1 ปลด; S2-4 locked จนกว่า progress แจ้ง level ใหม่)
 
@@ -450,7 +602,7 @@ export async function createEngine(
           graceSeconds: config.reconnect.graceSeconds,
           store: reconnectStore,
         },
-        { mapId: map.mapId, ...initial, partyId: localPartyId, characterId: localCharacterId },
+        { mapId: map.mapId, ...initial, partyId: localPartyId, characterId: localCharacterId, classId: localClassId },
         {
           onPlayerAdd: (id, snap) => remotes?.onPlayerAdd(id, snap),
           onPlayerChange: (id, snap) => remotes?.onPlayerChange(id, snap),
@@ -465,6 +617,10 @@ export async function createEngine(
           // position + camera) — กัน "วาร์ปกลับจุดเดิม" + กัน exit detection พลาดเพราะ desync. fresh join
           // = ไม่มี goal → no-op; reconnect กลาง walk → resume goal เดิม (prod fix 2026-07-12).
           onSelfSpawn: (snap) => {
+            // PR5-fix: self settled into a room. If its map matches the one we loaded, the redirect chain
+            // ended correctly → clear the mismatch loop-guard. Mismatched worlds keep the counter so repeated
+            // warp-during-reload can't loop forever. (status.mapId is set in wire before onSelfSpawn fires.)
+            if (net !== null && net.status.mapId === map.mapId) mapMismatchRetries = 0;
             player.applyCorrection(snap.tx, snap.ty);
             lastSent = null;
             sendAccumMs = 0;
@@ -475,13 +631,49 @@ export async function createEngine(
             // P2-17: ขอเปิดคลัง+กล่องส่งของทันทีเหมือนกัน — server ตอบ 2 snapshot (available:false = map
             // นี้ไม่มี storage NPC, HUD ปุ่ม "คลัง" อ่านค่านี้ pattern เดียวกับ shop).
             net?.sendStorageOpen();
+            // C2b (Part 5): ขอ snapshot achievement ตอน self เข้า room → game-store field พร้อมให้ journal (C3) อ่าน.
+            net?.sendAchievementsRequest();
+            // Batch 7b-UI: ขอ tier state + profile ทั้งหมดตอน self เข้า room (BotPanel เปิดทีหลังจะรีเฟรชซ้ำอีกที
+            // — pattern เดียวกับ achievements). bot:profileList reply มาทั้ง MSG_BOT_TIER_STATE + MSG_BOT_PROFILES.
+            net?.sendBotProfileList();
+          },
+          onSelfServerState: (snap) => {
+            player.applyAuthorityState(snap.tx, snap.ty, snap.direction, snap.anim);
+            lastSent = null;
+            sendAccumMs = 0;
+          },
+          onSelfAutonomyChange: (active) => {
+            setBotAuthorityActive(active);
+            if (active) {
+              pendingTakeover = null;
+              characterAutonomyActive = true;
+              player.setAuthorityLocked(true);
+              engageState = cancelEngage();
+              autoPilot.stop("manual");
+              lastSent = null;
+              sendAccumMs = 0;
+              return;
+            }
+            if (pendingTakeover) {
+              pendingTakeover.schemaManual = true;
+              finishPendingTakeover();
+            } else {
+              releaseLocalAuthority(null);
+            }
           },
           // P2-13 (D-056): self AFK flag (server-set) → toggle ป้าย "AFK" ของตัวเอง (display-only).
           onSelfAfkChange: (isAfk) => player.setAfk(isAfk),
           // NAMEPLATES: self ชื่อตัวละคร (server-set จาก character.name) → ป้ายชื่อเหนือหัวตัวเอง (display-only).
           onSelfName: (name) => player.setName(name),
           // A1/A2 (§2/§10): hp/maxHp ของ self (server-authoritative) → HUD แถบ HP (E3). event-driven ไม่ throttle.
-          onSelfVitals: (hp, maxHp) => setPlayerVitals(hp, maxHp),
+          // D-037 stop: hp ลด ระหว่าง auto-pilot = "โดน damage" → เข้าสู่การต่อสู้ → stop("combat"). heal/respawn (hp เพิ่ม) ไม่หยุด.
+          onSelfVitals: (hp, maxHp) => {
+            if (autoPilot.isActive && lastKnownHp !== null && hp < lastKnownHp) {
+              autoPilot.stop("combat");
+            }
+            lastKnownHp = hp;
+            setPlayerVitals(hp, maxHp);
+          },
           // E3 (§8.2): level ของ self (schema) → badge + refresh A3 hotbar unlock (ปลดสกิลถูกตั้งแต่เกิด/level-up)
           onSelfLevel: (level) => {
             setPlayerLevel(level);
@@ -529,12 +721,38 @@ export async function createEngine(
               x: msg.targetSpawn.x,
               y: msg.targetSpawn.y,
             }),
+          // PR5-fix: we joined a room whose real map differs from the one we loaded (server-owned bot "warp"
+          // moved the real actor to city-hub while booting, surfaced as a 4216 redirect / reconnect). Re-enter
+          // on the correct map using the SAME teardown+rejoin flow as MSG_MAP_TRANSITION. Loop-guard: a fresh
+          // mismatch each attempt means the actor moved again mid-reload → cap re-entries then surface the
+          // offline UX (net.disconnect: debug overlay shows offline + auto-pilot stops) instead of looping.
+          onMapMismatch: (correctMapId) => {
+            const targetMap = getMap(correctMapId);
+            if (!targetMap) return; // unknown map — nothing valid to re-enter into (fail-soft, keep world)
+            if (planMapReentry(mapMismatchRetries, MAX_MAP_MISMATCH_RETRIES) === "abort") {
+              net?.disconnect();
+              return;
+            }
+            mapMismatchRetries += 1;
+            // Persist so pickBootMapId boots the right map if the owner refreshes during the fade (server is
+            // still authoritative for the exact position via onSelfSpawn adoption; spawnPoint is a placeholder).
+            rememberSelectedCharacterMapId(correctMapId);
+            requestTransition(correctMapId, {
+              x: targetMap.spawnPoint.x,
+              y: targetMap.spawnPoint.y,
+            });
+          },
           // P2-07: inventory/equipment snapshot + mutation ปฏิเสธ → push เข้า Zustand bridge ตรง ๆ
           // (event-driven, ไม่ผ่าน hudPublisher throttle — ดู comment ที่ game-store.ts setInventoryState).
           onInventoryState: (snap) => setInventoryState(snap),
           onInventoryOpRejected: (rejected) => setInventoryRejection(rejected),
           // P2-10: ผลเสริมแกร่ง → Zustand bridge ตรง ๆ (event-driven, ดู comment ที่ game-store.ts setEnhanceResult)
           onEnhanceResult: (result) => setEnhanceResult(result),
+          // PR5: ผลใช้ consumable → Zustand bridge ตรง ๆ (event-driven, เหมือน onEnhanceResult — HP จริง sync
+          // ทาง PlayerState schema แยก, message นี้แค่ ack feedback + cooldown)
+          onUseItemResult: (result) => setUseItemResult(result),
+          // B4: ผลแลกเศษ 5→1 → Zustand bridge ตรง ๆ (event-driven, เหมือน onEnhanceResult)
+          onFragmentExchangeResult: (result) => setFragmentExchangeResult(result),
           // P2-11: catalog ร้าน + ผลซื้อ/ขาย → Zustand bridge ตรง ๆ (event-driven, เหมือน onEnhanceResult)
           onShopList: (list) => setShopList(list),
           onShopResult: (result) => setShopResult(result),
@@ -551,11 +769,36 @@ export async function createEngine(
           },
           // C1 (§18): milestone ปลดล็อก → stamp notice ให้ MilestoneToast แสดง toast สั้น ๆ
           onMilestoneGranted: (msg) => setMilestoneNotice(msg),
+          // C2b: achievement ปลดล็อก → AchievementToast; snapshot → game-store field (journal C3 consume)
+          onAchievementUnlocked: (msg) => setAchievementUnlocked(msg),
+          onAchievementsSnapshot: (msg) => setAchievementsSnapshot(msg),
           // P2-17: คลัง+กล่องส่งของ → Zustand bridge ตรง ๆ (event-driven, เหมือน onShopList/onShopResult)
           onStorageState: (state) => setStorageState(state),
           onStorageResult: (result) => setStorageResult(result),
           onDeliveryState: (state) => setDeliveryState(state),
           onDeliveryResult: (result) => setDeliveryResult(result),
+          // Batch 7b-UI (P3 §13): bot (Hunter Assistant) → Zustand bridge ตรง ๆ (event-driven, เหมือน onShopList)
+          onBotTierState: (msg) => setBotTierState(msg),
+          onBotProfiles: (msg) => setBotProfiles(msg),
+          onBotStatus: (msg) => setBotStatus(msg),
+          onBotStopped: (msg) => setBotStopped(msg),
+          onBotCheckpoint: (msg) => setBotCheckpoint(msg),
+          onBotAlert: (msg) => setBotAlert(msg),
+          onBotReports: (msg) => setBotReports(msg),
+          onBotReport: (msg) => setBotReportDetail(msg),
+          onBotOpResult: (msg) => {
+            const pending = pendingTakeover;
+            if (pending && msg.op === "takeover" && msg.refId === pending.requestId) {
+              if (msg.ok) {
+                pending.acked = true;
+                finishPendingTakeover();
+              } else {
+                pendingTakeover = null;
+                if (pending.schemaManual) releaseLocalAuthority(null);
+              }
+            }
+            setBotOpResult(msg);
+          },
         },
 
       );
@@ -609,7 +852,12 @@ export async function createEngine(
     };
 
     // --- pointer → tile helper (P0-11 debug + P1-09 click-to-move) ---
-    const footFromEvent = (e: PointerEvent): TilePoint => {
+    interface WorldPointerIntent {
+      button: number;
+      pointerType: string;
+      foot: TilePoint;
+    }
+    const footFromEvent = (e: Pick<PointerEvent, "clientX" | "clientY">): TilePoint => {
       const rect = app.canvas.getBoundingClientRect();
       return screenToTile(
         {
@@ -620,9 +868,8 @@ export async function createEngine(
       );
     };
 
-    let pointerTile: TilePoint | null = null;
-    // FEATURE 2: ค้างปุ่มซ้าย = เดินตามเมาส์ต่อเนื่อง. leftHeld = กำลังค้างอยู่,
-    // followTile = tile ปลายทางล่าสุดที่สั่งไป (throttle: re-issue moveTo เฉพาะตอน tile เปลี่ยน กัน spam server).
+    // FEATURE 2: ค้างปุ่มซ้าย = เดินตามเมาส์ต่อเนื่อง (pointerTile ประกาศไว้ด้านบนแล้ว — Batch 6 castSlot ใช้ร่วม).
+    // leftHeld = กำลังค้างอยู่, followTile = tile ปลายทางล่าสุดที่สั่งไป (throttle: re-issue moveTo เฉพาะตอน tile เปลี่ยน).
     let leftHeld = false;
     let followTile: TilePoint | null = null;
     const onPointerMove = (e: PointerEvent): void => {
@@ -649,7 +896,7 @@ export async function createEngine(
     app.canvas.addEventListener("pointercancel", onPointerUp);
 
     // --- click-to-move + touch (P1-09, TA §17.3 · L11) ---
-    const attackRange = firstWarriorSkill.range;
+    const attackRange = firstSkill.range;
     // P2-15: รัศมี pick มอนแยกตาม input mode (Combat Bible §3) — caller ส่ง radius ที่ resolve ตาม pointerType.
     // logic เลือก "มอนใกล้จุดสุดในรัศมี" เหมือนเดิมทุกอย่าง (never-downgrade: targeting เท่านั้น ไม่แตะ combat calc).
     const mobUnderClick = (
@@ -671,8 +918,6 @@ export async function createEngine(
       Math.hypot(p.tx - player.position.tx, p.ty - player.position.ty);
     // P1-09.1 (TA §17.3 walk-to-attack): คลิกมอบ 1 ครั้ง = engage ต่อเนื่อง (ไม่ใช่ตีทีเดียวจบ) — state
     // machine pure ใน target-engage.ts ตัดสิน attack/chase/idle ทุก tick, ที่นี่แค่ execute action จริง.
-    let engageState: EngageState = IDLE_ENGAGE_STATE;
-
     /** engage มอน (tap/press): ถึงระยะ → หัน+ตี, ไกล → เดินเข้าไป (walk-to-attack). ใช้ทั้ง click และ pressAttack. */
     const engageMob = (mob: { id: string; pos: TilePoint }): void => {
       engageState = startEngage(mob.id);
@@ -685,11 +930,13 @@ export async function createEngine(
       }
     };
 
-    const onPointerDown = (e: PointerEvent): void => {
+    const applyPointerDown = (e: WorldPointerIntent): void => {
+      // D-037 stop (manual): คลิก/แตะในโลก = ผู้เล่นเข้าคุมเอง (เดิน/เล็งมอน/คุย NPC) → หยุด auto-pilot "ก่อน"
+      //   ออกคำสั่งใหม่เสมอ (stop() cancelPath ก่อน แล้วโค้ดข้างล่างค่อย moveTo/engage → path ใหม่ไม่ถูกล้าง).
+      autoPilot.stop("manual");
       // FEATURE 1: ปุ่มกลาง = โจมตีมอนที่ใกล้ตัวสุด (ไม่จำกัดรัศมี — "นับทั้งแมพ" ตามที่ผู้เล่นขอ,
       // ไม่ cap ด้วย assist radius). reuse engageMob เดิม (หัน+ตี/เดินเข้า) — ไม่มี net message ใหม่.
       if (e.button === 1) {
-        e.preventDefault(); // กัน autoscroll ของ browser (middle-click)
         if (transition.isLocked() || !combatAllowed) return;
         const nearest = mobUnderClick(player.position, Number.POSITIVE_INFINITY);
         if (nearest) engageMob(nearest);
@@ -697,7 +944,7 @@ export async function createEngine(
       }
       if (e.button !== 0) return; // touch/pen primary contact = button 0 (PointerEvent ครอบ touch เอง)
       if (transition.isLocked()) return; // P1-10: input lock ระหว่างข้าม map
-      const foot = footFromEvent(e);
+      const foot = e.foot;
       // LW0: คลิกโดน NPC (bark dialogue) — เช็คก่อน mob/ground เสมอ (dialogue ไม่ใช่ combat, ไม่ผูก
       // combatAllowed — NPC วางในโซนที่เดินได้อยู่แล้ว). โดน → เปิด dialogue + หยุด engage/path ค้าง แล้ว
       // จบ (ไม่ตกไป engage มอน/เดินตามเมาส์ ไม่ทับ FEATURE 1/2 ที่เหลือ).
@@ -706,6 +953,8 @@ export async function createEngine(
         engageState = cancelEngage();
         player.cancelPath();
         setActiveDialogue({ npcId: npc.npcId, displayName: npc.displayName, lines: npc.lines });
+        // C2b (§13 client event): คุย NPC → achievement (ทักทายชาวบ้าน/ขาประจำ). server whitelist + rate-limit.
+        net?.sendClientEvent({ type: "npc.talk", payload: { npcId: npc.npcId } });
         return;
       }
       // C4 (§5.1): คลิกโดนดึ๋งๆ companion (client-only cosmetic) — เช็คหลัง NPC (NPC ชนะ tie) ก่อน mob.
@@ -741,6 +990,19 @@ export async function createEngine(
         followTile = snapToTile(foot);
       }
     };
+    const onPointerDown = (e: PointerEvent): void => {
+      if (e.button === 1) e.preventDefault(); // กัน autoscroll ของ browser ทันที แม้กำลังรอ handoff
+      const buffered: WorldPointerIntent = {
+        button: e.button,
+        pointerType: e.pointerType,
+        foot: footFromEvent(e),
+      };
+      if (!characterAutonomyActive) {
+        applyPointerDown(buffered);
+        return;
+      }
+      requestManualTakeover("pointer", () => applyPointerDown(buffered));
+    };
     app.canvas.addEventListener("pointerdown", onPointerDown);
 
     /**
@@ -749,13 +1011,21 @@ export async function createEngine(
      * (requestAttack เหมือน Space; combat-stub gate cooldown/safe-zone ต่อ). ไม่มี combat semantics ใหม่ —
      * reuse engage เดิม, แค่เลือกเป้าใกล้สุดในรัศมี assist.
      */
-    const pressAttack = (): void => {
+    const pressAttackNow = (): void => {
       if (transition.isLocked()) return;
+      autoPilot.stop("combat"); // D-037 stop: ปุ่มโจมตีมือถือ = ออกโจมตี → เข้าสู่การต่อสู้
       const assist = combatAllowed
         ? mobUnderClick(player.position, config.pathfinding.targetAssist.keyboardAssistRadius)
         : null;
       if (assist) engageMob(assist);
       else player.requestAttack();
+    };
+    const pressAttack = (): void => {
+      if (characterAutonomyActive) {
+        requestManualTakeover("touch", pressAttackNow);
+        return;
+      }
+      pressAttackNow();
     };
 
     /**
@@ -829,6 +1099,9 @@ export async function createEngine(
         ? createVisibilityController({
             onHidden: () => {
               tabHidden = true;
+              // D-037 stop: "must NOT run in a background tab" → หยุด auto-pilot ทันที (ไม่ใช่แค่ freeze —
+              //   freeze จะ resume ตอนกลับมา ผิด D-037). listener cleanup = visibility.detach() ใน world.destroy.
+              autoPilot.stop("tabHidden");
             },
             onVisible: () => {
               tabHidden = false;
@@ -844,9 +1117,30 @@ export async function createEngine(
       tick(dtSeconds, deltaMs, deltaTime, locked): void {
         // P2-13 (D-056): freeze input/net-send ตอน transition lock **หรือ** แท็บ hidden (บาง browser ยัง
         //   tick 1Hz ตอน background) — render (mob/combat/scene) เดินต่อ. connection ไม่ถูกแตะ (ไม่ disconnect).
-        const frozen = locked || tabHidden;
-        // calc: player intent → movement (freeze ตอน lock/hidden)
-        if (!frozen) player.update(dtSeconds);
+        const frozen = locked || tabHidden || characterAutonomyActive;
+        // D-037 stop (transition): ต้องข้าม map-channel (transition lock) → หยุด auto-pilot (world กำลังจะถูก swap).
+        if (locked) autoPilot.stop("transition");
+        // D-037 stop (disconnect): net หลุด (offline) ระหว่าง auto-pilot → หยุด (client เดินต่อเองไม่ได้แล้ว).
+        if (net?.status.state === "offline") autoPilot.stop("disconnect");
+        if (!locked && !tabHidden && characterAutonomyActive && !pendingTakeover) {
+          const intent = player.consumeManualTakeoverIntent();
+          if (intent?.kind === "move") requestManualTakeover("move", null);
+          else if (intent?.kind === "attack") requestManualTakeover("skill", pressAttackNow);
+          else if (intent?.kind === "skill") requestManualTakeover("skill", () => castSlotNow(intent.slot));
+        }
+        // Keep the locked actor's server-driven animation current during autonomy, but never run local
+        // prediction during transition lock or while hidden. LocalPlayer's locked update also drains key edges.
+        if (!locked && !tabHidden) player.update(dtSeconds);
+        // calc: player intent → movement (freeze ตอน lock/hidden/autonomy)
+        if (!frozen) {
+          // D-037 stop (combat): isAttacking rising-edge = ผู้เล่นออกโจมตี (Space/คลิก/ปุ่มมือถือ) → เข้าสู่การต่อสู้.
+          //   auto-pilot ไม่เคยสั่งโจมตีเอง → edge นี้ = manual attack เสมอ. เช็คหลัง player.update (isAttacking สด).
+          const attackingNow = player.isAttacking;
+          if (attackingNow && !prevAttacking) autoPilot.stop("combat");
+          prevAttacking = attackingNow;
+          // Auto Pilot monitor: arrival / manual-WASD / no-path + replan ตามคาบ (ต้องรันหลัง player.update).
+          autoPilot.update(dtSeconds);
+        }
         // C4: companion follow-step (client-only cosmetic) — freeze คู่ player (ไม่ขยับตอน transition/hidden)
         if (!frozen) companion?.update(dtSeconds);
         // calc: mobs (server interpolation / offline sim) — render ต่อเนื่องแม้ frozen
@@ -891,6 +1185,16 @@ export async function createEngine(
       },
       pressAttack,
       castSlot,
+      startAutoPilot(dest): void {
+        if (characterAutonomyActive) return;
+        // ยกเลิก engage/chase + hold-to-walk ที่ค้างก่อน (auto-pilot ขับ moveTo แทน ไม่ให้สองระบบชนกัน).
+        engageState = cancelEngage();
+        leftHeld = false;
+        autoPilot.start(dest);
+      },
+      stopAutoPilot(): void {
+        autoPilot.stop("manual"); // ผู้เล่นกด ✖หยุด บน HUD chip = manual
+      },
       getDebugInfo(fps): EngineDebugInfo {
         return buildDebugInfo({
           fps,
@@ -918,6 +1222,7 @@ export async function createEngine(
         app.canvas.removeEventListener("pointerdown", onPointerDown);
         window.removeEventListener("keydown", onStressToggleKeyDown);
         visibility?.detach(); // P2-13: ถอด visibilitychange listener
+        autoPilot.destroy(); // D-037: หยุด auto-walk ค้าง (world สลับ/unmount)
         net?.disconnect();
         remotes?.destroy();
         stressHarness.destroy();
@@ -996,6 +1301,30 @@ export async function createEngine(
     currentWorld.scene.setWeather(rainOn);
     currentWorld.scene.updateWeather(deltaMs, config.combatFeel.effectQuality.current);
 
+    // C2b (§13 client events): report living-world state on TRANSITION EDGES only (not per frame). rain tick =
+    //   1/min while raining on the rain map → ach_rain_walk_30 accumulator. server whitelists + rate-limits these.
+    const worldNet = currentWorld.net;
+    if (worldNet !== null) {
+      const worldPhaseNow = phaseAt(worldMinuteAt(worldNowMs, config.world));
+      if (rainOn !== prevRainWeather) {
+        prevRainWeather = rainOn;
+        worldNet.sendClientEvent({ type: "weather.changed", payload: { weather: rainOn } });
+      }
+      if (worldPhaseNow !== prevPhaseId) {
+        prevPhaseId = worldPhaseNow;
+        worldNet.sendClientEvent({ type: "phase.changed", payload: { phase: worldPhaseNow, mapId: currentMapId } });
+      }
+      if (rainOn === "rain") {
+        rainTickAccumMs += deltaMs;
+        if (rainTickAccumMs >= 60_000) {
+          rainTickAccumMs -= 60_000;
+          worldNet.sendClientEvent({ type: "weather.rain.tick", payload: { mapId: currentMapId } });
+        }
+      } else {
+        rainTickAccumMs = 0;
+      }
+    }
+
     fpsSampleMs += ticker.deltaMS;
     if (fpsSampleMs >= FPS_SAMPLE_INTERVAL_MS) {
       fpsText.text = `FPS ${Math.round(app.ticker.FPS)}`;
@@ -1072,6 +1401,12 @@ export async function createEngine(
     },
     closeDialogue(): void {
       setActiveDialogue(null);
+    },
+    startAutoPilot(dest: TilePoint): void {
+      currentWorld.startAutoPilot(dest);
+    },
+    stopAutoPilot(): void {
+      currentWorld.stopAutoPilot();
     },
     destroy,
   };

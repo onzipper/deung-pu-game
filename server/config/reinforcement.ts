@@ -1,11 +1,12 @@
 // P2-09 — DEFAULT reinforcement / fragment / pity config (server-authoritative Design Knobs).
 // Values copied verbatim from Reinforcement doc §3.5/§4 (never guessed — AI.md iron-rule #1).
 //
-// OPEN BETA (2026-07-13): the Field Boss `boss_map1_boiling_boar` now ships live, so it IS the
-// reinforcement source and `noReinforcement` is FALSE — the enhancement flow is active. For OB the boss
-// grants the full `upg_reinforcement` material directly (drop_map1_field_boss_v1, R8-exempt for this boss
-// only in kill-rewards.ts); the full pity ladder + fragment/exchange (§3.5/§4.2 below) stay configured but
-// are a post-OB upgrade (bossPity/fragment values kept verbatim, unused by the OB grant path).
+// OPEN BETA (2026-07-13): the Field Boss `boss_map1_boiling_boar` ships live as the reinforcement source and
+// `noReinforcement` is FALSE — the enhancement flow is active.
+// B4 (2026-07-14, this branch): the full §4.2 pity ladder + §3.5 fragment are now WIRED — the boss's
+// reinforcement drop = base 8% + pity (guaranteed at clear 15, per-account-per-boss) and an independent 10.7%
+// fragment roll, both granted through server/economy/reinforcement-pity.ts (NOT the drop table). This SUPERSEDES
+// the OB shortcut where drop_map1_field_boss_v1 guaranteed `upg_reinforcement` ×1–2 directly every kill.
 // ⛔ ids = `upg_reinforcement` / `upg_reinforcement_fragment` only (never `upg_kraeng`, R10).
 // ⛔ SERVER-ONLY (see types.ts header). Plain TS only.
 

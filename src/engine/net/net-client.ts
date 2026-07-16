@@ -36,6 +36,8 @@ import {
   MSG_CAST_REJECTED,
   MSG_ENHANCE_ITEM,
   MSG_ENHANCE_RESULT,
+  MSG_FRAGMENT_EXCHANGE,
+  MSG_FRAGMENT_EXCHANGE_RESULT,
   MSG_EQUIP_ITEM,
   MSG_INVENTORY_OP_REJECTED,
   MSG_INVENTORY_STATE,
@@ -63,7 +65,36 @@ import {
   MSG_STORAGE_STATE,
   MSG_STORAGE_WITHDRAW,
   MSG_UNEQUIP_ITEM,
+  MSG_USE_ITEM,
+  MSG_USE_ITEM_RESULT,
+  MSG_ACHIEVEMENT_UNLOCKED,
+  MSG_CLIENT_EVENT,
+  MSG_ACHIEVEMENTS_REQUEST,
+  MSG_ACHIEVEMENTS_SNAPSHOT,
+  MSG_BOT_PROFILE_LIST,
+  MSG_BOT_PROFILE_CREATE,
+  MSG_BOT_PROFILE_UPDATE,
+  MSG_BOT_PROFILE_DELETE,
+  MSG_BOT_START,
+  MSG_BOT_STOP,
+  MSG_BOT_TAKEOVER,
+  MSG_BOT_RESUME,
+  MSG_BOT_MOCK_PURCHASE,
+  MSG_BOT_REPORT_LIST,
+  MSG_BOT_REPORT_FETCH,
+  MSG_BOT_PROFILES,
+  MSG_BOT_TIER_STATE,
+  MSG_BOT_STATUS,
+  MSG_BOT_STOPPED,
+  MSG_BOT_ALERT,
+  MSG_BOT_REPORTS,
+  MSG_BOT_REPORT,
+  MSG_BOT_OP_RESULT,
+  MSG_BOT_CHECKPOINT,
   WS_CLOSE_SESSION_TAKEN_OVER,
+  type AchievementUnlockedMessage,
+  type AchievementsSnapshotMessage,
+  type ClientEventMessage,
   type CastRejectedMessage,
   type CastSkillMessage,
   type DeliveryClaimMessage,
@@ -71,6 +102,8 @@ import {
   type DeliveryStateMessage,
   type EnhanceItemMessage,
   type EnhanceResultMessage,
+  type FragmentExchangeMessage,
+  type FragmentExchangeResultMessage,
   type EquipItemMessage,
   type InventoryOpRejectedMessage,
   type InventorySnapshot,
@@ -95,8 +128,38 @@ import {
   type StorageMoveMessage,
   type StorageResultMessage,
   type StorageStateMessage,
+  type UseItemMessage,
+  type UseItemResultMessage,
+  type BotProfileCreateMessage,
+  type BotProfileUpdateMessage,
+  type BotProfileDeleteMessage,
+  type BotStartMessage,
+  type BotStopMessage,
+  type BotTakeoverMessage,
+  type BotResumeMessage,
+  type BotMockPurchaseMessage,
+  type BotReportFetchMessage,
+  type BotProfilesMessage,
+  type BotTierStateMessage,
+  type BotStatusMessage,
+  type BotStoppedMessage,
+  type BotAlertMessage,
+  type BotReportsMessage,
+  type BotReportMessage,
+  type BotOpResultMessage,
+  type BotCheckpointMessage,
 } from "@/shared/net-protocol";
-import { canSendLocalMove, coerceAnim, coerceDirection, computePlayerCount, type ConnectionState } from "@/engine/net/sync";
+import {
+  canSendLocalMove,
+  coerceAnim,
+  coerceDirection,
+  computePlayerCount,
+  parseCharacterActorRoomRedirect,
+  isCharacterWorldCapacityError,
+  resolveMapReentry,
+  resolveSelfActorId,
+  type ConnectionState,
+} from "@/engine/net/sync";
 
 /**
  * สถานะการเชื่อมต่อ (P0-11 debug overlay อ่านผ่าน EngineHandle.net.getNetDebugInfo()).
@@ -168,12 +231,23 @@ export interface NetClientHandlers {
    */
   onMapTransition?(msg: MapTransitionMessage): void;
   /**
+   * PR5-fix: the room we successfully joined can be a DIFFERENT map than joinOptions.mapId — a server-owned
+   * bot "warp" moved the real actor (surfaced as a 4216 actor-room redirect / reconnect into another room).
+   * Fired at most once per connection, on the first `state.mapId` sync, only when it differs from the loaded
+   * map. Caller re-enters cleanly on `correctMapId` via its EXISTING map-change flow (and must loop-guard).
+   */
+  onMapMismatch?(correctMapId: string): void;
+  /**
    * Fix issue #1/#2: หลัง join/reconnect สำเร็จ + self เข้า room state ครั้งแรก (immediate หรือ patch แรก)
    * → server = source of truth ของตำแหน่ง spawn/held → caller **snap local player + camera** ไปตำแหน่งนี้
    * ทันที (ก่อนส่ง move ก้าวแรก). fresh join = spawn จริง (idempotent) · reconnect within grace = ตำแหน่ง
    * เดิมก่อน refresh (กัน "วาร์ปกลับ" + กัน exit detection พลาดเพราะ desync). ยิงครั้งเดียวต่อ 1 connection. optional.
    */
   onSelfSpawn?(snap: PlayerSnapshot): void;
+  /** True while server-side Character Autonomy owns this same actor; local prediction must stay locked. */
+  onSelfAutonomyChange?(active: boolean): void;
+  /** While Character Autonomy owns self, follow the server actor instead of local prediction. */
+  onSelfServerState?(snap: PlayerSnapshot): void;
   /**
    * P2-13 (D-056): self AFK flag เปลี่ยน (server ตั้งเมื่อ idle ครบ idleIndicatorSec) → caller (app.ts) ให้
    * local player แสดง/ซ่อนป้าย "AFK" ของตัวเอง. self ไม่ผูก onChange ตำแหน่ง (client-predicted) — listen
@@ -235,6 +309,19 @@ export interface NetClientHandlers {
    */
   onEnhanceResult?(result: EnhanceResultMessage): void;
   /**
+   * PR5: ผลใช้ consumable (server → client เดียว, MSG_USE_ITEM_RESULT) — ok=true มากับ itemId/hp/
+   * cooldownUntilMs (HP จริง sync ทาง PlayerState schema แยก, message นี้ = ack feedback ทันที), ok=false
+   * มี reason (UseConsumableReject: unknown_item/no_effect/on_cooldown/hp_already_full/no_stock/
+   * version_conflict). caller push เข้า Zustand bridge ตรง ๆ (event-driven เหมือน onEnhanceResult). optional.
+   */
+  onUseItemResult?(result: UseItemResultMessage): void;
+  /**
+   * B4: ผลการแลกเศษเสริมแกร่ง 5→1 (server → client เดียว, MSG_FRAGMENT_EXCHANGE_RESULT) — ok=true มากับ
+   * MSG_INVENTORY_STATE snapshot ใหม่แยกต่างหาก (server ส่งสองข้อความ), ok=false มี reason (NO_DB/
+   * NOT_ENOUGH_FRAGMENTS/INVENTORY_FULL/TRANSACTION_CONFLICT). caller push เข้า Zustand bridge ตรง ๆ. optional.
+   */
+  onFragmentExchangeResult?(result: FragmentExchangeResultMessage): void;
+  /**
    * P2-11: catalog ของร้านบน map ปัจจุบัน (ตอบ MSG_SHOP_LIST_REQUEST) — `available: false` = map นี้ไม่มี
    * ร้าน (HUD ปุ่ม "ร้านค้า" อ่านค่านี้ตัดสินว่าโชว์ปุ่มไหม). caller push เข้า Zustand bridge ตรง ๆ
    * (event-driven เหมือน onInventoryState). optional.
@@ -258,6 +345,16 @@ export interface NetClientHandlers {
    */
   onMilestoneGranted?(msg: MilestoneGrantedMessage): void;
   /**
+   * C2b: achievement ปลดล็อก (server → client เดียว, MSG_ACHIEVEMENT_UNLOCKED) — auto-claim ครั้งเดียวต่อ scope.
+   * caller push เข้า Zustand bridge → AchievementToast แสดง toast สั้น ๆ (สีตาม tier). optional.
+   */
+  onAchievementUnlocked?(msg: AchievementUnlockedMessage): void;
+  /**
+   * C2b (Part 5): snapshot achievement rows (ตอบ MSG_ACHIEVEMENTS_REQUEST) — journal C3 consume ต่อ. caller
+   * push เข้า Zustand bridge (game-store field). optional.
+   */
+  onAchievementsSnapshot?(msg: AchievementsSnapshotMessage): void;
+  /**
    * P2-17: snapshot คลังบัญชีล่าสุด (server → client เดียว, MSG_STORAGE_STATE) — ยิงตอบ MSG_STORAGE_OPEN
    * + หลังทุก deposit/withdraw สำเร็จ. `available: false` = map นี้ไม่มี storage NPC (HUD ปุ่ม "คลัง" อ่าน
    * ค่านี้ตัดสินว่าโชว์ปุ่มไหม, pattern เดียวกับ onShopList). caller push เข้า Zustand bridge ตรง ๆ
@@ -280,6 +377,36 @@ export interface NetClientHandlers {
    * MSG_INVENTORY_STATE snapshot ใหม่แยกต่างหาก. caller push เข้า Zustand bridge ตรง ๆ (event-driven). optional.
    */
   onDeliveryResult?(result: DeliveryResultMessage): void;
+  /**
+   * Batch 7b-UI (P3 §13): full profile list (reply to profileList/create/update/delete/mockPurchase) — caller
+   * push เข้า Zustand bridge ตรง ๆ (event-driven, เหมือน onShopList/onStorageState). optional.
+   */
+  onBotProfiles?(msg: BotProfilesMessage): void;
+  /**
+   * Batch 7b-UI: tier ปัจจุบัน + วันหมดอายุ + caps + paused profile ids (reply to profileList/mockPurchase) —
+   * server เป็น truth ของเพดาน tier ทั้งหมด (defense-in-depth เท่านั้นฝั่ง client). optional.
+   */
+  onBotTierState?(msg: BotTierStateMessage): void;
+  /**
+   * Batch 7b-UI: live status stream ของบอทที่กำลังรัน — ส่งเฉพาะตอน owner online ในห้อง host ของ map นั้น
+   * (server/bot/runtime.ts botOwnerSend — ห้อง/แผนที่อื่นจะไม่เห็น push นี้จนกว่าจะย้ายมา). optional.
+   */
+  onBotStatus?(msg: BotStatusMessage): void;
+  /** D-067: server-authored continuity settlement + reason + run summary. optional. */
+  onBotStopped?(msg: BotStoppedMessage): void;
+  /** PR2: manual-takeover checkpoint lifecycle (saving → ready/failed; null when consumed). */
+  onBotCheckpoint?(msg: BotCheckpointMessage): void;
+  /** Batch 7b-UI: แจ้งเตือน (rare/high-value found, captcha required, gold cap) — ของที่ฟาร์มมาไม่หาย. optional. */
+  onBotAlert?(msg: BotAlertMessage): void;
+  /** Batch 7b-UI: สรุปรายงาน (reply to bot:reportList) — clip ตาม retention tier ฝั่ง server แล้ว. optional. */
+  onBotReports?(msg: BotReportsMessage): void;
+  /** Batch 7b-UI: รายละเอียด 1 รายงาน (reply to bot:reportFetch) — null = ถูก retention clip. optional. */
+  onBotReport?(msg: BotReportMessage): void;
+  /**
+   * Batch 7b-UI: ผล op ทั่วไป (create/update/delete/start/stop/mockPurchase, ok/reject+reason) — caller
+   * correlate กับ local phase ด้วย `op` (bot-view.ts BotOpPhase, pattern เดียวกับ ShopTxPhase). optional.
+   */
+  onBotOpResult?(msg: BotOpResultMessage): void;
 }
 
 /** อ่าน MobState schema (reflection → any) → MobSnapshot (coerce state). */
@@ -364,8 +491,12 @@ export interface NetClientHandle {
   sendUnequipItem(msg: EquipItemMessage): void;
   /** P2-07: ขอย้าย item ในกระเป๋าไปช่องอื่น (bag↔bag เท่านั้น, no-op ถ้ายังไม่ online). */
   sendMoveItem(msg: MoveItemMessage): void;
+  /** PR5: ขอใช้ consumable 1 ชิ้นจากกระเป๋า (no-op ถ้ายังไม่ online) — server ตัดสินทั้งหมด (cooldown/heal). */
+  sendUseItem(msg: UseItemMessage): void;
   /** P2-10: ขอเสริมแกร่ง equipment ที่ถืออยู่ +1 (no-op ถ้ายังไม่ online) — server ตัดสินทั้งหมด (§2.3). */
   sendEnhanceItem(msg: EnhanceItemMessage): void;
+  /** B4: ขอแลกเศษเสริมแกร่ง 5 → เสริมแกร่ง 1 (no-op ถ้ายังไม่ online) — server ตัดสินทั้งหมด (§3.5). */
+  sendFragmentExchange(msg: FragmentExchangeMessage): void;
   /** P2-11: ขอ catalog ร้านของ map ปัจจุบัน (no-op ถ้ายังไม่ online) — เรียกตอน join/เปลี่ยน map. */
   sendShopListRequest(msg: ShopListRequestMessage): void;
   /** P2-11: ขอซื้อ item จากร้าน (no-op ถ้ายังไม่ online) — ราคา/เงื่อนไขทั้งหมด server ตัดสิน. */
@@ -380,6 +511,32 @@ export interface NetClientHandle {
   sendStorageWithdraw(msg: StorageMoveMessage): void;
   /** P2-17: ขอรับของจาก delivery entry เข้ากระเป๋า (no-op ถ้ายังไม่ online). */
   sendDeliveryClaim(msg: DeliveryClaimMessage): void;
+  /** C2b (§13): ส่ง client-reported event (npc.talk/logo/weather/phase/rain — no-op ถ้ายังไม่ online). */
+  sendClientEvent(msg: ClientEventMessage): void;
+  /** C2b (Part 5): ขอ snapshot achievement ทั้งหมด (no-op ถ้ายังไม่ online). */
+  sendAchievementsRequest(): void;
+  /** Batch 7b-UI: ขอ profile ทั้งหมด + tier state (no-op ถ้ายังไม่ online) — เรียกตอน join + ทุกครั้งที่เปิด panel. */
+  sendBotProfileList(): void;
+  /** Batch 7b-UI: สร้าง profile ใหม่ (server enforce เพดาน tier + bot-safe pocket, no-op ถ้ายังไม่ online). */
+  sendBotProfileCreate(msg: BotProfileCreateMessage): void;
+  /** Batch 7b-UI: แก้ profile เดิม (reject ถ้า read-only excess, no-op ถ้ายังไม่ online). */
+  sendBotProfileUpdate(msg: BotProfileUpdateMessage): void;
+  /** Batch 7b-UI: ลบ profile (no-op ถ้ายังไม่ online). */
+  sendBotProfileDelete(msg: BotProfileDeleteMessage): void;
+  /** Batch 7b-UI: เริ่มบอทบน profile นี้ (server validate pocket/tier/capacity, no-op ถ้ายังไม่ online). */
+  sendBotStart(msg: BotStartMessage): void;
+  /** Batch 7b-UI: หยุดบอทที่กำลังรัน (manual — §12.3, no-op ถ้ายังไม่ online). */
+  sendBotStop(msg: BotStopMessage): void;
+  /** PR2: return authority to the player; server acks only after the automation command fence is active. */
+  sendBotTakeover(msg: BotTakeoverMessage): void;
+  /** PR2: resume a ready in-process checkpoint on the same real character. */
+  sendBotResume(msg: BotResumeMessage): void;
+  /** Batch 7b-UI: ซื้อแพ็กเกจ MOCK (D-061, ไม่ตัดเงินจริง — no-op ถ้ายังไม่ online). */
+  sendBotMockPurchase(msg: BotMockPurchaseMessage): void;
+  /** Batch 7b-UI: ขอสรุปรายงานภายใน retention ของ tier (no-op ถ้ายังไม่ online). */
+  sendBotReportList(): void;
+  /** Batch 7b-UI: ขอรายละเอียด 1 รายงาน (no-op ถ้ายังไม่ online). */
+  sendBotReportFetch(msg: BotReportFetchMessage): void;
   /** ออกจาก room + ปิด connection (idempotent) */
   disconnect(): void;
 }
@@ -441,6 +598,10 @@ export function createNetClient(
   // ที่ wire room ใหม่ → true เมื่อ self เข้า state ครั้งแรก. gate sendMove ระหว่างนี้ (กันยิง move จาก spawn
   // ก่อนรู้ตำแหน่ง server hold → correction/warp + exit detection พลาด).
   let selfAdopted = false;
+  // PR5-fix: reconcile the loaded map (joinOptions.mapId) against the room's authoritative state.mapId at
+  // most once per connection. reset=false on every wire → true when the first real mapId arrives (a 4216
+  // redirect / reconnect can land us in another map's room; caller re-enters on the correct one).
+  let mapReconciled = false;
   // P1-07: entity ที่ track ไว้ (สำหรับ reset ก่อน re-wire — กัน onAdd(immediate) รอบใหม่ทำ remote/mob ซ้ำ).
   const knownRemotes = new Set<string>();
   const knownMobs = new Set<string>();
@@ -500,31 +661,53 @@ export function createNetClient(
     // Fix issue #1/#2: connection ใหม่ → ยังไม่รู้ตำแหน่ง authoritative ของ self จนกว่า self เข้า state
     // (gate sendMove จนกว่าจะ adopt). ต้อง reset ก่อน register onAdd (immediate อาจยิง self ทันทีในบรรทัดถัดไป).
     selfAdopted = false;
+    mapReconciled = false; // PR5-fix: re-check loaded map vs room map for this fresh connection
     room = joinedRoom;
     persistToken(joinedRoom.reconnectionToken); // P1-07(-fix): เก็บ token ล่าสุด (memory + per-tab store)
     status.state = "online";
     status.roomId = joinedRoom.roomId;
-    status.selfSessionId = joinedRoom.sessionId;
-
     const $ = getStateCallbacks(joinedRoom);
     const state = joinedRoom.state as {
       mapId: string;
       channelId: string;
       partyId: string;
+      controllers?: { get(key: string): string | undefined };
     };
+    let selfActorId = resolveSelfActorId(joinedRoom.sessionId, state.controllers);
+    status.selfSessionId = selfActorId;
     status.mapId = state.mapId ?? null;
     status.channelId = state.channelId ?? null;
     status.partyId = state.partyId ?? null;
 
+    // The controller binding can arrive with the initial schema callbacks. Register it before the players map
+    // and keep the captured id mutable so self identity never freezes on the legacy socket-id fallback.
+    $(joinedRoom.state).controllers.onAdd((actorId: string, controllerSessionId: string) => {
+      if (controllerSessionId !== joinedRoom.sessionId || !actorId) return;
+      selfActorId = actorId;
+      status.selfSessionId = actorId;
+    }, true);
+    $(joinedRoom.state).controllers.onChange((actorId: string, controllerSessionId: string) => {
+      if (controllerSessionId !== joinedRoom.sessionId || !actorId) return;
+      selfActorId = actorId;
+      status.selfSessionId = actorId;
+    });
+
     // players map: onAdd/onChange/onRemove (ข้าม self — local player render เองแล้ว)
     $(joinedRoom.state).players.onAdd(
       (player: Record<string, unknown> & { tx: number; ty: number; direction: string; anim: string }, sessionId: string) => {
-        if (sessionId === joinedRoom.sessionId) {
+        if (sessionId === selfActorId) {
           // Fix issue #1/#2: self เข้า state ครั้งแรกต่อ connection → adopt ตำแหน่ง authoritative (server
           // hold ตำแหน่งจริง). caller snap local player + camera; หลังจากนี้ sendMove ปลดล็อก. local player
           // = client-predicted → ไม่ผูก onChange (reconcile ต่อเนื่องผ่าน MSG_POSITION_CORRECTION เท่านั้น).
           selfAdopted = true;
           handlers.onSelfSpawn?.(snapshotOf(player));
+          // PR1 character authority: automation controls this exact actor. The client observes the state and
+          // must not continue local prediction until server authority returns to manual mode.
+          $(player).listen("isBot", (v: unknown) => {
+            const active = v === true;
+            handlers.onSelfAutonomyChange?.(active);
+            if (active) handlers.onSelfServerState?.(snapshotOf(player));
+          });
           // P2-13 (D-056): listen เฉพาะ field isAfk ของ self (display-only) → local player แสดงป้ายตัวเอง.
           // ไม่ผูก onChange ตำแหน่ง (client-predicted). listen ยิง immediate ครั้งแรก (false) — harmless.
           $(player).listen("isAfk", (v: unknown) => handlers.onSelfAfkChange?.(v === true));
@@ -549,6 +732,9 @@ export function createNetClient(
           $(player).listen("exp", emitExp);
           $(player).listen("expFloor", emitExp);
           $(player).listen("expCeil", emitExp);
+          $(player).onChange(() => {
+            if (player.isBot === true) handlers.onSelfServerState?.(snapshotOf(player));
+          });
           return;
         }
         status.remoteCount += 1;
@@ -563,7 +749,7 @@ export function createNetClient(
     );
 
     $(joinedRoom.state).players.onRemove((_player: unknown, sessionId: string) => {
-      if (sessionId === joinedRoom.sessionId) return;
+      if (sessionId === selfActorId) return;
       status.remoteCount = Math.max(0, status.remoteCount - 1);
       knownRemotes.delete(sessionId);
       handlers.onPlayerRemove(sessionId);
@@ -632,6 +818,14 @@ export function createNetClient(
     joinedRoom.onMessage(MSG_ENHANCE_RESULT, (result: EnhanceResultMessage) => {
       handlers.onEnhanceResult?.(result);
     });
+    // PR5: ผลใช้ consumable (ok/reject) — HP จริง sync ทาง PlayerState schema แยก (message นี้ = ack feedback)
+    joinedRoom.onMessage(MSG_USE_ITEM_RESULT, (result: UseItemResultMessage) => {
+      handlers.onUseItemResult?.(result);
+    });
+    // B4: ผลแลกเศษ 5→1 (ok/reject) — สำเร็จมากับ MSG_INVENTORY_STATE snapshot ใหม่แยกอีกข้อความ (ด้านบน)
+    joinedRoom.onMessage(MSG_FRAGMENT_EXCHANGE_RESULT, (result: FragmentExchangeResultMessage) => {
+      handlers.onFragmentExchangeResult?.(result);
+    });
     // P2-11: catalog ร้าน (ตอบ MSG_SHOP_LIST_REQUEST) + ผลซื้อ/ขาย
     joinedRoom.onMessage(MSG_SHOP_LIST, (list: ShopListMessage) => {
       handlers.onShopList?.(list);
@@ -646,6 +840,13 @@ export function createNetClient(
     // C1 (§18): milestone ปลดล็อก → MilestoneToast (caller push เข้า Zustand bridge)
     joinedRoom.onMessage(MSG_MILESTONE_GRANTED, (msg: MilestoneGrantedMessage) => {
       handlers.onMilestoneGranted?.(msg);
+    });
+    // C2b: achievement ปลดล็อก → AchievementToast + journal snapshot → game-store (caller push เข้า Zustand bridge)
+    joinedRoom.onMessage(MSG_ACHIEVEMENT_UNLOCKED, (msg: AchievementUnlockedMessage) => {
+      handlers.onAchievementUnlocked?.(msg);
+    });
+    joinedRoom.onMessage(MSG_ACHIEVEMENTS_SNAPSHOT, (msg: AchievementsSnapshotMessage) => {
+      handlers.onAchievementsSnapshot?.(msg);
     });
     // P2-17: snapshot คลัง (ตอบ MSG_STORAGE_OPEN + หลัง deposit/withdraw สำเร็จ) + ผลฝาก/ถอน
     joinedRoom.onMessage(MSG_STORAGE_STATE, (state: StorageStateMessage) => {
@@ -662,12 +863,51 @@ export function createNetClient(
       handlers.onDeliveryResult?.(result);
     });
 
+    // Batch 7b-UI (P3 §13): bot (Hunter Assistant) push — profiles/tierState (reply to CRUD/mockPurchase),
+    // status stream (owner-online-in-host-room only) + stopped + alert (rare/captcha/gold_cap), reports.
+    joinedRoom.onMessage(MSG_BOT_PROFILES, (msg: BotProfilesMessage) => {
+      handlers.onBotProfiles?.(msg);
+    });
+    joinedRoom.onMessage(MSG_BOT_TIER_STATE, (msg: BotTierStateMessage) => {
+      handlers.onBotTierState?.(msg);
+    });
+    joinedRoom.onMessage(MSG_BOT_STATUS, (msg: BotStatusMessage) => {
+      handlers.onBotStatus?.(msg);
+    });
+    joinedRoom.onMessage(MSG_BOT_STOPPED, (msg: BotStoppedMessage) => {
+      handlers.onBotStopped?.(msg);
+    });
+    joinedRoom.onMessage(MSG_BOT_CHECKPOINT, (msg: BotCheckpointMessage) => {
+      handlers.onBotCheckpoint?.(msg);
+    });
+    joinedRoom.onMessage(MSG_BOT_ALERT, (msg: BotAlertMessage) => {
+      handlers.onBotAlert?.(msg);
+    });
+    joinedRoom.onMessage(MSG_BOT_REPORTS, (msg: BotReportsMessage) => {
+      handlers.onBotReports?.(msg);
+    });
+    joinedRoom.onMessage(MSG_BOT_REPORT, (msg: BotReportMessage) => {
+      handlers.onBotReport?.(msg);
+    });
+    joinedRoom.onMessage(MSG_BOT_OP_RESULT, (msg: BotOpResultMessage) => {
+      handlers.onBotOpResult?.(msg);
+    });
+
     // channel/map อาจถูก set หลัง state แรก → sync ค่าล่าสุด
     $(joinedRoom.state).listen("channelId", (v: string) => {
       status.channelId = v;
     });
     $(joinedRoom.state).listen("mapId", (v: string) => {
       status.mapId = v;
+      // PR5-fix: first time we learn the room's real map, reconcile it against the map the client loaded
+      // (joinOptions.mapId). A 4216 redirect / reconnect can drop us into another map's room (server warped
+      // the real actor) → the loaded scene renders the wrong map under the authoritative actor unless the
+      // caller re-enters on `v`. Fire at most once per connection (mapId is fixed per MapRoom).
+      if (!mapReconciled && typeof v === "string" && v.length > 0) {
+        mapReconciled = true;
+        const reentry = resolveMapReentry(joinOptions.mapId, v);
+        if (reentry !== null) handlers.onMapMismatch?.(reentry);
+      }
     });
     $(joinedRoom.state).listen("partyId", (v: string) => {
       status.partyId = v;
@@ -748,10 +988,19 @@ export function createNetClient(
       const authToken = await fetchRealtimeToken();
       if (disposed) return;
       const opts = authToken ? { ...joinOptions, token: authToken } : joinOptions;
-      const joined = await client.joinOrCreate<unknown>(
-        config.roomName ?? MAP_ROOM_NAME,
-        opts,
-      );
+      let joined: Room;
+      try {
+        joined = await client.joinOrCreate<unknown>(config.roomName ?? MAP_ROOM_NAME, opts);
+      } catch (error) {
+        const retainedRoomId = parseCharacterActorRoomRedirect(error);
+        if (retainedRoomId) {
+          joined = await client.joinById<unknown>(retainedRoomId, opts);
+        } else if (isCharacterWorldCapacityError(error)) {
+          joined = await client.create<unknown>(config.roomName ?? MAP_ROOM_NAME, opts);
+        } else {
+          throw error;
+        }
+      }
       if (disposed) {
         void joined.leave();
         return;
@@ -837,9 +1086,17 @@ export function createNetClient(
       if (!room || status.state !== "online") return;
       room.send(MSG_MOVE_ITEM, msg);
     },
+    sendUseItem(msg: UseItemMessage): void {
+      if (!room || status.state !== "online") return;
+      room.send(MSG_USE_ITEM, msg);
+    },
     sendEnhanceItem(msg: EnhanceItemMessage): void {
       if (!room || status.state !== "online") return;
       room.send(MSG_ENHANCE_ITEM, msg);
+    },
+    sendFragmentExchange(msg: FragmentExchangeMessage): void {
+      if (!room || status.state !== "online") return;
+      room.send(MSG_FRAGMENT_EXCHANGE, msg);
     },
     sendShopListRequest(msg: ShopListRequestMessage): void {
       if (!room || status.state !== "online") return;
@@ -868,6 +1125,58 @@ export function createNetClient(
     sendDeliveryClaim(msg: DeliveryClaimMessage): void {
       if (!room || status.state !== "online") return;
       room.send(MSG_DELIVERY_CLAIM, msg);
+    },
+    sendClientEvent(msg: ClientEventMessage): void {
+      if (!room || status.state !== "online") return;
+      room.send(MSG_CLIENT_EVENT, msg);
+    },
+    sendAchievementsRequest(): void {
+      if (!room || status.state !== "online") return;
+      room.send(MSG_ACHIEVEMENTS_REQUEST);
+    },
+    sendBotProfileList(): void {
+      if (!room || status.state !== "online") return;
+      room.send(MSG_BOT_PROFILE_LIST);
+    },
+    sendBotProfileCreate(msg: BotProfileCreateMessage): void {
+      if (!room || status.state !== "online") return;
+      room.send(MSG_BOT_PROFILE_CREATE, msg);
+    },
+    sendBotProfileUpdate(msg: BotProfileUpdateMessage): void {
+      if (!room || status.state !== "online") return;
+      room.send(MSG_BOT_PROFILE_UPDATE, msg);
+    },
+    sendBotProfileDelete(msg: BotProfileDeleteMessage): void {
+      if (!room || status.state !== "online") return;
+      room.send(MSG_BOT_PROFILE_DELETE, msg);
+    },
+    sendBotStart(msg: BotStartMessage): void {
+      if (!room || status.state !== "online") return;
+      room.send(MSG_BOT_START, msg);
+    },
+    sendBotStop(msg: BotStopMessage): void {
+      if (!room || status.state !== "online") return;
+      room.send(MSG_BOT_STOP, msg);
+    },
+    sendBotTakeover(msg: BotTakeoverMessage): void {
+      if (!room || status.state !== "online") return;
+      room.send(MSG_BOT_TAKEOVER, msg);
+    },
+    sendBotResume(msg: BotResumeMessage): void {
+      if (!room || status.state !== "online") return;
+      room.send(MSG_BOT_RESUME, msg);
+    },
+    sendBotMockPurchase(msg: BotMockPurchaseMessage): void {
+      if (!room || status.state !== "online") return;
+      room.send(MSG_BOT_MOCK_PURCHASE, msg);
+    },
+    sendBotReportList(): void {
+      if (!room || status.state !== "online") return;
+      room.send(MSG_BOT_REPORT_LIST);
+    },
+    sendBotReportFetch(msg: BotReportFetchMessage): void {
+      if (!room || status.state !== "online") return;
+      room.send(MSG_BOT_REPORT_FETCH, msg);
     },
     disconnect(): void {
       if (disposed) return;

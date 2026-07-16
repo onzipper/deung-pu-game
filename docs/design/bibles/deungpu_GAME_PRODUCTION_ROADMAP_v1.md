@@ -1,12 +1,16 @@
 # ดึ๋งปุ๊ — Game Production Roadmap
 
 > ไฟล์: `deungpu_GAME_PRODUCTION_ROADMAP_v1.md`  
-> สถานะ: **v1.0 — Owner-delegated production baseline**  
+> สถานะ: **v1.1 — D-067 Character Autonomy amendment**
 > โปรเจกต์: **ดึ๋งปุ๊ — True 2D Isometric Web MMORPG**  
 > Canonical references: `deungpu_project_checkpoint_v15_p0_scope_lock_ready.md`, `deungpu_technical_architecture_v1_5_p0_scope_lock.md`, `deungpu_ENGINE_FOUNDATION_DECISIONS_v1.md`, `deungpu_MAP_LAYOUT_BIBLE_v1.md`, `deungpu_MAP_SCALE_AND_SPAWN_DENSITY_SPEC_v1.md`  
 > วัตถุประสงค์: แยก Tech Roadmap P0–P6 ออกจาก Content/Art Roadmap เพื่อให้ทุกทีมทำงานคู่ขนานและไม่สับสนว่า content อยู่ P ไหน
 
 ---
+
+## 0.0 Amendment — 2026-07-15 (D-067)
+
+> **CURRENT P3 BOT DIRECTION:** P3 ใช้ real-character autonomy ตาม checkpoint v15.5 §4.1–§4.2/D-067. ข้อความ offline coarse simulation/worker economy ด้านล่างคงไว้เพื่อ historyแต่ถูก SUPERSEDED; Report/telemetry ยังทำเป็น background projectionได้
 
 ## 0. Critical Clarification
 
@@ -63,8 +67,10 @@ Goal: first meaningful boss connected to value
 Gate: repeatable boss encounter no exploit, readable on mobile
 
 ## P3 — Bot & Report
+
+> **AMENDED โดย D-067:** เปลี่ยน offline coarse simulation เป็น real actor control + manual takeover + continuity/recovery/workflow + durable checkpoint/validated Pro resume; Report เป็น output
 Goal: official assistant value proposition
-- offline coarse simulation
+- ~~offline coarse simulation~~ **SUPERSEDED โดย D-067:** real-character autonomy ใน real world/channel
 - tier/allowlist/stop conditions
 - report UI
 - calibration/telemetry

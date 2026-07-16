@@ -19,6 +19,8 @@ import {
   type DeliveryEntryRecord,
   type DepositInput,
   type EnhancementCommit,
+  type FragmentExchangeCommit,
+  type FragmentExchangeOutcome,
   type GrantItemsInput,
   type GrantOutcome,
   type InstanceMutation,
@@ -273,6 +275,82 @@ export function createPrismaInventoryRepository(): InventoryRepository & Storage
             configVersion: log.configVersion,
           },
         });
+      });
+    },
+
+    async commitFragmentExchange(commit: FragmentExchangeCommit): Promise<FragmentExchangeOutcome> {
+      return getPrisma().$transaction(async (tx): Promise<FragmentExchangeOutcome> => {
+        // 1) LOCK the fragment stack (FOR UPDATE) → serialize against concurrent exchange/sell/move on it.
+        const fragRows = await tx.$queryRaw<{ version: number; quantity: number; slot: number | null; location: string }[]>`
+          SELECT version, quantity, slot, location FROM item_instances
+          WHERE id = ${commit.fragmentInstanceId} FOR UPDATE
+        `;
+        const frag = fragRows[0];
+        // 2) CHECK version (+ still in the bag) then stock — a stale replay / concurrent spend aborts here.
+        if (!frag || frag.location !== "CHARACTER_INVENTORY" || frag.version !== commit.fragmentExpectedVersion) {
+          return { status: "conflict", grantedReinforcement: 0 };
+        }
+        if (commit.consumeCount < 1 || frag.quantity < commit.consumeCount) {
+          return { status: "insufficient", grantedReinforcement: 0 };
+        }
+
+        // 3) LOCK the bag range + decide reinforcement placement (merge existing stack, else a free slot AFTER
+        //    the fragment consume — a depleted fragment stack frees its own slot). No place → inventory_full (abort).
+        await tx.$queryRaw`
+          SELECT id FROM item_instances
+          WHERE character_id = ${commit.characterId} AND location = 'CHARACTER_INVENTORY' FOR UPDATE
+        `;
+        const bag = await tx.itemInstance.findMany({
+          where: { characterId: commit.characterId, location: "CHARACTER_INVENTORY" as ItemLocation },
+        });
+        const mergeStack = bag.find(
+          (r) => r.itemId === commit.reinforcementItemId && r.id !== commit.fragmentInstanceId,
+        );
+        const fragDepletes = frag.quantity - commit.consumeCount === 0;
+        if (!mergeStack) {
+          const used = new Set<number>();
+          for (const r of bag) {
+            if (r.slot === null || r.slot === undefined) continue;
+            if (r.id === commit.fragmentInstanceId && fragDepletes) continue; // freed by the consume below
+            used.add(r.slot);
+          }
+          let freeSlot = -1;
+          for (let s = 0; s < commit.capacity; s++) if (!used.has(s)) { freeSlot = s; break; }
+          if (freeSlot < 0) return { status: "inventory_full", grantedReinforcement: 0 };
+          // 4a) WRITE fragment consume + 5a) CREATE the reinforcement stack at the free slot.
+          await tx.itemInstance.update({
+            where: { id: commit.fragmentInstanceId },
+            data: fragDepletes
+              ? { quantity: 0, location: "DESTROYED" as ItemLocation, slot: null, version: { increment: 1 } }
+              : { quantity: frag.quantity - commit.consumeCount, version: { increment: 1 } },
+          });
+          await tx.item.upsert({ where: { id: commit.reinforcementItemId }, create: { id: commit.reinforcementItemId }, update: {} });
+          await tx.itemInstance.create({
+            data: {
+              accountId: commit.accountId,
+              characterId: commit.characterId,
+              itemId: commit.reinforcementItemId,
+              location: "CHARACTER_INVENTORY" as ItemLocation,
+              slot: freeSlot,
+              quantity: commit.reinforcementQuantity,
+              uniqueEquipGroup: commit.reinforcementUniqueEquipGroup,
+            },
+          });
+          return { status: "applied", grantedReinforcement: commit.reinforcementQuantity };
+        }
+
+        // 4b) WRITE fragment consume + 5b) MERGE into the existing reinforcement stack (quantity+, bump version).
+        await tx.itemInstance.update({
+          where: { id: commit.fragmentInstanceId },
+          data: fragDepletes
+            ? { quantity: 0, location: "DESTROYED" as ItemLocation, slot: null, version: { increment: 1 } }
+            : { quantity: frag.quantity - commit.consumeCount, version: { increment: 1 } },
+        });
+        await tx.itemInstance.update({
+          where: { id: mergeStack.id },
+          data: { quantity: { increment: commit.reinforcementQuantity }, version: { increment: 1 } },
+        });
+        return { status: "applied", grantedReinforcement: commit.reinforcementQuantity };
       });
     },
 

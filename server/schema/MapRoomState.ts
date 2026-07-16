@@ -22,11 +22,23 @@ export class PlayerState extends Schema {
   /** partyId (P1-08) — "" = solo. สมาชิก party เดียวกันใน room นี้ share ค่าเดียวกัน (filterBy). */
   @type("string") partyId = "";
   /**
+   * Batch 6 (ARCHER_CLASS_SPEC §6 note 4): classId (นักดาบ "swordsman" / นักธนู "archer") — server-authoritative
+   * (onJoin ตั้งจาก Character.classId ผ่าน loadCharacterClass / joinOptions fallback). Colyseus auto-sync →
+   * client เลือกชุดสกิล/art ตามอาชีพ. client ไม่เคยส่งค่านี้ขึ้น server (authority). default นักดาบ.
+   */
+  @type("string") classId = "swordsman";
+  /**
    * P2-13 (D-056): true เมื่อผู้เล่น idle ครบ idleIndicatorSec (ไม่มี movement/cast) — client แสดงป้าย
    * "AFK" ให้ผู้เล่นอื่นเห็น. server-authoritative (input tracker); reset false ทันทีที่มี input. **ไม่ผูก
    * disconnect** — D-056 ยกเลิก forced disconnect ทั้งชุด (character ค้างในโลกต่อ).
    */
   @type("boolean") isAfk = false;
+  /**
+   * D-067 Character Autonomy: true while the server automation controller owns this real character actor.
+   * This never denotes a clone, bot avatar, worker entity, or separate inventory. Other players see the same
+   * actor with a quiet automation marker. Server-authoritative; clients cannot set it.
+   */
+  @type("boolean") isBot = false;
   /**
    * A1/A2 (COMBAT_BIBLE §2/§10) — server-authoritative hp/maxHp. Colyseus auto-sync ให้ทุก client (แถบ HP =
    * E3, death overlay = E4). onJoin ตั้ง hp = maxHp (เกิดเต็ม); มอนตี → server หัก hp (clamp 0) → ตาย → respawn
@@ -83,6 +95,12 @@ export class MapRoomState extends Schema {
   /** partyId ของ channel นี้ (P1-08) — "" = solo channel; ≠"" = channel เฉพาะ party นั้น. */
   @type("string") partyId = "";
   @type("string") roomId = "";
+  /**
+   * Transport attachment table: Colyseus controller session id → stable world actor id. A reconnect may replace
+   * the controller key while retaining the same actor key/state. Clients use this server-issued binding to find
+   * their local character instead of assuming that a socket session id is a character identity.
+   */
+  @type({ map: "string" }) controllers = new MapSchema<string>();
   @type({ map: PlayerState }) players = new MapSchema<PlayerState>();
   /** มอนทุกตัวในห้อง (P1-03) — key = mobId. **AOI filter ยังไม่บังคับ P1** (§18.2, ดู MapRoom TODO). */
   @type({ map: MobState }) mobs = new MapSchema<MobState>();

@@ -12,7 +12,7 @@ import type { CharacterView } from "@/server/characters/service";
 // Token-driven (src/app/globals.css --dp-*) — was inline hex, migrated in the E6 visual-foundation pass.
 const DISPLAY_CLASSES: { id: string; playable: boolean }[] = [
   { id: "swordsman", playable: true },
-  { id: "archer", playable: false },
+  { id: "archer", playable: true }, // Batch 6: นักธนู เล่นได้ (ARCHER_CLASS_SPEC LOCKED)
   { id: "spearman", playable: false },
   { id: "mage", playable: false },
   { id: "occultist", playable: false },
@@ -145,7 +145,9 @@ export function CharacterCreate({
           <p className="text-[14px] text-(--dp-sand)">
             {classId === "swordsman"
               ? "แนวหน้า พลังโจมตีสูง ทนทาน — จุดเด่นของนักดาบ"
-              : ""}
+              : classId === "archer"
+                ? "ระยะไกล ยิงเร็วถี่ เลขเด้งรัว ตัวบางต้องเดินตั้งระยะ — จุดเด่นของนักธนู"
+                : ""}
           </p>
 
           {submitError && (

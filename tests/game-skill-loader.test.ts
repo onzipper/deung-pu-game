@@ -177,8 +177,13 @@ describe("loadSkillDefinitions — ค่าติดลบที่ไม่ค
     expect(() => loadSkillDefinitions([skill])).toThrow(SkillDefinitionError);
   });
 
-  test("maxTargets = 0 → throw (ต้อง ≥ 1)", () => {
-    const skill = { ...validSkill(), maxTargets: 0 };
+  test("maxTargets = 0 → ผ่าน (self/utility ไม่ target ใคร เช่น archer_swift_step)", () => {
+    const skill = { ...validSkill(), maxTargets: 0, hitCount: 0 };
+    expect(() => loadSkillDefinitions([skill])).not.toThrow();
+  });
+
+  test("maxTargets ติดลบ → throw", () => {
+    const skill = { ...validSkill(), maxTargets: -1 };
     expect(() => loadSkillDefinitions([skill])).toThrow(SkillDefinitionError);
   });
 

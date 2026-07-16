@@ -7,7 +7,7 @@
 ## Project
 
 **ดึ๋งปุ๊** — 2.5D web MMORPG (true 2D isometric, SVG-first art) on Next.js + PixiJS 8.
-Source of truth = game spec v15.3 (`docs/design/`) + tech architecture v1.5.2 (`docs/tech/`) — **spec-first, never guess** (AI.md).
+Source of truth = game spec v15.5 (`docs/design/`) + tech architecture v1.5.3 (`docs/tech/`) — **spec-first, never guess** (AI.md).
 
 ## Commands (npm)
 

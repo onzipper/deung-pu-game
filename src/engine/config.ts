@@ -4,6 +4,7 @@
 
 export * from "./config/scene";
 export * from "./config/player";
+export * from "./config/auto-pilot";
 export * from "./config/companion";
 export * from "./config/mob";
 export * from "./config/combat";

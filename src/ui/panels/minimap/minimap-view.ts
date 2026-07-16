@@ -3,6 +3,7 @@
 
 import { directionToScreenUnit, type Direction } from "@/engine/movement/direction";
 import type { MapBounds } from "@/engine/map/types";
+import type { TilePoint } from "@/engine/iso/coords";
 
 /** blip rank → color (§8.4: "Danger/Boss = danger red"; elite/normal ไม่มีใน spec เดิม — เลือกสีข้างเคียง
  * ตาม Design Token ที่มีอยู่, ดู Minimap.tsx สำหรับการ resolve ค่า CSS var จริง). */
@@ -55,6 +56,23 @@ export function projectTileToMinimap(
     x: Math.max(0, Math.min(innerSize, fx * innerSize)),
     y: Math.max(0, Math.min(innerSize, fy * innerSize)),
   };
+}
+
+/**
+ * inverse ของ projectTileToMinimap (Auto Pilot destination pick, Batch 7a D-037): px ภายใน widget → tile
+ * coord (float). ใช้ตอนคลิกมินิแมปขยายเพื่อเสนอจุดหมาย (Minimap.tsx แปลง offsetX/offsetY → tile). clamp px
+ * เข้ากรอบ [0, innerSize] ก่อน (คลิกขอบ/นอกกรอบ → tile ในขอบเขต map). innerSize ≤ 0 → tile (0,0) กันหารศูนย์.
+ * caller floor เป็น integer cell เอง (destination ยืนยันเป็น cell). round-trip กับ projectTileToMinimap.
+ */
+export function unprojectMinimapToTile(
+  point: MinimapPoint,
+  bounds: MapBounds,
+  innerSize: number,
+): TilePoint {
+  if (innerSize <= 0) return { tx: 0, ty: 0 };
+  const fx = Math.max(0, Math.min(1, point.x / innerSize));
+  const fy = Math.max(0, Math.min(1, point.y / innerSize));
+  return { tx: fx * bounds.width, ty: fy * bounds.height };
 }
 
 /**

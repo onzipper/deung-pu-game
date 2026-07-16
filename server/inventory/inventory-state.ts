@@ -20,9 +20,11 @@ import type {
 } from "../../src/server/inventory/repository";
 import type { EnhancementCurve } from "../../src/server/inventory/equipment-stats";
 import type { ReinforcementRules } from "../../src/server/inventory/enhancement-service";
+import type { FragmentExchangeRules } from "../../src/server/inventory/fragment-exchange-service";
 import { DEFAULT_ECONOMY_CONFIG } from "../config/economy";
 import { DEFAULT_REINFORCEMENT_CONFIG } from "../config/reinforcement";
 import { DEFAULT_STORAGE_CONFIG } from "../config/storage";
+import { DEFAULT_CONSUMABLE_CONFIG } from "../config/consumables";
 import { ECONOMY_CONFIG_DEF } from "../config/loader";
 import type { StorageConfig } from "../config/types";
 
@@ -30,6 +32,8 @@ import type { StorageConfig } from "../config/types";
 export const INVENTORY_CAPACITY = DEFAULT_INVENTORY_CAPACITY;
 /** server-authoritative item definitions (slot + stat bonus, Design Knob §48). */
 export const ITEM_CATALOG: ItemCatalog = DEFAULT_ITEM_CATALOG;
+/** PR5 — server-authoritative consumable effects (heal %/cooldown, Economy §7.1 · Design Knob §48). */
+export const CONSUMABLE_CONFIG = DEFAULT_CONSUMABLE_CONFIG;
 
 // P2-10 — server-authoritative Design Knobs for reinforcement (Reinforcement §2 · D-054 · §16.3.1). Uses the
 // in-code DEFAULT config, same posture as ITEM_CATALOG (the DB `config_versions` override via loader.ts is not
@@ -44,6 +48,13 @@ export const REINFORCEMENT_RULES: ReinforcementRules = {
 };
 /** economy config version stamped on enhancement_logs (the in-code DEFAULT version). */
 export const ENHANCEMENT_CONFIG_VERSION = ECONOMY_CONFIG_DEF.defaultVersion;
+/** B4 fragment exchange knobs (Reinforcement §3.5 — 5 เศษเสริมแกร่ง → 1 เสริมแกร่ง). */
+export const FRAGMENT_EXCHANGE_RULES: FragmentExchangeRules = {
+  fragmentMaterialId: DEFAULT_REINFORCEMENT_CONFIG.fragment.materialId,
+  reinforcementMaterialId: DEFAULT_REINFORCEMENT_CONFIG.materialId,
+  inputCount: DEFAULT_REINFORCEMENT_CONFIG.fragment.exchangeInputCount,
+  outputCount: DEFAULT_REINFORCEMENT_CONFIG.fragment.exchangeOutputCount,
+};
 
 // P2-17 — server-authoritative Design Knobs for personal storage + delivery box (Storage §10/§15/§16). Same
 // posture as ITEM_CATALOG / SHOP_CONFIG (in-code DEFAULT; DB config_versions override via loader.ts not yet

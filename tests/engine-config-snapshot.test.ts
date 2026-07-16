@@ -35,6 +35,7 @@ import {
 import type {
   AfkConfig,
   AttackShapeConfig,
+  AutoPilotConfig,
   CameraConfig,
   CombatBalanceConfig,
   CombatFeelConfig,
@@ -107,6 +108,7 @@ import type {
 export type _ConfigTypeSurface =
   | AfkConfig
   | AttackShapeConfig
+  | AutoPilotConfig
   | CameraConfig
   | CombatBalanceConfig
   | CombatFeelConfig
@@ -170,10 +172,11 @@ export type _ConfigTypeSurface =
   | WorldConfig
   | WorldPhase;
 
-// The 27 runtime value exports (23 DEFAULT_* consts + 4 functions). Types erase at runtime,
+// The 28 runtime value exports (24 DEFAULT_* consts + 4 functions). Types erase at runtime,
 // so Object.keys(module) returns exactly these — a dropped/renamed value export fails here.
 const EXPECTED_VALUE_EXPORTS = [
   "DEFAULT_AFK_CONFIG",
+  "DEFAULT_AUTO_PILOT_CONFIG",
   "DEFAULT_CAMERA_CONFIG",
   "DEFAULT_COMBAT_BALANCE_CONFIG",
   "DEFAULT_COMBAT_FEEL_CONFIG",
@@ -205,7 +208,7 @@ const EXPECTED_VALUE_EXPORTS = [
 const MAP_ZONE_TYPES: MapZoneType[] = ["safe", "field"];
 
 describe("engine config — export-name identity", () => {
-  test("module exposes exactly the 27 runtime value exports", async () => {
+  test("module exposes exactly the 28 runtime value exports", async () => {
     const mod = await import("@/engine/config");
     expect(Object.keys(mod).sort()).toEqual(EXPECTED_VALUE_EXPORTS);
   });

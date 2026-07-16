@@ -3,9 +3,11 @@ import { grantKillRewards, type ItemMeta } from "@/server/economy/kill-reward";
 import type { DropTable } from "@/server/economy/drop-roll";
 import { DEFAULT_ECONOMY_CONFIG, DEFAULT_REINFORCEMENT_CONFIG } from "../server/config";
 
-// Wave 1 (OB) — the Field Boss หมูป่าหม้อเดือด is the sanctioned reinforcement-material source (D-064):
-// its drop table may grant `upg_reinforcement` (R8-exempt for this boss only), and the guaranteed grants land.
-// The generic R8 guard still blocks the material for every other monster. This locks the exemption boundary.
+// B4 (Reinforcement §4.2/§3.5) — the Field Boss หมูป่าหม้อเดือด is the reinforcement source, but the material +
+// fragment come from the dedicated PITY PATH (server/economy/reinforcement-pity.ts), NOT the drop table. This
+// file locks the boundary: the GENERIC drop roll grants the boss core + gear but NEVER the reinforcement/fragment
+// ids for ANY monster (Field Boss included) — the R8 guard is now uniform (no per-boss exemption). The pity
+// ladder + fragment roll are proven in server-reinforcement-pity.test.ts.
 
 const MATERIAL = DEFAULT_REINFORCEMENT_CONFIG.materialId; // upg_reinforcement
 const FRAGMENT = DEFAULT_REINFORCEMENT_CONFIG.fragment.materialId; // upg_reinforcement_fragment
@@ -47,27 +49,27 @@ async function runKill(monsterId: string, excludedItemIds: ReadonlySet<string>) 
       ledger: null,
       inventory: inv.seam,
       dropAudit: null,
+      delivery: null,
     },
     { characterId: "c1", accountId: "a1", mobType: "boss_boiling_boar", playerLevel: 6, playerExp: 0, eligibleMembers: 1, capacity: 40, killEventId: "k1" },
   );
   return inv.granted;
 }
 
-// mirror kill-rewards.ts: full guard for normal mobs; fragment-only guard for the Field Boss.
+// post-B4: the guard is uniform — BOTH reinforcement + fragment ids are excluded from the generic roll for every
+// monster, the Field Boss included (they come from the pity path).
 const FULL_GUARD = new Set([MATERIAL, FRAGMENT]);
-const FIELD_BOSS_GUARD = new Set([FRAGMENT]);
 
-describe("Field Boss reinforcement source (D-064, R8 exemption)", () => {
-  test("Field Boss grants upg_reinforcement (guaranteed) + boss core", async () => {
-    const granted = await runKill("boss_map1_boiling_boar", FIELD_BOSS_GUARD);
+describe("Field Boss generic loot (B4 — reinforcement moved to the pity path)", () => {
+  test("Field Boss generic drop grants the boss core (guaranteed) but NOT reinforcement/fragment", async () => {
+    const granted = await runKill("boss_map1_boiling_boar", FULL_GUARD);
     const ids = granted.map((g) => g.itemId);
-    expect(ids).toContain(MATERIAL);
     expect(ids).toContain("mat_boss_resonance_core");
-    expect(ids).not.toContain(FRAGMENT); // fragment still blocked (post-OB)
+    expect(ids).not.toContain(MATERIAL); // §4.2 reinforcement = pity path, not the drop table
+    expect(ids).not.toContain(FRAGMENT); // §3.5 fragment = pity path, not the drop table
   });
 
-  test("a normal mob under the full R8 guard never grants reinforcement material", async () => {
-    // even if a table listed it, the full guard filters it — prove the guard still bites off-boss.
+  test("the R8 guard suppresses reinforcement even if a table listed it (defence-in-depth, off-boss too)", async () => {
     const granted = await runKill("boss_map1_boiling_boar", FULL_GUARD);
     expect(granted.map((g) => g.itemId)).not.toContain(MATERIAL);
   });

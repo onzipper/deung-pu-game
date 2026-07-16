@@ -136,6 +136,26 @@ export async function loadCharacterName(
 }
 
 /**
+ * Batch 6 (ARCHER_CLASS_SPEC §6 note 4): โหลด classId ของตัวละคร (Character.classId §50.1) ตอน join → เลือก
+ * ชุดสกิล + class stat weights (§2). best-effort — DB ล่ม/ไม่มี row → null (caller fallback swordsman / joinOptions).
+ */
+export async function loadCharacterClass(
+  characterId: string,
+): Promise<string | null> {
+  if (!dbConfigured()) return null;
+  try {
+    const row = await getPrisma().character.findUnique({
+      where: { id: characterId },
+      select: { classId: true },
+    });
+    return row ? row.classId : null;
+  } catch (err) {
+    warnDbError("class-load", err);
+    return null;
+  }
+}
+
+/**
  * P2-09: persist level/exp หลังได้ EXP/level-up (best-effort — save ล้ม = เกมเดินต่อ, persist รอบหน้า).
  * ต่างจาก ledger (strict): EXP เป็น progression state แบบ character-state — DB ล่มไม่ break combat.
  */

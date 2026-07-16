@@ -58,9 +58,59 @@ export const ICON_FILES: Readonly<Record<string, string>> = {
   mat_resonance_dust: "itm_mat_resonance_dust_uncommon_v01.svg",
   mat_boss_resonance_core: "itm_mat_boss_resonance_core_uncommon_v01.svg",
 
-  // Reinforcement material (server/config/reinforcement.ts materialId, R10 rename — NOT part of
-  // item-catalog.ts's DEFAULT_ITEM_CATALOG, so it's outside the sync test's id set but still needs art).
+  // Reinforcement material + fragment (server/config/reinforcement.ts, R10 rename). B4 added both to
+  // item-catalog.ts's DEFAULT_ITEM_CATALOG (stackable materials §3.1/§3.5) → now inside the sync test's id set.
   upg_reinforcement: "itm_upg_reinforcement_rare_v01.svg",
+  // B4 PLACEHOLDER: เศษเสริมแกร่ง reuses the เสริมแกร่ง icon until dedicated fragment art lands (SVG pipeline /
+  //   L2 final-art order = owner-deferred). Swap to `itm_upg_reinforcement_fragment_*` once art exists.
+  upg_reinforcement_fragment: "itm_upg_reinforcement_rare_v01.svg",
+
+  // Maps 2–4 materials (MAPS_2_4 spec §4). PLACEHOLDER: reuse Map 1 material art ตาม rarity ที่ใกล้สุด จนกว่า
+  //   L2 final-art (owner-deferred) — sync test (a) ต้องมี entry ครบ; test (b) ไฟล์ต้องมีจริง → reuse ไฟล์ที่มีอยู่.
+  //   Map 2
+  mat_startle_spore: "itm_mat_slime_gel_common_v01.svg", // Common placeholder
+  mat_resonant_straw: "itm_mat_soft_feather_common_v01.svg", // Common placeholder
+  mat_greenlight_whisker: "itm_mat_sharp_tusk_uncommon_v01.svg", // Uncommon placeholder
+  mat_warden_talisman_ash: "itm_mat_boss_resonance_core_uncommon_v01.svg", // Uncommon boss placeholder
+  //   Map 3
+  mat_old_root_scrap: "itm_mat_coarse_hide_common_v01.svg", // Common placeholder
+  mat_shadow_pelt: "itm_mat_coarse_hide_common_v01.svg", // Common placeholder
+  mat_mossless_shard: "itm_mat_resonance_dust_uncommon_v01.svg", // Uncommon placeholder
+  mat_nameless_marker_stone: "itm_mat_boss_resonance_core_uncommon_v01.svg", // Uncommon boss placeholder
+  //   Map 4
+  mat_moonlight_residue: "itm_mat_slime_gel_common_v01.svg", // Common placeholder
+  mat_dream_cap: "itm_mat_soft_feather_common_v01.svg", // Common placeholder
+  mat_shadow_dew: "itm_mat_resonance_dust_uncommon_v01.svg", // Uncommon placeholder
+  mat_moondark_sap: "itm_upg_reinforcement_rare_v01.svg", // Rare placeholder (reuse rare material art)
+
+  // Maps 2–4 equipment (MAPS_2_4 Item Master Addendum §1–§3). PLACEHOLDER: reuse Map 1 equipment art ตาม
+  //   slot+rarity ที่ใกล้สุด จนกว่า L2 final-art (owner-deferred). sync test (a) ต้องมี entry ต่อ id; (b) ไฟล์ต้องมีจริง.
+  //   epic weapon = reuse rare weapon art (rarity:"rare" ชั่วคราว, addendum §6 Q-C).
+  //   Map 2
+  eq_weapon_field_scythe: "itm_weapon_reed_edge_common_v01.svg", // weapon common placeholder
+  eq_head_straw_hood: "itm_head_leaf_wrap_common_v01.svg", // head common placeholder
+  eq_body_field_hand_vest: "itm_body_padded_field_coat_common_v01.svg", // body common placeholder
+  eq_accessory_rat_tail_charm: "itm_accessory_tough_tusk_ring_uncommon_v01.svg", // accessory uncommon placeholder
+  eq_weapon_talisman_pike: "itm_weapon_boar_tusk_saber_uncommon_v01.svg", // weapon uncommon placeholder
+  eq_body_warden_straw_plate: "itm_body_resonant_coat_rare_v01.svg", // body rare placeholder
+  eq_talisman_warden_seal: "itm_talisman_moon_echo_rare_v01.svg", // talisman rare placeholder
+  //   Map 3
+  eq_weapon_gnaw_root_club: "itm_weapon_reed_edge_common_v01.svg", // weapon common placeholder
+  eq_head_stone_brow_guard: "itm_head_leaf_wrap_common_v01.svg", // head common placeholder
+  eq_body_monkey_hide_jerkin: "itm_body_padded_field_coat_common_v01.svg", // body common placeholder
+  eq_accessory_shadow_tail_band: "itm_accessory_tough_tusk_ring_uncommon_v01.svg", // accessory uncommon placeholder
+  eq_head_mossless_helm: "itm_head_boarhide_cap_uncommon_v01.svg", // head uncommon placeholder
+  eq_weapon_warden_stoneblade: "itm_weapon_resonant_edge_rare_v01.svg", // weapon rare placeholder
+  eq_talisman_nameless_marker: "itm_talisman_moon_echo_rare_v01.svg", // talisman rare placeholder
+  //   Map 4
+  eq_weapon_wisp_edge: "itm_weapon_reed_edge_common_v01.svg", // weapon common placeholder
+  eq_head_moonlit_circlet: "itm_head_leaf_wrap_common_v01.svg", // head common placeholder
+  eq_body_deerhide_coat: "itm_body_padded_field_coat_common_v01.svg", // body common placeholder
+  eq_accessory_dream_bead: "itm_accessory_tough_tusk_ring_uncommon_v01.svg", // accessory uncommon placeholder
+  eq_talisman_moonshard_charm: "itm_talisman_firmness_uncommon_v01.svg", // talisman uncommon placeholder
+  eq_weapon_dryad_moonglaive: "itm_weapon_resonant_edge_rare_v01.svg", // weapon rare placeholder
+  eq_body_moondark_veil: "itm_body_resonant_coat_rare_v01.svg", // body rare placeholder
+  eq_weapon_moondark_crescent: "itm_weapon_resonant_edge_rare_v01.svg", // epic weapon → rare weapon art (Q-C placeholder)
 };
 
 /** equipment slot key (item-catalog.ts EQUIPMENT_SLOTS, §1.1) → empty-slot placeholder SVG under svg/ui/. */

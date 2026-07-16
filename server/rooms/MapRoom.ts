@@ -47,10 +47,11 @@ import { MapRoomState, MobState, PlayerState } from "../schema/MapRoomState";
 import { authorizeHandshake } from "../security/handshake";
 import { parseAllowedOrigins } from "../security/origin-allowlist";
 import { createRateLimiter } from "../security/rate-limiter";
-import { claimSession, releaseSession } from "../security/session-registry";
+import { claimSession, releaseSession, transferSession } from "../security/session-registry";
 import { acquireLease, releaseLease } from "../security/session-lease";
 import {
   fetchCharacterOwner,
+  loadCharacterClass,
   loadCharacterName,
   loadCharacterState,
   loadCharacterProgress,
@@ -58,7 +59,9 @@ import {
   saveCharacterProgress,
   updateLastPlayed,
 } from "../characters/character-state";
+import { isValidClassId } from "../../src/shared/character-class";
 import { carryKey, recallProgress, stashProgress } from "../characters/progress-carrier";
+import { CharacterAuthorityRegistry } from "../characters/authority";
 import {
   decideOwnership,
   pickLoadPosition,
@@ -73,6 +76,10 @@ import {
 import {
   DEFAULT_PARTY_ID,
   DEFAULT_MAP_ID,
+  CHARACTER_ACTOR_ROOM_REDIRECT_CODE,
+  CHARACTER_ACTOR_ROOM_REDIRECT_PREFIX,
+  CHARACTER_AUTONOMY_CONFLICT_CODE,
+  CHARACTER_WORLD_CAPACITY_CODE,
   MSG_CAST_SKILL,
   MSG_CAST_REJECTED,
   MSG_MAP_TRANSITION,
@@ -87,8 +94,12 @@ import {
   MSG_EQUIP_ITEM,
   MSG_UNEQUIP_ITEM,
   MSG_MOVE_ITEM,
+  MSG_USE_ITEM,
+  MSG_USE_ITEM_RESULT,
   MSG_ENHANCE_ITEM,
   MSG_ENHANCE_RESULT,
+  MSG_FRAGMENT_EXCHANGE,
+  MSG_FRAGMENT_EXCHANGE_RESULT,
   MSG_SHOP_LIST_REQUEST,
   MSG_SHOP_LIST,
   MSG_SHOP_BUY,
@@ -125,8 +136,12 @@ import {
   type SkillResultMessage,
   type EquipItemMessage,
   type MoveItemMessage,
+  type UseItemMessage,
+  type UseItemResultMessage,
   type EnhanceItemMessage,
   type EnhanceResultMessage,
+  type FragmentExchangeMessage,
+  type FragmentExchangeResultMessage,
   type InventoryOp,
   type InventoryOpRejectedMessage,
   type PlayerProgressMessage,
@@ -143,6 +158,12 @@ import {
   type DeliveryClaimMessage,
   type DeliveryStateMessage,
   type DeliveryResultMessage,
+  MSG_ACHIEVEMENT_UNLOCKED,
+  MSG_CLIENT_EVENT,
+  MSG_ACHIEVEMENTS_REQUEST,
+  MSG_ACHIEVEMENTS_SNAPSHOT,
+  type ClientEventMessage,
+  type AchievementsSnapshotMessage,
 } from "../../src/shared/net-protocol";
 import {
   validateMove,
@@ -177,6 +198,15 @@ import {
   type EnhanceResult,
 } from "../../src/server/inventory/enhancement-service";
 import {
+  useConsumable,
+  type UseConsumableReject,
+  type UseConsumableResult,
+} from "../../src/server/inventory/consumable-service";
+import {
+  exchangeFragments,
+  type FragmentExchangeResult,
+} from "../../src/server/inventory/fragment-exchange-service";
+import {
   depositToStorage,
   withdrawFromStorage,
   claimDeliveryEntry,
@@ -188,12 +218,14 @@ import {
   type DeliveryClaimResult,
 } from "../../src/server/inventory/storage-service";
 import { aggregateEquipmentBonus } from "../../src/server/inventory/equipment-stats";
-import { applyEquipmentBonus } from "../../src/server/inventory/item-catalog";
+import { applyEquipmentBonus, sharingPolicyOf } from "../../src/server/inventory/item-catalog";
 import {
   INVENTORY_CAPACITY,
   ITEM_CATALOG,
+  CONSUMABLE_CONFIG,
   ENHANCEMENT_CURVE,
   REINFORCEMENT_RULES,
+  FRAGMENT_EXCHANGE_RULES,
   ENHANCEMENT_CONFIG_VERSION,
   STORAGE_CONFIG,
   STORAGE_CAPACITY,
@@ -205,25 +237,39 @@ import {
 } from "../inventory/inventory-state";
 import {
   grantKillRewardsForMob,
-  PLAYER_BASELINE_TABLE,
-  EXP_CURVE,
+  loadRoomEconomy,
+  DEFAULT_ROOM_ECONOMY,
+  PARTY_REWARD_CONFIG,
+  type RoomEconomyConfig,
 } from "../economy/kill-rewards";
 import {
   grantMilestoneWired,
   milestonesForTrigger,
   mobClassForMobType,
+  monsterIdForMobType,
   type MilestoneGrantOutcome,
   type MilestoneTrigger,
 } from "../economy/milestones";
+import {
+  buildAchievementsSnapshot,
+  emitAchievementEvent,
+  forgetAchievementSession,
+  sanitizeClientEvent,
+} from "../economy/achievements";
 import { SHOP_CONFIG, shopForMap, shopItemMeta } from "../economy/shop-state";
 import {
   buyShopItem,
   sellItem,
+  NON_SELLABLE_ITEM_IDS,
   type ShopBuyResult,
   type ShopSellResult,
 } from "../../src/server/economy/shop";
-import { appendEntry } from "../db/ledger";
-import { applyExpGain, playerBaselineForLevel } from "../../src/server/economy/exp";
+import { appendEntry, getBalance } from "../db/ledger";
+import {
+  applyClassStatWeights,
+  applyExpGain,
+  playerBaselineForLevel,
+} from "../../src/server/economy/exp";
 import {
   createMobSimulation,
   type BossView,
@@ -237,10 +283,23 @@ import {
   bossDamageModifier,
   shouldEmitBossTelegraph,
 } from "../../src/game/mob/boss";
+import {
+  createDamageContributionState,
+  recordDamage,
+  retainMobs,
+  eligibleFor,
+  contributorCountAtLeast,
+  type MobRewardRank,
+} from "../../src/game/mob/damage-contribution";
 import type { SkillDefinition } from "../../src/game/skill/types";
 import { loadSkillDefinitions } from "../../src/game/skill/loader";
 import { WARRIOR_SKILLS_SERVER } from "../../src/game/skill/data/warrior-skills-server";
+import { ARCHER_SKILLS_SERVER } from "../../src/game/skill/data/archer-skills-server";
 import {
+  clampAimToRange,
+  clampDisplacementToWalkable,
+  isGroundTargetCircle,
+  resolveGroundAoeHits,
   resolveSkillHits,
   skillReadyAt,
   validateCast,
@@ -250,11 +309,53 @@ import {
   computeMobDamageToPlayer,
   computeSkillDamage,
   damageReductionFromStatus,
+  moveSpeedBonusFromStatus,
+  resolveDamageTakenDebuff,
   respawnPlayer,
 } from "../../src/game/combat/formula";
-import type { HitTestTarget } from "../../src/game/combat/hit-test";
+import {
+  screenAngleForDirection,
+  tileUnitVectorForScreenAngle,
+  type HitTestTarget,
+} from "../../src/game/combat/hit-test";
 import { coerceDirection } from "../../src/engine/net/sync";
+import { resolveDirection, type Direction } from "../../src/engine/movement/direction";
 import { defaultRng } from "../../src/game/mob/rng";
+import { botManager } from "../bot/manager";
+import { nextStepToward, type AgentMob, type Vec2 } from "../bot/agent";
+import { findPath } from "../../src/engine/pathfinding/astar";
+import type {
+  BotAttackOutcome,
+  BotAuthorityInput,
+  BotBagItemView,
+  BotMemberState,
+  BotPotionOutcome,
+  BotTownTxResult,
+  BotWarpExport,
+} from "../bot/runtime";
+import { isForbiddenAutomationMobClass } from "../bot/policy";
+import {
+  MSG_BOT_PROFILE_LIST,
+  MSG_BOT_PROFILE_CREATE,
+  MSG_BOT_PROFILE_UPDATE,
+  MSG_BOT_PROFILE_DELETE,
+  MSG_BOT_START,
+  MSG_BOT_STOP,
+  MSG_BOT_TAKEOVER,
+  MSG_BOT_RESUME,
+  MSG_BOT_MOCK_PURCHASE,
+  MSG_BOT_REPORT_LIST,
+  MSG_BOT_REPORT_FETCH,
+  type BotProfileCreateMessage,
+  type BotProfileUpdateMessage,
+  type BotProfileDeleteMessage,
+  type BotStartMessage,
+  type BotStopMessage,
+  type BotTakeoverMessage,
+  type BotResumeMessage,
+  type BotMockPurchaseMessage,
+  type BotReportFetchMessage,
+} from "../../src/shared/net-protocol";
 
 /** onCreate options = merge ของ options ที่ define() ตั้ง (ว่างใน P1) + clientOptions ของคนแรกที่ join. */
 interface MapRoomCreateOptions {
@@ -262,6 +363,36 @@ interface MapRoomCreateOptions {
   /** P1-08: partyId ของคนแรกที่ทำให้ room นี้เกิด (filter dimension) — "" = solo channel. */
   partyId?: string;
 }
+
+/**
+ * G-lite: one mob killed this cast + who shares its reward (§10.2/§10.3). Captured synchronously in handleCast
+ * (before the tracker is pruned) and drained by the deferred async reward loop.
+ */
+interface KillGrant {
+  /** engine mobType → economy reward lookup (grantKillRewardsForMob). */
+  mobType: string;
+  /** §9.4 EXP pool size for the split: solo channel = 1 · party channel = eligible member count. */
+  poolMembers: number;
+  /** eligible recipients (sessionId + the damage share they dealt) — each gets a personal reward. */
+  members: { sessionId: string; sharePct: number }[];
+}
+
+// Batch 7b (Bot): BotMemberState (per-bot state alongside the shared session maps) is defined in
+// server/bot/runtime.ts — the canonical bot-facing types module — so warp types never pull this room/schema
+// module into the client/test tsc program. Re-imported below with the other bot host types.
+
+/**
+ * PR5: map the pure consumable-service rejects onto the bot potion outcome status. `unknown_item`/`no_effect`
+ * are catalogue/config errors → fail closed to "unavailable" (never silently succeed on a bad config).
+ */
+const BOT_POTION_REJECT_STATUS: Record<UseConsumableReject, BotPotionOutcome["status"]> = {
+  no_stock: "no_potion",
+  on_cooldown: "on_cooldown",
+  hp_already_full: "not_needed",
+  version_conflict: "conflict",
+  unknown_item: "unavailable",
+  no_effect: "unavailable",
+};
 
 /**
  * P1-08: channel number registry (display label CH.n ต่อ mapId) — **module-level singleton** ใช้ร่วมทุก
@@ -302,6 +433,7 @@ function accountIdOf(client: Client): string | null {
  * **ห้าม leak sessionId/characterId**. ค่าไทยกลาง ๆ (ไม่ผูก balance/spec content).
  */
 const GUEST_PLAYER_NAME = "ผู้เล่น";
+/** Batch 7b: nameplate for a bot (Hunter Assistant) entity so real players can tell it apart. */
 
 /** P2-05: อ่าน characterId ที่ onAuth verify ownership แล้วผูกไว้ใน client.auth (null = anonymous/ไม่ผูกตัวละคร). */
 function characterIdOf(client: Client): string | null {
@@ -407,12 +539,39 @@ export class MapRoom extends Room<MapRoomState> {
   private readonly trackers = new Map<string, MoveTracker>();
   /** mob simulation ฝั่ง server (P1-03) — authoritative spawn/respawn/AI/LOD (pure core) */
   private sim!: MobSimulation;
-  /** skill definitions (P1-05) — full server view (37 field §50.1); key = skillId. โหลดใน onCreate. */
-  private skills!: Map<string, SkillDefinition>;
+  /**
+   * skill definitions ต่ออาชีพ (P1-05 + Batch 6) — full server view (37 field §50.1); key = classId → (skillId → def).
+   * โหลดทั้งชุดใน onCreate (swordsman + archer) → resolve ต่อ session ตาม classId ตอน cast (handleCast). fallback
+   * swordsman เมื่อ classId ไม่รู้จัก. **server-authoritative**: client ส่งแค่ skillId, server หา def จากอาชีพจริง.
+   */
+  private skillsByClass!: Record<string, Map<string, SkillDefinition>>;
+  /**
+   * Batch 6 (ARCHER_CLASS_SPEC §6 note 4): classId ต่อ session (จาก Character.classId / joinOptions fallback).
+   * ขับการเลือกชุดสกิล (skillsByClass) + class stat weights (§2). server-only; set ตอน join, ลบตอน leave.
+   */
+  private readonly sessionClassId = new Map<string, string>();
+  /**
+   * Batch 6 (ARCHER_CLASS_SPEC §3 S3 archer_target_mark): mark debuff ต่อ **mob** (mobId → multiplier + until ms).
+   * ปักตอน cast target_mark โดนเป้า → เป้ารับดาเมจ ×multiplier จน until. re-cast = overwrite (refresh ไม่สแต็ก).
+   * อ่านตอนคำนวณ damage ผู้เล่นตีเป้า (activeMarkMultiplier). ลบตอนมอนหาย/ตาย (syncMobsToState prune). server-only.
+   */
+  private readonly markDebuffs = new Map<string, { multiplier: number; until: number }>();
+  /**
+   * Batch 6 (ARCHER_CLASS_SPEC §3 S4 archer_swift_step): self moveSpeed buff ต่อ session (bonus fraction + until ms).
+   * ตั้งตอน cast swift_step → กว้าง allowance move validation (activeMoveSpeedBonus) กัน false-reject ตอนเดินเร็วขึ้น.
+   * หมดอายุ = ปล่อยค้าง (เช็ค until ตอนอ่าน) ลบตอน leave. server-only.
+   */
+  private readonly moveSpeedBonusUntil = new Map<string, { until: number; bonus: number }>();
   /** combat balance knob (P1-05) — k/player/mob stat (single source of truth, DEFAULT_ENGINE_CONFIG) */
   private balance!: CombatBalanceConfig;
   /** cooldown state ต่อ (sessionId → skillId → readyAtMs) — server clock authority (§16.3). ไม่ broadcast. */
   private readonly cooldowns = new Map<string, Map<string, number>>();
+  /**
+   * PR5 (Economy §7.1): per-actor consumable cooldown (actorId → epoch ms until next allowed use) — server clock
+   * authority, keyed by the stable actor so the manual + future bot heal paths share one gate. Not in schema
+   * (server-only, never broadcast). Cleaned up in removePlayer alongside the other per-actor cooldown maps.
+   */
+  private readonly consumableCooldowns = new Map<string, number>();
   /**
    * P2-07: effective combat stats ต่อ session = base (นักดาบ lv1) + equipment bonus (aggregate จากของที่สวม).
    * recompute ตอน join + หลังทุก equip/unequip สำเร็จ. ไม่อยู่ใน schema (server-only, ใช้ในสูตร damage §15.2).
@@ -424,6 +583,22 @@ export class MapRoom extends Room<MapRoomState> {
    * effectiveStats. ป้อนเข้า boss break contribution (§8) ตอน cast โดนบอส. ไม่อยู่ใน schema (server-only).
    */
   private readonly sessionBreakPower = new Map<string, number>();
+  /**
+   * G-lite (Economy §10.2/§10.3): per-mob damage-contribution ledger (mobId → sessionId → damage). Recorded on
+   * every hit that reduces mob hp; read at kill time to pick eligible reward recipients (§10.2/§10.3) + the boss
+   * break party size (§2.4). Pruned by mob id in syncMobsToState (dead/despawned mobs) — a leaver's damage stays
+   * (it still counts toward others' share denominator; the leaver is dropped by the presence filter, not here).
+   */
+  private readonly damageContrib = createDamageContributionState();
+  /** G-lite: reward-eligibility knobs (§10.2/§10.3 share thresholds + Reward Radius). Design Knob (§48). */
+  private partyReward = PARTY_REWARD_CONFIG;
+  /**
+   * ITEM 3 (config DB override): the economy Design Knobs this room runs with (EXP curve / player baseline / drop
+   * tables / milestones / party thresholds). Starts on the in-code DEFAULT bundle and is loaded ONCE at onCreate
+   * (best-effort, async) → swaps to the active DB `config_versions` config, or stays DEFAULT (no DB / no active
+   * row / error). Immutable after that single load — the whole room reads economy values from this one source.
+   */
+  private economy: RoomEconomyConfig = DEFAULT_ROOM_ECONOMY;
   /**
    * workstream B: last-broadcast boss delta ต่อ mobId (telegraphSeq/phaseIndex) — กัน re-broadcast telegraph/phase
    * ซ้ำทุก sync. เคลียร์ตอน mob หายจาก sim (syncMobsToState stale prune).
@@ -449,8 +624,11 @@ export class MapRoom extends Room<MapRoomState> {
     string,
     readonly { itemId: string; enhancementLevel: number }[]
   >();
-  /** P1-08: partyId ของ channel นี้ ("" = solo channel, ≠"" = party channel) — จาก options คนแรก */
-  private partyId = DEFAULT_PARTY_ID;
+  /**
+   * P1-08: partyId ของ channel นี้ ("" = solo channel, ≠"" = party channel) — จาก options คนแรก.
+   * Public (BotHost.partyId): the warp target selection skips party channels. Set in onCreate.
+   */
+  partyId = DEFAULT_PARTY_ID;
   /** P1-08: display channelId (CH.n) ที่ registry จ่ายให้ตอน onCreate — release ตอน onDispose */
   private assignedChannelId = "";
   /** P1-07: grace window (วินาที) สำหรับ allowReconnection (§59.1) — set ตอน onCreate */
@@ -471,11 +649,19 @@ export class MapRoom extends Room<MapRoomState> {
     string,
     { accountId: string; characterId: string; lastSaveMs: number }
   >();
+  /** Stable character actor ownership; transport sessions are optional controllers, never entity identities. */
+  private readonly characterAuthority = new CharacterAuthorityRegistry(randomUUID);
   /**
    * P2-05: session ที่กำลังข้าม map (checkExit save ปลายทางไปแล้ว) — onLeave (consented จาก transition)
    * จะ **ไม่** save ทับด้วยตำแหน่ง map เก่า. เคลียร์ตอน onLeave/removePlayer.
    */
   private readonly transitioningSessions = new Set<string>();
+  /** D-067: automation metadata keyed by the real actor id. No clone/worker PlayerState is created. */
+  private readonly botMembers = new Map<string, BotMemberState>();
+  /** Actors whose transport detached during autonomy; keep their world room alive until they attach again. */
+  private readonly retainedActors = new Set<string>();
+  /** Pending first materializations count as world seats; repeated joins for one actor share one reservation. */
+  private readonly pendingActorSeats = new Map<string, number>();
   /** P2-05: ระยะ throttle save (ms) = knob persistence.saveIntervalMs — set ตอน onCreate. */
   private saveIntervalMs = 30_000;
   /**
@@ -555,6 +741,90 @@ export class MapRoom extends Room<MapRoomState> {
     return { accountId: decision.accountId, characterId };
   }
 
+  /** Attach a transport to a stable actor before any PlayerState can be materialized. */
+  private bindCharacterController(
+    client: Client,
+    accountId: string | null,
+    characterId: string | null,
+  ): { actorId: string; created: boolean } {
+    const result = accountId && characterId
+      ? this.characterAuthority.bindCharacter(accountId, characterId, client.sessionId)
+      : this.characterAuthority.bindGuest(client.sessionId);
+    if (
+      result.previousControllerSessionId &&
+      result.previousControllerSessionId !== client.sessionId
+    ) {
+      this.state.controllers.delete(result.previousControllerSessionId);
+    }
+    this.state.controllers.set(client.sessionId, result.actor.actorId);
+    return { actorId: result.actor.actorId, created: result.created };
+  }
+
+  private actorIdOf(client: Client): string | null {
+    return this.characterAuthority.actorForController(client.sessionId)?.actorId ?? null;
+  }
+
+  /** PR1 single-writer fence; PR2 replaces this rejection with atomic takeover + checkpoint. */
+  private manualMutationBlocked(client: Client): boolean {
+    const actorId = this.actorIdOf(client);
+    return actorId !== null && this.botMembers.has(actorId);
+  }
+
+  /**
+   * Atomically fence Character Autonomy before accepting the same manual move/skill. The manager verifies the
+   * authenticated account + stable actor; success guarantees `botReleaseAuthority` already ran synchronously.
+   */
+  private takeManualAuthority(client: Client, source: "move" | "skill"): boolean {
+    const actorId = this.actorIdOf(client);
+    if (!actorId || !this.botMembers.has(actorId)) return true;
+    return botManager.onTakeover(
+      accountIdOf(client),
+      actorId,
+      (type, message) => client.send(type, message),
+      { requestId: `input:${client.sessionId}:${Date.now()}`, source },
+    );
+  }
+
+  private characterRecordOf(client: Client): { accountId: string; characterId: string; lastSaveMs: number } | undefined {
+    const actorId = this.actorIdOf(client);
+    return actorId ? this.sessionCharacters.get(actorId) : undefined;
+  }
+
+  private clientForActor(actorId: string): Client | undefined {
+    const controllerSessionId = this.characterAuthority.get(actorId)?.controllerSessionId;
+    return controllerSessionId
+      ? this.clients.find((client) => client.sessionId === controllerSessionId)
+      : undefined;
+  }
+
+  private detachCharacterController(client: Client): string | null {
+    const actor = this.characterAuthority.detachController(client.sessionId);
+    this.state.controllers.delete(client.sessionId);
+    return actor?.actorId ?? null;
+  }
+
+  private refreshAutoDispose(): void {
+    this.autoDispose = this.botMembers.size === 0 && this.retainedActors.size === 0;
+  }
+
+  private isCurrentController(client: Client, actorId: string): boolean {
+    return !this.takenOverSessions.has(client.sessionId) &&
+      this.characterAuthority.actorForController(client.sessionId)?.actorId === actorId;
+  }
+
+  private reserveWorldSeat(actorId: string): boolean {
+    const current = this.pendingActorSeats.get(actorId) ?? 0;
+    if (current === 0 && this.state.players.size + this.pendingActorSeats.size >= this.maxClients) return false;
+    this.pendingActorSeats.set(actorId, current + 1);
+    return true;
+  }
+
+  private releaseWorldSeat(actorId: string): void {
+    const current = this.pendingActorSeats.get(actorId) ?? 0;
+    if (current <= 1) this.pendingActorSeats.delete(actorId);
+    else this.pendingActorSeats.set(actorId, current - 1);
+  }
+
   onCreate(options: MapRoomCreateOptions = {}): void {
     const state = new MapRoomState();
     state.mapId = options.mapId ?? DEFAULT_MAP_ID;
@@ -607,7 +877,17 @@ export class MapRoom extends Room<MapRoomState> {
     // P1-05: combat balance + skill definitions (single source of truth = DEFAULT_ENGINE_CONFIG + proposal).
     // loadSkillDefinitions validate 37 field §50.1 (fail-loud ตอน boot ถ้า config เพี้ยน) → full server view.
     this.balance = DEFAULT_ENGINE_CONFIG.combatBalance;
-    this.skills = loadSkillDefinitions(WARRIOR_SKILLS_SERVER as unknown[]);
+    // Batch 6: โหลดชุดสกิลทั้ง 2 อาชีพครั้งเดียว (fail-loud validate 37 field ตอน boot) → resolve ต่อ session
+    //   ตาม classId ตอน cast. key = classId ตรง CLASS_IDS (character-class.ts).
+    this.skillsByClass = {
+      swordsman: loadSkillDefinitions(WARRIOR_SKILLS_SERVER as unknown[]),
+      archer: loadSkillDefinitions(ARCHER_SKILLS_SERVER as unknown[]),
+    };
+
+    // ITEM 3 (config DB override): load this room's economy config ONCE (best-effort, non-blocking). Until it
+    // resolves the room uses the DEFAULT bundle (field init); on resolve it swaps to the DB config (or keeps
+    // DEFAULT when no DB / no active row / error). Load-once → immutable for the room's lifetime (no mid-room swaps).
+    void this.loadEconomyOverride();
 
     // P1-03/P1-05: สร้าง mob simulation (spawn ชุดแรกทันที) + ขับด้วย fixed tick ที่ ai.tickHz (TA §11 10Hz).
     // hp ต่อ mobType อ่านจาก combatBalance (single source of truth เดียวกับ damage formula).
@@ -659,6 +939,7 @@ export class MapRoom extends Room<MapRoomState> {
     // P2-07: inventory/equipment mutation (server-authoritative, TA §7/§8). client ส่ง intent (+expectedVersion)
     //   → service ตัดสินด้วย optimistic lock → สำเร็จ: ส่ง snapshot + recompute combat stats; ปฏิเสธ: เงียบ ๆ.
     this.onMessage(MSG_EQUIP_ITEM, (client: Client, message: EquipItemMessage) => {
+      if (this.manualMutationBlocked(client)) return;
       void this.runInventoryOp(client, "equip", (characterId) =>
         equipItem(getInventoryRepository(), ITEM_CATALOG, {
           characterId,
@@ -669,6 +950,7 @@ export class MapRoom extends Room<MapRoomState> {
       );
     });
     this.onMessage(MSG_UNEQUIP_ITEM, (client: Client, message: EquipItemMessage) => {
+      if (this.manualMutationBlocked(client)) return;
       void this.runInventoryOp(client, "unequip", (characterId) =>
         unequipItem(getInventoryRepository(), ITEM_CATALOG, {
           characterId,
@@ -679,6 +961,7 @@ export class MapRoom extends Room<MapRoomState> {
       );
     });
     this.onMessage(MSG_MOVE_ITEM, (client: Client, message: MoveItemMessage) => {
+      if (this.manualMutationBlocked(client)) return;
       void this.runInventoryOp(client, "move", (characterId) =>
         moveItem(getInventoryRepository(), {
           characterId,
@@ -690,11 +973,28 @@ export class MapRoom extends Room<MapRoomState> {
       );
     });
 
+    // PR5 (Economy §7.1): manual consumable use (heal potion) — server-authoritative, HP applied to the room
+    //   schema. Same manual-mutation fence as equip/move (a bot-held actor must not manually drink → takeover
+    //   required); the run method coerces the payload defensively + answers MSG_USE_ITEM_RESULT (+ fresh snapshot).
+    this.onMessage(MSG_USE_ITEM, (client: Client, message: UseItemMessage) => {
+      if (this.manualMutationBlocked(client)) return;
+      void this.runUseItem(client, message);
+    });
+
     // P2-10: guaranteed reinforcement (+1, cap +15) — server-authoritative, atomic, 100% success no RNG.
     //   client ส่ง intent (+expectedVersion + idempotencyKey) → สำเร็จ: result + snapshot + recompute stats;
     //   ปฏิเสธ (flag inert P2 / no material / max / lock): MSG_ENHANCE_RESULT ok:false + reason. (§2.3/R8)
     this.onMessage(MSG_ENHANCE_ITEM, (client: Client, message: EnhanceItemMessage) => {
+      if (this.manualMutationBlocked(client)) return;
       void this.runEnhanceOp(client, message);
+    });
+
+    // B4: fragment exchange (เศษเสริมแกร่ง 5 → เสริมแกร่ง 1, Reinforcement §3.5) — server-authoritative, atomic.
+    //   client ส่ง intent (fragment stack instanceId + expectedVersion + idempotencyKey) → สำเร็จ: result + snapshot;
+    //   ปฏิเสธ (no DB / เศษไม่พอ / กระเป๋าเต็ม / lock): MSG_FRAGMENT_EXCHANGE_RESULT ok:false + reason.
+    this.onMessage(MSG_FRAGMENT_EXCHANGE, (client: Client, message: FragmentExchangeMessage) => {
+      if (this.manualMutationBlocked(client)) return;
+      void this.runFragmentExchangeOp(client, message);
     });
 
     // P2-11: starter NPC shop (Economy §8) — buy/sell ผ่าน ledger + inventory transaction, ราคา = server config.
@@ -704,9 +1004,11 @@ export class MapRoom extends Room<MapRoomState> {
       this.handleShopList(client);
     });
     this.onMessage(MSG_SHOP_BUY, (client: Client, message: ShopBuyMessage) => {
+      if (this.manualMutationBlocked(client)) return;
       void this.runShopBuy(client, message);
     });
     this.onMessage(MSG_SHOP_SELL, (client: Client, message: ShopSellMessage) => {
+      if (this.manualMutationBlocked(client)) return;
       void this.runShopSell(client, message);
     });
 
@@ -717,19 +1019,106 @@ export class MapRoom extends Room<MapRoomState> {
       void this.handleStorageOpen(client);
     });
     this.onMessage(MSG_STORAGE_DEPOSIT, (client: Client, message: StorageMoveMessage) => {
+      if (this.manualMutationBlocked(client)) return;
       void this.runStorageMove(client, "deposit", message);
     });
     this.onMessage(MSG_STORAGE_WITHDRAW, (client: Client, message: StorageMoveMessage) => {
+      if (this.manualMutationBlocked(client)) return;
       void this.runStorageMove(client, "withdraw", message);
     });
     this.onMessage(MSG_DELIVERY_CLAIM, (client: Client, message: DeliveryClaimMessage) => {
+      if (this.manualMutationBlocked(client)) return;
       void this.runDeliveryClaim(client, message);
     });
 
+    // C2b (Achievement §13): client-reported cosmetic/meme events (whitelisted + rate-limited server-side).
+    this.onMessage(MSG_CLIENT_EVENT, (client: Client, message: ClientEventMessage) => {
+      if (this.manualMutationBlocked(client)) return;
+      this.handleClientEvent(client, message);
+    });
+    // C2b (Part 5): journal snapshot request → masked achievement rows (hidden not spoiled, §8.4).
+    this.onMessage(MSG_ACHIEVEMENTS_REQUEST, (client: Client) => {
+      void this.handleAchievementsRequest(client);
+    });
+
+    // Batch 7b (Bot/Hunter Assistant, P3 §13): per-account ops routed to the process-level botManager (server =
+    //   truth for tier caps / continuity / D-067 policy). This room is the transport + (for bot:start)
+    //   the host candidate for the target map. bots require a DB → manager rejects "requires_db" with none.
+    this.onMessage(MSG_BOT_PROFILE_LIST, (client: Client) => {
+      void botManager.onProfileList(accountIdOf(client), (t, m) => client.send(t, m));
+    });
+    this.onMessage(MSG_BOT_PROFILE_CREATE, (client: Client, message: BotProfileCreateMessage) => {
+      void botManager.onProfileCreate(accountIdOf(client), (t, m) => client.send(t, m), message);
+    });
+    this.onMessage(MSG_BOT_PROFILE_UPDATE, (client: Client, message: BotProfileUpdateMessage) => {
+      void botManager.onProfileUpdate(accountIdOf(client), (t, m) => client.send(t, m), message);
+    });
+    this.onMessage(MSG_BOT_PROFILE_DELETE, (client: Client, message: BotProfileDeleteMessage) => {
+      void botManager.onProfileDelete(accountIdOf(client), (t, m) => client.send(t, m), message);
+    });
+    this.onMessage(MSG_BOT_START, (client: Client, message: BotStartMessage) => {
+      void botManager.onStart(
+        this,
+        client.sessionId,
+        accountIdOf(client),
+        characterIdOf(client),
+        (t, m) => client.send(t, m),
+        message,
+      );
+    });
+    this.onMessage(MSG_BOT_STOP, (client: Client, message: BotStopMessage) => {
+      botManager.onStop(accountIdOf(client), (t, m) => client.send(t, m), message);
+    });
+    this.onMessage(MSG_BOT_TAKEOVER, (client: Client, message: BotTakeoverMessage) => {
+      botManager.onTakeover(
+        accountIdOf(client),
+        this.actorIdOf(client),
+        (t, m) => client.send(t, m),
+        message,
+      );
+    });
+    this.onMessage(MSG_BOT_RESUME, (client: Client, message: BotResumeMessage) => {
+      void botManager.onResume(
+        this,
+        client.sessionId,
+        accountIdOf(client),
+        characterIdOf(client),
+        (t, m) => client.send(t, m),
+        message,
+      );
+    });
+    this.onMessage(MSG_BOT_MOCK_PURCHASE, (client: Client, message: BotMockPurchaseMessage) => {
+      void botManager.onMockPurchase(accountIdOf(client), (t, m) => client.send(t, m), message);
+    });
+    this.onMessage(MSG_BOT_REPORT_LIST, (client: Client) => {
+      void botManager.onReportList(accountIdOf(client), (t, m) => client.send(t, m));
+    });
+    this.onMessage(MSG_BOT_REPORT_FETCH, (client: Client, message: BotReportFetchMessage) => {
+      void botManager.onReportFetch(accountIdOf(client), (t, m) => client.send(t, m), message);
+    });
+    // register this room as a bot host (target for bot:start). Boot cleanup of orphaned sessions = server/index.ts.
+    botManager.registerRoom(this);
+
     this.onMessage(MSG_MOVE, (client: Client, message: MoveMessage) => {
-      const player = this.state.players.get(client.sessionId);
-      const tracker = this.trackers.get(client.sessionId);
+      const actorId = this.actorIdOf(client);
+      if (!actorId) return;
+      const player = this.state.players.get(actorId);
+      const tracker = this.trackers.get(actorId);
       if (!player || !tracker) return;
+
+      // PR2 manual takeover: fence commands + capture checkpoint + release authority before applying this exact
+      // move. A failed/mismatched takeover remains fail-closed and receives an authoritative correction.
+      if (this.botMembers.has(actorId) && !this.takeManualAuthority(client, "move")) {
+        const correction: PositionCorrectionMessage = {
+          tx: player.tx,
+          ty: player.ty,
+          direction: player.direction as PositionCorrectionMessage["direction"],
+          anim: player.anim as PositionCorrectionMessage["anim"],
+          reason: "character_autonomy_active",
+        };
+        client.send(MSG_POSITION_CORRECTION, correction);
+        return;
+      }
 
       const now = Date.now();
       const elapsedMs = now - tracker.lastMoveTime;
@@ -737,13 +1126,20 @@ export class MapRoom extends Room<MapRoomState> {
       tracker.lastMoveTime = now;
       // P2-13 (D-056): MSG_MOVE = input activity → reset idle timer + เคลียร์ป้าย AFK ทันที (กันรอ interval
       //   ถัดไปถึง 1s ค่อยหาย — ผู้เล่นขยับแล้วป้ายควรหายทันตา). ใช้กับทั้ง move ที่ผ่าน/ถูกปฏิเสธ (ยังถือ active).
-      this.markInput(client.sessionId, tracker, now);
+      this.markInput(actorId, tracker, now);
 
+      // Batch 6 (ARCHER_CLASS_SPEC §3 S4 swift_step): moveSpeed buff active → กว้าง speed allowance ตาม bonus
+      //   (never-downgrade: อย่า reject การเดินที่ buff อนุญาตจริง). ไม่มี buff → moveParams เดิม (พฤติกรรมเดิม).
+      const speedBonus = this.activeMoveSpeedBonus(actorId, now);
+      const moveParams =
+        speedBonus > 0
+          ? { ...this.moveParams, speed: this.moveParams.speed * (1 + speedBonus) }
+          : this.moveParams;
       const result = validateMove(
         { tx: tracker.tx, ty: tracker.ty },
         { tx: message.tx, ty: message.ty },
         elapsedMs,
-        this.moveParams,
+        moveParams,
         this.isWalkableAt,
       );
 
@@ -772,7 +1168,7 @@ export class MapRoom extends Room<MapRoomState> {
         };
         client.send(MSG_POSITION_CORRECTION, correction);
         console.log(
-          `[MapRoom ${this.roomId}] correct ${client.sessionId} (${result.reason}) → ` +
+          `[MapRoom ${this.roomId}] correct ${actorId} (${result.reason}) → ` +
             `snap (${player.tx.toFixed(2)},${player.ty.toFixed(2)})`,
         );
       }
@@ -786,6 +1182,8 @@ export class MapRoom extends Room<MapRoomState> {
    * server **ไม่** ย้าย/ลบ player เอง (separated rooms = client re-join) — แค่บอกทาง.
    */
   private checkExit(client: Client, tracker: MoveTracker): void {
+    const actorId = this.actorIdOf(client);
+    if (!actorId) return;
     const cell = snapToTile({ tx: tracker.tx, ty: tracker.ty });
     const exit = findExitAt(this.map, cell.tx, cell.ty);
     const exitId = exit?.exitId ?? null;
@@ -797,7 +1195,7 @@ export class MapRoom extends Room<MapRoomState> {
       };
       client.send(MSG_MAP_TRANSITION, msg);
       console.log(
-        `[MapRoom ${this.roomId}] ${client.sessionId} เข้า exit "${exit.exitId}" → ` +
+        `[MapRoom ${this.roomId}] ${actorId} เข้า exit "${exit.exitId}" → ` +
           `transition ไป ${exit.targetMapId} @(${exit.targetSpawn.x},${exit.targetSpawn.y})`,
       );
       // P2-05 (Storage §24): save จุดหมาย (map+targetSpawn ปลายทาง) ตอนสั่ง transition — client กำลังจะ
@@ -807,9 +1205,9 @@ export class MapRoom extends Room<MapRoomState> {
       //   process-cache write (fires ก่อน room teardown เสมอ ต่างจาก void save async) → รอดแม้ไม่มี DB /
       //   ไม่มี characterId ผูก (มีแต่ accountId). ต้องเรียกก่อน early-return path ใด ๆ ด้านล่าง.
       this.stashProgressForCarry(client);
-      const rec = this.sessionCharacters.get(client.sessionId);
+      const rec = this.sessionCharacters.get(actorId);
       if (rec) {
-        this.transitioningSessions.add(client.sessionId);
+        this.transitioningSessions.add(actorId);
         rec.lastSaveMs = Date.now();
         void saveCharacterState(
           rec.characterId,
@@ -819,7 +1217,7 @@ export class MapRoom extends Room<MapRoomState> {
         );
         // fix/level-persist-map-cross: เดิม transition save "ตำแหน่งอย่างเดียว" → level/exp หลุดตอนข้าม map
         //   (persistOnLeave ก็ skip เพราะ transitioning). save progression คู่ตำแหน่งปลายทางด้วย (durable DB).
-        const prog = this.sessionProgress.get(client.sessionId);
+        const prog = this.sessionProgress.get(actorId);
         if (prog) void saveCharacterProgress(rec.characterId, prog.level, prog.exp);
       }
     }
@@ -839,6 +1237,9 @@ export class MapRoom extends Room<MapRoomState> {
     // A1: apply contact damage ก่อน sync (hp ที่ลด + respawn สะท้อนใน state broadcast รอบนี้ทันที)
     if (contacts.length > 0) this.applyMobContacts(contacts);
     this.syncMobsToState();
+    // Batch 7b (Bot): advance every bot this room hosts on the same sim cadence (no extra interval). Bots move
+    //   on the collision grid + attack through the room combat/economy seams inside their own tick.
+    if (this.botMembers.size > 0) botManager.tickRoom(this, deltaMs);
   }
 
   /**
@@ -890,6 +1291,77 @@ export class MapRoom extends Room<MapRoomState> {
   }
 
   /**
+   * Batch 6 (ARCHER_CLASS_SPEC §3 S3 archer_target_mark): ตัวคูณดาเมจที่ mob รับ (จากตรา) ตอน nowMs — 1.0 ถ้าไม่มี
+   * ตรา/หมดอายุ (เช็ค until ทุกครั้ง; entry หมดอายุปล่อยค้าง ลบตอนมอนหาย). never-downgrade: อ่าน→คูณในสูตร damage.
+   */
+  private activeMarkMultiplier(mobId: string, nowMs: number): number {
+    const mark = this.markDebuffs.get(mobId);
+    if (!mark || nowMs >= mark.until) return 1.0;
+    return mark.multiplier;
+  }
+
+  /**
+   * Batch 6 (ARCHER_CLASS_SPEC §3 S4 archer_swift_step): moveSpeed bonus (fraction ≥ 0) ที่ active ของ session
+   * ตอน nowMs — 0 ถ้าไม่มี/หมดอายุ. ใช้กว้าง speed allowance ตอน validate move (กัน false-reject).
+   */
+  private activeMoveSpeedBonus(sessionId: string, nowMs: number): number {
+    const buff = this.moveSpeedBonusUntil.get(sessionId);
+    if (!buff || nowMs >= buff.until) return 0;
+    return buff.bonus;
+  }
+
+  /**
+   * Batch 6 (ARCHER_CLASS_SPEC §3 S4 · §6 note 2): เผ่นถอยหลัง swiftStepDashTiles ทิศตรงข้าม facing (server-
+   * authoritative displacement, ไม่มี i-frame). ทิศ tile-space จาก facing = reuse iso projection ของ hit-test
+   * (screenAngleForDirection → tileUnitVectorForScreenAngle) แล้ว negate. clamp walkable เดิม (ชนกำแพง = เผ่นเท่าที่
+   * เดินได้, min 0) → เขียน schema+tracker → moveSpeed buff window → แจ้ง client snap ผ่าน MSG_POSITION_CORRECTION
+   * (path เดียวกับ teleport-back). facing คงเดิม (เผ่นถอยแต่ยังหันเข้าเป้า).
+   */
+  private applySwiftStep(
+    client: Client,
+    actorId: string,
+    player: PlayerState,
+    facing: Direction,
+    speedBonus: number,
+    activeTimeSeconds: number,
+    nowMs: number,
+  ): void {
+    const from = { tx: player.tx, ty: player.ty };
+    const forward = tileUnitVectorForScreenAngle(
+      screenAngleForDirection(facing),
+      DEFAULT_ENGINE_CONFIG.tileSize,
+    );
+    const backUnit = { tx: -forward.tx, ty: -forward.ty };
+    const dest = clampDisplacementToWalkable(
+      from,
+      backUnit,
+      this.balance.swiftStepDashTiles,
+      this.isWalkableAt,
+    );
+    player.tx = dest.tx;
+    player.ty = dest.ty;
+    const tracker = this.trackers.get(actorId);
+    if (tracker) {
+      tracker.tx = dest.tx;
+      tracker.ty = dest.ty;
+    }
+    if (speedBonus > 0 && activeTimeSeconds > 0) {
+      this.moveSpeedBonusUntil.set(actorId, {
+        until: nowMs + activeTimeSeconds * 1000,
+        bonus: speedBonus,
+      });
+    }
+    const correction: PositionCorrectionMessage = {
+      tx: dest.tx,
+      ty: dest.ty,
+      direction: player.direction as PositionCorrectionMessage["direction"],
+      anim: player.anim as PositionCorrectionMessage["anim"],
+      reason: "swift_step",
+    };
+    client.send(MSG_POSITION_CORRECTION, correction);
+  }
+
+  /**
    * A2 (COMBAT_BIBLE §10 Death & Recovery, locked baseline): player ตาย → broadcast death (client เล่น death
    * anim) → respawn ทันทีที่ safe camp เต็ม hp (server-authoritative). **ไม่มี item loss / gold / durability
    * penalty** (initial PvE baseline; penalty ที่หนักกว่าเป็น later decision, นอก scope). respawn เขียน
@@ -897,8 +1369,25 @@ export class MapRoom extends Room<MapRoomState> {
    * idempotent). ไม่แตะ inventory/ledger เลย.
    */
   private handlePlayerDeath(sessionId: string, killerMobId: string): void {
+    // Character Autonomy death still follows the real-character recovery path. The current Free baseline stops
+    // the controller, but never deletes the actor or leaves a synthetic bot body at 0 HP.
+    if (this.botMembers.has(sessionId)) {
+      botManager.onBotDied(sessionId);
+    }
     const death: PlayerDeathMessage = { sessionId, mobId: killerMobId };
     this.broadcast(MSG_PLAYER_DEATH, death);
+    // C2b: death achievements (counter first_death/death_100 · composite die-before-kill · sameCell death_spot).
+    //   Capture the death cell BEFORE respawn snaps the player to safe camp; route the toast to the owner.
+    const player = this.state.players.get(sessionId);
+    const client = this.clientForActor(sessionId);
+    if (client && player) {
+      this.emitAchievement(
+        client,
+        "death",
+        { mapId: this.state.mapId, gridCell: `${Math.floor(player.tx)},${Math.floor(player.ty)}`, cause: "mob" },
+        Date.now(),
+      );
+    }
     this.respawnPlayerToSafeCamp(sessionId);
   }
 
@@ -945,18 +1434,37 @@ export class MapRoom extends Room<MapRoomState> {
   }
 
   /**
-   * E3 (§8.2 EXP bar): sync PlayerState.exp/expFloor/expCeil จาก sessionProgress + EXP_CURVE (§9.1/§9.2) → HUD
+   * E3 (§8.2 EXP bar): sync PlayerState.exp/expFloor/expCeil จาก sessionProgress + this.economy.config.expCurve (§9.1/§9.2) → HUD
    * แถบ EXP + ตัวเลข % แสดงตั้งแต่เกิด (ไม่รอ kill แรก). คิดขอบเลเวลเหมือน MSG_PLAYER_PROGRESS. เรียกตอน join + หลัง kill.
    */
   private syncPlayerExpSchema(sessionId: string): void {
     const player = this.state.players.get(sessionId);
     const progress = this.sessionProgress.get(sessionId);
     if (!player || !progress) return;
-    const capRow = EXP_CURVE.levels.find((l) => l.level === progress.level);
-    const prevRow = EXP_CURVE.levels.find((l) => l.level === progress.level - 1);
+    const levels = this.economy.config.expCurve.levels;
+    const capRow = levels.find((l) => l.level === progress.level);
+    const prevRow = levels.find((l) => l.level === progress.level - 1);
     player.exp = progress.exp;
     player.expFloor = prevRow ? prevRow.cumulative : 0;
     player.expCeil = capRow && capRow.expToNext > 0 ? capRow.cumulative : 0;
+  }
+
+  /**
+   * ITEM 3 (config DB override): resolve this room's economy config ONCE (best-effort — called from onCreate).
+   * Swaps `this.economy` from the DEFAULT bundle to the loaded config (DB active row, else DEFAULT) and updates
+   * `this.partyReward`. Immutable after this single call. Any player who joined before it resolved is re-synced
+   * to the (possibly) new EXP curve / player baseline so the room stays internally consistent — rooms load config
+   * near-instantly, so this loop is normally empty. Never throws (loadRoomEconomy is best-effort).
+   */
+  private async loadEconomyOverride(): Promise<void> {
+    const loaded = await loadRoomEconomy();
+    this.economy = loaded;
+    this.partyReward = loaded.config.partyReward;
+    for (const sessionId of this.sessionProgress.keys()) {
+      this.recomputeEffectiveStats(sessionId);
+      this.refreshPlayerMaxHp(sessionId);
+      this.syncPlayerExpSchema(sessionId);
+    }
   }
 
   /**
@@ -1001,7 +1509,11 @@ export class MapRoom extends Room<MapRoomState> {
     for (const id of stale) {
       this.state.mobs.delete(id);
       this.lastBossBroadcast.delete(id); // boss ตาย/despawn → รีเซ็ต delta tracker (respawn เริ่ม telegraph/phase ใหม่)
+      this.markDebuffs.delete(id); // Batch 6 (§3 S3): mob ตาย/despawn → เคลียร์ตรา (id monotonic ไม่ชนตอน respawn)
     }
+    // G-lite: drop damage-contribution ledgers for mobs no longer alive (death/respawn/despawn/leash) — mob ids
+    //   are monotonic so they never collide across respawns; this bounds memory to the live mob count.
+    retainMobs(this.damageContrib, seen);
   }
 
   /**
@@ -1048,16 +1560,29 @@ export class MapRoom extends Room<MapRoomState> {
    * ไม่ throw/crash room ไม่ว่า payload อะไร (best-effort validate).
    */
   private handleCast(client: Client, message: CastSkillMessage): void {
-    const sessionId = client.sessionId;
+    const sessionId = this.actorIdOf(client);
+    if (!sessionId) return;
     const player = this.state.players.get(sessionId);
     if (!player || !message) return;
+    if (this.botMembers.has(sessionId) && !this.takeManualAuthority(client, "skill")) {
+      const rejected: CastRejectedMessage = {
+        skillId: typeof message.skillId === "string" ? message.skillId : "",
+        reason: "character_autonomy_active",
+      };
+      client.send(MSG_CAST_REJECTED, rejected);
+      return;
+    }
 
     // P2-13 (D-056): cast intent = input activity → reset idle timer + เคลียร์ป้าย AFK (แม้ cast จะถูก
     //   ปฏิเสธ cooldown/range ก็ยังถือว่าผู้เล่น active). tracker อาจไม่มี (race) → markInput ข้ามเงียบ ๆ.
     this.markInput(sessionId, this.trackers.get(sessionId), Date.now());
 
     const skillId = typeof message.skillId === "string" ? message.skillId : "";
-    const skill = this.skills.get(skillId);
+    // Batch 6: resolve def จากชุดสกิลของ **อาชีพ session นี้** (server-authoritative — client ส่งแค่ skillId).
+    //   นักธนู cast archer_* / นักดาบ cast sword_* ; skillId ข้ามอาชีพ = undefined → validateCast reject "unknown_skill".
+    const classId = this.sessionClassId.get(sessionId) ?? "swordsman";
+    const skills = this.skillsByClass[classId] ?? this.skillsByClass.swordsman;
+    const skill = skills.get(skillId);
     const cds = this.cooldowns.get(sessionId);
     const now = Date.now();
     const casterPos = { tx: player.tx, ty: player.ty };
@@ -1095,35 +1620,55 @@ export class MapRoom extends Room<MapRoomState> {
     // targets = มอนมีชีวิตทั้งหมดในห้อง (pos ปัจจุบันจาก sim) + lookup mobType เพื่อ resolve stat
     const targets: HitTestTarget[] = [];
     const mobTypeById = new Map<string, string>();
+    // C2b: snapshot each live mob's hp + foot pos BEFORE this cast's damage (no sim.tick runs mid-cast, so this
+    //   is exactly the pre-killing-blow state for a mob killed this cast). read-only — combat math untouched.
+    const mobPre = new Map<string, { hp: number; tx: number; ty: number }>();
     this.sim.forEach((m) => {
       targets.push({ id: m.id, pos: { tx: m.pos.tx, ty: m.pos.ty } });
       mobTypeById.set(m.id, m.mobType);
+      mobPre.set(m.id, { hp: m.hp, tx: m.pos.tx, ty: m.pos.ty });
     });
 
-    // TODO(ground-target skills): geometry ปัจจุบัน anchor ที่ caster+facing (arc/cone/line/self-circle
-    //   ของนักดาบ P1). ถ้ามี skill ground-target (AoE ตกที่จุดเล็ง เช่น mage_crystal_storm) ต้องใช้
-    //   aimPos เป็นศูนย์กลาง AoE (ไม่ใช่ caster) + validate range ของ aimPos จาก server position — ปรับ
-    //   resolveSkillHits ให้รับ origin แยกจาก caster ตาม targetShape.
     const facing = coerceDirection(message.direction);
-    // P1-05.1: hitTolerance (knob) ชดเชย interp lag ที่ทำให้ตีไม่โดนมอนติดตัว (ดู CombatBalanceConfig.hitTolerance)
-    const hitIds = resolveSkillHits(
-      def,
-      casterPos,
-      facing,
-      targets,
-      DEFAULT_ENGINE_CONFIG.tileSize,
-      this.balance.hitTolerance,
-    );
+    // Batch 6 (ARCHER_CLASS_SPEC §6 note 1 — never-downgrade): ground-target circle (archer_moon_rain, range>0)
+    //   resolve รอบ **จุด aim** (clamp เข้าระยะจริงก่อน) ไม่ใช่ caster. แยกจาก caster-centered geometry ของนักดาบ
+    //   (arc/cone/line/self-circle guard_domain range 0) ด้วย isGroundTargetCircle. validateCast ผ่าน range
+    //   (rangeToleranceFactor) แล้ว → clampAimToRange ลงขอบระยะ 6.0 → resolveGroundAoeHits (รัศมี 2.5 รอบจุด,
+    //   cap maxTargets ใกล้ aim สุด). tolerance ZERO = รัศมีตรง spec (ไม่ inflate ด้วย interp-lag padding melee).
+    const hitIds = isGroundTargetCircle(def)
+      ? resolveGroundAoeHits(
+          def,
+          clampAimToRange(casterPos, aimPos, def.range),
+          targets,
+          DEFAULT_ENGINE_CONFIG.tileSize,
+        )
+      : // P1-05.1: hitTolerance (knob) ชดเชย interp lag ที่ทำให้ตีไม่โดนมอนติดตัว (caster-centered melee/cone/line)
+        resolveSkillHits(
+          def,
+          casterPos,
+          facing,
+          targets,
+          DEFAULT_ENGINE_CONFIG.tileSize,
+          this.balance.hitTolerance,
+        );
 
     // สกิลที่ทำ damage: targetType enemy + baseMultiplier>0 + hitCount>0 (utility เช่น taunt = valid cast แต่ไม่ damage)
     const dealsDamage = def.targetType === "enemy" && def.baseMultiplier > 0 && def.hitCount > 0;
     const hits: SkillHit[] = [];
-    const killedMobTypes: string[] = []; // P2-09: mobType ต่อ mob ที่ตายรอบนี้ → reward ให้ caster
+    // G-lite: one entry per mob killed this cast, carrying the eligible recipients captured SYNCHRONOUSLY
+    //   (before syncMobsToState prunes the tracker) — the async reward grant loop below reads it.
+    const killGrants: KillGrant[] = [];
     if (dealsDamage) {
-      // workstream B: party break window (§2.4) — party combat ยังไม่ wired → solo (partySize 1). โตขึ้นเมื่อ
-      //   party system มา (P2B): partySize = eligibleMembers ในระยะ. equipment breakPower ต่อ cast (§6.1).
-      const bp = bossBreakParams(this.balance.boss.break, 1);
+      // G-lite: party channel (filterBy → whole room = one party) vs solo channel (partyId="") drives the
+      //   eligibility gate (§10.2/§10.3) + EXP pool split (§9.4). equipment breakPower ต่อ cast (§6.1).
+      const isParty = this.partyId !== DEFAULT_PARTY_ID;
       const equipBreak = this.sessionBreakPower.get(sessionId) ?? 0;
+      // Batch 6 (ARCHER_CLASS_SPEC §3 S3 archer_target_mark): ถ้าสกิลนี้ปักตรา (statusEffects → config table) →
+      //   apply ลง mob ที่โดน **หลัง** ตีรอบนี้ (ตราไม่บูสต์ดาเมจของ cast ตัวเอง — ปักก่อนรุมเบิร์สต์). null = ไม่มีตรา.
+      const markDebuff = resolveDamageTakenDebuff(
+        def.statusEffects,
+        this.balance.statusEffectDamageTakenMultiplier,
+      );
       for (const mobId of hitIds) {
         const mobType = mobTypeById.get(mobId);
         if (mobType === undefined) continue;
@@ -1133,6 +1678,12 @@ export class MapRoom extends Room<MapRoomState> {
         // workstream B: boss? (breakPower>0). staggered ก่อนตี = golden window → คูณ damage (§2.4). bossModifier
         //   = def.bossModifier ต่อสกิลเมื่อเป็นบอส (แทน hardcoded 1.0; §50.1/§15.5 AoE royal_wave 0.5 vs solar 1.2).
         const bossBefore = this.sim.bossView(mobId);
+        // G-lite: boss break window (§2.4) scales with party size = distinct damage contributors ≥ elite/boss
+        //   threshold on THIS boss (from the tracker, pre-current-hit) clamped ≥ 1 (very first hit = solo).
+        const breakPartySize = bossBefore
+          ? Math.max(1, contributorCountAtLeast(this.damageContrib, mobId, this.partyReward.eliteBossMinSharePct))
+          : 1;
+        const bp = bossBreakParams(this.balance.boss.break, breakPartySize);
         const bossModifier = bossBefore
           ? bossDamageModifier(def.bossModifier, bossBefore.staggered, bp.damageMultiplier)
           : 1.0;
@@ -1148,14 +1699,75 @@ export class MapRoom extends Room<MapRoomState> {
             bossModifier,
             pvpModifier: this.balance.pvpModifier,
             tierReduction: ms.tierReduction,
+            // Batch 6 (ARCHER_CLASS_SPEC §3 S3): เป้าที่ถูกปักตรา (mark_dmg_taken_15) รับดาเมจ ×1.15 — คูณในสูตร
+            //   (หลัง mitigation, ปัดครั้งเดียว, never-downgrade). 1.0 ถ้าไม่มีตรา/หมดอายุ.
+            damageTakenMultiplier: this.activeMarkMultiplier(mobId, now),
           },
           def.hitCount,
           defaultRng,
         );
         const applied = this.sim.damageMob(mobId, dmg.damage);
         if (!applied) continue;
+        // G-lite: record this hit's damage → contribution tracker (never-downgrade: drives reward eligibility).
+        recordDamage(this.damageContrib, mobId, sessionId, dmg.damage);
         hits.push({ mobId, dmg: dmg.damage, crit: dmg.crit, killed: applied.killed });
-        if (applied.killed) killedMobTypes.push(mobType);
+        // Batch 6 (§3 S3): ปักตราลง mob ที่ยังไม่ตาย (re-cast = overwrite → refresh ไม่สแต็ก). ตายรอบนี้ = ข้าม
+        //   (จะถูก prune อยู่แล้ว). duration จาก config (durationSeconds → ms).
+        if (markDebuff && !applied.killed) {
+          this.markDebuffs.set(mobId, {
+            multiplier: markDebuff.multiplier,
+            until: now + markDebuff.durationSeconds * 1000,
+          });
+        }
+        if (applied.killed) {
+          // C2b + G-lite: mob.killed derived-field event per ELIGIBLE member (Economy §10.2/§10.3 personal
+          //   reward). Mob-centric fields (hpFracBefore/overkill/gridCell) are shared across members; per-member
+          //   fields (playerHpFrac / lastHitByPlayer / damageSharePct) come from each recipient's own state.
+          const pre = mobPre.get(mobId);
+          const maxHp = ms.hp > 0 ? ms.hp : 1;
+          const hpBefore = pre ? pre.hp : maxHp;
+          const deathTx = pre ? pre.tx : 0;
+          const deathTy = pre ? pre.ty : 0;
+          const rank: MobRewardRank = mobClassForMobType(mobType) ?? "normal";
+          const monsterId = monsterIdForMobType(mobType) ?? mobType;
+          const overkillPct = ((dmg.damage - hpBefore) / maxHp) * 100;
+          const gridCell = `${Math.floor(deathTx)},${Math.floor(deathTy)}`;
+          // eligible recipients: contribution ≥ threshold (solo) / party-combined (party) AND present
+          //   (connected + Reward Radius + in-scene). Captured NOW before syncMobsToState prunes the ledger.
+          const eligible = eligibleFor(this.damageContrib, mobId, {
+            rank,
+            isParty,
+            normalMinSharePct: this.partyReward.normalMinSharePct,
+            eliteBossMinSharePct: this.partyReward.eliteBossMinSharePct,
+            isPresent: (sid) => this.isRewardPresence(sid, deathTx, deathTy, this.partyReward.rewardRadiusTiles),
+          });
+          // §9.4 pool size: solo channel = 1 (each individual gets a solo pool); party channel = eligible count.
+          const poolMembers = isParty ? Math.max(1, eligible.length) : 1;
+          for (const e of eligible) {
+            const memberClient = this.clientForActor(e.sessionId);
+            if (!memberClient) continue; // dropped between hit-resolve and here → skip (defensive)
+            const memberPlayer = this.state.players.get(e.sessionId);
+            const memberMaxHp = memberPlayer && memberPlayer.maxHp > 0 ? memberPlayer.maxHp : 1;
+            this.emitAchievement(
+              memberClient,
+              "mob.killed",
+              {
+                monsterId,
+                rank,
+                hpFracBefore: hpBefore / maxHp,
+                overkillPct,
+                playerHpFrac: (memberPlayer?.hp ?? 0) / memberMaxHp,
+                lastHitByPlayer: e.sessionId === sessionId, // no reward privilege — stats flag only (§10.2)
+                partySize: poolMembers,
+                damageSharePct: e.sharePct,
+                mapId: this.state.mapId,
+                gridCell,
+              },
+              now,
+            );
+          }
+          killGrants.push({ mobType, poolMembers, members: eligible });
+        }
         // workstream B: ทุบ guard ด้วย break contribution (แยกจาก damage; single-target > AoE, §8) — guard แตก
         //   → BREAK broadcast + golden window. ทำหลัง damage (ถ้ายังไม่ตาย). ไม่ทุบถ้ากำลัง staggered อยู่.
         if (bossBefore && !applied.killed) {
@@ -1187,21 +1799,54 @@ export class MapRoom extends Room<MapRoomState> {
       this.damageReductionUntil.set(sessionId, { until: now + def.activeTime * 1000, reduction });
     }
 
+    // Batch 6 (ARCHER_CLASS_SPEC §3 S4 archer_swift_step · §6 note 2): self mobility — discriminator = targetType
+    //   "self" + มี moveSpeed buff status (แยกจาก guard_domain ที่มี damage-reduction status ไม่มี moveSpeed). เผ่น
+    //   ถอยหลัง swiftStepDashTiles ทิศตรงข้าม facing + moveSpeed buff activeTime. server-authoritative displacement.
+    if (def.targetType === "self") {
+      const speedBonus = moveSpeedBonusFromStatus(def.statusEffects, this.balance.statusEffectMoveSpeedBonus);
+      if (speedBonus > 0) this.applySwiftStep(client, sessionId, player, facing, speedBonus, def.activeTime, now);
+    }
+
     const result: SkillResultMessage = { casterId: sessionId, skillId, hits };
     this.broadcast(MSG_SKILL_RESULT, result);
 
-    // P2-09: มอนตาย → reward (EXP/gold/drop/audit) ให้ caster ผู้ฆ่า. best-effort (async, ไม่ block broadcast).
-    //   damageMob คืน killed=true ครั้งเดียวต่อมอน (ถูกลบจาก sim) → grant ครั้งเดียว (idempotent ที่ระดับ sim).
-    // ⚠️ ต้อง **sequential** (await ทีละตัว): grantKillReward อ่าน+เขียน progress.exp คร่อม await — ถ้ายิงพร้อมกัน
-    //   (AoE ฆ่าหลายตัวรอบเดียว เช่น S2 คลื่นดาบ) ทุก call อ่าน exp เดิมค่าเดียวกัน → เขียนทับ = EXP หาย (ได้แค่ตัวเดียว).
-    //   fire-and-forget wrapper (void) ไม่บล็อก broadcast; ข้างใน await เรียงตัว → แต่ละตัวเห็น exp อัปเดตแล้ว = ได้ครบ.
-    if (killedMobTypes.length > 0) {
+    // P2-09 + G-lite: มอนตาย → reward (EXP/gold/drop/audit) ให้ผู้เล่นที่มีสิทธิ์ **ทุกคน** (§10.2/§10.3 personal
+    //   reward — ไม่แย่งกัน). best-effort (async, ไม่ block broadcast). damageMob คืน killed=true ครั้งเดียวต่อมอน
+    //   → grant ชุดเดียวต่อมอน. **killEventId ต่อสมาชิก** (randomUUID ใน grantKillReward) = ledger idempotency key
+    //   แยกกัน — currency_ledger.idempotency_key เป็น GLOBAL unique (ดู db/ledger §5): ห้าม share key ข้ามสมาชิก
+    //   ไม่งั้นคนที่สองได้ status=duplicate = ทองหายเงียบ.
+    // ⚠️ ต้อง **sequential** (await ทีละ grant): grantKillReward อ่าน+เขียน progress.exp คร่อม await — สมาชิกคนเดิม
+    //   ที่มีสิทธิ์หลายมอนใน cast เดียว (AoE) ต้อง grant เรียงกัน ไม่งั้นอ่าน exp เดิมค่าเดียว → เขียนทับ = EXP หาย.
+    if (killGrants.length > 0) {
       void (async () => {
-        for (const mobType of killedMobTypes) {
-          await this.grantKillReward(client, mobType);
+        for (const kg of killGrants) {
+          for (const m of kg.members) {
+            const memberClient = this.clientForActor(m.sessionId);
+            if (!memberClient) continue; // left before the grant ran → skip (in-scene required at kill, §10.2)
+            await this.grantKillReward(memberClient, kg.mobType, kg.poolMembers);
+          }
         }
       })();
     }
+  }
+
+  /**
+   * G-lite (§10.2/§10.3): a session is a valid reward recipient when it is still connected (has a live Client),
+   * in-scene (present in room state), AND within the Reward Radius of the mob's death position. A session in
+   * reconnect grace has no Client → not present (its recorded damage still counts toward others' denominator).
+   */
+  private isRewardPresence(
+    sessionId: string,
+    deathTx: number,
+    deathTy: number,
+    radiusTiles: number,
+  ): boolean {
+    const p = this.state.players.get(sessionId);
+    if (!p) return false; // left the scene / removed
+    if (!this.clientForActor(sessionId)) return false; // detached manual actor (grace)
+    const dx = p.tx - deathTx;
+    const dy = p.ty - deathTy;
+    return dx * dx + dy * dy <= radiusTiles * radiusTiles;
   }
 
   /**
@@ -1228,14 +1873,19 @@ export class MapRoom extends Room<MapRoomState> {
    */
   private recomputeEffectiveStats(sessionId: string): void {
     const level = this.sessionProgress.get(sessionId)?.level ?? 1;
-    const base = playerBaselineForLevel(level, PLAYER_BASELINE_TABLE, {
+    const base = playerBaselineForLevel(level, this.economy.config.playerBaseline, {
       critRate: this.balance.player.critRate,
       critDmg: this.balance.player.critDmg,
       penetration: this.balance.player.penetration,
     });
+    // Batch 6 (ARCHER_CLASS_SPEC §2 — never-downgrade): คูณ class stat weights บน baseline ก่อนบวก gear
+    //   (นักธนู ATK×1.15/HP×0.85/DEF×0.90, ปัด integer). นักดาบ/classId ไม่รู้จัก → weights 1.0 (baseline เดิม).
+    const classId = this.sessionClassId.get(sessionId) ?? "swordsman";
+    const weights = this.balance.classStatWeights[classId] ?? this.balance.classStatWeights.swordsman;
+    const weighted = weights ? applyClassStatWeights(base, weights) : base;
     const equipped = this.sessionEquipment.get(sessionId) ?? [];
     const bonus = aggregateEquipmentBonus(equipped, ITEM_CATALOG, ENHANCEMENT_CURVE);
-    this.effectiveStats.set(sessionId, applyEquipmentBonus(base, bonus));
+    this.effectiveStats.set(sessionId, applyEquipmentBonus(weighted, bonus));
     // workstream B: equipment breakPower stat (§6.1) — dead ใน applyEquipmentBonus (ไม่มี combat field) แต่
     //   ป้อนเข้า boss break contribution ที่นี่ (§8 Break Power = build stat). normal play = 0.
     this.sessionBreakPower.set(sessionId, bonus.breakPower);
@@ -1247,25 +1897,39 @@ export class MapRoom extends Room<MapRoomState> {
    * with a DB. Best-effort at this boundary: a DB error is logged (money-loud) but never crashes the room —
    * the ledger stays strict inside (no faked success). Sends MSG_PLAYER_PROGRESS + a fresh MSG_INVENTORY_STATE
    * when the bag changed. mobType unmapped / boss (P2B) → no-op.
+   *
+   * `client` = the member being rewarded (the killer OR a fellow party contributor). `eligibleMembers` = the
+   * §9.4 pool size for the EXP split (solo channel = 1 · party channel = eligible member count). Every session
+   * grant reads/writes its OWN sessionProgress/sessionCharacters, and generates its OWN killEventId → the
+   * ledger idempotency key (`drop-gold:{uuid}`) is distinct per member (global-unique key = no cross-member
+   * collision), and the milestone/achievement hooks fire under this member's own account/character scope.
    */
-  private async grantKillReward(client: Client, mobType: string): Promise<void> {
-    const sessionId = client.sessionId;
+  private async grantKillReward(
+    client: Client,
+    mobType: string,
+    eligibleMembers: number,
+  ): Promise<void> {
+    const sessionId = this.actorIdOf(client);
+    if (!sessionId) return;
     const progress = this.sessionProgress.get(sessionId);
     if (!progress) return;
     const rec = this.sessionCharacters.get(sessionId);
 
     let outcome: Awaited<ReturnType<typeof grantKillRewardsForMob>>;
     try {
-      outcome = await grantKillRewardsForMob({
-        mobType,
-        characterId: rec?.characterId ?? "",
-        accountId: rec?.accountId ?? "",
-        playerLevel: progress.level,
-        playerExp: progress.exp,
-        eligibleMembers: 1, // §9.4 party split not wired yet (single killer — see P2-09 report)
-        killEventId: randomUUID(),
-        persist: !!rec,
-      });
+      outcome = await grantKillRewardsForMob(
+        {
+          mobType,
+          characterId: rec?.characterId ?? "",
+          accountId: rec?.accountId ?? "",
+          playerLevel: progress.level,
+          playerExp: progress.exp,
+          eligibleMembers, // §9.4 pool split (G-lite): solo=1 · party=eligible count in the reward group
+          killEventId: randomUUID(),
+          persist: !!rec,
+        },
+        this.economy, // ITEM 3: this room's economy config (DB override or DEFAULT) — drops/EXP/version
+      );
     } catch (err) {
       console.error(
         `[MapRoom ${this.roomId}] kill-reward DB error ${sessionId} (${mobType}): ` +
@@ -1294,8 +1958,9 @@ export class MapRoom extends Room<MapRoomState> {
       client.send(MSG_INVENTORY_STATE, buildSnapshot(items, INVENTORY_CAPACITY));
     }
 
-    const capRow = EXP_CURVE.levels.find((l) => l.level === progress.level);
-    const prevRow = EXP_CURVE.levels.find((l) => l.level === progress.level - 1);
+    const levels = this.economy.config.expCurve.levels;
+    const capRow = levels.find((l) => l.level === progress.level);
+    const prevRow = levels.find((l) => l.level === progress.level - 1);
     const msg: PlayerProgressMessage = {
       level: progress.level,
       exp: progress.exp,
@@ -1304,9 +1969,22 @@ export class MapRoom extends Room<MapRoomState> {
       gold: outcome.goldBalance !== null ? Number(outcome.goldBalance) : GOLD_UNKNOWN,
       leveledUp: outcome.exp.leveledUp,
       loot: outcome.granted,
-      lootOverflow: outcome.overflow,
+      lootOverflow: outcome.overflow, // §12.5 truly-unpersisted (no DB) — client warns inventory_full
+      lootDelivered: outcome.delivered, // ITEM 2: bag full → routed to Delivery Box (persisted, not lost)
+      // B4 (§4.2): Field Boss kill carries the pity progress (omit for every other mob) → panel เสริมแกร่ง.
+      ...(outcome.reinforcementProgress ? { reinforcementProgress: outcome.reinforcementProgress } : {}),
     };
     client.send(MSG_PLAYER_PROGRESS, msg);
+
+    // C2b: kill-derived achievement events — level-up (max_value newLevel), gold earned (Σ toward 50k) + gold
+    //   balance (max_value), and one item.dropped per loot line that landed. All from `outcome` already at hand.
+    const nowMs = Date.now();
+    if (outcome.exp.leveledUp) this.emitAchievement(client, "level.up", { newLevel: progress.level }, nowMs);
+    if (outcome.goldRolled > 0) this.emitAchievement(client, "gold.earned", { amount: outcome.goldRolled }, nowMs);
+    if (outcome.goldBalance !== null) {
+      this.emitAchievement(client, "gold.balance", { balance: Number(outcome.goldBalance) }, nowMs);
+    }
+    for (const line of outcome.granted) this.emitAchievement(client, "item.dropped", { itemId: line.itemId }, nowMs);
 
     // C1 (Economy §18.1): a kill can unlock a milestone (first hunt / first elite). Fire-and-forget AFTER the
     // kill reward is sent so it never delays/breaks the kill path; the grant is one-time per account (idempotent).
@@ -1331,16 +2009,20 @@ export class MapRoom extends Room<MapRoomState> {
    * Best-effort: a DB error is logged (money-loud) but never crashes the room (the marker/ledger stay strict inside).
    */
   private async fireMilestone(client: Client, milestoneId: string): Promise<void> {
-    const sessionId = client.sessionId;
+    const sessionId = this.actorIdOf(client);
+    if (!sessionId) return;
     const rec = this.sessionCharacters.get(sessionId);
     let outcome: MilestoneGrantOutcome;
     try {
-      outcome = await grantMilestoneWired({
-        accountId: rec?.accountId ?? "",
-        characterId: rec?.characterId ?? "",
-        milestoneId,
-        sessionId,
-      });
+      outcome = await grantMilestoneWired(
+        {
+          accountId: rec?.accountId ?? "",
+          characterId: rec?.characterId ?? "",
+          milestoneId,
+          sessionId,
+        },
+        this.economy.config, // ITEM 3: this room's milestone Design Knobs (DB override or DEFAULT)
+      );
     } catch (err) {
       console.error(
         `[MapRoom ${this.roomId}] milestone DB error ${sessionId} (${milestoneId}): ` +
@@ -1353,7 +2035,7 @@ export class MapRoom extends Room<MapRoomState> {
     // apply milestone EXP through the session-progress path (mirror grantKillReward — EXP is source of truth).
     const progress = this.sessionProgress.get(sessionId);
     if (progress && outcome.exp > 0) {
-      const res = applyExpGain({ level: progress.level, exp: progress.exp, gained: outcome.exp, curve: EXP_CURVE });
+      const res = applyExpGain({ level: progress.level, exp: progress.exp, gained: outcome.exp, curve: this.economy.config.expCurve });
       progress.level = res.level;
       progress.exp = res.exp;
       const player = this.state.players.get(sessionId);
@@ -1362,6 +2044,8 @@ export class MapRoom extends Room<MapRoomState> {
       if (res.leveledUp) {
         this.recomputeEffectiveStats(sessionId);
         this.refreshPlayerMaxHp(sessionId);
+        // C2b: a milestone's EXP can cross a level → level.up achievement event (max_value newLevel).
+        this.emitAchievement(client, "level.up", { newLevel: progress.level }, Date.now());
       }
       if (rec) void saveCharacterProgress(rec.characterId, progress.level, progress.exp);
     }
@@ -1376,6 +2060,55 @@ export class MapRoom extends Room<MapRoomState> {
   }
 
   /**
+   * C2b: fire one achievement event for a client (fire-and-forget). Resolves the session's scope ids
+   * (account/character) + wires the unlock toast back to that client. `void`ed by every caller so it never
+   * delays/breaks the triggering combat/economy path. Anonymous/dev (no scope id) → the service skips silently.
+   */
+  private emitAchievement(
+    client: Client,
+    type: string,
+    payload: Record<string, unknown>,
+    nowMs: number,
+    clientReported = false,
+  ): void {
+    const actorId = this.actorIdOf(client);
+    const rec = actorId ? this.sessionCharacters.get(actorId) : undefined;
+    void emitAchievementEvent({
+      type,
+      payload,
+      accountId: rec?.accountId,
+      characterId: rec?.characterId,
+      sessionId: actorId ?? client.sessionId,
+      nowMs,
+      clientReported,
+      notify: (m) => client.send(MSG_ACHIEVEMENT_UNLOCKED, m),
+    });
+  }
+
+  /** C2b (§13): a whitelisted, sanitized client-reported event → achievement service (rate-limited inside). */
+  private handleClientEvent(client: Client, message: ClientEventMessage): void {
+    const clean = sanitizeClientEvent(message?.type, message?.payload);
+    if (!clean) return; // not whitelisted / malformed → dropped
+    this.emitAchievement(client, clean.type, clean.payload, Date.now(), true);
+  }
+
+  /** C2b (Part 5): answer a journal snapshot request with masked achievement rows (best-effort). */
+  private async handleAchievementsRequest(client: Client): Promise<void> {
+    const rec = this.characterRecordOf(client);
+    let rows: AchievementsSnapshotMessage["rows"] = [];
+    try {
+      rows = await buildAchievementsSnapshot({ accountId: rec?.accountId, characterId: rec?.characterId });
+    } catch (err) {
+      console.warn(
+        `[MapRoom ${this.roomId}] achievements snapshot error ${client.sessionId}: ` +
+          (err instanceof Error ? err.message : String(err)),
+      );
+    }
+    const msg: AchievementsSnapshotMessage = { rows };
+    client.send(MSG_ACHIEVEMENTS_SNAPSHOT, msg);
+  }
+
+  /**
    * P2-10: run one guaranteed reinforcement (+1) then answer the client. Only character-bound sessions with a
    * DB (anonymous/dev has nothing to persist → reject). Success → MSG_ENHANCE_RESULT(ok,level) +
    * MSG_INVENTORY_STATE (new snapshot: bumped level + spent material) + recompute combat stats. Business
@@ -1384,7 +2117,7 @@ export class MapRoom extends Room<MapRoomState> {
    */
   private async runEnhanceOp(client: Client, message: EnhanceItemMessage): Promise<void> {
     const instanceId = String(message?.instanceId ?? "");
-    const rec = this.sessionCharacters.get(client.sessionId);
+    const rec = this.characterRecordOf(client);
     if (!rec || !inventoryPersistenceAvailable()) {
       const rejected: EnhanceResultMessage = { ok: false, instanceId, level: -1, reason: "NO_ITEM" };
       client.send(MSG_ENHANCE_RESULT, rejected);
@@ -1425,7 +2158,57 @@ export class MapRoom extends Room<MapRoomState> {
     const ok: EnhanceResultMessage = { ok: true, instanceId, level: result.newLevel };
     client.send(MSG_ENHANCE_RESULT, ok);
     client.send(MSG_INVENTORY_STATE, result.snapshot);
-    this.applyEquipmentStats(client.sessionId, result.snapshot.equipment);
+    const actorId = this.actorIdOf(client);
+    if (actorId) this.applyEquipmentStats(actorId, result.snapshot.equipment);
+    // C2b: enhancement achievements (max_value plus / counter / streak). enhance.fail has NO live source in P2
+    //   (guaranteed +1, no RNG — a business reject like NO_REINFORCEMENT is not a fail outcome). Documented TODO.
+    this.emitAchievement(client, "enhance.success", { plus: result.newLevel }, Date.now());
+  }
+
+  /**
+   * B4: run one fragment exchange (5 เศษเสริมแกร่ง → 1 เสริมแกร่ง, Reinforcement §3.5) then answer the client.
+   * Only character-bound sessions with a DB (anonymous/dev → reject NO_DB). Success → MSG_FRAGMENT_EXCHANGE_RESULT
+   * (ok, granted) + MSG_INVENTORY_STATE (new snapshot: −5 เศษ, +1 เสริมแกร่ง). Business reject (เศษไม่พอ / กระเป๋าเต็ม
+   * / version lock) → ok:false + reason. DB error → resync signal (TRANSACTION_CONFLICT) — never faked as success
+   * (never-downgrade zone: an exchange that did not persist must not look like it worked).
+   */
+  private async runFragmentExchangeOp(client: Client, message: FragmentExchangeMessage): Promise<void> {
+    const rec = this.characterRecordOf(client);
+    if (!rec || !inventoryPersistenceAvailable()) {
+      const rejected: FragmentExchangeResultMessage = { ok: false, granted: 0, reason: "NO_DB" };
+      client.send(MSG_FRAGMENT_EXCHANGE_RESULT, rejected);
+      return;
+    }
+    let result: FragmentExchangeResult;
+    try {
+      result = await exchangeFragments(
+        { repo: getInventoryRepository(), catalog: ITEM_CATALOG, rules: FRAGMENT_EXCHANGE_RULES },
+        {
+          characterId: rec.characterId,
+          accountId: rec.accountId,
+          instanceId: String(message?.instanceId ?? ""),
+          expectedVersion: Number(message?.expectedVersion),
+          idempotencyKey: String(message?.idempotencyKey ?? ""),
+          capacity: INVENTORY_CAPACITY,
+        },
+      );
+    } catch (err) {
+      console.warn(
+        `[MapRoom ${this.roomId}] fragment-exchange DB error ${client.sessionId}: ` +
+          (err instanceof Error ? err.message : String(err)),
+      );
+      const rejected: FragmentExchangeResultMessage = { ok: false, granted: 0, reason: "TRANSACTION_CONFLICT" };
+      client.send(MSG_FRAGMENT_EXCHANGE_RESULT, rejected);
+      return;
+    }
+    if (!result.ok) {
+      const rejected: FragmentExchangeResultMessage = { ok: false, granted: 0, reason: result.reason };
+      client.send(MSG_FRAGMENT_EXCHANGE_RESULT, rejected);
+      return;
+    }
+    const okMsg: FragmentExchangeResultMessage = { ok: true, granted: result.grantedReinforcement };
+    client.send(MSG_FRAGMENT_EXCHANGE_RESULT, okMsg);
+    client.send(MSG_INVENTORY_STATE, result.snapshot);
   }
 
   /**
@@ -1439,7 +2222,7 @@ export class MapRoom extends Room<MapRoomState> {
     op: InventoryOp,
     run: (characterId: string) => Promise<InventoryOpResult>,
   ): Promise<void> {
-    const rec = this.sessionCharacters.get(client.sessionId);
+    const rec = this.characterRecordOf(client);
     if (!rec || !inventoryPersistenceAvailable()) {
       const rejected: InventoryOpRejectedMessage = { op, reason: "unknown_item" };
       client.send(MSG_INVENTORY_OP_REJECTED, rejected);
@@ -1463,7 +2246,85 @@ export class MapRoom extends Room<MapRoomState> {
       return;
     }
     client.send(MSG_INVENTORY_STATE, result.snapshot);
-    this.applyEquipmentStats(client.sessionId, result.snapshot.equipment);
+    const actorId = this.actorIdOf(client);
+    if (actorId) this.applyEquipmentStats(actorId, result.snapshot.equipment);
+  }
+
+  /**
+   * PR5 (Economy §7.1): run one manual consumable use (heal potion) then answer the client. Only a character-bound
+   * session with a live actor + DB (anonymous/dev has no persisted bag → reject with the closest inventory posture).
+   * The pure `useConsumable` service commits the consume BEFORE the heal (never-downgrade), so success ⟹ the item
+   * really left the bag. Success → set schema HP + store the per-actor cooldown (shared heal-apply path) →
+   * MSG_USE_ITEM_RESULT{ok} + fresh inventory snapshot. Business reject → ok:false + reason; a stale-version reject
+   * ALSO pushes a fresh snapshot (client version was stale). A thrown repo error mirrors the equip/shop posture
+   * (log + version_conflict reject) — a use that did not persist must not look like it worked.
+   */
+  private async runUseItem(client: Client, message: UseItemMessage): Promise<void> {
+    const actorId = this.actorIdOf(client);
+    const player = actorId ? this.state.players.get(actorId) : undefined;
+    const rec = this.characterRecordOf(client);
+    if (!actorId || !player || !rec || !inventoryPersistenceAvailable()) {
+      // no persisted bag / no live actor → closest existing failure posture (mirror the equip guard).
+      const rejected: UseItemResultMessage = { ok: false, reason: "unknown_item" };
+      client.send(MSG_USE_ITEM_RESULT, rejected);
+      return;
+    }
+    let result: UseConsumableResult;
+    try {
+      result = await useConsumable(
+        getInventoryRepository(),
+        ITEM_CATALOG,
+        (id) => CONSUMABLE_CONFIG.effects[id],
+        {
+          characterId: rec.characterId,
+          selector: {
+            by: "instance",
+            instanceId: String(message?.instanceId ?? ""),
+            expectedVersion: Number(message?.expectedVersion),
+          },
+          hp: player.hp,
+          maxHp: player.maxHp,
+          nowMs: Date.now(),
+          cooldownUntilMs: this.consumableCooldowns.get(actorId) ?? 0,
+        },
+      );
+    } catch (err) {
+      console.warn(
+        `[MapRoom ${this.roomId}] use-item DB error ${client.sessionId}: ` +
+          (err instanceof Error ? err.message : String(err)),
+      );
+      const rejected: UseItemResultMessage = { ok: false, reason: "version_conflict" };
+      client.send(MSG_USE_ITEM_RESULT, rejected);
+      return;
+    }
+    if (!result.ok) {
+      const rejected: UseItemResultMessage = { ok: false, reason: result.reason };
+      client.send(MSG_USE_ITEM_RESULT, rejected);
+      // version_conflict = the client's expectedVersion was stale → push fresh state so it re-syncs (client can
+      //   never fake a heal off a stale bag; the consume did NOT commit).
+      if (result.reason === "version_conflict") await this.sendInventorySnapshot(client, rec.characterId);
+      return;
+    }
+    this.applyConsumableHeal(actorId, result.healedToHp, result.cooldownUntilMs);
+    const ok: UseItemResultMessage = {
+      ok: true,
+      itemId: result.itemId,
+      hp: result.healedToHp,
+      cooldownUntilMs: result.cooldownUntilMs,
+    };
+    client.send(MSG_USE_ITEM_RESULT, ok);
+    await this.sendInventorySnapshot(client, rec.characterId);
+  }
+
+  /**
+   * PR5: apply a committed consumable heal to an actor by id + store its next-allowed-use time. Keyed by actorId
+   * (not client) so the manual path here and a future bot heal path share one code path — write schema HP (auto-
+   * sync, clamp not needed: healedToHp is already clamped to Max HP by the service) + record the per-actor cooldown.
+   */
+  private applyConsumableHeal(actorId: string, healedToHp: number, cooldownUntilMs: number): void {
+    const player = this.state.players.get(actorId);
+    if (player) player.hp = healedToHp;
+    this.consumableCooldowns.set(actorId, cooldownUntilMs);
   }
 
   /**
@@ -1494,7 +2355,7 @@ export class MapRoom extends Room<MapRoomState> {
   private async runShopBuy(client: Client, message: ShopBuyMessage): Promise<void> {
     const itemId = String(message?.itemId ?? "");
     const shop = shopForMap(this.state.mapId);
-    const rec = this.sessionCharacters.get(client.sessionId);
+    const rec = this.characterRecordOf(client);
     if (!shop || !rec || !inventoryPersistenceAvailable()) {
       this.sendShopReject(client, "buy", itemId, "SHOP_ITEM_NOT_FOUND");
       return;
@@ -1538,6 +2399,10 @@ export class MapRoom extends Room<MapRoomState> {
     };
     client.send(MSG_SHOP_RESULT, ok);
     await this.sendInventorySnapshot(client, rec.characterId);
+    // C2b: shop achievements (counter shop.buy) + gold.balance (max_value from the authoritative post-buy total).
+    const buyNow = Date.now();
+    this.emitAchievement(client, "shop.buy", { itemId: result.itemId, qty: result.quantity }, buyNow);
+    this.emitAchievement(client, "gold.balance", { balance: Number(result.gold) }, buyNow);
     // C1 (§18.1 "ซื้อ/ขายครั้งแรก"): first shop transaction unlocks ms_shop_intro (one-time per account).
     void this.fireMilestonesForTrigger(client, { kind: "shop_transaction" });
   }
@@ -1549,7 +2414,7 @@ export class MapRoom extends Room<MapRoomState> {
   private async runShopSell(client: Client, message: ShopSellMessage): Promise<void> {
     const instanceId = String(message?.instanceId ?? "");
     const shop = shopForMap(this.state.mapId);
-    const rec = this.sessionCharacters.get(client.sessionId);
+    const rec = this.characterRecordOf(client);
     if (!shop || !rec || !inventoryPersistenceAvailable()) {
       this.sendShopReject(client, "sell", instanceId, "SHOP_ITEM_NOT_FOUND");
       return;
@@ -1592,6 +2457,12 @@ export class MapRoom extends Room<MapRoomState> {
     };
     client.send(MSG_SHOP_RESULT, ok);
     await this.sendInventorySnapshot(client, rec.characterId);
+    // C2b: shop achievements (counter shop.sell) + gold.balance (max_value). gold.earned (Σ toward 50k) from the
+    //   sell delta is NOT cheaply available here (result.gold is the post-tx balance, not the proceeds) → only
+    //   the kill-reward gold feeds gold.earned; documented (ach_gold_earn_50k accrues from combat gold).
+    const sellNow = Date.now();
+    this.emitAchievement(client, "shop.sell", { itemId: result.itemId, qty: result.quantity }, sellNow);
+    this.emitAchievement(client, "gold.balance", { balance: Number(result.gold) }, sellNow);
     // C1 (§18.1 "ซื้อ/ขายครั้งแรก"): first shop transaction unlocks ms_shop_intro (one-time per account).
     void this.fireMilestonesForTrigger(client, { kind: "shop_transaction" });
   }
@@ -1651,7 +2522,7 @@ export class MapRoom extends Room<MapRoomState> {
    * (§16.6, with server-computed expiry status). Gated by map (§10.4) + a character-bound session + DB.
    */
   private async handleStorageOpen(client: Client): Promise<void> {
-    const rec = this.sessionCharacters.get(client.sessionId);
+    const rec = this.characterRecordOf(client);
     if (!storageAvailableForMap(this.state.mapId) || !rec || !inventoryPersistenceAvailable()) {
       this.sendStorageUnavailable(client);
       return;
@@ -1685,7 +2556,7 @@ export class MapRoom extends Room<MapRoomState> {
     message: StorageMoveMessage,
   ): Promise<void> {
     const instanceId = String(message?.instanceId ?? "");
-    const rec = this.sessionCharacters.get(client.sessionId);
+    const rec = this.characterRecordOf(client);
     if (!storageAvailableForMap(this.state.mapId) || !rec || !inventoryPersistenceAvailable()) {
       this.sendStorageReject(client, op, instanceId, "STORAGE_UNAVAILABLE");
       return;
@@ -1719,6 +2590,9 @@ export class MapRoom extends Room<MapRoomState> {
     client.send(MSG_STORAGE_RESULT, ok);
     client.send(MSG_STORAGE_STATE, result.storage);
     await this.sendInventorySnapshot(client, rec.characterId);
+    // C2b: storage.deposit achievement (counter, no filter → occurrence only; itemId/qty not cheap here → omit).
+    //   No delivery.send event: the Delivery Box is claim-only (system-granted), there is no player-send path.
+    if (op === "deposit") this.emitAchievement(client, "storage.deposit", {}, Date.now());
   }
 
   /**
@@ -1727,7 +2601,7 @@ export class MapRoom extends Room<MapRoomState> {
    */
   private async runDeliveryClaim(client: Client, message: DeliveryClaimMessage): Promise<void> {
     const entryId = String(message?.entryId ?? "");
-    const rec = this.sessionCharacters.get(client.sessionId);
+    const rec = this.characterRecordOf(client);
     if (!storageAvailableForMap(this.state.mapId) || !rec || !inventoryPersistenceAvailable()) {
       this.sendDeliveryReject(client, entryId, "STORAGE_UNAVAILABLE");
       return;
@@ -1777,6 +2651,68 @@ export class MapRoom extends Room<MapRoomState> {
     const accountId = accountIdOf(client);
     const characterId = characterIdOf(client);
 
+    // A fresh connection must be routed back to the room that owns the existing autonomous actor. Rejecting
+    // happens before binding/materialization, so a wrong joinOrCreate candidate cannot create a duplicate.
+    if (accountId) {
+      const active = botManager.activeActorForAccount(accountId);
+      if (active) {
+        if (!characterId || active.characterId !== characterId) {
+          throw new ServerError(CHARACTER_AUTONOMY_CONFLICT_CODE, "character_autonomy_conflict");
+        }
+        if (active.host !== this) {
+          throw new ServerError(
+            CHARACTER_ACTOR_ROOM_REDIRECT_CODE,
+            `${CHARACTER_ACTOR_ROOM_REDIRECT_PREFIX}${active.roomId}`,
+          );
+        }
+      }
+    }
+
+    const binding = this.bindCharacterController(client, accountId, characterId);
+    const actorId = binding.actorId;
+
+    // Transport/session ownership remains takeover-wins, but its disconnect callback targets the stable actor.
+    if (accountId) {
+      const tookOver = claimSession(accountId, client.sessionId, () => this.forceTakeover(client, actorId));
+      if (tookOver) {
+        console.log(`[MapRoom ${this.roomId}] account ${accountId} controller takeover for ${actorId}`);
+      }
+      void acquireLease(accountId, client.sessionId, { characterId, serverId: this.roomId });
+    }
+
+    const retainedPlayer = this.state.players.get(actorId);
+    if (retainedPlayer) {
+      const rec = this.sessionCharacters.get(actorId);
+      if (
+        !accountId ||
+        !characterId ||
+        !rec ||
+        rec.accountId !== accountId ||
+        rec.characterId !== characterId
+      ) {
+        this.detachCharacterController(client);
+        throw new ServerError(CHARACTER_AUTONOMY_CONFLICT_CODE, "character_actor_ownership_conflict");
+      }
+      const items = await loadCharacterItemsBestEffort(characterId);
+      if (!this.isCurrentController(client, actorId)) return;
+      client.send(MSG_INVENTORY_STATE, buildSnapshot(items, INVENTORY_CAPACITY));
+      void updateLastPlayed(accountId, characterId);
+      this.retainedActors.delete(actorId);
+      this.refreshAutoDispose();
+      console.log(
+        `[MapRoom ${this.roomId}] attach ${client.sessionId} -> ${actorId} ` +
+          `@(${retainedPlayer.tx.toFixed(1)},${retainedPlayer.ty.toFixed(1)})`,
+      );
+      return;
+    }
+
+    if (!this.reserveWorldSeat(actorId)) {
+      this.detachCharacterController(client);
+      this.releaseAccountSession(client);
+      throw new ServerError(CHARACTER_WORLD_CAPACITY_CODE, "character_world_capacity");
+    }
+
+    try {
     // P1-07 (§59.1): server = source of truth ว่า spawn ลงได้จริง. พิกัดที่ client ส่ง (fresh join /
     // reconnect เกิน grace) ถ้าเดินไม่ได้/ไม่ finite → snap ไป safe camp. (within-grace reconnect ไม่ผ่าน
     // onJoin เลย → ตำแหน่งเดิมคงอยู่ ไม่ถูก resolve ซ้ำ.)
@@ -1801,9 +2737,9 @@ export class MapRoom extends Room<MapRoomState> {
     player.anim = options?.anim ?? "idle";
     // P1-08: partyId ระดับ room (filterBy การันตีตรงกันทุก client ในห้อง) — ให้ client อื่นรู้ party membership.
     player.partyId = this.partyId;
-    this.state.players.set(client.sessionId, player);
+    // Delay every shared-state mutation until all async loads finish and this transport is re-verified below.
     // valid position เริ่มต้น = จุด spawn (หลัง resolve safe camp); เวลาเริ่ม = now
-    this.trackers.set(client.sessionId, {
+    const initialTracker: MoveTracker = {
       tx: player.tx,
       ty: player.ty,
       lastMoveTime: Date.now(),
@@ -1813,15 +2749,14 @@ export class MapRoom extends Room<MapRoomState> {
       // P2-13 (D-056): เพิ่ง join = active (นับ idle จากตอนนี้) + จุดอ้าง connection duration (hard cap inert).
       lastInputMs: Date.now(),
       connectedAtMs: Date.now(),
-    });
+    };
     if (spawn.usedSafeCamp) {
       console.log(
-        `[MapRoom ${this.roomId}] ${client.sessionId} spawn ที่ safe camp ` +
+        `[MapRoom ${this.roomId}] ${actorId} spawn ที่ safe camp ` +
           `(${this.safeCamp.tx},${this.safeCamp.ty}) — พิกัดที่ขอ (${requested.tx},${requested.ty}) invalid (§59.1)`,
       );
     }
     // P1-05: cooldown state ต่อ player (ว่างตอน join → ทุกสกิลพร้อมใช้)
-    this.cooldowns.set(client.sessionId, new Map());
     // P2-04 (Storage §4.1/§4.2): มี accountId (verified token) → ยึด 1-active-session ต่อบัญชี.
     //   in-process registry เตะ session เดิมของ account เดียวกัน (SESSION_TAKEN_OVER, takeover-wins);
     //   DB lease = authority ข้าม process (best-effort — dev/e2e ไม่มี accountId/DB → ข้าม ไม่พัง join).
@@ -1829,16 +2764,6 @@ export class MapRoom extends Room<MapRoomState> {
     //   unclean disconnect → session เก่าค้างใน grace (ยังไม่ persist). join ใหม่ (same account, sessionId
     //   ใหม่) ยิง takeover → forceTakeover stash progression ล่าสุดของตัวเก่าเข้า carrier (sync) ก่อน. ทำก่อน
     //   recallProgress ด้านล่าง = อ่านค่าที่ตัวเก่า stash ไว้ทัน (ไม่ใช่ carrier ว่าง = reset lv1).
-    if (accountId) {
-      const tookOver = claimSession(accountId, client.sessionId, () => this.forceTakeover(client));
-      if (tookOver) {
-        console.log(
-          `[MapRoom ${this.roomId}] account ${accountId} takeover — เตะ session เดิม (§4.2)`,
-        );
-      }
-      void acquireLease(accountId, client.sessionId);
-    }
-
     // P2-09: โหลด progression (level/exp) best-effort → ตั้ง base combat stat ตามเลเวล (D-055 §2). ไม่มี
     //   DB/ตัวละคร → lv1 (in-memory). ต้องตั้งก่อน applyEquipmentStats เพื่อให้ base ถูกต้องตั้งแต่เฟรมแรก.
     // fix/level-persist-map-cross: resolve progression = DB load (durable) → process-cache carrier (รอด
@@ -1848,42 +2773,65 @@ export class MapRoom extends Room<MapRoomState> {
     const carrierKey = carryKey(accountId, characterId);
     const progress = (characterId ? await loadCharacterProgress(characterId) : null) ??
       (carrierKey ? recallProgress(carrierKey) : null) ?? { level: 1, exp: 0 };
-    this.sessionProgress.set(client.sessionId, { level: progress.level, exp: progress.exp });
-    // P2-07: combat stats เริ่มต้น = base ตามเลเวล — override ด้วย equipment bonus หลังโหลด inventory ด้านล่าง.
-    this.recomputeEffectiveStats(client.sessionId);
+    // Batch 6 (ARCHER_CLASS_SPEC §6 note 4): resolve classId ก่อน recomputeEffectiveStats (class stat weights §2).
+    //   authority = DB Character.classId; fallback = joinOptions.classId (validate CLASS_IDS, dev/no-DB); สุดท้าย
+    //   swordsman. set sessionClassId (ขับ skill set + stat weights) + PlayerState.classId (broadcast).
+    const dbClass = characterId ? await loadCharacterClass(characterId) : null;
+    const optClass = isValidClassId(options?.classId) ? options.classId : null;
+    const classId = (isValidClassId(dbClass) ? dbClass : null) ?? optClass ?? "swordsman";
+    player.classId = classId;
+    // P2-07: combat stats เริ่มต้น = base ตามเลเวล (+ class weights) — override ด้วย equipment bonus หลังโหลด inventory.
 
     // P2-05 (Storage §7.2/§24): ผูก session กับตัวละคร → เปิด save cycle + ตั้ง lastPlayedCharacterId (Continue
     //   default). เฉพาะเมื่อมีทั้ง accountId + characterId (verified). anonymous/dev = ไม่ persist (flow เดิม).
-    if (accountId && characterId) {
-      this.sessionCharacters.set(client.sessionId, {
-        accountId,
-        characterId,
-        lastSaveMs: Date.now(),
-      });
-      void updateLastPlayed(accountId, characterId);
-    }
-
     // P2-07 (Storage §22 · TA §7/§8): ส่ง inventory/equipment snapshot ตอน join + ตั้ง combat stats จากของที่สวม.
     //   best-effort load (ไม่มี DB/ตัวละคร → []); anonymous ก็ได้ snapshot ว่างเพื่อ init HUD (flow เดิมไม่พัง).
     const items = characterId ? await loadCharacterItemsBestEffort(characterId) : [];
     const snapshot = buildSnapshot(items, INVENTORY_CAPACITY);
-    client.send(MSG_INVENTORY_STATE, snapshot);
-    this.applyEquipmentStats(client.sessionId, snapshot.equipment);
     // A1/A2 (§10): เกิดเต็ม hp (maxHp = effective hp ที่ applyEquipmentStats set แล้ว). within-grace reconnect
     // ไม่ผ่าน onJoin → hp เดิมคงอยู่ (reconnect ไม่ heal); grace หมด = fresh join → เต็ม hp ที่ตำแหน่ง resolve.
-    player.maxHp = this.maxHpFor(client.sessionId);
-    player.hp = player.maxHp;
     // E3: sync level ทันทีตอน join (จาก sessionProgress ที่โหลดแล้ว) → HUD badge + A3 unlock ถูกตั้งแต่เกิด
-    player.level = this.sessionProgress.get(client.sessionId)?.level ?? 1;
-    this.syncPlayerExpSchema(client.sessionId); // E3: exp → แถบ EXP + % แสดงตั้งแต่เกิด
     // NAMEPLATES: ชื่อตัวละคร (display name §3.3) → PlayerState.name (ป้ายเหนือหัว local + remote). best-effort
     //   DB load; guest/ไม่มีตัวละคร/ไม่มี DB (characterId null หรือ row หาย) → default "ผู้เล่น" (ไม่ leak id/sessionId).
     const displayName = characterId ? await loadCharacterName(characterId) : null;
     player.name = displayName && displayName.length > 0 ? displayName : GUEST_PLAYER_NAME;
 
+    // All DB reads above are intentionally local. A newer controller may have taken over while they were in
+    // flight; only the latest verified controller may atomically materialize this actor and publish snapshots.
+    if (!this.isCurrentController(client, actorId)) return;
+    this.state.players.set(actorId, player);
+    this.trackers.set(actorId, initialTracker);
+    this.cooldowns.set(actorId, new Map());
+    this.sessionProgress.set(actorId, { level: progress.level, exp: progress.exp });
+    this.sessionClassId.set(actorId, classId);
+    if (accountId && characterId) {
+      this.sessionCharacters.set(actorId, {
+        accountId,
+        characterId,
+        lastSaveMs: Date.now(),
+      });
+    }
+    this.recomputeEffectiveStats(actorId);
+    client.send(MSG_INVENTORY_STATE, snapshot);
+    this.applyEquipmentStats(actorId, snapshot.equipment);
+    player.maxHp = this.maxHpFor(actorId);
+    player.hp = player.maxHp;
+    player.level = progress.level;
+    this.syncPlayerExpSchema(actorId);
+
+    if (accountId && characterId) {
+      void updateLastPlayed(accountId, characterId);
+      const joinNow = Date.now();
+      this.emitAchievement(client, "character.created", {}, joinNow);
+      this.emitAchievement(client, "map.enter", { mapId: this.state.mapId, firstVisit: true }, joinNow);
+    }
+
     console.log(
-      `[MapRoom ${this.roomId}] join ${client.sessionId} @(${player.tx.toFixed(1)},${player.ty.toFixed(1)}) — ${this.clients.length} online`,
+      `[MapRoom ${this.roomId}] join ${client.sessionId} -> ${actorId} @(${player.tx.toFixed(1)},${player.ty.toFixed(1)}) — ${this.clients.length} online`,
     );
+    } finally {
+      this.releaseWorldSeat(actorId);
+    }
   }
 
   /**
@@ -1891,13 +2839,13 @@ export class MapRoom extends Room<MapRoomState> {
    * (onLeave จะเห็น → ลบทันทีไม่เข้า grace) แล้วสั่ง client.leave(SESSION_TAKEN_OVER). best-effort (client
    * อาจหลุดไปแล้วถ้ากำลังอยู่ใน grace ตัวเอง).
    */
-  private forceTakeover(client: Client): void {
+  private forceTakeover(client: Client, actorId: string): void {
     this.takenOverSessions.add(client.sessionId);
     // fix/refresh-progression-race: session ที่ถูกเตะจะไม่ save ที่ onLeave (taken_over path / grace-catch
     //   ข้าม persist เพราะ wasTakenOver) — จุดนี้จึงเป็นที่ **เดียว** ที่บันทึกตัวเก่า. persistOnLeave = stash
     //   progression เข้า carrier (sync, กัน race กับ join ตัวใหม่ที่ resolve หลัง claimSession) + flush DB
     //   (เว้นถ้ากำลัง transition). ต้องทำ **ก่อน** client.leave (leave = trigger onLeave ที่ skip persist).
-    this.persistOnLeave(client, client.sessionId);
+    this.persistOnLeave(client, actorId);
     try {
       client.leave(WS_CLOSE_SESSION_TAKEN_OVER);
     } catch {
@@ -1916,6 +2864,27 @@ export class MapRoom extends Room<MapRoomState> {
     void releaseLease(accountId, client.sessionId);
   }
 
+  /** Keep one-active-session ownership on the server actor after its transport detaches. */
+  private retainAccountSessionForActor(client: Client, actorId: string): void {
+    const accountId = accountIdOf(client);
+    if (!accountId) return;
+    transferSession(accountId, client.sessionId, actorId, () => undefined);
+    const rec = this.sessionCharacters.get(actorId);
+    void acquireLease(accountId, actorId, {
+      characterId: rec?.characterId ?? characterIdOf(client),
+      serverId: this.roomId,
+    });
+  }
+
+  /** Release the server-owned account slot when an offline autonomous actor is finally dematerialized. */
+  private releaseRetainedActorSession(actorId: string): void {
+    const authority = this.characterAuthority.get(actorId);
+    const accountId = authority?.accountId ?? this.sessionCharacters.get(actorId)?.accountId;
+    if (!accountId) return;
+    releaseSession(accountId, actorId);
+    void releaseLease(accountId, actorId);
+  }
+
   /**
    * P1-07: ลบ player ออกจาก state + tracker + cooldown จริง (หลัง consented leave หรือ grace หมด).
    * client อื่นเห็น entity หายผ่าน schema removal. P2-05: เก็บกวาด session↔character binding ด้วย.
@@ -1924,13 +2893,24 @@ export class MapRoom extends Room<MapRoomState> {
     this.state.players.delete(sessionId);
     this.trackers.delete(sessionId);
     this.cooldowns.delete(sessionId);
+    this.consumableCooldowns.delete(sessionId); // PR5: drop the per-actor consumable cooldown gate
     this.effectiveStats.delete(sessionId);
     this.sessionBreakPower.delete(sessionId);
     this.damageReductionUntil.delete(sessionId); // A3: เคลียร์ S4 buff
+    this.moveSpeedBonusUntil.delete(sessionId); // Batch 6: เคลียร์ swift_step moveSpeed buff
+    this.sessionClassId.delete(sessionId); // Batch 6: เคลียร์ class binding
     this.sessionProgress.delete(sessionId);
     this.sessionEquipment.delete(sessionId);
     this.sessionCharacters.delete(sessionId);
     this.transitioningSessions.delete(sessionId);
+    const authority = this.characterAuthority.removeActor(sessionId);
+    if (authority?.controllerSessionId) this.state.controllers.delete(authority.controllerSessionId);
+    this.retainedActors.delete(sessionId);
+    this.refreshAutoDispose();
+    forgetAchievementSession(sessionId); // C2b: drop the session's rate-limit buckets (progress is scope-keyed)
+    // G-lite: intentionally NOT clearing this session's damageContrib entries — a leaver's dealt damage stays
+    //   attributed so it still counts toward the OTHER members' share denominator; the leaver is excluded from
+    //   reward by the presence filter at kill time (isRewardPresence). Ledgers are pruned per-mob on death.
     console.log(`[MapRoom ${this.roomId}] remove ${sessionId} (${reason})`);
   }
 
@@ -1991,7 +2971,7 @@ export class MapRoom extends Room<MapRoomState> {
       // hard cap: inert ใน P2 (afkHardCapHours=null → false เสมอ). เดินสายไว้ให้ open alpha เปิดได้โดยไม่
       //   แก้ flow — เกินเพดาน → consented leave (ลบทันที ไม่เข้า grace เหมือนออกเอง).
       if (exceedsAfkHardCap(tracker.connectedAtMs, now, this.afkHardCapHours)) {
-        const client = this.clients.find((c) => c.sessionId === sessionId);
+        const client = this.clientForActor(sessionId);
         if (client) {
           console.log(
             `[MapRoom ${this.roomId}] ${sessionId} เกิน afkHardCapHours (${this.afkHardCapHours}h) — เอาออก`,
@@ -2011,7 +2991,7 @@ export class MapRoom extends Room<MapRoomState> {
   private persistOnLeave(client: Client, sessionId: string): void {
     // fix/level-persist-map-cross: ขน progression เข้า process-cache ก่อน removePlayer ทุก leave path
     //   (consented/grace-expired) — ต้องทำแม้ transitioning (checkExit stash ไปแล้วก็ตาม; idempotent).
-    this.stashProgressForCarry(client);
+    this.stashProgressForCarry(client, sessionId);
     if (this.transitioningSessions.has(sessionId)) return; // transition save จุดหมายไปแล้ว
     this.persistSession(sessionId, true);
   }
@@ -2021,10 +3001,10 @@ export class MapRoom extends Room<MapRoomState> {
    * แล้ว (characterId/accountId จาก client.auth — ไม่ใช่ค่าดิบจาก client). ทำให้ level รอดข้าม map แม้ไม่มี DB
    * (local dev) หรือ session ที่ยังไม่ผูก characterId (มีแต่ accountId). ไม่มี identity ที่ verify → no-op.
    */
-  private stashProgressForCarry(client: Client): void {
+  private stashProgressForCarry(client: Client, actorId = this.actorIdOf(client)): void {
     const key = carryKey(accountIdOf(client), characterIdOf(client));
-    if (!key) return;
-    const prog = this.sessionProgress.get(client.sessionId);
+    if (!key || !actorId) return;
+    const prog = this.sessionProgress.get(actorId);
     if (prog) stashProgress(key, prog.level, prog.exp);
   }
 
@@ -2038,22 +3018,42 @@ export class MapRoom extends Room<MapRoomState> {
    * ระหว่าง grace: client อื่นยังเห็น player นี้ค้างใน state (Colyseus hold state จน expire — documented).
    */
   async onLeave(client: Client, consented?: boolean): Promise<void> {
-    const sessionId = client.sessionId;
+    const controllerSessionId = client.sessionId;
+    const wasTakenOver = this.takenOverSessions.delete(controllerSessionId);
+    const authority = this.characterAuthority.actorForController(controllerSessionId);
+
+    // A newer controller already attached to this actor. The stale leave cannot unbind, save over, or delete it.
+    if (!authority) {
+      this.releaseAccountSession(client);
+      return;
+    }
+    const actorId = authority.actorId;
+
+    // Closing either cleanly or unexpectedly while autonomy runs detaches only the transport. The same actor,
+    // HP/inventory/position/progression, and room simulation remain authoritative server state.
+    if (this.botMembers.has(actorId)) {
+      this.persistOnLeave(client, actorId);
+      this.retainedActors.add(actorId);
+      this.detachCharacterController(client);
+      this.retainAccountSessionForActor(client, actorId);
+      this.refreshAutoDispose();
+      console.log(`[MapRoom ${this.roomId}] detach ${controllerSessionId} <- ${actorId} (autonomy continues)`);
+      return;
+    }
 
     // P2-04 (§4.2): ถูกเตะด้วย SESSION_TAKEN_OVER → ลบทันที ไม่เข้า grace (ตั้งใจเตะ ไม่ใช่หลุดเน็ต).
     //   ไม่ releaseAccountSession — registry/lease เป็นของ session ใหม่ที่ยึดไปแล้ว (releaseSession scope ด้วย
     //   sessionId ก็ no-op อยู่ดี แต่ข้ามไปเลยชัดกว่า).
-    const wasTakenOver = this.takenOverSessions.delete(sessionId);
     if (wasTakenOver) {
-      this.removePlayer(sessionId, "taken_over");
+      this.removePlayer(actorId, "taken_over");
       return;
     }
 
     if (consented) {
       // P2-05: save ตำแหน่งล่าสุดก่อนลบ (เว้นถ้ากำลัง transition — checkExit save จุดหมายไปแล้ว).
-      this.persistOnLeave(client, sessionId);
+      this.persistOnLeave(client, actorId);
       this.releaseAccountSession(client);
-      this.removePlayer(sessionId, "consented");
+      this.removePlayer(actorId, "consented");
       return;
     }
 
@@ -2062,7 +3062,7 @@ export class MapRoom extends Room<MapRoomState> {
     //   resume state ที่ respawn แล้ว; grace หมด = fresh join → safe camp. TODO(PvP/boss critical, post-OB):
     //   ถ้าอนาคตมี death ที่มี window (revive/PvP down state) ต้องบังคับ safe camp ตอนกลับตรงนี้ (§59.1 guardrail).
     console.log(
-      `[MapRoom ${this.roomId}] ${sessionId} หลุด — เริ่ม grace ${this.graceSeconds}s (§59.1)`,
+      `[MapRoom ${this.roomId}] ${actorId} หลุด — เริ่ม grace ${this.graceSeconds}s (§59.1)`,
     );
     // fix/refresh-progression-race: refresh = unclean disconnect เข้า grace — ระหว่าง await ด้านล่างไม่มี
     //   stash/persist ใด ๆ. stash progression เข้า carrier **ก่อน** await (sync) เพื่อครอบ refresh ที่ไม่ถูก
@@ -2072,17 +3072,800 @@ export class MapRoom extends Room<MapRoomState> {
     try {
       await this.allowReconnection(client, this.graceSeconds);
       console.log(
-        `[MapRoom ${this.roomId}] ${sessionId} reconnect สำเร็จใน grace — resume ตำแหน่ง/channel เดิม`,
+        `[MapRoom ${this.roomId}] ${actorId} reconnect สำเร็จใน grace — resume ตำแหน่ง/channel เดิม`,
       );
     } catch {
       // grace หมด → ลบจริง + ปล่อย session ระดับบัญชี (registry/DB lease). ถ้าระหว่าง grace ถูก account
       // เดียวกัน takeover (forceTakeover mark sessionId ตอน await กำลังรอ) → เก็บกวาด set ที่นี่ด้วย.
       // P2-05: save ตำแหน่งล่าสุดก่อนลบ (ผู้เล่นหลุดจริง ไม่กลับใน grace) — เว้นถ้าถูก takeover (ตัวใหม่คุมแล้ว).
-      const wasTakenOverDuringGrace = this.takenOverSessions.delete(sessionId);
-      if (!wasTakenOverDuringGrace) this.persistOnLeave(client, sessionId);
+      // Fresh same-character takeover may have attached while this await was pending.
+      if (this.characterAuthority.actorForController(controllerSessionId)?.actorId !== actorId) {
+        this.takenOverSessions.delete(controllerSessionId);
+        this.releaseAccountSession(client);
+        return;
+      }
+      const wasTakenOverDuringGrace = this.takenOverSessions.delete(controllerSessionId);
+      if (!wasTakenOverDuringGrace) this.persistOnLeave(client, actorId);
       this.releaseAccountSession(client);
-      this.removePlayer(sessionId, "grace_expired");
+      this.removePlayer(actorId, "grace_expired");
     }
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // D-067 Character Autonomy BotHost seam. Automation drives the already-materialized character actor through
+  // the room's server-authoritative movement/combat/economy state. It never creates a clone, worker, or inventory.
+  // ══════════════════════════════════════════════════════════════════════════
+
+  /** BotHost.mapId — the map this room hosts (the bot manager keys hosts by it). */
+  get mapId(): string {
+    return this.state.mapId;
+  }
+
+  /** pick the bot's basic-attack skill: lowest allowed slot that deals damage; fallback = the class basic attack. */
+  private resolveBotSkill(classId: string, allowedSlots: number[]): SkillDefinition | null {
+    const skills = this.skillsByClass[classId] ?? this.skillsByClass.swordsman;
+    const arr = [...skills.values()];
+    const isDamage = (s: SkillDefinition | undefined): s is SkillDefinition =>
+      !!s && s.targetType === "enemy" && s.baseMultiplier > 0 && s.hitCount > 0;
+    for (const slot of [...allowedSlots].sort((a, b) => a - b)) {
+      if (isDamage(arr[slot])) return arr[slot];
+    }
+    return arr.find(isDamage) ?? null; // fallback = class basic attack
+  }
+
+  botClaimAuthority(input: BotAuthorityInput): string | null {
+    const actor = this.characterAuthority.actorForController(input.controllerSessionId);
+    if (!actor || !actor.accountId || !actor.characterId) return null;
+    const actorId = actor.actorId;
+    const player = this.state.players.get(actorId);
+    const rec = this.sessionCharacters.get(actorId);
+    const classId = this.sessionClassId.get(actorId);
+    if (
+      !player ||
+      !rec ||
+      !classId ||
+      rec.accountId !== input.accountId ||
+      rec.characterId !== input.characterId ||
+      !this.pocketExists(input.pocketId)
+    ) {
+      return null;
+    }
+    const skill = this.resolveBotSkill(classId, input.allowedSlots);
+    if (!skill) return null;
+    if (!this.characterAuthority.beginAutonomy(
+      actorId,
+      input.controllerSessionId,
+      input.accountId,
+      input.characterId,
+    )) {
+      return null;
+    }
+
+    player.isBot = true;
+    this.botMembers.set(actorId, {
+      accountId: input.accountId,
+      characterId: input.characterId,
+      profileId: input.profileId,
+      classId,
+      skill,
+      pocketId: input.pocketId,
+    });
+    this.refreshAutoDispose();
+    console.log(`[MapRoom ${this.roomId}] autonomy claim ${actorId} @pocket ${input.pocketId}`);
+    return actorId;
+  }
+
+  botReleaseAuthority(actorId: string): void {
+    if (!this.botMembers.has(actorId)) return;
+    this.botMembers.delete(actorId);
+    this.characterAuthority.endAutonomy(actorId);
+    const player = this.state.players.get(actorId);
+    if (player) player.isBot = false;
+    this.refreshAutoDispose();
+    console.log(`[MapRoom ${this.roomId}] autonomy release ${actorId}`);
+
+    // If the owner is offline, the run was the only reason to retain this materialized actor. Dematerialize on
+    // the next microtask so synchronous death/respawn handling can finish first. This also removes the stale
+    // room-affinity record before a later fresh join can materialize a duplicate in another room.
+    if (!this.characterAuthority.get(actorId)?.controllerSessionId) {
+      queueMicrotask(() => {
+        const authority = this.characterAuthority.get(actorId);
+        if (!authority || authority.controllerSessionId || authority.mode === "autonomy" || this.botMembers.has(actorId)) {
+          return;
+        }
+        this.persistSession(actorId, true);
+        this.releaseRetainedActorSession(actorId);
+        this.removePlayer(actorId, "autonomy_stopped_offline");
+      });
+    }
+  }
+
+  botMobs(): AgentMob[] {
+    const out: AgentMob[] = [];
+    this.sim.forEach((m) => {
+      out.push({ id: m.id, mobType: m.mobType, tx: m.pos.tx, ty: m.pos.ty, hp: m.hp, pocketId: m.pocketId });
+    });
+    return out;
+  }
+
+  // ── D-069 server-owned warp seams (PR5 Phase B) ──────────────────────────────────────────────────────────
+  // Move the ONE real character actor between a farm MapRoom and the city-hub MapRoom with zero duplicate-actor
+  // windows. The trip controller (next task) calls botExportActor + botAttachWarpedActor inside ONE synchronous
+  // block, so both are fully synchronous. Reservation/persistence are thin wrappers over the existing seams.
+
+  /** BotHost.botReserveWarpSeat — hold a world seat for an incoming warp (same actor-keyed cap as onJoin). */
+  botReserveWarpSeat(actorId: string): boolean {
+    return this.reserveWorldSeat(actorId);
+  }
+
+  /** BotHost.botReleaseWarpSeat — release a warp seat reservation (mirrors the onJoin finally). */
+  botReleaseWarpSeat(actorId: string): void {
+    this.releaseWorldSeat(actorId);
+  }
+
+  /**
+   * BotHost.botExportActor — synchronously detach a live bot actor from THIS room and collect its full transferable
+   * state. null unless the actor is BOTH a bot member and materialized here (or a durable session gap is found).
+   *
+   * ⚠ This is a warp TRANSFER, not a leave: it deliberately does NOT call removePlayer. removePlayer would fire
+   * leave-shaped side effects — forgetAchievementSession, releaseRetainedActorSession, and (via botReleaseAuthority)
+   * the autonomy_stopped_offline dematerialize microtask — that would tear the running bot down. Instead we lift the
+   * actor out of every per-actor structure while the runtime keeps running, so botAttachWarpedActor rebuilds it at
+   * the target anchor. Deliberately NOT called: botReleaseAuthority, removePlayer, any botManager notification.
+   */
+  botExportActor(actorId: string): BotWarpExport | null {
+    if (!this.botMembers.has(actorId) || !this.state.players.has(actorId)) return null;
+    const player = this.state.players.get(actorId)!;
+    const botMember = this.botMembers.get(actorId)!;
+    const rec = this.sessionCharacters.get(actorId);
+    const progress = this.sessionProgress.get(actorId);
+    const classId = this.sessionClassId.get(actorId);
+    // A bot member must always carry durable identity/progression/class; a gap = never export (fail closed).
+    if (!rec || !progress || !classId) return null;
+    const equipment = this.sessionEquipment.get(actorId) ?? [];
+    const ownerAttached = this.characterAuthority.get(actorId)?.controllerSessionId != null;
+
+    const exported: BotWarpExport = {
+      actorId,
+      accountId: botMember.accountId,
+      characterId: botMember.characterId,
+      classId: player.classId,
+      name: player.name,
+      hp: player.hp,
+      maxHp: player.maxHp,
+      level: player.level,
+      exp: player.exp,
+      expFloor: player.expFloor,
+      expCeil: player.expCeil,
+      sessionProgress: { level: progress.level, exp: progress.exp },
+      sessionCharacters: { accountId: rec.accountId, characterId: rec.characterId, lastSaveMs: rec.lastSaveMs },
+      sessionEquipment: equipment.map((e) => ({ itemId: e.itemId, enhancementLevel: e.enhancementLevel })),
+      sessionClassId: classId,
+      botMember: { ...botMember },
+      ownerAttached,
+    };
+
+    // Lift the actor out of every per-actor structure (the removePlayer checklist minus the leave-only side
+    // effects). Mirrors removePlayer's map deletes exactly so no stale entry survives the transfer.
+    this.state.players.delete(actorId);
+    this.trackers.delete(actorId);
+    this.cooldowns.delete(actorId);
+    this.consumableCooldowns.delete(actorId);
+    this.effectiveStats.delete(actorId);
+    this.sessionBreakPower.delete(actorId);
+    this.damageReductionUntil.delete(actorId);
+    this.moveSpeedBonusUntil.delete(actorId);
+    this.sessionClassId.delete(actorId);
+    this.sessionProgress.delete(actorId);
+    this.sessionEquipment.delete(actorId);
+    this.sessionCharacters.delete(actorId);
+    this.transitioningSessions.delete(actorId);
+    this.retainedActors.delete(actorId);
+    this.botMembers.delete(actorId);
+    const removed = this.characterAuthority.removeActor(actorId);
+    if (removed?.controllerSessionId) this.state.controllers.delete(removed.controllerSessionId);
+    this.refreshAutoDispose();
+    return exported;
+  }
+
+  /**
+   * BotHost.botAttachWarpedActor — synchronously re-materialize an exported actor at `anchor` in THIS room and
+   * re-register its automation so the running runtime keeps driving it. Combat stats are RECOMPUTED from the
+   * carried level + equipment (never-downgrade), while live vitals (hp/maxHp/level/exp) are carried verbatim.
+   */
+  botAttachWarpedActor(exported: BotWarpExport, anchor: Vec2): boolean {
+    // Invariant breach guard: an actor observable in two rooms is exactly the window D-069 forbids.
+    if (this.state.players.has(exported.actorId)) return false;
+    const adopted = this.characterAuthority.adoptActor({
+      actorId: exported.actorId,
+      accountId: exported.accountId,
+      characterId: exported.characterId,
+    });
+    if (!adopted) return false;
+    const actorId = exported.actorId;
+
+    const spawn = resolveSpawnPosition({ tx: anchor.tx, ty: anchor.ty }, this.safeCamp, this.isWalkableAt);
+    const player = new PlayerState();
+    player.tx = spawn.pos.tx;
+    player.ty = spawn.pos.ty;
+    player.direction = "S";
+    player.anim = "idle";
+    player.partyId = this.partyId;
+    player.classId = exported.classId;
+    player.name = exported.name;
+    player.isBot = true;
+    const tracker: MoveTracker = {
+      tx: player.tx,
+      ty: player.ty,
+      lastMoveTime: Date.now(),
+      lastCorrectionTime: 0,
+      lastExitId: null,
+      lastInputMs: Date.now(),
+      connectedAtMs: Date.now(),
+    };
+
+    this.state.players.set(actorId, player);
+    this.trackers.set(actorId, tracker);
+    this.cooldowns.set(actorId, new Map());
+    this.sessionProgress.set(actorId, { level: exported.sessionProgress.level, exp: exported.sessionProgress.exp });
+    this.sessionClassId.set(actorId, exported.sessionClassId);
+    this.sessionCharacters.set(actorId, {
+      accountId: exported.sessionCharacters.accountId,
+      characterId: exported.sessionCharacters.characterId,
+      lastSaveMs: exported.sessionCharacters.lastSaveMs,
+    });
+    // Recompute combat stats from the carried level + class + equipment (do NOT copy the source effectiveStats).
+    this.recomputeEffectiveStats(actorId);
+    this.applyEquipmentStats(actorId, exported.sessionEquipment);
+    // Warp preserves live vitals (not a fresh spawn): maxHp equals the recomputed baseline by construction.
+    player.maxHp = exported.maxHp;
+    player.hp = Math.min(exported.hp, player.maxHp);
+    player.level = exported.level;
+    player.exp = exported.exp;
+    player.expFloor = exported.expFloor;
+    player.expCeil = exported.expCeil;
+    this.botMembers.set(actorId, { ...exported.botMember });
+
+    // When the owner was offline at export, keep the actor retained + the account slot pinned to it so the room
+    // survives and a later reconnect routes back here. When the owner was attached, the trip controller (next
+    // task) redirects the transport, which re-binds through the onJoin retained-actor path.
+    if (!exported.ownerAttached) {
+      this.retainedActors.add(actorId);
+      this.retainWarpedActorSession(exported.accountId, actorId, exported.sessionCharacters.characterId);
+    }
+    this.refreshAutoDispose();
+    console.log(`[MapRoom ${this.roomId}] warp attach ${actorId} @(${player.tx.toFixed(1)},${player.ty.toFixed(1)})`);
+    return true;
+  }
+
+  /**
+   * Warp counterpart of retainAccountSessionForActor (no transport to transfer from — the account slot is already
+   * actor-keyed process-wide). Re-point the DB lease's serverId to THIS room so cross-process reconnect routing
+   * finds the actor's new home; the in-process slot transfer is idempotent when the slot already holds the actor.
+   */
+  private retainWarpedActorSession(accountId: string, actorId: string, characterId: string): void {
+    transferSession(accountId, actorId, actorId, () => undefined);
+    void acquireLease(accountId, actorId, { characterId, serverId: this.roomId });
+  }
+
+  /** BotHost.botPersistNow — fire-and-forget durable save of the warped actor (best-effort; swallows errors). */
+  botPersistNow(actorId: string): void {
+    this.persistSession(actorId, true);
+  }
+
+  botPos(sessionId: string): Vec2 | null {
+    const p = this.state.players.get(sessionId);
+    return p ? { tx: p.tx, ty: p.ty } : null;
+  }
+
+  botHpFraction(sessionId: string): number {
+    const p = this.state.players.get(sessionId);
+    if (!p || p.maxHp <= 0) return 0;
+    return p.hp / p.maxHp;
+  }
+
+  botAttackRange(sessionId: string): number {
+    return this.botMembers.get(sessionId)?.skill.range ?? 0;
+  }
+
+  botBaseCooldownSeconds(sessionId: string): number {
+    return this.botMembers.get(sessionId)?.skill.cooldown ?? 1;
+  }
+
+  botStepToward(sessionId: string, target: Vec2, dtMs: number): boolean {
+    const p = this.state.players.get(sessionId);
+    const tracker = this.trackers.get(sessionId);
+    if (!p || !tracker) return false;
+    const step = DEFAULT_ENGINE_CONFIG.player.speed * (dtMs / 1000);
+    const next = nextStepToward({ tx: p.tx, ty: p.ty }, target, step);
+    if (!this.isWalkableAt(next.tx, next.ty)) return false; // persistent block → Free stuck settlement
+    if (next.tx === p.tx && next.ty === p.ty) return false;
+    p.direction = resolveDirection(
+      { tx: next.tx - p.tx, ty: next.ty - p.ty },
+      DEFAULT_ENGINE_CONFIG.tileSize,
+      p.direction as Direction,
+    );
+    p.tx = next.tx;
+    p.ty = next.ty;
+    p.anim = "walk";
+    tracker.tx = next.tx;
+    tracker.ty = next.ty;
+    return true;
+  }
+
+  async botAttack(sessionId: string, target: Vec2): Promise<BotAttackOutcome> {
+    const empty: BotAttackOutcome = {
+      killed: 0,
+      gold: 0,
+      exp: 0,
+      loot: [],
+      bagOverflowed: false,
+      overflow: [],
+      leveledUp: false,
+    };
+    const member = this.botMembers.get(sessionId);
+    const player = this.state.players.get(sessionId);
+    if (!member || !player) return empty;
+    const def = member.skill;
+    const facing = resolveDirection(
+      { tx: target.tx - player.tx, ty: target.ty - player.ty },
+      DEFAULT_ENGINE_CONFIG.tileSize,
+      player.direction as Direction,
+    );
+    player.direction = facing;
+
+    const targets: HitTestTarget[] = [];
+    const mobTypeById = new Map<string, string>();
+    this.sim.forEach((m) => {
+      targets.push({ id: m.id, pos: { tx: m.pos.tx, ty: m.pos.ty } });
+      mobTypeById.set(m.id, m.mobType);
+    });
+    const casterPos = { tx: player.tx, ty: player.ty };
+    const hitIds = isGroundTargetCircle(def)
+      ? resolveGroundAoeHits(def, clampAimToRange(casterPos, target, def.range), targets, DEFAULT_ENGINE_CONFIG.tileSize)
+      : resolveSkillHits(def, casterPos, facing, targets, DEFAULT_ENGINE_CONFIG.tileSize, this.balance.hitTolerance);
+
+    const stats = this.effectiveStats.get(sessionId) ?? this.balance.player;
+    const hits: SkillHit[] = [];
+    const killedMobTypes: string[] = [];
+    for (const mobId of hitIds) {
+      const mobType = mobTypeById.get(mobId);
+      if (mobType === undefined) continue;
+      // Defence-in-depth: only catalogued normal mobs may receive Character Autonomy damage (D-067).
+      if (isForbiddenAutomationMobClass(mobClassForMobType(mobType))) continue;
+      const ms = this.balance.mobs[mobType] ?? this.balance.defaultMob;
+      const dmg = computeSkillDamage(
+        {
+          atk: stats.atk,
+          baseMultiplier: def.baseMultiplier,
+          targetDef: ms.def,
+          penetration: stats.penetration,
+          k: this.balance.k,
+          critRate: stats.critRate,
+          critDmg: stats.critDmg,
+          bossModifier: 1.0, // bots never fight bosses
+          pvpModifier: this.balance.pvpModifier,
+          tierReduction: ms.tierReduction,
+          damageTakenMultiplier: 1.0,
+        },
+        def.hitCount,
+        defaultRng,
+      );
+      const applied = this.sim.damageMob(mobId, dmg.damage);
+      if (!applied) continue;
+      recordDamage(this.damageContrib, mobId, sessionId, dmg.damage);
+      hits.push({ mobId, dmg: dmg.damage, crit: dmg.crit, killed: applied.killed });
+      if (applied.killed) killedMobTypes.push(mobType);
+    }
+    this.syncMobsToState();
+    const result: SkillResultMessage = { casterId: sessionId, skillId: def.skillId, hits };
+    this.broadcast(MSG_SKILL_RESULT, result); // real players see the bot attack
+
+    // reward each kill through the IDENTICAL economy entry (ledger/drop/audit/EXP) — the owner earns.
+    const outcome: BotAttackOutcome = {
+      killed: 0,
+      gold: 0,
+      exp: 0,
+      loot: [],
+      bagOverflowed: false,
+      overflow: [],
+      leveledUp: false,
+    };
+    // `member` is the command lease captured before damage. Manual takeover may remove botMembers while an
+    // accepted reward is awaiting DB I/O; every kill from this already-fenced cast must still be paid exactly
+    // once, while no later automation command may start.
+    for (const mobType of killedMobTypes) {
+      const g = await this.botGrantForKill(sessionId, mobType, member);
+      if (!g) continue;
+      outcome.killed += 1;
+      outcome.gold += g.gold;
+      outcome.exp += g.exp;
+      outcome.loot.push(...g.loot);
+      outcome.bagOverflowed = outcome.bagOverflowed || g.bagOverflowed;
+      outcome.overflow.push(...g.overflow);
+      outcome.leveledUp = outcome.leveledUp || g.leveledUp;
+    }
+    return outcome;
+  }
+
+  /**
+   * Grant one bot kill's rewards to the OWNER via grantKillRewardsForMob (identical economy path as a real
+    * player). EXP/level, equipment-derived stats, HP, inventory, and position all belong to this same actor;
+    * gold/items are persisted inside the economy call (ledger/inventory/delivery), while the ordinary room save
+    * cycle persists its latest actor position/progression. Returns per-kill deltas for the report + stop checks.
+   */
+  private async botGrantForKill(
+    sessionId: string,
+    mobType: string,
+    member: BotMemberState,
+  ): Promise<{
+    gold: number;
+    exp: number;
+    loot: { itemId: string; quantity: number }[];
+    bagOverflowed: boolean;
+    overflow: { itemId: string; quantity: number }[];
+    leveledUp: boolean;
+  } | null> {
+    const progress = this.sessionProgress.get(sessionId);
+    if (!progress) return null;
+    const oldExp = progress.exp;
+    let outcome: Awaited<ReturnType<typeof grantKillRewardsForMob>>;
+    try {
+      outcome = await grantKillRewardsForMob(
+        {
+          mobType,
+          characterId: member.characterId,
+          accountId: member.accountId,
+          playerLevel: progress.level,
+          playerExp: progress.exp,
+          eligibleMembers: 1, // current autonomy plan is single-actor; party parity remains later work
+          killEventId: randomUUID(),
+          persist: true,
+        },
+        this.economy,
+      );
+    } catch (err) {
+      console.error(
+        `[MapRoom ${this.roomId}] bot kill-reward DB error ${sessionId} (${mobType}): ` +
+          (err instanceof Error ? err.message : String(err)),
+      );
+      return null;
+    }
+    if (!outcome) return null;
+    const prog2 = this.sessionProgress.get(sessionId);
+    if (prog2) {
+      prog2.level = outcome.exp.level;
+      prog2.exp = outcome.exp.exp;
+      const p = this.state.players.get(sessionId);
+      if (p) p.level = prog2.level;
+      this.syncPlayerExpSchema(sessionId);
+      this.recomputeEffectiveStats(sessionId);
+      this.refreshPlayerMaxHp(sessionId);
+    }
+    if (outcome.exp.leveledUp) void saveCharacterProgress(member.characterId, outcome.exp.level, outcome.exp.exp);
+    const controller = this.clientForActor(sessionId);
+    if (controller && outcome.granted.length > 0) {
+      const items = await loadCharacterItemsBestEffort(member.characterId);
+      controller.send(MSG_INVENTORY_STATE, buildSnapshot(items, INVENTORY_CAPACITY));
+    }
+    return {
+      gold: outcome.goldRolled,
+      exp: Math.max(0, outcome.exp.exp - oldExp),
+      loot: [...outcome.granted, ...outcome.delivered],
+      bagOverflowed: outcome.delivered.length > 0 || outcome.overflow.length > 0,
+      overflow: outcome.overflow,
+      leveledUp: outcome.exp.leveledUp,
+    };
+  }
+
+  /** send a message to the owner IF they are connected in THIS room (offline owner → false, no push, §13). */
+  botOwnerSend(accountId: string, type: string, msg: unknown): boolean {
+    let sent = false;
+    for (const c of this.clients) {
+      if (accountIdOf(c) === accountId) {
+        c.send(type, msg);
+        sent = true;
+      }
+    }
+    return sent;
+  }
+
+  /** True for boss/elite/unknown targets. Unknown also covers future events until explicitly classified. */
+  isForbiddenTargetType(mobType: string): boolean {
+    return isForbiddenAutomationMobClass(mobClassForMobType(mobType));
+  }
+
+  /** true when a bot-safe pocket still exists on this map (map_unsafe guard). */
+  pocketExists(pocketId: string): boolean {
+    return this.map.mobPockets.some((p) => p.pocketId === pocketId);
+  }
+
+  /**
+   * BotHost.botUsePotion — drink one unit of `itemId` for the automated actor through the SAME consumable service
+   * + per-actor cooldown gate as manual play (never-downgrade: the consume commits before the heal). `member` is
+   * captured BEFORE any await (command-lease convention, mirrors botAttack): a manual takeover may drop botMembers
+   * mid-flight, yet this already-issued potion command must still settle exactly once against the real actor.
+   * Missing member/persistence/state, a config reject (unknown_item/no_effect), or a thrown repo error all fail
+   * closed to "unavailable". hpFraction + cooldownUntilMs are read fresh (post-heal) so the caller sees live state.
+   */
+  async botUsePotion(actorId: string, itemId: string): Promise<BotPotionOutcome> {
+    const member = this.botMembers.get(actorId);
+    const outcome = (status: BotPotionOutcome["status"]): BotPotionOutcome => ({
+      status,
+      hpFraction: this.botHpFraction(actorId), // guards maxHp<=0 → 0
+      cooldownUntilMs: this.consumableCooldowns.get(actorId) ?? 0,
+    });
+    if (!member) return outcome("unavailable"); // authority dropped mid-flight (or never claimed)
+    if (!inventoryPersistenceAvailable()) return outcome("unavailable"); // same guard as manual runUseItem
+    const player = this.state.players.get(actorId);
+    if (!player) return outcome("unavailable");
+
+    let result: UseConsumableResult;
+    try {
+      result = await useConsumable(
+        getInventoryRepository(),
+        ITEM_CATALOG,
+        (id) => CONSUMABLE_CONFIG.effects[id],
+        {
+          characterId: member.characterId,
+          selector: { by: "item", itemId }, // bot path: first live bag stack of itemId, at its LIVE version
+          hp: player.hp,
+          maxHp: player.maxHp,
+          nowMs: Date.now(),
+          cooldownUntilMs: this.consumableCooldowns.get(actorId) ?? 0,
+        },
+      );
+    } catch (err) {
+      console.warn(
+        `[MapRoom ${this.roomId}] bot use-item DB error ${actorId}: ` +
+          (err instanceof Error ? err.message : String(err)),
+      );
+      return outcome("unavailable");
+    }
+
+    if (!result.ok) return outcome(BOT_POTION_REJECT_STATUS[result.reason]);
+
+    this.applyConsumableHeal(actorId, result.healedToHp, result.cooldownUntilMs);
+    // Mirror the reward/economy path (botGrantForKill): push a fresh bag snapshot to the owner's client when it
+    // is attached — the manual runUseItem sends the same MSG_INVENTORY_STATE snapshot after a successful use.
+    const controller = this.clientForActor(actorId);
+    if (controller) {
+      const items = await loadCharacterItemsBestEffort(member.characterId);
+      controller.send(MSG_INVENTORY_STATE, buildSnapshot(items, INVENTORY_CAPACITY));
+    }
+    return outcome("healed");
+  }
+
+  /**
+   * BotHost.botPlanPath — A* route from the actor's current tile to `goal` on this room's collision grid, reusing
+   * the engine pathfinding module + node cap (single source of truth = DEFAULT_ENGINE_CONFIG.pathfinding). Returns
+   * Vec2 waypoints (excluding start); `[]` = already at goal; null = no member/unreachable/over cap.
+   */
+  botPlanPath(actorId: string, goal: Vec2): Vec2[] | null {
+    const p = this.state.players.get(actorId);
+    if (!p) return null;
+    const path = findPath({ tx: p.tx, ty: p.ty }, goal, this.isWalkableAt, {
+      maxSearchNodes: DEFAULT_ENGINE_CONFIG.pathfinding.maxSearchNodes,
+    });
+    if (path === null) return null;
+    return path.map((wp) => ({ tx: wp.tx, ty: wp.ty }));
+  }
+
+  /**
+   * BotHost.botPocketAnchor — a walkable route target for a mob pocket: the pocket rect's center tile, or (if the
+   * center is blocked) the nearest walkable tile scanned outward in Chebyshev rings bounded by the rect. Returns
+   * null when the pocket is missing or holds no walkable tile.
+   */
+  botPocketAnchor(pocketId: string): Vec2 | null {
+    const pocket = this.map.mobPockets.find((p) => p.pocketId === pocketId);
+    if (!pocket) return null;
+    const { tx, ty, width, height } = pocket.area;
+    const cx = tx + Math.floor(width / 2);
+    const cy = ty + Math.floor(height / 2);
+    if (this.isWalkableAt(cx, cy)) return { tx: cx, ty: cy };
+    const maxR = Math.max(width, height);
+    for (let r = 1; r <= maxR; r++) {
+      for (let dy = -r; dy <= r; dy++) {
+        for (let dx = -r; dx <= r; dx++) {
+          if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue; // ring perimeter only (nearest-first)
+          const nx = cx + dx;
+          const ny = cy + dy;
+          if (nx < tx || nx >= tx + width || ny < ty || ny >= ty + height) continue; // stay within the rect
+          if (this.isWalkableAt(nx, ny)) return { tx: nx, ty: ny };
+        }
+      }
+    }
+    return null;
+  }
+
+  // ── D-069/D-070 town transaction seams (PR5 Phase C) ───────────────────────────────────────────────────────
+  // Each captures `member` BEFORE any await (command-lease convention, mirrors botAttack/botUsePotion: a manual
+  // takeover may drop botMembers mid-flight). Every seam delegates to the SAME pure service the manual handler uses
+  // and NEVER emits an achievement/milestone (D-070). Gold moves ONLY through the normal shop_sell/shop_buy ledger
+  // reasons inside those services. All four are structurally no-ops on a farm map (shopForMap/storageAvailableForMap
+  // yield nothing there) and stay INERT until the trip controller (next task) calls them from the city-hub room.
+
+  /**
+   * BotHost.botBagItems — the actor's live bag + worn gear projected to {@link BotBagItemView} for policy filtering.
+   * `rarity` from the item catalog; `equipped` from the instance location; `sellPrice` from THIS map's shop sell
+   * table (null when no shop here, a NON_SELLABLE id, or no configured price); `deliverable=false` for equipped or
+   * bound/blocked-storage items (the same gate depositToStorage enforces). Best-effort load → [] on missing member
+   * / no persistence / DB error (never throws).
+   */
+  async botBagItems(actorId: string): Promise<BotBagItemView[]> {
+    const member = this.botMembers.get(actorId);
+    if (!member || !inventoryPersistenceAvailable()) return [];
+    const items = await loadCharacterItemsBestEffort(member.characterId);
+    const sellPrices = shopForMap(this.state.mapId)?.sellPrices ?? null;
+    const views: BotBagItemView[] = [];
+    for (const r of items) {
+      if (r.location !== "CHARACTER_INVENTORY" && r.location !== "CHARACTER_EQUIPMENT") continue;
+      const def = ITEM_CATALOG.get(r.itemId);
+      const equipped = r.location === "CHARACTER_EQUIPMENT";
+      const policy = sharingPolicyOf(def);
+      const deliverable =
+        !equipped &&
+        policy.bindType !== "CHARACTER_BOUND" &&
+        policy.storagePolicy !== "BLOCKED" &&
+        policy.storagePolicy !== "CONDITIONAL";
+      const configured = sellPrices?.[r.itemId];
+      const sellPrice =
+        equipped || configured == null || NON_SELLABLE_ITEM_IDS.has(r.itemId) ? null : configured;
+      views.push({
+        instanceId: r.id,
+        itemId: r.itemId,
+        quantity: r.quantity,
+        version: r.version,
+        rarity: def?.rarity ?? "common",
+        equipped,
+        sellPrice,
+        deliverable,
+      });
+    }
+    return views;
+  }
+
+  /** BotHost.botTownSell — sell one owned bag instance through the manual sell service; goldDelta = +proceeds. */
+  async botTownSell(
+    actorId: string,
+    instanceId: string,
+    expectedVersion: number,
+    quantity: number,
+    idemKey: string,
+  ): Promise<BotTownTxResult> {
+    const member = this.botMembers.get(actorId);
+    if (!member) return { ok: false, reason: "unavailable", goldDelta: 0 };
+    const shop = shopForMap(this.state.mapId);
+    if (!shop || !inventoryPersistenceAvailable()) return { ok: false, reason: "unavailable", goldDelta: 0 };
+    let result: ShopSellResult;
+    try {
+      result = await sellItem(
+        {
+          shop,
+          ledger: { appendEntry: (e) => appendEntry(e) },
+          inventory: getInventoryRepository(),
+        },
+        {
+          characterId: member.characterId,
+          capacity: INVENTORY_CAPACITY,
+          instanceId,
+          expectedVersion,
+          quantity,
+          idempotencyKey: idemKey,
+        },
+      );
+    } catch (err) {
+      console.error(
+        `[MapRoom ${this.roomId}] bot town sell error ${actorId} (${instanceId}): ` +
+          (err instanceof Error ? err.message : String(err)),
+      );
+      return { ok: false, reason: "error", goldDelta: 0 };
+    }
+    if (!result.ok) return { ok: false, reason: result.reason, goldDelta: 0 };
+    // Proceeds = configured sell price × quantity sold (the exact amount credited by the service). No achievement.
+    const proceeds = (shop.sellPrices[result.itemId] ?? 0) * result.quantity;
+    return { ok: true, goldDelta: proceeds };
+  }
+
+  /** BotHost.botTownDeposit — move one bag instance into account storage via the manual deposit service. */
+  async botTownDeposit(
+    actorId: string,
+    instanceId: string,
+    expectedVersion: number,
+    idemKey: string,
+  ): Promise<BotTownTxResult> {
+    const member = this.botMembers.get(actorId);
+    if (!member) return { ok: false, reason: "unavailable", goldDelta: 0 };
+    if (!storageAvailableForMap(this.state.mapId) || !inventoryPersistenceAvailable()) {
+      return { ok: false, reason: "unavailable", goldDelta: 0 };
+    }
+    let result: StorageOpResult;
+    try {
+      result = await depositToStorage(this.storageServiceDeps(), {
+        accountId: member.accountId,
+        characterId: member.characterId,
+        instanceId,
+        expectedVersion,
+        idempotencyKey: idemKey,
+      });
+    } catch (err) {
+      console.error(
+        `[MapRoom ${this.roomId}] bot town deposit error ${actorId} (${instanceId}): ` +
+          (err instanceof Error ? err.message : String(err)),
+      );
+      return { ok: false, reason: "error", goldDelta: 0 };
+    }
+    if (!result.ok) return { ok: false, reason: result.reason, goldDelta: 0 };
+    return { ok: true, goldDelta: 0 }; // a deposit moves items, not gold
+  }
+
+  /** BotHost.botTownBuy — buy `quantity` of `itemId` via the manual buy service; goldDelta = -(net cost). */
+  async botTownBuy(
+    actorId: string,
+    itemId: string,
+    quantity: number,
+    idemKey: string,
+  ): Promise<BotTownTxResult> {
+    const member = this.botMembers.get(actorId);
+    if (!member) return { ok: false, reason: "unavailable", goldDelta: 0 };
+    const shop = shopForMap(this.state.mapId);
+    if (!shop || !inventoryPersistenceAvailable()) return { ok: false, reason: "unavailable", goldDelta: 0 };
+    let result: ShopBuyResult;
+    try {
+      result = await buyShopItem(
+        {
+          shop,
+          itemMeta: shopItemMeta,
+          ledger: { appendEntry: (e) => appendEntry(e) },
+          inventory: getInventoryRepository(),
+        },
+        {
+          characterId: member.characterId,
+          accountId: member.accountId,
+          capacity: INVENTORY_CAPACITY,
+          itemId,
+          quantity,
+          idempotencyKey: idemKey,
+        },
+      );
+    } catch (err) {
+      console.error(
+        `[MapRoom ${this.roomId}] bot town buy error ${actorId} (${itemId}): ` +
+          (err instanceof Error ? err.message : String(err)),
+      );
+      return { ok: false, reason: "error", goldDelta: 0 };
+    }
+    if (!result.ok) return { ok: false, reason: result.reason, goldDelta: 0 };
+    // Net cost = buy price × granted quantity (result.quantity already nets out any overflow refund). No achievement.
+    const cost = (shop.entries.find((e) => e.itemId === result.itemId)?.buyPrice ?? 0) * result.quantity;
+    return { ok: true, goldDelta: -cost };
+  }
+
+  /**
+   * BotHost.botGoldBalance — the actor's authoritative gold balance = SUM(ledger) for the character, the SAME
+   * value the shop buy path debits against (D-070 minGoldReserve is checked against this, NOT a summed goldDelta —
+   * a duplicate-replay edge makes deltas unreliable). null on missing member / no persistence / ledger error.
+   */
+  async botGoldBalance(actorId: string): Promise<number | null> {
+    const member = this.botMembers.get(actorId);
+    if (!member || !inventoryPersistenceAvailable()) return null;
+    try {
+      return Number(await getBalance(member.characterId, "gold"));
+    } catch (err) {
+      console.error(
+        `[MapRoom ${this.roomId}] bot gold balance error ${actorId}: ` +
+          (err instanceof Error ? err.message : String(err)),
+      );
+      return null;
+    }
+  }
+
+  /**
+   * BotHost.botSafeCampAnchor — THIS room's safe-camp tile (§59.1). The warp anchor for a null townTrip.townAnchor
+   * and the always-safe return anchor at the farm. A read-only position getter (no balance/combat semantics).
+   */
+  botSafeCampAnchor(): Vec2 {
+    return { tx: this.safeCamp.tx, ty: this.safeCamp.ty };
   }
 
   /**
@@ -2090,6 +3873,7 @@ export class MapRoom extends Room<MapRoomState> {
    * (ไม่พุ่งไม่รู้จบเมื่อ channel เกิด-ดับ). single-process (channelRegistry = module-level singleton).
    */
   onDispose(): void {
+    botManager.unregisterRoom(this); // Batch 7b: stop bots hosted here + drop this host from the registry
     channelRegistry.release(this.state.mapId, this.assignedChannelId);
     console.log(
       `[MapRoom ${this.roomId}] dispose ${this.state.mapId} ${this.assignedChannelId} — release channel`,

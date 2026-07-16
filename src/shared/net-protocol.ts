@@ -10,6 +10,13 @@
 // ยังไม่มี auto-assign). ยังไม่ทำ reconnect/party/auth/persistence.
 
 import type { Direction } from "@/engine/movement/direction";
+import type { BotContinuitySnapshotWire } from "./bot-continuity";
+
+export type {
+  BotContinuityOperationalStateWire,
+  BotContinuitySnapshotWire,
+  BotContinuityStateWire,
+} from "./bot-continuity";
 
 /**
  * Wire direction = Direction เดียวกับ engine (5-dir + mirror → 8 logical).
@@ -59,6 +66,14 @@ export const DEFAULT_PARTY_ID = "";
  */
 export const WS_CLOSE_SESSION_TAKEN_OVER = 4001;
 
+/** Matchmaking retry contract for a character whose autonomous actor is retained in a specific room. */
+export const CHARACTER_ACTOR_ROOM_REDIRECT_CODE = 4216;
+export const CHARACTER_ACTOR_ROOM_REDIRECT_PREFIX = "character_actor_room:";
+/** Same account selected a different character while another character actor is autonomous. */
+export const CHARACTER_AUTONOMY_CONFLICT_CODE = 4217;
+/** Effective world population is full; clients should create another channel, not retry the same retained room. */
+export const CHARACTER_WORLD_CAPACITY_CODE = 4218;
+
 /**
  * key ของ sessionStorage ที่ Game Hub เขียน characterId ที่ผู้เล่นเลือก "เข้าเกม" (P2-05, Storage §5/§7)
  * แล้ว /game (net-client) อ่านมาแนบใน joinOptions.characterId → server load state + ตรวจ ownership.
@@ -76,6 +91,14 @@ export const SELECTED_CHARACTER_STORAGE_KEY = "deungpu.selectedCharacterId";
  * ระหว่างเล่น (กัน refresh กลาง /game แล้วได้ map เก่าตอนออกจาก hub).
  */
 export const SELECTED_CHARACTER_MAP_STORAGE_KEY = "deungpu.selectedCharacterMapId";
+
+/**
+ * Batch 6 (ARCHER_CLASS_SPEC §6 note 4): key ของ sessionStorage คู่กับ {@link SELECTED_CHARACTER_STORAGE_KEY} —
+ * classId ("swordsman"/"archer") ของตัวละครที่เลือก. Game Hub เขียนตอน "เข้าเกม" (`CharacterView.classId`);
+ * /game boot อ่านเพื่อเลือกชุดสกิล client (hotbar/aim) ตั้งแต่ mount + แนบ joinOptions.classId (fallback ตอน
+ * ไม่มี DB). server เป็น authority สุดท้าย (Character.classId). ไม่มีค่า = fallback "swordsman".
+ */
+export const SELECTED_CHARACTER_CLASS_STORAGE_KEY = "deungpu.selectedCharacterClassId";
 
 /** message type: client → server ส่งตำแหน่ง/ทิศ/anim ปัจจุบัน (throttled ~10–15Hz, tech §6). */
 export const MSG_MOVE = "move";
@@ -344,6 +367,12 @@ export interface JoinOptions {
    * omit = anonymous (dev bypass ไม่มี account / เข้า /game ตรง ๆ) → spawn default, ไม่ persist. optional.
    */
   characterId?: string;
+  /**
+   * Batch 6 (ARCHER_CLASS_SPEC §6 note 4): classId ที่ client เลือก (จาก Game Hub sessionStorage). server ใช้เป็น
+   * **fallback เท่านั้น** เมื่อไม่มี DB-bound character class (dev/e2e/anonymous) — DB Character.classId เป็น
+   * authority เสมอเมื่อมี. validate กับ CLASS_IDS ก่อนใช้ (ค่ามั่ว → swordsman). omit = swordsman. optional.
+   */
+  classId?: string;
 }
 
 /**
@@ -452,6 +481,41 @@ export interface InventoryOpRejectedMessage {
   reason: string;
 }
 
+// ── PR5 use consumable (ดื่มโพชั่นฟื้น HP) — server-authoritative, HP apply เข้า PlayerState schema · Economy §7.1 ──
+//
+// Client ส่ง **intent เท่านั้น** (instanceId + expectedVersion ที่เห็นล่าสุด) — server ตัดสินทั้งหมด (per-actor
+// cooldown + optimistic lock + heal amount จาก config Design Knob). HP จริง ride PlayerState schema (auto-sync);
+// MSG_USE_ITEM_RESULT = ack ตรงให้ client เล่น potion cooldown/heal feedback ทันทีโดยไม่รอ schema patch.
+
+/** message type: client → server (intent) — ใช้ consumable 1 ชิ้นจากกระเป๋า (PR5). */
+export const MSG_USE_ITEM = "use_item";
+
+/** payload ของ MSG_USE_ITEM (client → server, PR5). expectedVersion = optimistic lock ของ stack ที่เห็นล่าสุด. */
+export interface UseItemMessage {
+  instanceId: string;
+  expectedVersion: number;
+}
+
+/** message type: server → **client เดียว** — ผลการใช้ consumable (สำเร็จ/ปฏิเสธ) (PR5). */
+export const MSG_USE_ITEM_RESULT = "use_item_result";
+
+/**
+ * payload ของ MSG_USE_ITEM_RESULT (server → client เดียว, PR5). สำเร็จ → itemId + hp (= healedToHp) +
+ * cooldownUntilMs; ปฏิเสธ → ok:false + reason (UseConsumableReject). **NOTE: HP จริง sync ทาง PlayerState
+ * schema ด้วย** — message นี้ = ack ตรง (client เรนเดอร์ potion cooldown/heal โดยไม่รอ schema patch).
+ */
+export interface UseItemResultMessage {
+  ok: boolean;
+  /** UseConsumableReject เมื่อ ok=false: "unknown_item"|"no_effect"|"on_cooldown"|"hp_already_full"|"no_stock"|"version_conflict". */
+  reason?: string;
+  /** itemId ที่ใช้ไป เมื่อ ok=true. */
+  itemId?: string;
+  /** healedToHp เมื่อ ok=true (client โชว์ HP / heal number). */
+  hp?: number;
+  /** epoch ms ที่ potion พร้อมใช้อีกครั้ง เมื่อ ok=true (client เรนเดอร์ potion cooldown). */
+  cooldownUntilMs?: number;
+}
+
 // ── P2-10 guaranteed reinforcement (เสริมแกร่งการันตี +1, cap +15 · Reinforcement §2) ─────────────────
 //
 // Client ส่ง **intent เท่านั้น** (instanceId + expectedVersion ที่เห็นล่าสุด + idempotencyKey) — server ตัดสิน
@@ -490,6 +554,17 @@ export interface LootLine {
   quantity: number;
 }
 
+/**
+ * B4 (Reinforcement §4.2): Field Boss reinforcement pity progress — ride MSG_PLAYER_PROGRESS หลังฆ่า Field Boss
+ * (มีเฉพาะ boss kill; omit = ไม่ใช่ boss kill). client แสดง "ประกันบอส: pityCount/guaranteedAtClear" ใน panel เสริมแกร่ง.
+ */
+export interface ReinforcementProgress {
+  /** clears-since-drop หลัง kill นี้ (§4.2) — 0 ทันทีหลังดรอป (reset). */
+  pityCount: number;
+  /** §4.2 guaranteedAtClear (15) — ตัวหารของแถบประกัน. */
+  guaranteedAtClear: number;
+}
+
 /** payload ของ MSG_PLAYER_PROGRESS (server → client เดียว, P2-09). */
 export interface PlayerProgressMessage {
   level: number;
@@ -505,8 +580,18 @@ export interface PlayerProgressMessage {
   leveledUp: boolean;
   /** ของที่เข้ากระเป๋าจริงรอบนี้ (toast §13.2) — ว่างถ้าไม่มี. */
   loot: LootLine[];
-  /** ของที่กระเป๋าเต็มใส่ไม่ได้ (§12.5 inventory_full — ห้าม silent loss; client เตือน) — ว่างถ้าไม่มี. */
+  /**
+   * ของที่กระเป๋าเต็มใส่ไม่ได้ **และ persist ไม่ได้** (ไม่มี DB) — §12.5 inventory_full (client เตือน). ว่างถ้าไม่มี.
+   * เมื่อมี DB ของล้นจะไปเข้า Delivery Box แทน (`lootDelivered`) → field นี้ว่าง (ไม่มี silent loss).
+   */
   lootOverflow: LootLine[];
+  /** ของที่กระเป๋าเต็ม → เข้า Delivery Box แล้ว (§12.5 no-silent-loss, ITEM 2) — client แจ้ง "ส่งเข้ากล่องพัสดุ". ว่างถ้าไม่มี. */
+  lootDelivered: LootLine[];
+  /**
+   * B4 (§4.2): Field Boss reinforcement pity progress — present ONLY after a Field Boss kill (server attaches it
+   * for `boss_map1_boiling_boar`). omit = ไม่ใช่ boss kill (client เก็บค่าล่าสุดไว้แสดงใน panel เสริมแกร่ง). optional.
+   */
+  reinforcementProgress?: ReinforcementProgress;
 }
 
 /** message type: server → **client เดียว** — แจ้งรางวัล milestone ที่เพิ่งปลดล็อก (C1, Economy §18). */
@@ -524,6 +609,68 @@ export interface MilestoneGrantedMessage {
   exp: number;
 }
 
+// ── C2b achievements (server-authoritative tracking + auto-claim · Achievement spec §4.2/§6/§7/§13) ────────
+//
+// Progress/rewards are server-authoritative (mob.killed derived fields computed server-side, never trusted from
+// the client). Three additive message paths: unlock notify (server → client), a whitelisted client-reported
+// event channel (title/none rewards only — §13 trust tradeoff), and a journal snapshot request/response.
+
+/** message type: server → **client เดียว** — an achievement just auto-claimed → toast (C2b, spec §7.1). */
+export const MSG_ACHIEVEMENT_UNLOCKED = "achievement_unlocked";
+
+/**
+ * payload ของ MSG_ACHIEVEMENT_UNLOCKED (server → client เดียว, C2b). ยิงครั้งเดียวตอนปลดล็อก (auto-claim,
+ * one-time per scope). gold/titleId = reward ที่แจกรอบนี้ (0/omit = ไม่มี) — client โชว์ toast สั้น ๆ ตาม tier.
+ */
+export interface AchievementUnlockedMessage {
+  achievementId: string;
+  nameTh: string;
+  /** "COMMON"|"UNCOMMON"|"HARD"|"EXTREME"|"MYSTERY"|"MEME" — client เลือกสี toast ตาม tier. */
+  tier: string;
+  /** Gold ที่แจก (§10 reward discipline: MEME/hidden = ไม่มี gold) — omit = ไม่มี. */
+  gold?: number;
+  /** title ที่บันทึกไว้ (ยังไม่มีระบบ title — journal อ่านต่อ) — omit = ไม่มี. */
+  titleId?: string;
+}
+
+/**
+ * message type: client → server — client-reported event (C2b Part 4). server whitelist + sanitize + rate-limit
+ * (§13: cosmetic/meme achievements เท่านั้น — ห้ามมี gold/item). ชนิดที่รับ: npc.talk · ui.logo.click ·
+ * weather.changed · phase.changed · weather.rain.tick. ชนิดนอก whitelist = server ทิ้งเงียบ ๆ.
+ */
+export const MSG_CLIENT_EVENT = "client_event";
+
+/** payload ของ MSG_CLIENT_EVENT (client → server, C2b). server sanitize payload ตาม type (ไม่ trust ค่า). */
+export interface ClientEventMessage {
+  type: string;
+  payload: Record<string, unknown>;
+}
+
+/** message type: client → server — ขอ snapshot achievement ทั้งหมด (journal C3 consume ต่อ, C2b Part 5). */
+export const MSG_ACHIEVEMENTS_REQUEST = "achievements_request";
+
+/** message type: server → **client เดียว** — snapshot achievement rows (ตอบ MSG_ACHIEVEMENTS_REQUEST, C2b). */
+export const MSG_ACHIEVEMENTS_SNAPSHOT = "achievements_snapshot";
+
+/** 1 แถว achievement ใน snapshot (C2b Part 5). nameTh = "???" เมื่อ hidden + ยังไม่ claim (§8.4 ไม่ spoil). */
+export interface AchievementRow {
+  id: string;
+  nameTh: string;
+  tier: string;
+  category: string;
+  /** "locked"|"in_progress"|"completed"|"claimed" (§4.2). */
+  state: string;
+  currentValue: number;
+  target: number;
+  gold?: number;
+  titleId?: string;
+}
+
+/** payload ของ MSG_ACHIEVEMENTS_SNAPSHOT (server → client เดียว, C2b). rows = core shipping set (60 แถว). */
+export interface AchievementsSnapshotMessage {
+  rows: AchievementRow[];
+}
+
 /** message type: server → **client เดียว** — ผลการเสริมแกร่ง (สำเร็จ/ปฏิเสธ) (P2-10). */
 export const MSG_ENHANCE_RESULT = "enhance_result";
 
@@ -534,6 +681,37 @@ export interface EnhanceResultMessage {
   /** enhancement level ใหม่เมื่อ ok=true (ปฏิเสธ = -1). */
   level: number;
   /** reason เมื่อ ok=false — "NO_ITEM"|"NO_REINFORCEMENT"|"MAX_LEVEL"|"ITEM_LOCKED" (§2.4 UI states). */
+  reason?: string;
+}
+
+// ── B4 fragment exchange (เศษเสริมแกร่ง 5 → เสริมแกร่ง 1 · Reinforcement §3.5) ─────────────────────────────
+//
+// Client ส่ง **intent เท่านั้น** (instanceId ของ stack เศษ + expectedVersion ที่เห็นล่าสุด + idempotencyKey) —
+// server ตัดสินทั้งหมด (validate ≥5 เศษ → consume 5 → grant 1 เสริมแกร่ง, atomic ผ่าน commitFragmentExchange).
+// สำเร็จ → MSG_FRAGMENT_EXCHANGE_RESULT (ok, granted) + MSG_INVENTORY_STATE (snapshot ใหม่); ปฏิเสธ → ok:false +
+// reason. double-apply กันด้วย optimistic `version` (retry ที่ถือ version เดิม = TRANSACTION_CONFLICT ไม่แลกซ้ำ).
+
+/** message type: client → server (intent) — ขอแลกเศษเสริมแกร่ง 5 → เสริมแกร่ง 1 (B4). */
+export const MSG_FRAGMENT_EXCHANGE = "fragment_exchange";
+
+/** payload ของ MSG_FRAGMENT_EXCHANGE (client → server, B4). instanceId = stack เศษที่จะใช้จ่าย. */
+export interface FragmentExchangeMessage {
+  instanceId: string;
+  /** version ที่ client เห็นล่าสุดของ stack เศษ (optimistic lock + retry guard). */
+  expectedVersion: number;
+  /** client transaction id — carried for telemetry; server ใช้ version lock เป็นตัวกัน double-apply. */
+  idempotencyKey: string;
+}
+
+/** message type: server → **client เดียว** — ผลการแลกเศษ (สำเร็จ/ปฏิเสธ) (B4). */
+export const MSG_FRAGMENT_EXCHANGE_RESULT = "fragment_exchange_result";
+
+/** payload ของ MSG_FRAGMENT_EXCHANGE_RESULT (server → client เดียว, B4). */
+export interface FragmentExchangeResultMessage {
+  ok: boolean;
+  /** จำนวนเสริมแกร่งที่ได้เมื่อ ok=true (ปฏิเสธ = 0). */
+  granted: number;
+  /** reason เมื่อ ok=false — "NO_DB"|"NOT_ENOUGH_FRAGMENTS"|"INVENTORY_FULL"|"TRANSACTION_CONFLICT". */
   reason?: string;
 }
 
@@ -743,4 +921,209 @@ export interface ShopResultMessage {
   gold: number;
   /** Economy §23 shop error code เมื่อ ok=false. */
   reason?: string;
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Batch 7b — Bot (Hunter Assistant) protocol (P3 Bot UI spec §13). Message names are LOCKED by that spec.
+// Server = source of truth for tier capability, retention, global safety, recovery outcome, and plan actions.
+// (defense-in-depth) but never overrides. Bot runs server-side; the owner closing the tab does NOT stop it.
+// ══════════════════════════════════════════════════════════════════════════════
+
+/** The three bot tiers (D-063) — shared enum so both sides render gating consistently. */
+export type BotTierWire = "free" | "plus" | "pro";
+
+/** Tier caps mirrored to the client for gating (server is truth). */
+export interface BotTierCapsWire {
+  profiles: number;
+  rules: number;
+  reportRetentionDays: number;
+  notifications: boolean;
+  schedules: number;
+  analytics: boolean;
+}
+
+/** Rules v1 (P3 §4) — the declarative bot behaviour stored per profile. */
+export interface BotRulesWire {
+  skillSlots: number[];
+  potionThresholdPct?: number | null;
+  lootAll: boolean;
+}
+
+/** A profile as the client sees it (adds `readOnly` = excess-after-downgrade, D-063 §12.4). */
+export interface BotProfileWire {
+  id: string;
+  name: string;
+  mapId: string;
+  pocketId: string;
+  rules: BotRulesWire;
+  createdAt: number;
+  updatedAt: number;
+  readOnly: boolean;
+}
+
+// ── C→S ──────────────────────────────────────────────────────────────────────
+/** C→S: fetch all profiles (+ paid/paused state). No payload. */
+export const MSG_BOT_PROFILE_LIST = "bot:profileList";
+/** C→S: create a profile (server enforces tier caps + bot-safe pocket). */
+export const MSG_BOT_PROFILE_CREATE = "bot:profileCreate";
+export interface BotProfileCreateMessage {
+  name: string;
+  mapId: string;
+  pocketId: string;
+  rules: BotRulesWire;
+}
+/** C→S: update a profile (rejected if read-only excess). */
+export const MSG_BOT_PROFILE_UPDATE = "bot:profileUpdate";
+export interface BotProfileUpdateMessage {
+  id: string;
+  name?: string;
+  mapId?: string;
+  pocketId?: string;
+  rules?: BotRulesWire;
+}
+/** C→S: delete a profile. */
+export const MSG_BOT_PROFILE_DELETE = "bot:profileDelete";
+export interface BotProfileDeleteMessage {
+  id: string;
+}
+/** C→S: start a bot on a profile (validate tier/profile/pocket/capacity). */
+export const MSG_BOT_START = "bot:start";
+export interface BotStartMessage {
+  profileId: string;
+}
+/** C→S: stop a running bot (manual — §12.3). Omit profileId to stop the account's running session. */
+export const MSG_BOT_STOP = "bot:stop";
+export interface BotStopMessage {
+  profileId?: string;
+}
+/** C→S: return the real character to manual authority and checkpoint the interrupted plan. */
+export const MSG_BOT_TAKEOVER = "bot:takeover";
+export type BotTakeoverSourceWire = "move" | "skill" | "pointer" | "touch" | "cta";
+export interface BotTakeoverMessage {
+  /** Client correlation only; the server derives account/character/actor from the authenticated controller. */
+  requestId: string;
+  source: BotTakeoverSourceWire;
+}
+/** C→S: resume a ready in-process checkpoint on the same real character. */
+export const MSG_BOT_RESUME = "bot:resume";
+export interface BotResumeMessage {
+  checkpointId: string;
+}
+/** C→S: MOCK pass purchase (D-061 — no real billing). Grants/extends per D-063 renew-append/cross-tier rules. */
+export const MSG_BOT_MOCK_PURCHASE = "bot:mockPurchase";
+export interface BotMockPurchaseMessage {
+  tier: BotTierWire;
+  days: number;
+}
+/** C→S: list reports within the tier retention window. No payload. */
+export const MSG_BOT_REPORT_LIST = "bot:reportList";
+/** C→S: fetch one report's detail. */
+export const MSG_BOT_REPORT_FETCH = "bot:reportFetch";
+export interface BotReportFetchMessage {
+  id: string;
+}
+
+// ── S→C ──────────────────────────────────────────────────────────────────────
+/** S→C: full profile list (reply to list/create/update/delete). */
+export const MSG_BOT_PROFILES = "bot:profiles";
+export interface BotProfilesMessage {
+  profiles: BotProfileWire[];
+}
+/** S→C: current tier state (§13 bot:tierState) — tier, expiry (ms|null), caps, paused (read-only) profile ids. */
+export const MSG_BOT_TIER_STATE = "bot:tierState";
+export interface BotTierStateMessage {
+  tier: BotTierWire;
+  passExpiresAt: number | null;
+  caps: BotTierCapsWire;
+  pausedProfileIds: string[];
+}
+/** S→C: live status stream (§13 bot:status) — pushed to the owner if connected in the host room. */
+export const MSG_BOT_STATUS = "bot:status";
+export interface BotStatusMessage {
+  profileId: string;
+  sessionId: string;
+  mapId: string;
+  pocketId: string;
+  /** Canonical server-owned workflow state. Client action labels must not become a second state authority. */
+  continuity: BotContinuitySnapshotWire;
+  /** Pre-PR7 presentation compatibility, derived from `continuity.state` by the server. */
+  action: string;
+  killCount: number;
+  goldEarned: number;
+  expEarned: number;
+  hpFraction: number;
+  uptimeMs: number;
+}
+/** S→C: the plan stopped (§13 bot:stopped) — carries the current stop reason + session totals. */
+export const MSG_BOT_STOPPED = "bot:stopped";
+export interface BotStoppedMessage {
+  profileId: string;
+  sessionId: string;
+  reason: string;
+  /** Final server-authored settlement for the closed run. */
+  continuity: BotContinuitySnapshotWire;
+  killCount: number;
+  goldEarned: number;
+  expEarned: number;
+}
+/** A takeover checkpoint is saving until the accepted in-flight reward and report close have drained. */
+export type BotCheckpointStateWire = "saving" | "ready" | "failed";
+export interface BotCheckpointWire {
+  id: string;
+  profileId: string;
+  sourceSessionId: string;
+  mapId: string;
+  pocketId: string;
+  savedAt: number;
+  state: BotCheckpointStateWire;
+  /** PAUSED snapshot plus the interrupted operational state; resume still re-evaluates the live actor. */
+  continuity: BotContinuitySnapshotWire;
+}
+/** S→C: current manual-takeover checkpoint; null means consumed/cleared by a successful start or resume. */
+export const MSG_BOT_CHECKPOINT = "bot:checkpoint";
+export interface BotCheckpointMessage {
+  checkpoint: BotCheckpointWire | null;
+}
+/** S→C: alert (§13 bot:alert) — rare/high-value found, captcha required, gold cap. The farmed loot is safe. */
+export const MSG_BOT_ALERT = "bot:alert";
+export interface BotAlertMessage {
+  profileId: string;
+  kind: "rare" | "captcha" | "gold_cap";
+  itemId?: string;
+  message: string;
+}
+/** S→C: report summaries within retention (reply to bot:reportList). */
+export const MSG_BOT_REPORTS = "bot:reports";
+export interface BotReportSummaryWire {
+  id: string;
+  mapId: string;
+  profileId: string;
+  startedAt: number;
+  stoppedAt: number | null;
+  stopReason: string | null;
+  killCount: number;
+  goldEarned: number;
+  expEarned: number;
+  durationMs: number;
+  goldPerHour: number;
+}
+export interface BotReportsMessage {
+  reports: BotReportSummaryWire[];
+}
+/** S→C: one report's detail (reply to bot:reportFetch) — null when clipped by retention. */
+export const MSG_BOT_REPORT = "bot:report";
+export interface BotReportDetailWire extends BotReportSummaryWire {
+  drops: Record<string, number>;
+}
+export interface BotReportMessage {
+  report: BotReportDetailWire | null;
+}
+/** S→C: generic ack for ops that can fail (create/update/delete/start/stop/mockPurchase). */
+export const MSG_BOT_OP_RESULT = "bot:opResult";
+export interface BotOpResultMessage {
+  op: string;
+  ok: boolean;
+  reason?: string;
+  /** optional reference (profileId / sessionId) for the client to correlate. */
+  refId?: string;
 }

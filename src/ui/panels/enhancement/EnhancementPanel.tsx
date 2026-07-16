@@ -10,21 +10,33 @@
 //
 // item name/icon: เหมือน InventoryPanel — ยังไม่มี client item-catalog → แสดง itemId ดิบไปก่อน (SVG-01).
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { EngineHandle } from "@/engine/runtime/app";
 import { Panel } from "@/ui/panels";
 import { ContextHelpButton } from "@/ui/panels/help/ContextHelpButton";
 import { findItemByInstanceId } from "@/ui/panels/inventory/inventory-view";
-import { selectEnhanceResult, selectInventory } from "@/ui/store/game-store";
+import {
+  selectEnhanceResult,
+  selectFragmentExchangeResult,
+  selectInventory,
+  selectReinforcementProgress,
+} from "@/ui/store/game-store";
 import { useGameStore } from "@/ui/store/use-game-store";
 import { Button } from "@/ui/components";
 import { useEnhancementTarget } from "./enhancement-target-context";
 import {
   canConfirmEnhance,
+  canExchangeFragments,
+  countFragmentMaterial,
   countReinforcementMaterial,
   ENHANCEMENT_PANEL_ID,
   enhanceStateMessage,
   enhancementTransitionLabel,
+  findFragmentStack,
+  fragmentExchangeMessage,
+  FRAGMENT_EXCHANGE_INPUT,
+  FRAGMENT_EXCHANGE_OUTPUT,
+  reinforcementPityLabel,
   resolveEnhanceUiState,
   type EnhancePhase,
 } from "./enhancement-view";
@@ -50,8 +62,14 @@ function makeIdempotencyKey(): string {
 export function EnhancementPanel({ getHandle }: EnhancementPanelProps) {
   const inventory = useGameStore(selectInventory);
   const enhanceResult = useGameStore(selectEnhanceResult);
+  const fragmentExchangeResult = useGameStore(selectFragmentExchangeResult);
+  const reinforcementProgress = useGameStore(selectReinforcementProgress);
   const { targetId } = useEnhancementTarget();
   const [phase, setPhase] = useState<EnhancePhase>({ kind: "idle" });
+  // B4 fragment exchange: local processing flag + a short-lived result message (mirrors the enhance toast pattern).
+  const [exchanging, setExchanging] = useState(false);
+  const [exchangeMsg, setExchangeMsg] = useState<string | null>(null);
+  const seenExchangeResult = useRef(fragmentExchangeResult);
 
   const selected = inventory && targetId ? findItemByInstanceId(inventory, targetId) : null;
 
@@ -89,9 +107,50 @@ export function EnhancementPanel({ getHandle }: EnhancementPanelProps) {
     return () => clearTimeout(timer);
   }, [phase]);
 
+  // B4: a fresh MSG_FRAGMENT_EXCHANGE_RESULT arrived → stop processing + show a short message (deferred setState,
+  // same setTimeout(0) pattern as the phase effects above → not a set-state-in-effect violation).
+  useEffect(() => {
+    if (fragmentExchangeResult === seenExchangeResult.current) return;
+    seenExchangeResult.current = fragmentExchangeResult;
+    const res = fragmentExchangeResult;
+    if (!res) return;
+    const timer = setTimeout(() => {
+      setExchanging(false);
+      setExchangeMsg(fragmentExchangeMessage(res));
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [fragmentExchangeResult]);
+
+  // auto-dismiss the exchange message after a short display window.
+  useEffect(() => {
+    if (exchangeMsg === null) return;
+    const timer = setTimeout(() => setExchangeMsg(null), RESULT_DISPLAY_MS);
+    return () => clearTimeout(timer);
+  }, [exchangeMsg]);
+
   const state = resolveEnhanceUiState(selected !== null, phase);
   const materialCount = countReinforcementMaterial(inventory);
   const canConfirm = canConfirmEnhance(state);
+
+  // B4 fragment exchange (§3.5) + pity progress (§4.2) — smallest surface: a fragment row + "แลก 5→1" button.
+  const fragmentCount = countFragmentMaterial(inventory);
+  const canExchange = !exchanging && canExchangeFragments(fragmentCount);
+  const pityLabel = reinforcementPityLabel(reinforcementProgress);
+
+  const onExchange = (): void => {
+    if (!canExchange) return;
+    const stack = findFragmentStack(inventory);
+    if (!stack) return;
+    const net = getHandle()?.net;
+    if (!net) return;
+    net.sendFragmentExchange({
+      instanceId: stack.instanceId,
+      expectedVersion: stack.version,
+      idempotencyKey: makeIdempotencyKey(),
+    });
+    setExchangeMsg(null);
+    setExchanging(true);
+  };
 
   const onConfirm = (): void => {
     if (!selected || !canConfirm) return;
@@ -143,6 +202,22 @@ export function EnhancementPanel({ getHandle }: EnhancementPanelProps) {
         <Button variant="primary" fullWidth onClick={onConfirm} disabled={!canConfirm}>
           ยืนยันเสริมแกร่ง
         </Button>
+
+        {/* B4: เศษเสริมแกร่ง แลก 5→1 (§3.5) + แถบประกันบอส (§4.2) */}
+        <div className="mt-1 flex flex-col gap-2 border-t border-(--dp-soil-brown) pt-3">
+          {pityLabel && <div className="dp-text-caption text-(--dp-sand)">{pityLabel}</div>}
+          <div className="dp-text-caption text-(--dp-sand)">
+            เศษเสริมแกร่ง: {fragmentCount} (แลก {FRAGMENT_EXCHANGE_INPUT}→{FRAGMENT_EXCHANGE_OUTPUT})
+          </div>
+          {exchangeMsg && (
+            <div className="dp-text-body-sm rounded-(--dp-radius-sm) border border-(--dp-soil-brown) bg-(--dp-warm-ink) px-3 py-2 text-(--dp-parchment)">
+              {exchangeMsg}
+            </div>
+          )}
+          <Button variant="secondary" fullWidth onClick={onExchange} disabled={!canExchange}>
+            แลกเศษ {FRAGMENT_EXCHANGE_INPUT}→{FRAGMENT_EXCHANGE_OUTPUT}
+          </Button>
+        </div>
       </div>
     </Panel>
   );

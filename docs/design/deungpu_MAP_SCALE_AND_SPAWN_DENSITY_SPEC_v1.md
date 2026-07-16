@@ -3,6 +3,8 @@
 > สถานะ: **Tech Handoff Spec / Launch Scope**
 > Scope: **Map 1–10 เท่านั้น**
 > จุดประสงค์: กำหนดขนาด map, ความหนาแน่นมอน, spawn pack, AoE target, event wave, bot farming route และ performance guardrail
+>
+> **CURRENT BOT SOURCE OF TRUTH (2026-07-15):** D-067 + canonical checkpoint §4.1–§4.2. §8.1 ที่เคยเปิด risk/secret/event และ §8.2 ที่ให้ Plus `stop on rare drop` หรือตีความว่า paid tier ได้ combat power เพิ่ม **SUPERSEDED**: automation ห้ามเข้าพื้นที่ต้องห้าม, ordinary rare เป็น plan-selected action, และทุก tier มี combat/reward ceiling เท่ากัน. เก็บ historical text ด้านล่างไว้เพื่อ traceability; ห้าม implement โดยไม่ผ่าน amendment นี้.
 > ใช้คู่กับ:
 > - `deungpu_MAP_LAYOUT_BIBLE_v1.md`
 > - `deungpu_project_checkpoint_v11_tech_handoff_ready.md`

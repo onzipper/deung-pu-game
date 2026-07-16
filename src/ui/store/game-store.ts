@@ -15,14 +15,33 @@ import {
   type DeliveryResultMessage,
   type DeliveryStateMessage,
   type EnhanceResultMessage,
+  type FragmentExchangeResultMessage,
   type InventoryOpRejectedMessage,
   type InventorySnapshot,
   type MilestoneGrantedMessage,
+  type ReinforcementProgress,
+  type AchievementUnlockedMessage,
+  type AchievementsSnapshotMessage,
+  type AchievementRow,
   type PlayerProgressMessage,
   type ShopListMessage,
   type ShopResultMessage,
   type StorageResultMessage,
   type StorageStateMessage,
+  type UseItemResultMessage,
+  type BotProfileWire,
+  type BotProfilesMessage,
+  type BotTierStateMessage,
+  type BotStatusMessage,
+  type BotStoppedMessage,
+  type BotAlertMessage,
+  type BotReportsMessage,
+  type BotReportSummaryWire,
+  type BotReportMessage,
+  type BotReportDetailWire,
+  type BotOpResultMessage,
+  type BotCheckpointMessage,
+  type BotCheckpointWire,
 } from "@/shared/net-protocol";
 
 /**
@@ -71,6 +90,20 @@ export type WorldPhaseView = "dawn" | "day" | "dusk" | "night";
 export type WeatherView = "clear" | "rain";
 
 /**
+ * Auto Pilot (Batch 7a, D-037): เหตุผลที่ auto-walk หยุด — structural twin ของ engine `AutoPilotStopReason`
+ * (src/engine/player/auto-pilot.ts) ประกาศซ้ำที่นี่กัน UI import engine ตรง ๆ (ui.md contract, pattern
+ * เดียวกับ MinimapBlip/WorldPhaseView). AutoPilotChip map เป็นข้อความไทย (ถึงแล้ว/หยุดเอง/...).
+ */
+export type AutoPilotStopReasonView =
+  | "arrived"
+  | "manual"
+  | "combat"
+  | "tabHidden"
+  | "noPath"
+  | "transition"
+  | "disconnect";
+
+/**
  * LW0 (Living World Bible §3/§4 placeholder NPC): dialogue ที่กำลังเปิดอยู่ — engine ตั้งตอนคลิกโดน NPC ใน
  * โลก (src/engine/runtime/app.ts onPointerDown), null = ไม่มี dialogue ค้าง. one-shot bark ชุดเดียว (ไม่ใช่
  * §5.2 full NPC routine/dialogueSetId system — ดู src/game/npc/npc-data.ts TODO LW1).
@@ -97,6 +130,16 @@ export interface HudState {
    * (server ส่งสองข้อความ), ok=false มี reason. null = ยังไม่เคยเสริมแกร่งใน session นี้.
    */
   enhanceResult: EnhanceResultMessage | null;
+  /**
+   * B4: ผลการแลกเศษเสริมแกร่ง 5→1 ล่าสุด (MSG_FRAGMENT_EXCHANGE_RESULT) — ok=true มากับ `inventory` snapshot
+   * ใหม่แยกข้อความ, ok=false มี reason. null = ยังไม่เคยแลกใน session นี้.
+   */
+  fragmentExchangeResult: FragmentExchangeResultMessage | null;
+  /**
+   * B4 (§4.2): Field Boss reinforcement pity progress ล่าสุด (มากับ MSG_PLAYER_PROGRESS หลังฆ่า Field Boss) —
+   * panel เสริมแกร่ง แสดง "ประกันบอส: pityCount/guaranteedAtClear". null = ยังไม่เคยฆ่า Field Boss ใน session นี้.
+   */
+  reinforcementProgress: ReinforcementProgress | null;
   /**
    * catalog ร้านบน map ปัจจุบัน (P2-11, MSG_SHOP_LIST) — null ก่อนขอ/ก่อนได้ผลครั้งแรก. `available: false`
    * = map นี้ไม่มีร้าน (HUD ปุ่ม "ร้านค้า" อ่านค่านี้). ขอใหม่ทุกครั้งที่ join/ข้าม map (engine glue).
@@ -139,6 +182,17 @@ export interface HudState {
   /** ผลรับของล่าสุด (P2-17, MSG_DELIVERY_CLAIM) — null = ยังไม่เคย claim ใน session นี้. */
   deliveryResult: DeliveryResultMessage | null;
   /**
+   * PR5: ผลใช้ consumable ล่าสุด (MSG_USE_ITEM_RESULT) — ok=true มากับ `cooldownUntilMs`
+   * (ก็อปเข้า `potionCooldownUntilMs` ด้วยในตัว); ok=false มี reason ให้ toast. HP จริง sync ทาง
+   * PlayerState schema แยก (setPlayerVitals) — message นี้ = ack feedback เท่านั้น. null = ยังไม่เคยใช้ใน session นี้.
+   */
+  useItemResult: UseItemResultMessage | null;
+  /**
+   * PR5: เวลา (epoch ms, server clock) ที่ potion พร้อมใช้อีกครั้ง — 0 = ไม่มี cooldown ค้าง (ปุ่ม "ใช้" กดได้).
+   * single value พอสำหรับ v1 (P2 มี consumable เดียว, con_small_potion).
+   */
+  potionCooldownUntilMs: number;
+  /**
    * A1/A2 (COMBAT_BIBLE §2/§10): hp/maxHp ของ **local player** (server-authoritative, ride PlayerState schema).
    * null ก่อน server sync ครั้งแรก. แถบ HP = E3 อ่านค่านี้. อัปเดตทุกครั้งที่ hp/maxHp เปลี่ยน (โดนตี/respawn/
    * level-up/equip).
@@ -161,6 +215,16 @@ export interface HudState {
    * แสดง toast สั้น ๆ (pattern เดียวกับ deathAtMs: ค่า atMs เปลี่ยน = milestone ใหม่ → แสดงอีก). null = ยังไม่เคยปลดล็อกใน session นี้.
    */
   milestoneNotice: { milestoneId: string; gold: number; exp: number; atMs: number } | null;
+  /**
+   * C2b: achievement ล่าสุดที่เพิ่งปลดล็อก (จาก MSG_ACHIEVEMENT_UNLOCKED) — AchievementToast อ่าน `atMs` แสดง
+   * toast สั้น ๆ (pattern เดียวกับ milestoneNotice: ค่า atMs เปลี่ยน = achievement ใหม่ → แสดงอีก). null = ยังไม่มีใน session นี้.
+   */
+  achievementNotice: { achievementId: string; nameTh: string; tier: string; gold?: number; titleId?: string; atMs: number } | null;
+  /**
+   * C2b (Part 5): snapshot achievement rows ล่าสุด (ตอบ MSG_ACHIEVEMENTS_REQUEST) — journal (C3) consume ต่อ.
+   * null ก่อนเคยขอ snapshot ใน session นี้.
+   */
+  achievementsSnapshot: AchievementRow[] | null;
   /**
    * A3 (P2 UI §8.3): skill hotbar slots (S1-S4). engine publish ตอน init / level-up (unlock) / cast (cooldown).
    * [] ก่อน engine publish ครั้งแรก. SkillBar อ่าน + animate radial เอง (RAF จาก cooldownReadyAtMs).
@@ -187,6 +251,46 @@ export interface HudState {
    * null = ยังไม่เคยคลิกใน session นี้. ค่าเปลี่ยน = คลิกใหม่ → เปิดอีก.
    */
   helpPanelRequestedAt: number | null;
+  /**
+   * Auto Pilot (Batch 7a, D-037): กำลัง auto-walk อยู่ไหม (engine publish จาก AutoPilotStateChange). true =
+   * แสดง HUD chip "กำลังเดินอัตโนมัติ… ✖หยุด" + gold dot บน minimap. false = ไม่เดิน.
+   */
+  autoPilotActive: boolean;
+  /** Auto Pilot: integer cell จุดหมายที่กำลังเดินไป — null เมื่อไม่ active. minimap วาด gold dot ที่นี่. */
+  autoPilotDestination: { tx: number; ty: number } | null;
+  /**
+   * Auto Pilot: เหตุผลที่หยุดล่าสุด (null ระหว่าง active) — AutoPilotChip โชว์สั้น ๆ (ถึงแล้ว/หยุดเอง/
+   * เข้าสู่การต่อสู้/สลับแท็บ/ไม่มีเส้นทาง/...). คู่กับ autoPilotStopAtMs (timestamp) แบบ deathAtMs/toast.
+   */
+  autoPilotStopReason: AutoPilotStopReasonView | null;
+  /** Auto Pilot: timestamp (performance.now ms) ตอนหยุดล่าสุด — AutoPilotChip auto-dismiss หลัง n วิ. */
+  autoPilotStopAtMs: number | null;
+  /**
+   * Batch 7b-UI (P3 §13): tier ปัจจุบัน + วันหมดอายุ + caps + paused (read-only excess) profile ids — reply to
+   * bot:profileList/mockPurchase. null ก่อนเคยขอ/ก่อนได้ผลครั้งแรกใน session นี้.
+   */
+  botTierState: BotTierStateMessage | null;
+  /** Batch 7b-UI: profile ทั้งหมดของบัญชี (reply to profileList/create/update/delete/mockPurchase). null = ยังไม่เคยขอ. */
+  botProfiles: BotProfileWire[] | null;
+  /**
+   * Batch 7b-UI: live status ของบอทที่กำลังรัน (เฉพาะตอน owner online ในห้อง host ของ map นั้น — ดู net-client.ts
+   * onBotStatus comment). null = ไม่มีบอทกำลังรัน (หรือไม่ได้เชื่อมต่อห้อง host — UI แสดง "กำลังเชื่อมต่อ").
+   */
+  botStatus: BotStatusMessage | null;
+  /** D-067: ผล settle ล่าสุดจาก global safety/tier obstacle/manual/error + สรุป run. */
+  botLastStopped: BotStoppedMessage | null;
+  /** Batch 7b-UI: แจ้งเตือนล่าสุด (rare/captcha/gold_cap) + timestamp client — BotAlertToast อ่าน atMs (pattern เดียวกับ milestoneNotice). */
+  botAlert: { profileId: string; kind: "rare" | "captcha" | "gold_cap"; itemId?: string; message: string; atMs: number } | null;
+  /** Batch 7b-UI: สรุปรายงานภายใน retention ของ tier (reply to bot:reportList). null = ยังไม่เคยขอ. */
+  botReports: BotReportSummaryWire[] | null;
+  /** Batch 7b-UI: รายละเอียด 1 รายงานที่เพิ่งเลือกดู (reply to bot:reportFetch) — null = ยังไม่เลือก/ถูก retention clip. */
+  botReportDetail: BotReportDetailWire | null;
+  /** Batch 7b-UI: ผล op ล่าสุด (create/update/delete/start/stop/mockPurchase) — panel ใช้ correlate กับ local phase ด้วย `op`. */
+  botOpResult: BotOpResultMessage | null;
+  /** PR2: latest manual-takeover checkpoint; ready is resumable, saving/failed are display-only. */
+  botCheckpoint: BotCheckpointWire | null;
+  /** Live schema authority bit for the local real actor; independent of the throttled Bot status stream. */
+  botAuthorityActive: boolean;
 }
 
 export const INITIAL_HUD_STATE: HudState = {
@@ -194,6 +298,8 @@ export const INITIAL_HUD_STATE: HudState = {
   inventory: null,
   inventoryRejection: null,
   enhanceResult: null,
+  fragmentExchangeResult: null,
+  reinforcementProgress: null,
   shopList: null,
   shopResult: null,
   gold: null,
@@ -204,17 +310,35 @@ export const INITIAL_HUD_STATE: HudState = {
   storageResult: null,
   deliveryState: null,
   deliveryResult: null,
+  useItemResult: null,
+  potionCooldownUntilMs: 0,
   playerHp: null,
   playerMaxHp: null,
   playerDead: false,
   deathAtMs: null,
   milestoneNotice: null,
+  achievementNotice: null,
+  achievementsSnapshot: null,
   skillSlots: [],
   blips: [],
   worldPhase: null,
   weather: null,
   activeDialogue: null,
   helpPanelRequestedAt: null,
+  autoPilotActive: false,
+  autoPilotDestination: null,
+  autoPilotStopReason: null,
+  autoPilotStopAtMs: null,
+  botTierState: null,
+  botProfiles: null,
+  botStatus: null,
+  botLastStopped: null,
+  botAlert: null,
+  botReports: null,
+  botReportDetail: null,
+  botOpResult: null,
+  botCheckpoint: null,
+  botAuthorityActive: false,
 };
 
 /** store singleton ตัวเดียวทั้งแอป — engine publish เข้านี่, React component subscribe ผ่าน useGameStore */
@@ -264,6 +388,19 @@ export function setEnhanceResult(result: EnhanceResultMessage): void {
 export const selectEnhanceResult = (state: HudState): EnhanceResultMessage | null =>
   state.enhanceResult;
 
+/** B4: engine เรียกทันทีที่ MSG_FRAGMENT_EXCHANGE_RESULT มาถึง (event-driven เหมือน setEnhanceResult). */
+export function setFragmentExchangeResult(result: FragmentExchangeResultMessage): void {
+  gameStore.setState({ fragmentExchangeResult: result });
+}
+
+/** typed selector — ผลแลกเศษล่าสุด (B4) */
+export const selectFragmentExchangeResult = (state: HudState): FragmentExchangeResultMessage | null =>
+  state.fragmentExchangeResult;
+
+/** typed selector — pity progress ล่าสุดของ Field Boss (B4 §4.2) */
+export const selectReinforcementProgress = (state: HudState): ReinforcementProgress | null =>
+  state.reinforcementProgress;
+
 /** P2-11: engine เรียกทันทีที่ MSG_SHOP_LIST มาถึง (event-driven เหมือน setInventoryState) */
 export function setShopList(list: ShopListMessage): void {
   gameStore.setState({ shopList: list });
@@ -293,6 +430,8 @@ export function setGoldFromProgress(progress: PlayerProgressMessage, nowMs: numb
     lastKillAtMs: nowMs,
   };
   if (progress.gold !== GOLD_UNKNOWN) patch.gold = progress.gold;
+  // B4 (§4.2): Field Boss kill carries pity progress → เก็บไว้ให้ panel เสริมแกร่ง (omit = ไม่ใช่ boss kill, คงค่าเดิม)
+  if (progress.reinforcementProgress) patch.reinforcementProgress = progress.reinforcementProgress;
   gameStore.setState(patch);
 }
 
@@ -363,6 +502,22 @@ export const selectDeliveryState = (state: HudState): DeliveryStateMessage | nul
 export const selectDeliveryResult = (state: HudState): DeliveryResultMessage | null => state.deliveryResult;
 
 /**
+ * PR5: engine เรียกทันทีที่ MSG_USE_ITEM_RESULT มาถึง (event-driven เหมือน setEnhanceResult) — ok=true พร้อม
+ * `cooldownUntilMs` → อัปเดต `potionCooldownUntilMs` ไปด้วยในตัว (ปุ่ม "ใช้" ใน InventoryPanel disable ตามค่านี้).
+ */
+export function setUseItemResult(result: UseItemResultMessage): void {
+  const patch: Partial<HudState> = { useItemResult: result };
+  if (result.ok && result.cooldownUntilMs !== undefined) patch.potionCooldownUntilMs = result.cooldownUntilMs;
+  gameStore.setState(patch);
+}
+
+/** typed selector — ผลใช้ consumable ล่าสุด (PR5) */
+export const selectUseItemResult = (state: HudState): UseItemResultMessage | null => state.useItemResult;
+
+/** typed selector — เวลาที่ potion พร้อมใช้อีกครั้ง (PR5, epoch ms) */
+export const selectPotionCooldownUntilMs = (state: HudState): number => state.potionCooldownUntilMs;
+
+/**
  * A1/A2: engine เรียกทันทีที่ hp/maxHp ของ local player เปลี่ยน (self schema listen — event-driven, ไม่ throttle:
  * ผู้เล่นต้องเห็น HP ตอบสนองทันทีที่โดนตี/respawn). server-authoritative (client ไม่ predict การโดนตี).
  */
@@ -398,6 +553,35 @@ export function setMilestoneNotice(msg: MilestoneGrantedMessage, nowMs: number =
 
 /** typed selector — milestone ล่าสุดที่ปลดล็อก (C1 milestone toast) */
 export const selectMilestoneNotice = (state: HudState): HudState["milestoneNotice"] => state.milestoneNotice;
+
+/**
+ * C2b: engine เรียกทันทีที่ MSG_ACHIEVEMENT_UNLOCKED มาถึง → stamp notice ให้ AchievementToast แสดง toast สั้น ๆ.
+ * `nowMs` inject ได้ (เทสต์) — default Date.now() ตอนเรียกจริงจาก engine glue.
+ */
+export function setAchievementUnlocked(msg: AchievementUnlockedMessage, nowMs: number = Date.now()): void {
+  gameStore.setState({
+    achievementNotice: {
+      achievementId: msg.achievementId,
+      nameTh: msg.nameTh,
+      tier: msg.tier,
+      gold: msg.gold,
+      titleId: msg.titleId,
+      atMs: nowMs,
+    },
+  });
+}
+
+/** typed selector — achievement ล่าสุดที่ปลดล็อก (C2b achievement toast) */
+export const selectAchievementNotice = (state: HudState): HudState["achievementNotice"] => state.achievementNotice;
+
+/** C2b (Part 5): engine เรียกเมื่อ MSG_ACHIEVEMENTS_SNAPSHOT มาถึง → เก็บ rows ให้ journal (C3) อ่านต่อ. */
+export function setAchievementsSnapshot(msg: AchievementsSnapshotMessage): void {
+  gameStore.setState({ achievementsSnapshot: msg.rows });
+}
+
+/** typed selector — snapshot achievement rows ล่าสุด (C2b, journal C3 consume) */
+export const selectAchievementsSnapshot = (state: HudState): HudState["achievementsSnapshot"] =>
+  state.achievementsSnapshot;
 
 /** typed selector — hp ของ local player (A1/A2) */
 export const selectPlayerHp = (state: HudState): number | null => state.playerHp;
@@ -451,6 +635,125 @@ export function requestHelpPanel(nowMs: number = performance.now()): void {
 
 /** typed selector — timestamp ล่าสุดที่ขอเปิด help panel (C4 companion click) */
 export const selectHelpPanelRequestedAt = (state: HudState): number | null => state.helpPanelRequestedAt;
+
+/**
+ * Auto Pilot (Batch 7a, D-037): engine เรียกจาก AutoPilotStateChange callback (app.ts) — event-driven, ไม่
+ * throttle (state เปลี่ยนไม่บ่อย ผู้เล่นต้องเห็น chip ทันที). stamp `autoPilotStopAtMs` เมื่อ stopReason ≠ null
+ * (chip auto-dismiss จากค่านี้ เหมือน deathAtMs). `nowMs` inject ได้ (เทสต์); default performance.now().
+ */
+export function setAutoPilotState(
+  change: {
+    active: boolean;
+    destination: { tx: number; ty: number } | null;
+    stopReason: AutoPilotStopReasonView | null;
+  },
+  nowMs: number = performance.now(),
+): void {
+  gameStore.setState({
+    autoPilotActive: change.active,
+    autoPilotDestination: change.destination,
+    autoPilotStopReason: change.stopReason,
+    autoPilotStopAtMs: change.stopReason !== null ? nowMs : null,
+  });
+}
+
+/** typed selector — Auto Pilot กำลังเดินอยู่ไหม (D-037) */
+export const selectAutoPilotActive = (state: HudState): boolean => state.autoPilotActive;
+
+/** typed selector — Auto Pilot จุดหมายปัจจุบัน (minimap gold dot, D-037) */
+export const selectAutoPilotDestination = (state: HudState): { tx: number; ty: number } | null =>
+  state.autoPilotDestination;
+
+/** typed selector — Auto Pilot เหตุผลหยุดล่าสุด (AutoPilotChip, D-037) */
+export const selectAutoPilotStopReason = (state: HudState): AutoPilotStopReasonView | null =>
+  state.autoPilotStopReason;
+
+/** typed selector — Auto Pilot timestamp หยุดล่าสุด (chip auto-dismiss, D-037) */
+export const selectAutoPilotStopAtMs = (state: HudState): number | null => state.autoPilotStopAtMs;
+
+// ── Batch 7b-UI (P3 §13 Bot/Hunter Assistant) — ทุกตัว event-driven ตรง ๆ (เหมือน onShopList/onStorageState) ──
+
+/** engine เรียกทันทีที่ MSG_BOT_TIER_STATE มาถึง. */
+export function setBotTierState(msg: BotTierStateMessage): void {
+  gameStore.setState({ botTierState: msg });
+}
+
+/** typed selector — tier state ล่าสุด (Batch 7b-UI) */
+export const selectBotTierState = (state: HudState): BotTierStateMessage | null => state.botTierState;
+
+/** engine เรียกทันทีที่ MSG_BOT_PROFILES มาถึง. */
+export function setBotProfiles(msg: BotProfilesMessage): void {
+  gameStore.setState({ botProfiles: msg.profiles });
+}
+
+/** typed selector — profile ทั้งหมดล่าสุด (Batch 7b-UI) */
+export const selectBotProfiles = (state: HudState): BotProfileWire[] | null => state.botProfiles;
+
+/** engine เรียกทันทีที่ MSG_BOT_STATUS มาถึง (throttle cadence กำหนดฝั่ง server, statusPushIntervalMs). */
+export function setBotStatus(msg: BotStatusMessage): void {
+  gameStore.setState({ botStatus: msg });
+}
+
+/** typed selector — live status ล่าสุด (Batch 7b-UI Live Status tab) */
+export const selectBotStatus = (state: HudState): BotStatusMessage | null => state.botStatus;
+
+/** engine เรียกทันทีที่ MSG_BOT_STOPPED มาถึง — เคลียร์ botStatus ไปด้วย (ไม่มีบอทกำลังรันแล้ว). */
+export function setBotStopped(msg: BotStoppedMessage): void {
+  gameStore.setState({ botLastStopped: msg, botStatus: null, botAuthorityActive: false });
+}
+
+/** typed selector — ผลหยุดล่าสุด (Batch 7b-UI, "last stop reason") */
+export const selectBotLastStopped = (state: HudState): BotStoppedMessage | null => state.botLastStopped;
+
+/**
+ * engine เรียกทันทีที่ MSG_BOT_ALERT มาถึง → stamp timestamp ให้ BotAlertToast แสดง toast (pattern เดียวกับ
+ * setMilestoneNotice/setAchievementUnlocked). `nowMs` inject ได้ (เทสต์); default Date.now().
+ */
+export function setBotAlert(msg: BotAlertMessage, nowMs: number = Date.now()): void {
+  gameStore.setState({
+    botAlert: { profileId: msg.profileId, kind: msg.kind, itemId: msg.itemId, message: msg.message, atMs: nowMs },
+  });
+}
+
+/** typed selector — แจ้งเตือนล่าสุด (Batch 7b-UI toast) */
+export const selectBotAlert = (state: HudState): HudState["botAlert"] => state.botAlert;
+
+/** engine เรียกทันทีที่ MSG_BOT_REPORTS มาถึง (reply to bot:reportList). */
+export function setBotReports(msg: BotReportsMessage): void {
+  gameStore.setState({ botReports: msg.reports });
+}
+
+/** typed selector — สรุปรายงานล่าสุด (Batch 7b-UI Report tab) */
+export const selectBotReports = (state: HudState): BotReportSummaryWire[] | null => state.botReports;
+
+/** engine เรียกทันทีที่ MSG_BOT_REPORT มาถึง (reply to bot:reportFetch) — null = ถูก retention clip. */
+export function setBotReportDetail(msg: BotReportMessage): void {
+  gameStore.setState({ botReportDetail: msg.report });
+}
+
+/** typed selector — รายละเอียดรายงานที่เลือกดูล่าสุด (Batch 7b-UI) */
+export const selectBotReportDetail = (state: HudState): BotReportDetailWire | null => state.botReportDetail;
+
+/** engine เรียกทันทีที่ MSG_BOT_OP_RESULT มาถึง — panel correlate กับ local BotOpPhase ด้วย `op`. */
+export function setBotOpResult(msg: BotOpResultMessage): void {
+  gameStore.setState({ botOpResult: msg });
+}
+
+/** typed selector — ผล op ล่าสุด (Batch 7b-UI) */
+export const selectBotOpResult = (state: HudState): BotOpResultMessage | null => state.botOpResult;
+
+/** A non-null checkpoint means authority already returned to the player, so stale live status is cleared. */
+export function setBotCheckpoint(msg: BotCheckpointMessage): void {
+  gameStore.setState(msg.checkpoint ? { botCheckpoint: msg.checkpoint, botStatus: null } : { botCheckpoint: null });
+}
+
+export const selectBotCheckpoint = (state: HudState): BotCheckpointWire | null => state.botCheckpoint;
+
+export function setBotAuthorityActive(active: boolean): void {
+  gameStore.setState(active ? { botAuthorityActive: true } : { botAuthorityActive: false, botStatus: null });
+}
+
+export const selectBotAuthorityActive = (state: HudState): boolean => state.botAuthorityActive;
 
 export interface HudPublisher {
   /**

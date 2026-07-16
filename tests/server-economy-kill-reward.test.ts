@@ -81,6 +81,7 @@ function baseDeps(over: Partial<KillRewardDeps> = {}): KillRewardDeps {
     ledger: null,
     inventory: null,
     dropAudit: null,
+    delivery: null,
     ...over,
   };
 }
@@ -137,6 +138,40 @@ describe("grantKillRewards — EXP + gold + audit on one kill", () => {
   });
 });
 
+describe("grantKillRewards — party members each get a distinct ledger key (G-lite §10.3 personal reward)", () => {
+  // currency_ledger.idempotency_key is GLOBAL unique → MapRoom generates a fresh killEventId per member so
+  // their `drop-gold:{id}` keys never collide (else the 2nd member's gold would be swallowed as a duplicate).
+  test("different killEventId per member → both gold applied (no cross-member duplicate)", async () => {
+    const led = mockLedger(); // shared ledger (global key set), like the real DB unique index
+    const a = await grantKillRewards(
+      baseDeps({ ledger: led.ledger, rng: scriptedRng([0.0, 0.99, 0.99, 0.99]) }),
+      { ...ctx, characterId: "charA", killEventId: "kill-A" },
+    );
+    const b = await grantKillRewards(
+      baseDeps({ ledger: led.ledger, rng: scriptedRng([0.0, 0.99, 0.99, 0.99]) }),
+      { ...ctx, characterId: "charB", killEventId: "kill-B" },
+    );
+    expect(a.goldStatus).toBe("applied");
+    expect(b.goldStatus).toBe("applied"); // distinct key → NOT a duplicate
+    expect(led.calls.map((c) => c.idempotencyKey)).toEqual(["drop-gold:kill-A", "drop-gold:kill-B"]);
+  });
+
+  test("a SHARED killEventId would collide on the global-unique key (2nd member loses gold)", async () => {
+    const led = mockLedger();
+    await grantKillRewards(baseDeps({ ledger: led.ledger, rng: scriptedRng([0.0, 0.99, 0.99, 0.99]) }), {
+      ...ctx,
+      characterId: "charA",
+      killEventId: "same",
+    });
+    const b = await grantKillRewards(baseDeps({ ledger: led.ledger, rng: scriptedRng([0.0, 0.99, 0.99, 0.99]) }), {
+      ...ctx,
+      characterId: "charB",
+      killEventId: "same",
+    });
+    expect(b.goldStatus).toBe("duplicate"); // proves MapRoom must NOT share a killEventId across members
+  });
+});
+
 describe("grantKillRewards — level-up crosses threshold", () => {
   test("a big base EXP rolls the player up a level and recomputes", async () => {
     const led = mockLedger();
@@ -148,13 +183,43 @@ describe("grantKillRewards — level-up crosses threshold", () => {
 });
 
 describe("grantKillRewards — inventory full (§12.5)", () => {
-  test("overflow from the inventory seam is surfaced (no silent loss)", async () => {
+  test("overflow from the inventory seam is surfaced (no silent loss, no delivery seam)", async () => {
     const overflow: GrantOutcome = { granted: [], overflow: [{ itemId: "mat_slime_gel", quantity: 1 }] };
     const inv = mockInventory(overflow);
-    const deps = baseDeps({ ledger: mockLedger().ledger, inventory: inv.inventory, dropAudit: mockAudit().audit, rng: scriptedRng([0.0, 0.0, 0.0, 0.99, 0.99]) });
+    const deps = baseDeps({ ledger: mockLedger().ledger, inventory: inv.inventory, dropAudit: mockAudit().audit, delivery: null, rng: scriptedRng([0.0, 0.0, 0.0, 0.99, 0.99]) });
     const out = await grantKillRewards(deps, ctx);
     expect(out.granted).toEqual([]);
     expect(out.overflow).toEqual([{ itemId: "mat_slime_gel", quantity: 1 }]);
+    expect(out.delivered).toEqual([]); // no delivery seam → reported, not persisted
+  });
+
+  // ITEM 2 — bag full + a delivery seam → overflow is persisted to the Delivery Box (delivered), never lost.
+  test("overflow routes to the Delivery Box when a delivery seam is present (persisted, not overflow)", async () => {
+    const overflow: GrantOutcome = { granted: [], overflow: [{ itemId: "mat_slime_gel", quantity: 1 }] };
+    const inv = mockInventory(overflow);
+    const deliverCalls: { accountId: string; items: readonly { itemId: string; quantity: number }[] }[] = [];
+    const delivery = {
+      async createEntry(input: { accountId: string; items: readonly { itemId: string; quantity: number }[] }) {
+        deliverCalls.push(input);
+      },
+    };
+    const deps = baseDeps({ ledger: mockLedger().ledger, inventory: inv.inventory, dropAudit: mockAudit().audit, delivery, rng: scriptedRng([0.0, 0.0, 0.0, 0.99, 0.99]) });
+    const out = await grantKillRewards(deps, ctx);
+    expect(out.granted).toEqual([]);
+    expect(out.delivered).toEqual([{ itemId: "mat_slime_gel", quantity: 1 }]); // persisted to delivery box
+    expect(out.overflow).toEqual([]); // nothing lost / left unpersisted
+    expect(deliverCalls).toHaveLength(1);
+    expect(deliverCalls[0]).toMatchObject({ accountId: "acc1", items: [{ itemId: "mat_slime_gel", quantity: 1 }] });
+  });
+
+  test("a delivery seam is NOT called when the bag had room (no overflow)", async () => {
+    const inv = mockInventory(); // default: everything fits
+    let called = 0;
+    const delivery = { async createEntry() { called++; } };
+    const deps = baseDeps({ inventory: inv.inventory, delivery, rng: scriptedRng([0.0, 0.0, 0.0, 0.99, 0.99]) });
+    const out = await grantKillRewards(deps, ctx);
+    expect(out.delivered).toEqual([]);
+    expect(called).toBe(0);
   });
 });
 

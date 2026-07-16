@@ -1,15 +1,58 @@
 # ดึ๋งปุ๊ — Dung-Dung Companion & Voluntary Guidance System Specification
 
 **File:** `deungpu_DUNG_DUNG_COMPANION_GUIDE_SYSTEM_SPEC_v1.md`  
-**Version:** 1.0  
-**Status:** Owner-approved design direction / Ready for technical breakdown  
+**Version:** 1.1 (in-place amendment)
+**Status:** Owner-approved design direction / D-068 current identity lock
 **Audience:** Game Design, Client, Server, UI, QA, Content, Analytics  
 **Project:** ดึ๋งปุ๊  
-**Last updated:** 2026-07-12
+**Last updated:** 2026-07-15
 
 ---
 
+## 0.0 Amendment Log — v1.1 (2026-07-15) — Contextual Guide + Separate Help (D-068)
+
+> **CURRENT SOURCE OF TRUTH:** D-068 และ amendment นี้ชนะ historical sections ที่ระบุ AMENDED/SUPERSEDED ด้านล่าง. ห้าม implement persistent follower, Dung-branded Help mega-menu, permanent Dung HUD หรือ gameplay progression จากเนื้อหาเดิม
+
+### A. Identity and presence
+
+- ดึ๋งๆ เป็น **contextual guide และ presentation layer** ไม่ใช่ follower ที่วิ่งตามตลอดเวลา
+- มีตำแหน่งประจำในเมืองหรือ safe hub; นอก hub ปรากฏชั่วคราวเป็น portrait, bubble หรือ world presentation เมื่อผู้เล่นเรียก, มี relevant context, returning summary, automation report หรือ story moment
+- P2/P2B ยัง local-only/no server tick ตาม D-037. Local-only เป็น networking rule ไม่ใช่สิทธิ์ให้ spawn/follow ทุก map
+- state ที่ใช้แทน FOLLOW model: `HUB_IDLE`, `SUMMONED_CONTEXT`, `REPORT_NARRATION`, `STORY_APPEARANCE`, `HIDDEN`
+
+### B. Responsibility boundary
+
+| ระบบ | หน้าที่ |
+|---|---|
+| Help | searchable/categorized static knowledge base: ระบบคืออะไร, ใช้อย่างไร, stat/rule/control/tier หมายถึงอะไร |
+| ดึ๋งๆ | contextual next-best-action, explain current problem, returning summary และ flavor โดยอิง state จริง |
+| Bot | control authority ของตัวละครจริงตาม D-067 |
+| Report | factual output ที่ UI/ดึ๋งๆ นำเสนอได้ |
+
+- ดึ๋งๆ deep-link ไป Help article ที่เกี่ยวข้องได้ แต่ไม่ duplicate/เป็นเจ้าของ Help database, quest list, Journal, Achievement หรือ mega-menu
+- ดึ๋งๆ อ่าน factual Bot/report status เพื่อเล่าเท่านั้น ห้าม start/stop/resume Bot, edit plan, perform recovery หรือเปลี่ยน automation authority
+
+### C. No gameplay progression or paid power
+
+- ดึ๋งๆ ไม่ต่อสู้ ไม่เพิ่ม stat ไม่เก็บ loot ไม่ทำงานแทนผู้เล่น และไม่มี level, equipment, hunger, skill, reward track, daily task, progression system หรือ gacha
+- ไม่เป็น paid feature ไม่มี paid power และไม่เปลี่ยนความฉลาด/ความสามารถตาม Bot tier
+- optional encounter, personality/flavor, no stat/combat target/damage/collision และ voluntary guidance เดิมยังใช้
+
+### D. Entry and presentation
+
+- ไม่เพิ่ม permanent Dung-Dung HUD button เมื่อ Help/Utility entry รองรับแล้ว; Help entry ยังคงเข้าถึง static knowledge base ได้โดยไม่ต้องพบดึ๋งๆ
+- context chip แสดงเฉพาะเมื่อมี recommendation relevant จริง ไม่มี unconditional fallback/forced popup และ dismiss/ปิด guidance ได้; `OFF` ไม่ปิด Help
+- Journal/Dialogue/Report อาจเป็น presentation surface แต่ canonical data ownershipยังอยู่กับระบบต้นทาง
+
+### E. Explicit superseded-section map
+
+- **AMENDED:** §0, §1.2, §2.1, §3, §4, §7–§11, §13.1/§13.3–§13.5, §14.2, §15–§22, §25
+- **SUPERSEDED:** §5.1–§5.3 combined entry/mega-menu, §5.2 permanent HUD, §6 ownershipของ “เล่นยังไง”, §12 FOLLOW state machine, §13.2 main mega-panel, §14.1 Dung ownershipของ HelpArticle, §23 issue breakdownเดิม, §24 follower DoD และ §26 ข้อ 1/follower lock
+- **RETAIN:** §5.4 Context Help, HelpArticle shapeในฐานะ Help-owned schema, recommendation eligibility/reason/cooldown/dismissal, authoritative validation, accessibility และ deterministic-data-before-AI rule
+
 ## 0. วัตถุประสงค์
+
+> **AMENDED โดย §0.0/D-068:** Source of Truth ปัจจุบันคือ contextual guide/presentation layer; ประโยค follower/primary Help entry ด้านล่างเป็น history
 
 เอกสารนี้เป็น Source of Truth สำหรับระบบ **“ดึ๋งๆ”** สิ่งมีชีวิตตัวเล็กที่ติดตามผู้เล่น และทำหน้าที่เป็นทางเข้าหลักของระบบช่วยเหลือแบบสมัครใจ
 
@@ -70,6 +113,8 @@
 
 ## 2.1 บทบาทในโลก
 
+> **AMENDED โดย §0.0/D-068:** ดึ๋งๆ ประจำเมือง/safe hub และปรากฏชั่วคราวตาม context ไม่ติดตามผู้เล่นตลอดเวลา
+
 ดึ๋งๆ คือสิ่งมีชีวิตลึกลับขนาดเล็กที่ผู้เล่นช่วยไว้ในช่วงต้นเกม จากนั้นมันเลือกติดตามผู้เล่นเอง
 
 ดึ๋งๆ ไม่ใช่:
@@ -129,6 +174,8 @@
 
 ## 3.1 Encounter แรก
 
+> **AMENDED โดย D-068:** encounter/staging ยังใช้; ผลหลังช่วยคือ unlock hub/contextual presence ไม่ใช่ persistent follow
+
 ช่วงต้นเกมผู้เล่นพบดึ๋งๆ อยู่ในสถานการณ์ที่ต้องการความช่วยเหลือ เช่น:
 
 - ถูกมอนสเตอร์ระดับต่ำล้อม
@@ -151,6 +198,8 @@
 - เมื่อผู้เล่นช่วยสำเร็จ ดึ๋งๆ จะตามมาเองโดยไม่มีหน้าต่างยืนยันยาว
 
 ## 3.2 การผูกกับผู้เล่น
+
+> **AMENDED โดย D-068:** “companion” ใน historical text หมายถึง cosmetic/presentation relationship ไม่ใช่ follower และไม่มี gameplay progression ทุกชนิด
 
 หลัง Encounter:
 
@@ -221,6 +270,8 @@ Auto Popups: Off
 
 # 5. จุดเข้าถึงระบบ
 
+> **AMENDED โดย §0.0/D-068:** Help/Journal/Guidance แยก ownership; §5.2 permanent Dung HUD ถูก SUPERSEDED และดึ๋งๆ ไม่เป็น mega-menu
+
 ระบบต้องมีทางเข้าหลัก 4 จุด
 
 ## 5.1 กดที่ดึ๋งๆ
@@ -282,6 +333,8 @@ Mobile:
 ---
 
 # 6. คำถาม “เล่นยังไง”
+
+> **OWNERSHIP SUPERSEDED โดย D-068:** เนื้อหา/รูปแบบ safe action ใช้ต่อได้แต่เป็นของ searchable static Help; ดึ๋งๆ ทำได้เฉพาะ deep-link ไป article ที่ตรง context
 
 ## 6.1 Intent หลัก
 
@@ -629,6 +682,8 @@ NAVIGATE:
 
 # 12. State Machine ของดึ๋งๆ
 
+> **SUPERSEDED ทั้ง section โดย §0.0/D-068:** ห้าม implement FOLLOW/trail/teleport state machine; ใช้ hub/on-demand/report/story/hidden states
+
 ```text
 FOLLOW
  ├─> IDLE_PLAY
@@ -695,6 +750,8 @@ FOLLOW
 
 ## 13.2 Panel หลัก Desktop
 
+> **SUPERSEDED โดย D-068:** Dung-branded combined Help/Guidance mega-panel ด้านล่างเป็น history; Help และ contextual presentation ต้องแยกกัน
+
 ```text
 ┌────────────────────────────────────────┐
 │ ดึ๋งๆ                         [—] [X]  │
@@ -746,6 +803,8 @@ FOLLOW
 # 14. Content Registry
 
 ## 14.1 Help Article
+
+> **OWNERSHIP AMENDED โดย D-068:** schema concept ใช้ต่อได้แต่ Help knowledge base เป็นเจ้าของ; ดึ๋งๆ เก็บเพียง article ID/deep-link ที่เกี่ยวข้อง
 
 ```ts
 type HelpArticle = {
@@ -802,6 +861,8 @@ type RecommendationRule = {
 - risk flags
 
 ## 15.2 Client-side
+
+> **AMENDED โดย D-068:** `companion follow movement` ถูก SUPERSEDED; client ดูแล hub/temporary presentation, animation และ panel state เท่านั้น
 
 - panel state
 - animation
@@ -924,6 +985,8 @@ Metric ที่ควรดู:
 
 # 19. Performance Budget
 
+> **AMENDED โดย D-068:** ไม่มี persistent local follower entity; budget world presentation ใช้เฉพาะ hub/on-demand. Guidance event-driven/no-per-frame evaluation ยัง Locked
+
 ```text
 Companion:
 - 1 local entity
@@ -952,6 +1015,8 @@ Low mode:
 # 20. Edge Cases
 
 ## 20.1 ผู้เล่นยังไม่ได้ดึ๋งๆ
+
+> **AMENDED โดย D-068:** Help คงชื่อ/ownershipอิสระก่อนและหลังพบดึ๋งๆ; ห้าม rebrand Help database เป็นดึ๋งๆ
 
 - Help menu ยังใช้ได้จาก system menu
 - Recommendation UI ใช้ชื่อกลาง “คำแนะนำ”
@@ -1033,6 +1098,8 @@ Low mode:
 
 # 23. Suggested Issue Breakdown
 
+> **SUPERSEDED โดย D-068:** issue list ด้านล่าง encode follower/combined Help architecture; breakdown ใหม่ต้องแยก Help, hub presence และ contextual presentation
+
 ```text
 DG-01 Companion local entity
 DG-02 Companion state machine
@@ -1055,6 +1122,8 @@ DG-16 Content authoring template
 ---
 
 # 24. Definition of Done
+
+> **AMENDED โดย D-068:** follower DoD และ combined Help ownership ด้านล่างถูก SUPERSEDED; DoD ปัจจุบันต้องพิสูจน์ no persistent follow, Help separation, factual context, no Bot authority และ no progression/power
 
 ระบบ v1 ถือว่าเสร็จเมื่อ:
 
@@ -1090,6 +1159,8 @@ DG-16 Content authoring template
 ---
 
 # 26. Owner Lock Summary
+
+> **AMENDED โดย §0.0/D-068:** ข้อ 1 ที่ล็อก follower ถูก SUPERSEDED; lock ปัจจุบันคือ hub/contextual presence + separate Help + presentation-only Bot relationship + no gameplay progression
 
 1. ดึ๋งๆ เป็นสิ่งมีชีวิตตัวเล็กที่ผู้เล่นช่วยและติดตามผู้เล่น
 2. ระบบช่วยเหลือเป็นแบบสมัครใจ

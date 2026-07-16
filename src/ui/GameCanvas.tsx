@@ -25,6 +25,11 @@ import { ShopHudButton } from "@/ui/panels/shop/ShopHudButton";
 import { ShopPanel } from "@/ui/panels/shop/ShopPanel";
 import { StorageHudButton } from "@/ui/panels/storage/StorageHudButton";
 import { StoragePanel } from "@/ui/panels/storage/StoragePanel";
+import { JournalHudButton } from "@/ui/panels/journal/JournalHudButton";
+import { JournalPanel } from "@/ui/panels/journal/JournalPanel";
+import { BotHudButton } from "@/ui/panels/bot/BotHudButton";
+import { BotPanel } from "@/ui/panels/bot/BotPanel";
+import { BotAlertToast } from "@/ui/panels/bot/BotAlertToast";
 import { HelpFocusProvider } from "@/ui/panels/help/help-focus-context";
 import { HelpHudButton } from "@/ui/panels/help/HelpHudButton";
 import { HelpPanel } from "@/ui/panels/help/HelpPanel";
@@ -35,9 +40,11 @@ import { applyEffectQualityPreferences } from "@/ui/panels/settings/settings-vie
 import { createEffectQualityPreferencesStore } from "@/ui/panels/settings/effect-quality-preference";
 import { StatusCluster } from "@/ui/panels/status/StatusCluster";
 import { Minimap } from "@/ui/panels/minimap/Minimap";
+import { AutoPilotChip } from "@/ui/panels/auto-pilot/AutoPilotChip";
 import { WorldStatusChip } from "@/ui/panels/world-status/WorldStatusChip";
 import { DeathToast } from "@/ui/panels/status/DeathToast";
 import { MilestoneToast } from "@/ui/panels/status/MilestoneToast";
+import { AchievementToast } from "@/ui/panels/status/AchievementToast";
 import { SkillBar } from "@/ui/panels/skillbar/SkillBar";
 import { MobileControls } from "@/ui/panels/mobile/MobileControls";
 import { MobileOsNotice } from "@/ui/panels/mobile/MobileOsNotice";
@@ -152,6 +159,12 @@ export function GameCanvas() {
           {/* P2-17: ปุ่มคลัง render เฉพาะ available:true (city-hub) — ดู StorageHudButton.tsx */}
           <StorageHudButton />
           <StoragePanel getHandle={() => engineRef.current} />
+          {/* C3-MVP: ปุ่ม "สมุด" render เสมอทุก map (เหมือน inventory/enhancement) — ดู JournalHudButton.tsx */}
+          <JournalHudButton />
+          <JournalPanel getHandle={() => engineRef.current} />
+          {/* 7b-UI: ปุ่ม "บอท" (ผู้ช่วยนักล่า) render เสมอทุก map — ดู BotHudButton.tsx. ห้ามปนกับ Auto Pilot/ดึ๋งๆ (D-035/D-037). */}
+          <BotHudButton />
+          <BotPanel getHandle={() => engineRef.current} />
           {/* P2-12: ปุ่ม "?" หลัก render เสมอ (DG §5.2) */}
           <HelpHudButton />
           <HelpPanel />
@@ -160,14 +173,21 @@ export function GameCanvas() {
           {/* E3 (P2 UI §8.2): player status cluster (level + HP bar + EXP bar + low-HP pulse) top-left */}
           <StatusCluster />
           {/* §8.4: minimap top-right — top-12 (แทน top-4 ที่ brief แนะนำ) กันชนกับปุ่ม DebugOverlay
-              ที่ยุบอยู่ (right-2 top-2 z-50); z-30 = ต่ำกว่า DebugOverlay ตอนขยาย (F3) ตั้งใจ */}
-          <Minimap />
+              ที่ยุบอยู่ (right-2 top-2 z-50); z-30 = ต่ำกว่า DebugOverlay ตอนขยาย (F3) ตั้งใจ.
+              Auto Pilot (D-037): คลิกมินิแมป = เสนอจุดหมาย → confirm → startAutoPilot ผ่าน getHandle. */}
+          <Minimap getHandle={() => engineRef.current} />
+          {/* Auto Pilot (Batch 7a, D-037): HUD chip สถานะเดินอัตโนมัติ (กำลังเดิน ✖หยุด / เหตุผลหยุดสั้น ๆ) */}
+          <AutoPilotChip getHandle={() => engineRef.current} />
           {/* Living World LW0 (§18): World Status chip (phase + weather) top-center — display-only */}
           <WorldStatusChip />
           {/* E4 (§13): death toast สั้น ๆ ตอนตาย (respawn instant ตามมาทันที, owner ruling) */}
           <DeathToast />
           {/* C1 (Economy §18): milestone reward toast สั้น ๆ ตอนปลดล็อก (แจก EXP/Gold ครั้งเดียวต่อบัญชี) */}
           <MilestoneToast />
+          {/* C2b (Achievement §7.1): achievement unlock toast สั้น ๆ ตอน auto-claim (ครั้งเดียวต่อ scope) */}
+          <AchievementToast />
+          {/* D-067: item/safety alert toast; ordinary rare is a plan event, not a universal stop. */}
+          <BotAlertToast />
           {/* A3 (P2 UI §8.3): แถบสกิล hotbar (S1-S4) — desktop (Digit1-4/คลิก) + มือถือ (แตะช่อง) */}
           <SkillBar getHandle={() => engineRef.current} />
           {/* P2-15: settings (effect quality/screen shake) + mobile controls + OS notice */}

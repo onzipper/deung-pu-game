@@ -10,6 +10,7 @@
 // ⛔ SERVER-ONLY. Milestone reward values never enter the client bundle (config = server-authoritative).
 
 import { DEFAULT_ECONOMY_CONFIG } from "../config/economy";
+import type { EconomyConfig } from "../config/types";
 import { getPrisma } from "../../src/server/db";
 import { appendEntry, isDuplicateKeyError } from "../db/ledger";
 import {
@@ -35,16 +36,28 @@ import type { ItemMeta } from "../../src/server/economy/kill-reward";
 // re-export the pure decision helper + types so MapRoom imports everything milestone-related from here.
 export { milestonesForTrigger };
 export type { MilestoneTrigger, MilestoneGrantOutcome };
-export { mobClassForMobType } from "./kill-rewards";
+export { mobClassForMobType, monsterIdForMobType } from "./kill-rewards";
 
-/** milestone Design Knobs (Economy §18.1 / D-053) as the structural subset the orchestrator reads. */
-const MILESTONES: readonly MilestoneRewardView[] = DEFAULT_ECONOMY_CONFIG.milestones.map((m) => ({
-  milestoneId: m.milestoneId,
-  phase: m.phase,
-  exp: m.exp,
-  gold: m.gold,
-  items: m.items.map((i) => ({ itemId: i.itemId, quantity: i.quantity })),
-}));
+/**
+ * milestone Design Knobs (Economy §18.1 / D-053) as the structural subset the orchestrator reads — derived from
+ * the room's EconomyConfig (ITEM 3 config DB override) and memoized by config identity so a DB config's milestone
+ * rewards are honored. DEFAULT config → the same DEFAULT views as before this wiring.
+ */
+const milestonesByConfig = new WeakMap<EconomyConfig, readonly MilestoneRewardView[]>();
+function milestoneViewsFor(config: EconomyConfig): readonly MilestoneRewardView[] {
+  let views = milestonesByConfig.get(config);
+  if (!views) {
+    views = config.milestones.map((m) => ({
+      milestoneId: m.milestoneId,
+      phase: m.phase,
+      exp: m.exp,
+      gold: m.gold,
+      items: m.items.map((i) => ({ itemId: i.itemId, quantity: i.quantity })),
+    }));
+    milestonesByConfig.set(config, views);
+  }
+  return views;
+}
 
 /** process-local at-most-once set used only in no-DB mode (dev/e2e) — key `${accountId}:${milestoneId}`. */
 const memoryMilestoneGrants = new Set<string>();
@@ -99,15 +112,18 @@ const deliverySeam: MilestoneDeliverySeam = {
  * otherwise the pure module uses the process-local marker set (dev fires once/account/process, EXP-only). The
  * returned outcome carries the EXP the caller applies through the session-progress path + what to notify.
  */
-export async function grantMilestoneWired(input: {
-  accountId: string;
-  characterId: string;
-  milestoneId: string;
-  sessionId: string;
-}): Promise<MilestoneGrantOutcome> {
+export async function grantMilestoneWired(
+  input: {
+    accountId: string;
+    characterId: string;
+    milestoneId: string;
+    sessionId: string;
+  },
+  economyConfig: EconomyConfig = DEFAULT_ECONOMY_CONFIG,
+): Promise<MilestoneGrantOutcome> {
   const wired = inventoryPersistenceAvailable() && input.characterId.length > 0;
   const deps: MilestoneDeps = {
-    config: MILESTONES,
+    config: milestoneViewsFor(economyConfig),
     grantSeam: wired ? grantSeam : null,
     ledger: wired ? ledgerSeam : null,
     inventory: wired ? inventorySeam : null,

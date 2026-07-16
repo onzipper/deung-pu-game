@@ -203,11 +203,47 @@ const EQUIPMENT_DEFINITIONS: readonly ItemDefinition[] = [
   equip("eq_talisman_sprout", "talisman", "common", 3, { maxHp: 10, breakPower: 1 }),
   equip("eq_talisman_firmness", "talisman", "uncommon", 5, { attack: 2, breakPower: 3 }),
   equip("eq_talisman_moon_echo", "talisman", "rare", 8, { attack: 4, breakPower: 5 }),
+
+  // ── Map 2 equipment (MAPS_2_4 Item Master §1) — stat = D-055 base × ratio-anchor (§0), verbatim ──
+  equip("eq_weapon_field_scythe",     "weapon",    "common",   8,  { attack: 22 }),
+  equip("eq_head_straw_hood",         "head",      "common",   8,  { defense: 3, maxHp: 17 }),
+  equip("eq_body_field_hand_vest",    "body",      "common",   8,  { defense: 9, maxHp: 31 }),
+  equip("eq_accessory_rat_tail_charm","accessory", "uncommon", 11, { maxHp: 20, criticalChancePercent: 2 }),
+  equip("eq_weapon_talisman_pike",    "weapon",    "uncommon", 11, { attack: 30, breakPower: 2 }),
+  equip("eq_body_warden_straw_plate", "body",      "rare",     13, { defense: 16, maxHp: 65, breakPower: 2 }),
+  equip("eq_talisman_warden_seal",    "talisman",  "rare",     13, { attack: 6, breakPower: 5 }),
+
+  // ── Map 3 equipment (MAPS_2_4 Item Master §2) — verbatim ──
+  equip("eq_weapon_gnaw_root_club",    "weapon",    "common",   12, { attack: 30 }),
+  equip("eq_head_stone_brow_guard",    "head",      "common",   12, { defense: 4, maxHp: 22 }),
+  equip("eq_body_monkey_hide_jerkin",  "body",      "common",   12, { defense: 11, maxHp: 42 }),
+  equip("eq_accessory_shadow_tail_band","accessory","uncommon", 15, { maxHp: 25, criticalChancePercent: 2 }),
+  equip("eq_head_mossless_helm",       "head",      "uncommon", 15, { defense: 8, maxHp: 38 }),
+  equip("eq_weapon_warden_stoneblade", "weapon",    "rare",     17, { attack: 44, criticalChancePercent: 2, breakPower: 3 }),
+  equip("eq_talisman_nameless_marker", "talisman",  "rare",     17, { attack: 7, breakPower: 5 }),
+
+  // ── Map 4 equipment (MAPS_2_4 Item Master §3) — verbatim. epic ↓ ใช้ rarity:"rare" ชั่วคราวจนกว่า ItemRarity
+  //    รองรับ "epic" (addendum §6 Q-C; UI token epic มีแล้วใน rarity.ts) — TODO(§59.4-style type change): เพิ่ม
+  //    "epic" เข้า ItemRarity แล้วเปลี่ยน field ของ eq_weapon_moondark_crescent เป็น "epic". ──
+  equip("eq_weapon_wisp_edge",        "weapon",    "common",   16, { attack: 38 }),
+  equip("eq_head_moonlit_circlet",    "head",      "common",   16, { defense: 5, maxHp: 28 }),
+  equip("eq_body_deerhide_coat",      "body",      "common",   16, { defense: 14, maxHp: 52 }),
+  equip("eq_accessory_dream_bead",    "accessory", "uncommon", 18, { maxHp: 30, criticalChancePercent: 2 }),
+  equip("eq_talisman_moonshard_charm","talisman",  "uncommon", 18, { attack: 5, breakPower: 3 }),
+  equip("eq_weapon_dryad_moonglaive", "weapon",    "rare",     21, { attack: 53, criticalChancePercent: 2, breakPower: 3 }),
+  equip("eq_body_moondark_veil",      "body",      "rare",     21, { defense: 23, maxHp: 95, breakPower: 2 }),
+  equip("eq_weapon_moondark_crescent","weapon",    "rare",     22, { attack: 60, criticalChancePercent: 3, breakPower: 4 }), // TODO rarity:"epic"
 ];
 
 // ── Map 1 non-equipment master (Economy §7.1) — registry entries (no slot/stat). effect/bind modeled by their
-//    own systems when built (consumable effect, §4.3 bind); the upgrade material `upg_reinforcement` is owned by
-//    the reinforcement config (server/config/reinforcement.ts), not declared here. ──
+//    own systems when built (consumable effect, §4.3 bind). The reinforcement material's *role* (guaranteed +1)
+//    lives in the reinforcement config (server/config/reinforcement.ts); the catalog row here only carries the
+//    registry identity + `stackable: true` (Reinforcement §3.1/§3.5 stackSize 999) so grants merge into one bag
+//    stack and the 5→1 fragment exchange (B4) can spend 5 from a single stack — a non-catalog id would default
+//    to non-stackable and break both. rarity is display-only (no drop pool references these ids). ──
+/** ACCOUNT_BOUND sharing สำหรับ boss-material (MAPS_2_4 §4 note) — ฝากคลังได้ (§12.4 ห้ามเฉพาะ CHARACTER_BOUND). */
+const ACCOUNT_BOUND: ItemSharingPolicy = { bindType: "ACCOUNT_BOUND", storagePolicy: "ALLOWED", tradePolicy: "NONE" };
+
 const NON_EQUIPMENT_DEFINITIONS: readonly ItemDefinition[] = [
   { id: "con_small_potion", kind: "consumable", rarity: "common", reqLevel: 1, stackable: true },
   { id: "mat_slime_gel", kind: "material", rarity: "common", reqLevel: 1, stackable: true },
@@ -216,6 +252,30 @@ const NON_EQUIPMENT_DEFINITIONS: readonly ItemDefinition[] = [
   { id: "mat_sharp_tusk", kind: "material", rarity: "uncommon", reqLevel: 1, stackable: true },
   { id: "mat_resonance_dust", kind: "material", rarity: "uncommon", reqLevel: 1, stackable: true },
   { id: "mat_boss_resonance_core", kind: "material", rarity: "uncommon", reqLevel: 1, stackable: true },
+  // B4 (Reinforcement §3.1/§3.5): เสริมแกร่ง + เศษเสริมแกร่ง — stackable materials (stackSize 999). ids ตรง
+  //   reinforcement config (upg_reinforcement / upg_reinforcement_fragment, R10). role/exchange = reinforcement系.
+  { id: "upg_reinforcement", kind: "material", rarity: "rare", reqLevel: 1, stackable: true },
+  { id: "upg_reinforcement_fragment", kind: "material", rarity: "uncommon", reqLevel: 1, stackable: true },
+
+  // ── Maps 2–4 materials (MAPS_2_4 spec §4) — 12 id ใหม่. rarity ตรง §4; Bind = UNBOUND (default) เว้น boss-material
+  //    = ACCOUNT_BOUND (§4 note, mirror Map 1 §7.1). reqLevel 1 = ไม่มี gate (เหมือน Map 1 material — materials
+  //    ไม่ถูกสวม). sellPrice อยู่ shop config (server/config/economy.ts STARTER_SHOP.sellPrices §4). stackable = true.
+  //    icon → src/game/item/icon-catalog.ts (reuse art เดิมเป็น placeholder จน L2 final-art). ──
+  // Map 2 — ถนนชายไร่
+  { id: "mat_startle_spore", kind: "material", rarity: "common", reqLevel: 1, stackable: true },
+  { id: "mat_resonant_straw", kind: "material", rarity: "common", reqLevel: 1, stackable: true },
+  { id: "mat_greenlight_whisker", kind: "material", rarity: "uncommon", reqLevel: 1, stackable: true },
+  { id: "mat_warden_talisman_ash", kind: "material", rarity: "uncommon", reqLevel: 1, stackable: true, sharing: ACCOUNT_BOUND }, // boss (ACCOUNT_BOUND)
+  // Map 3 — ทางป่าเก่า
+  { id: "mat_old_root_scrap", kind: "material", rarity: "common", reqLevel: 1, stackable: true },
+  { id: "mat_shadow_pelt", kind: "material", rarity: "common", reqLevel: 1, stackable: true },
+  { id: "mat_mossless_shard", kind: "material", rarity: "uncommon", reqLevel: 1, stackable: true },
+  { id: "mat_nameless_marker_stone", kind: "material", rarity: "uncommon", reqLevel: 1, stackable: true, sharing: ACCOUNT_BOUND }, // boss (ACCOUNT_BOUND)
+  // Map 4 — ป่าจันทร์เงา
+  { id: "mat_moonlight_residue", kind: "material", rarity: "common", reqLevel: 1, stackable: true },
+  { id: "mat_dream_cap", kind: "material", rarity: "common", reqLevel: 1, stackable: true },
+  { id: "mat_shadow_dew", kind: "material", rarity: "uncommon", reqLevel: 1, stackable: true },
+  { id: "mat_moondark_sap", kind: "material", rarity: "rare", reqLevel: 1, stackable: true, sharing: ACCOUNT_BOUND }, // boss (Rare, ACCOUNT_BOUND)
 ];
 
 /** full Map 1 item catalog (Economy §7) — spec-locked, keyed by item def id. */

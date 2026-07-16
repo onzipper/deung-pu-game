@@ -11,7 +11,8 @@
 
 import { DEFAULT_ECONOMY_CONFIG } from "../config/economy";
 import { DEFAULT_REINFORCEMENT_CONFIG } from "../config/reinforcement";
-import { ECONOMY_CONFIG_DEF } from "../config/loader";
+import { ECONOMY_CONFIG_DEF, loadEconomyConfig, type ConfigVersionSource } from "../config/loader";
+import type { EconomyConfig, MonsterReward } from "../config/types";
 import { getPrisma } from "../../src/server/db";
 import { appendEntry } from "../db/ledger";
 import {
@@ -23,11 +24,13 @@ import {
 import {
   grantKillRewards,
   type DropAuditRow,
+  type DropDeliverySeam,
   type ItemMeta,
   type KillRewardOutcome,
   type MonsterRewardView,
 } from "../../src/server/economy/kill-reward";
 import type { DropTable } from "../../src/server/economy/drop-roll";
+import { grantFieldBossReinforcementWired } from "./reinforcement-pity";
 
 /**
  * engine mobType → economy monsterId (§10.1). mushroom = test-field placeholder (no economy reward → no drop).
@@ -39,10 +42,83 @@ const MONSTER_ID_BY_MOB_TYPE: Readonly<Record<string, string>> = {
   boar: "mon_map1_boar",
   boar_elite: "elite_map1_boar_rampage",
   boss_boiling_boar: "boss_map1_boiling_boar", // Field Boss (D-064) — ship OB (phase P2)
+
+  // Maps 2–4 (Batch 5b LIVE) — engine mobType (map2/3/4.ts pocket) → economy monsterId (§10.1 convention
+  //   mon/elite/boss_mapN_*). reward.phase = P2 → grantKillRewardsForMob() แจก EXP/gold/drop เต็มรูปแบบ (owner
+  //   re-sequence 2026-07-14). mobClassForMobType/monsterIdForMobType (milestone/achievement) derive จาก prefix.
+  // Map 2
+  mushroom_startle: "mon_map2_mushroom_startle",
+  scarecrow_walker: "mon_map2_scarecrow_walker",
+  greenlight_rat: "mon_map2_greenlight_rat",
+  talisman_scarecrow: "elite_map2_talisman_scarecrow",
+  field_warden: "boss_map2_field_warden",
+  // Map 3
+  gnawing_root: "mon_map3_gnawing_root",
+  shadow_monkey: "mon_map3_shadow_monkey",
+  walking_stone: "mon_map3_walking_stone",
+  mossless_stone: "elite_map3_mossless_stone",
+  nameless_warden: "boss_map3_nameless_warden",
+  // Map 4
+  moonlight_wisp: "mon_map4_moonlight_wisp",
+  dream_mushroom: "mon_map4_dream_mushroom",
+  shadow_deer: "mon_map4_shadow_deer",
+  shattered_moon_deer: "elite_map4_shattered_moon_deer",
+  moondark_dryad: "boss_map4_moondark_dryad",
 };
 
-/** DropAudit.dropTableVersion = economy config version in effect (in-code DEFAULT). */
-const DROP_TABLE_VERSION = ECONOMY_CONFIG_DEF.defaultVersion;
+/**
+ * ITEM 3 (config DB override) — the economy Design Knobs one MapRoom runs with. `config` = the EconomyConfig
+ * loaded once at room create (loader.ts DB `config_versions` override, or DEFAULT when no DB/on error); `version`
+ * = the config_versions version stamped on DropAudit. Immutable per room after the single onCreate load — the
+ * room passes its own bundle in, so drops/EXP/party thresholds all read from ONE consistent source (not the
+ * module DEFAULT). No-DB rooms keep the DEFAULT bundle → behavior byte-identical to before this wiring.
+ */
+export interface RoomEconomyConfig {
+  config: EconomyConfig;
+  version: number;
+}
+/** the fallback bundle (in-code DEFAULT) — every room starts here and swaps to a DB bundle only if one loads. */
+export const DEFAULT_ROOM_ECONOMY: RoomEconomyConfig = {
+  config: DEFAULT_ECONOMY_CONFIG,
+  version: ECONOMY_CONFIG_DEF.defaultVersion,
+};
+
+/**
+ * ITEM 3 — load the room's economy config ONCE (best-effort). DATABASE_URL set → the active `config_versions`
+ * row via loader.ts (which itself falls back to DEFAULT on missing/invalid payload/DB error); no DATABASE_URL →
+ * DEFAULT silently. **Never throws** — any failure yields the DEFAULT bundle so a room always has a usable
+ * config. MapRoom calls this once at onCreate (async, non-blocking) and treats the result as immutable for the
+ * room's lifetime (no mid-room swaps). The real Prisma client is injected via the loader's structural seam.
+ */
+export async function loadRoomEconomy(): Promise<RoomEconomyConfig> {
+  try {
+    const source: ConfigVersionSource | null = process.env.DATABASE_URL
+      ? (getPrisma() as unknown as ConfigVersionSource)
+      : null;
+    const loaded = await loadEconomyConfig(source);
+    return { config: loaded.value, version: loaded.version };
+  } catch {
+    return DEFAULT_ROOM_ECONOMY; // best-effort — never break room create over config
+  }
+}
+
+/** per-config lookup tables (reward + drop table by id) memoized by config identity → built once per config. */
+interface EconomyTables {
+  rewardByMonsterId: Map<string, MonsterReward>;
+  dropTableById: Map<string, DropTable>;
+}
+const tablesByConfig = new WeakMap<EconomyConfig, EconomyTables>();
+function economyTablesFor(config: EconomyConfig): EconomyTables {
+  let t = tablesByConfig.get(config);
+  if (!t) {
+    t = {
+      rewardByMonsterId: new Map(config.monsterRewards.map((r) => [r.monsterId, r])),
+      dropTableById: new Map(config.dropTables.map((tbl) => [tbl.dropTableId, tbl as DropTable])),
+    };
+    tablesByConfig.set(config, t);
+  }
+  return t;
+}
 
 /**
  * C1 (Economy §18.1): engine mobType → milestone mob class (normal hunt / elite / boss) for milestone triggers.
@@ -58,35 +134,46 @@ export function mobClassForMobType(mobType: string): "normal" | "elite" | "boss"
 }
 
 /**
- * R8 loot guard (defence-in-depth): reinforcement ids must never leak into GENERIC loot. The Field Boss is the
- * one sanctioned exception (D-064) — it is the reinforcement-material source, so `upg_reinforcement` is an
- * allowed drop for it and is NOT in its excluded set. Every other monster keeps the full exclusion.
+ * C2b (Achievement §10.1 identity): engine mobType → economy monsterId (mon_map1_slime / elite_map1_boar_rampage
+ * / boss_map1_boiling_boar). Achievement filters key on the monsterId, not the engine mobType — the mob.killed
+ * event must carry the mapped id. Unmapped / test mob → null.
+ */
+export function monsterIdForMobType(mobType: string): string | null {
+  return MONSTER_ID_BY_MOB_TYPE[mobType] ?? null;
+}
+
+/**
+ * R8 loot guard (defence-in-depth): the reinforcement + fragment ids must never come through the GENERIC drop
+ * roll — not even for the Field Boss. B4 makes the Field Boss's reinforcement (§4.2 pity ladder) + fragment
+ * (§3.5) come from the dedicated pity path (grantFieldBossReinforcementWired), NOT the drop table, so ALL
+ * monsters (Field Boss included) exclude BOTH ids from the generic roll. (This supersedes the OB shortcut where
+ * the drop table guaranteed `upg_reinforcement` directly and the Field Boss excluded only the fragment.)
  */
 const EXCLUDED_ITEM_IDS: ReadonlySet<string> = new Set([
   DEFAULT_REINFORCEMENT_CONFIG.materialId,
   DEFAULT_REINFORCEMENT_CONFIG.fragment.materialId,
 ]);
 
-/** Field Boss monsterId (D-064) — the sanctioned reinforcement-material source. */
-const FIELD_BOSS_MONSTER_ID = DEFAULT_REINFORCEMENT_CONFIG.bossId;
-
 /**
- * excluded set for the Field Boss: `upg_reinforcement` is ALLOWED (it is the boss's whole point), only the
- * fragment stays blocked (fragment/exchange = post-OB, never dropped raw).
+ * Field Boss monsterIds that fire the §4.2 reinforcement pity ladder + §3.5 fragment (boss-only reinforcement
+ * model, Reinforcement §4). Map 1 Field Boss (D-064, from config) + Maps 2–4 Field Bosses (Batch 5b LIVE). The
+ * §4.2 ladder + §3.5 fragment config is boss-GENERIC (one rate for the whole game — 8% base + pity 15); each id
+ * keys its OWN (accountId, bossId) pity row (D-064 per-account-per-boss scope). Story boss
+ * boss_map1_resonant_guardian is deliberately absent (instanced P2B — no field reinforcement source).
  */
-const FIELD_BOSS_EXCLUDED_ITEM_IDS: ReadonlySet<string> = new Set([
-  DEFAULT_REINFORCEMENT_CONFIG.fragment.materialId,
+const REINFORCEMENT_BOSS_IDS: ReadonlySet<string> = new Set([
+  DEFAULT_REINFORCEMENT_CONFIG.bossId, // boss_map1_boiling_boar (Field Boss Map 1, D-064)
+  "boss_map2_field_warden", // Maps 2–4 Field Bosses (MAPS_2_4 §5 boss-only reinforcement · same §4.2 ladder)
+  "boss_map3_nameless_warden",
+  "boss_map4_moondark_dryad",
 ]);
 
-const REWARD_BY_MONSTER_ID = new Map(
-  DEFAULT_ECONOMY_CONFIG.monsterRewards.map((r) => [r.monsterId, r]),
-);
-const DROP_TABLE_BY_ID = new Map(DEFAULT_ECONOMY_CONFIG.dropTables.map((t) => [t.dropTableId, t]));
-
-/** the player progression baseline table (D-055 §2) — MapRoom folds it into per-level combat stats. */
+/** the player progression baseline table (D-055 §2) — DEFAULT fallback (rooms read this.economy.config instead). */
 export const PLAYER_BASELINE_TABLE = DEFAULT_ECONOMY_CONFIG.playerBaseline;
-/** the EXP curve (Economy §9) — exposed for the client progress message (level floor/ceil). */
+/** the EXP curve (Economy §9) — DEFAULT fallback for MapRoom field init (rooms read this.economy.config.expCurve). */
 export const EXP_CURVE = DEFAULT_ECONOMY_CONFIG.expCurve;
+/** G-lite party reward knobs (Economy §9.4 + §10.2/§10.3) — DEFAULT fallback (rooms read this.economy.config). */
+export const PARTY_REWARD_CONFIG = DEFAULT_ECONOMY_CONFIG.partyReward;
 
 function itemMeta(itemId: string): ItemMeta {
   const def = ITEM_CATALOG.get(itemId);
@@ -107,6 +194,23 @@ async function writeDropAudit(rows: readonly DropAuditRow[]): Promise<void> {
   });
 }
 
+/**
+ * ITEM 2 — §12.5 bag→Delivery Box fallback for kill loot (mirror the milestone deliverySeam in milestones.ts).
+ * Overflow loot is persisted to the account's Delivery Box so it is never silently lost (before this, the room
+ * only reported `lootOverflow` and the item was dropped). source `achievement_reward` = never-expiry (storage
+ * §16.4) → strongest no-silent-loss guarantee, reusing the milestone seam's source.
+ * ⚠️ FLAG(owner): a dedicated `loot_overflow` DeliverySource enum (schema change via §59.4) would be clearer
+ *    than reusing `achievement_reward`; kept minimal for OB (no DB schema change without owner). Ground-loot
+ *    entity (§12.5 "drop on the ground when bag full") = OUT OF SCOPE (deferred) — delivery is the safe fallback.
+ */
+const deliverySeam: DropDeliverySeam = {
+  async createEntry(input) {
+    await getPrisma().deliveryBoxEntry.create({
+      data: { accountId: input.accountId, source: "achievement_reward", payload: { items: input.items } },
+    });
+  },
+};
+
 export interface KillRewardRequest {
   mobType: string;
   /** "" when anonymous/dev (EXP still computed in-memory; gold/drops skipped). */
@@ -120,23 +224,37 @@ export interface KillRewardRequest {
   persist: boolean;
 }
 
+/** B4: reinforcement pity progress for the client (§4.2) — "ประกันบอส: pityCount/guaranteedAtClear". */
+export interface ReinforcementProgressView {
+  /** clears-since-drop AFTER this kill (0 right after a drop). */
+  pityCount: number;
+  /** §4.2 guaranteedAtClear (15) — the denominator of the pity display. */
+  guaranteedAtClear: number;
+}
+
+/** KillRewardOutcome plus the Field Boss's reinforcement pity progress (present only on a Field Boss kill). */
+export interface WiredKillRewardOutcome extends KillRewardOutcome {
+  reinforcementProgress?: ReinforcementProgressView;
+}
+
 /**
- * grant one eligible kill's rewards. Returns null for an unmapped mobType or a non-P2 monster (boss = P2B, drop
- * not shipped in P2). EXP is always computed; gold/drops/audit run only when `persist` (DB + character).
+ * grant one eligible kill's rewards. Returns null for an unmapped mobType or a non-P2 monster (Story boss
+ * boss_map1_resonant_guardian = P2B). EXP is always computed; gold/drops/audit run only when `persist` (DB +
+ * character). For a Field Boss (§4.2 source — Map 1 + Maps 2–4, REINFORCEMENT_BOSS_IDS) it also runs the
+ * reinforcement pity ladder + fragment roll (§3.5) and merges those grants into the loot + attaches
+ * `reinforcementProgress`.
  */
 export async function grantKillRewardsForMob(
   req: KillRewardRequest,
-): Promise<KillRewardOutcome | null> {
+  economy: RoomEconomyConfig = DEFAULT_ROOM_ECONOMY,
+): Promise<WiredKillRewardOutcome | null> {
   const monsterId = MONSTER_ID_BY_MOB_TYPE[req.mobType];
   if (!monsterId) return null;
-  const reward = REWARD_BY_MONSTER_ID.get(monsterId);
+  const { rewardByMonsterId, dropTableById } = economyTablesFor(economy.config);
+  const reward = rewardByMonsterId.get(monsterId);
   if (!reward || reward.phase !== "P2") return null; // Story boss (P2B) / unknown → no live reward
-  const dropTable = DROP_TABLE_BY_ID.get(reward.dropTableId);
+  const dropTable = dropTableById.get(reward.dropTableId);
   if (!dropTable) return null;
-
-  // R8 exemption: the Field Boss may drop upg_reinforcement (its sanctioned role); everything else may not.
-  const excludedItemIds =
-    monsterId === FIELD_BOSS_MONSTER_ID ? FIELD_BOSS_EXCLUDED_ITEM_IDS : EXCLUDED_ITEM_IDS;
 
   const wired = req.persist && inventoryPersistenceAvailable() && req.characterId.length > 0;
 
@@ -149,19 +267,22 @@ export async function grantKillRewardsForMob(
     dropTableId: reward.dropTableId,
   };
 
-  return grantKillRewards(
+  // generic loot/EXP/gold — the reinforcement + fragment ids are always excluded (R8); they come from the
+  // dedicated Field Boss pity path below, never the drop table.
+  const outcome: WiredKillRewardOutcome = await grantKillRewards(
     {
       reward: rewardView,
       dropTable: dropTable as DropTable,
-      pools: DEFAULT_ECONOMY_CONFIG.equipmentPools,
-      excludedItemIds,
+      pools: economy.config.equipmentPools,
+      excludedItemIds: EXCLUDED_ITEM_IDS,
       itemMeta,
-      expCurve: EXP_CURVE,
+      expCurve: economy.config.expCurve,
       rng: Math.random,
-      dropTableVersion: DROP_TABLE_VERSION,
+      dropTableVersion: economy.version,
       ledger: wired ? { appendEntry: (e) => appendEntry(e) } : null,
       inventory: wired ? { grantItems: (input) => getInventoryRepository().grantItems(input) } : null,
       dropAudit: wired ? { write: writeDropAudit } : null,
+      delivery: wired ? deliverySeam : null,
     },
     {
       characterId: req.characterId,
@@ -174,4 +295,23 @@ export async function grantKillRewardsForMob(
       killEventId: req.killEventId,
     },
   );
+
+  // B4 + Batch 5b — Field Boss reinforcement (§4.2 pity ladder) + fragment (§3.5) for EVERY Field Boss (Map 1
+  // D-064 + Maps 2–4 LIVE), boss-generic ladder keyed per ACCOUNT per boss (D-064). Each eligible member's grant
+  // reads/writes its own pity row for THIS boss. The pity module picks Prisma vs in-memory + null grant seams
+  // internally (no-DB dev tracks pity in memory, items not persisted). Grants merge into the kill loot so the
+  // existing snapshot-refresh + loot toast pick them up; the pity progress rides `reinforcementProgress`.
+  if (REINFORCEMENT_BOSS_IDS.has(monsterId)) {
+    const r = await grantFieldBossReinforcementWired({
+      accountId: req.accountId,
+      characterId: req.characterId,
+      bossId: monsterId, // §4.2 scope keys on THIS boss (each Field Boss owns its pity row)
+    });
+    if (r.granted.length > 0) outcome.granted.push(...r.granted);
+    if (r.delivered.length > 0) outcome.delivered.push(...r.delivered);
+    if (r.overflow.length > 0) outcome.overflow.push(...r.overflow);
+    outcome.reinforcementProgress = { pityCount: r.pityCount, guaranteedAtClear: r.guaranteedAtClear };
+  }
+
+  return outcome;
 }

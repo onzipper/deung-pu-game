@@ -150,6 +150,19 @@ function parseEconomyConfig(payload: unknown): EconomyConfig | null {
   for (const v of Object.values(shop.sellPrices)) {
     if (v !== null && (!isNum(v) || v < 0)) return null;
   }
+
+  // partyReward (Economy §10.2/§10.3) — share thresholds are percents; radius must be a positive tile count
+  // (never-downgrade: a bad reward gate = wrong money/EXP recipients).
+  const pr = p.partyReward;
+  if (
+    !isObject(pr) ||
+    !isPercent(pr.normalMinSharePct) ||
+    !isPercent(pr.eliteBossMinSharePct) ||
+    !isNum(pr.rewardRadiusTiles) ||
+    pr.rewardRadiusTiles <= 0
+  ) {
+    return null;
+  }
   return payload as unknown as EconomyConfig;
 }
 

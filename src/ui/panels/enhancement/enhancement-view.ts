@@ -5,7 +5,13 @@
 // P2 ทั้งเฟส server ตอบ NO_REINFORCEMENT เสมอ (flag `noReinforcement` เปิดอยู่, R8/D-052) — **inert แต่
 // functional จริง** ไม่ใช่ bug. panel นี้ต้องโชว์ state นี้สวย ๆ พร้อม hint copy ที่เคาะแล้ว (verbatim, ห้ามเปลี่ยนคำ).
 
-import type { EnhanceResultMessage, InventorySnapshot } from "@/shared/net-protocol";
+import type {
+  EnhanceResultMessage,
+  FragmentExchangeResultMessage,
+  InventoryItemView,
+  InventorySnapshot,
+  ReinforcementProgress,
+} from "@/shared/net-protocol";
 import type { PanelId } from "@/ui/panels";
 
 /** panel id คงที่ของ enhancement (P2-10) — ใช้ทั้ง openPanel/closePanel และ <Panel id> */
@@ -13,6 +19,16 @@ export const ENHANCEMENT_PANEL_ID: PanelId = "enhancement";
 
 /** materialId ของ "เสริมแกร่ง" ตาม rename R10 (Reinforcement §3.1) — canonical id, ตรง server DEFAULT config */
 export const REINFORCEMENT_MATERIAL_ID = "upg_reinforcement";
+
+/** materialId ของ "เศษเสริมแกร่ง" (B4, Reinforcement §3.5) — canonical id, ตรง server DEFAULT config */
+export const FRAGMENT_MATERIAL_ID = "upg_reinforcement_fragment";
+
+/**
+ * §3.5 สูตรแลก 5 เศษ → 1 เสริมแกร่ง — client ใช้แค่ enable ปุ่ม + label; server เป็น authoritative (reject ถ้า < 5).
+ * ค่าจริงเป็น Design Knob server-only (FRAGMENT_EXCHANGE_RULES) — ตัวเลขนี้ display เท่านั้น (spec-fixed 5→1).
+ */
+export const FRAGMENT_EXCHANGE_INPUT = 5;
+export const FRAGMENT_EXCHANGE_OUTPUT = 1;
 
 /** 8 state ตาม spec §2.4 (verbatim) — headline ของ panel ผูกกับ state นี้เสมอ */
 export type EnhanceUiState =
@@ -106,4 +122,48 @@ export function countReinforcementMaterial(
   return snapshot.bag
     .filter((item) => item.itemId === materialId)
     .reduce((sum, item) => sum + item.quantity, 0);
+}
+
+/** B4: นับจำนวน "เศษเสริมแกร่ง" ในกระเป๋า (รวมทุก stack) — reuse countReinforcementMaterial ด้วย fragment id. */
+export function countFragmentMaterial(snapshot: InventorySnapshot | null): number {
+  return countReinforcementMaterial(snapshot, FRAGMENT_MATERIAL_ID);
+}
+
+/**
+ * B4: หา stack เศษเสริมแกร่งในกระเป๋า (bag) ที่จะใช้จ่ายตอนแลก — client ส่ง instanceId + version ของ stack นี้ใน
+ * intent (server ใช้ optimistic lock + retry guard). null = ไม่มีเศษในกระเป๋า. เลือก stack ที่ quantity มากสุด
+ * (ปกติมี stack เดียวเพราะ stackable, กันเผื่อ split).
+ */
+export function findFragmentStack(snapshot: InventorySnapshot | null): InventoryItemView | null {
+  if (!snapshot) return null;
+  const stacks = snapshot.bag.filter((item) => item.itemId === FRAGMENT_MATERIAL_ID);
+  if (stacks.length === 0) return null;
+  return stacks.reduce((best, cur) => (cur.quantity > best.quantity ? cur : best));
+}
+
+/** B4: ปุ่ม "แลก 5→1" กดได้เมื่อมีเศษ ≥ input (5) — server ยังคง authoritative (reject ถ้าไม่พอ/กระเป๋าเต็ม). */
+export function canExchangeFragments(fragmentCount: number): boolean {
+  return fragmentCount >= FRAGMENT_EXCHANGE_INPUT;
+}
+
+/** B4 (§4.2): label แถบประกันบอส "ประกันบอส: X/Y" — null progress = ยังไม่เคยฆ่า Field Boss (ซ่อนแถบ). */
+export function reinforcementPityLabel(progress: ReinforcementProgress | null): string | null {
+  if (!progress) return null;
+  return `ประกันบอส: ${progress.pityCount}/${progress.guaranteedAtClear}`;
+}
+
+/** B4: ข้อความผลการแลกเศษ (สำเร็จ/ปฏิเสธ) — copy รวมศูนย์ (testable, ห้ามเขียน string ซ้ำใน component). */
+export function fragmentExchangeMessage(result: FragmentExchangeResultMessage): string {
+  if (result.ok) return `แลกสำเร็จ ได้เสริมแกร่ง ×${result.granted}`;
+  switch (result.reason) {
+    case "NOT_ENOUGH_FRAGMENTS":
+      return "เศษเสริมแกร่งไม่พอ (ต้องมีอย่างน้อย 5)";
+    case "INVENTORY_FULL":
+      return "กระเป๋าเต็ม เว้นช่องก่อนแลก";
+    case "NO_DB":
+      return "โหมดนี้แลกไม่ได้";
+    case "TRANSACTION_CONFLICT":
+    default:
+      return "ข้อมูลไม่ตรงกัน กำลังซิงก์ใหม่";
+  }
 }

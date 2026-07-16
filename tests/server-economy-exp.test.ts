@@ -53,6 +53,13 @@ describe("computeMonsterExp (§9.3 + §9.4)", () => {
     expect(computeMonsterExp({ baseExp: 30, monsterLevel: 4, playerLevel: 4, curve: CURVE, eligibleMembers: 2 })).toBe(18);
   });
 
+  test("party pool split 3/4/5 members (G-lite §9.4 — cap 1.60 bites at 4)", () => {
+    // base 30, matched level. mult = min(1 + 0.2×(n−1), 1.6); per = floor(30 × mult ÷ n).
+    expect(computeMonsterExp({ baseExp: 30, monsterLevel: 4, playerLevel: 4, curve: CURVE, eligibleMembers: 3 })).toBe(14); // 1.4 → 42/3
+    expect(computeMonsterExp({ baseExp: 30, monsterLevel: 4, playerLevel: 4, curve: CURVE, eligibleMembers: 4 })).toBe(12); // 1.6 cap → 48/4
+    expect(computeMonsterExp({ baseExp: 30, monsterLevel: 4, playerLevel: 4, curve: CURVE, eligibleMembers: 5 })).toBe(9); // 1.6 cap → 48/5 = 9.6 → 9
+  });
+
   test("party pool multiplier capped at 1.60", () => {
     // 10 members → 1 + 0.2×9 = 2.8 → capped 1.6; pool = 30×1.6 = 48; per = 4.8 → floor 4
     expect(computeMonsterExp({ baseExp: 30, monsterLevel: 4, playerLevel: 4, curve: CURVE, eligibleMembers: 10 })).toBe(4);
@@ -86,17 +93,29 @@ describe("applyExpGain — level-up rollover (§9.1/§9.2)", () => {
     });
   });
 
-  test("cap: at lv10 EXP never accumulates past cumulative cap (§9.1)", () => {
-    const r = applyExpGain({ level: 10, exp: 7440, gained: 1000, curve: CURVE });
-    expect(r.level).toBe(10);
-    expect(r.exp).toBe(7440);
+  test("cap: at lv22 EXP never accumulates past cumulative cap (§9.1, Batch 5b lv22)", () => {
+    const r = applyExpGain({ level: 22, exp: 116080, gained: 1000, curve: CURVE });
+    expect(r.level).toBe(22);
+    expect(r.exp).toBe(116080);
     expect(r.leveledUp).toBe(false);
   });
 
-  test("gain that overshoots into the cap clamps EXP to the cap total", () => {
-    const r = applyExpGain({ level: 9, exp: 7000, gained: 5000, curve: CURVE });
+  test("lv10 no longer the cap — EXP accumulates within lv10 (Batch 5b extended curve)", () => {
+    const r = applyExpGain({ level: 10, exp: 7440, gained: 1000, curve: CURVE });
     expect(r.level).toBe(10);
-    expect(r.exp).toBe(7440);
+    expect(r.exp).toBe(8440); // curve extended → not clamped at 7440 anymore
+    expect(r.leveledUp).toBe(false);
+  });
+
+  test("level-up past 10 works: lv10 + 2280 → lv11 (Batch 5b)", () => {
+    const r = applyExpGain({ level: 10, exp: 7440, gained: 2280, curve: CURVE });
+    expect(r).toEqual({ level: 11, exp: 9720, leveledUp: true, levelsGained: 1 });
+  });
+
+  test("gain that overshoots into the lv22 cap clamps EXP to the cap total", () => {
+    const r = applyExpGain({ level: 21, exp: 116000, gained: 5000, curve: CURVE });
+    expect(r.level).toBe(22);
+    expect(r.exp).toBe(116080);
   });
 });
 
@@ -107,7 +126,9 @@ describe("deriveLevel (§9.2 thresholds)", () => {
     expect(deriveLevel(120, CURVE)).toBe(2);
     expect(deriveLevel(340, CURVE)).toBe(3);
     expect(deriveLevel(7440, CURVE)).toBe(10);
-    expect(deriveLevel(999999, CURVE)).toBe(10); // clamped at cap
+    expect(deriveLevel(9720, CURVE)).toBe(11); // Batch 5b lv10→11 threshold
+    expect(deriveLevel(116080, CURVE)).toBe(22); // band cap (lv22)
+    expect(deriveLevel(999999, CURVE)).toBe(22); // clamped at cap (was 10)
   });
 });
 
@@ -132,7 +153,7 @@ describe("playerBaselineForLevel (D-055 §2)", () => {
   });
 
   test("out-of-range level clamps to nearest table row", () => {
-    expect(playerBaselineForLevel(99, table, secondary)).toMatchObject({ hp: 280, atk: 40 }); // → lv10
+    expect(playerBaselineForLevel(99, table, secondary)).toMatchObject({ hp: 520, atk: 76 }); // → lv22 (band cap)
     expect(playerBaselineForLevel(0, table, secondary)).toMatchObject({ hp: 100, atk: 12 }); // → lv1
   });
 });

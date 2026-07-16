@@ -1,6 +1,8 @@
 # D-063 — Bot & economy final (ปิด L1 ทั้งชุด + พ่อค้าพเนจร dual-sink)
 - Date: 2026-07-13 · Status: Locked · Source: owner แชท 2026-07-13 (เคาะรายข้อ) · supersedes [[D-060]]
 
+> **SUPERSEDED บางส่วนโดย D-067 (2026-07-15):** universal Mandatory Stop 9 ข้อและ cap-first tier value ถูกแทนด้วย global safety stops + tier recovery/workflow; Free 24/7, duration pass/pricing, expiry/fallback และ merchant economy ยัง Locked
+
 ## Bot model (ทับ game spec §4 ชั่วโมง/ราคา + P2B §6.3 hoursPerDay + §6.6 monthly + canonical #11)
 
 - **Free tier = ฟรีตลอดไป ไม่จำกัดชั่วโมง ปล่อย 24/7 ได้** — ทุก tier เวลาเท่ากัน ความต่าง = ความสามารถ (§6.3: profiles 1/3/10 · rules 3/10/25 · report 1/14/90 วัน · แจ้งเตือน · ตั้งเวลา 0/2/10 · analytics)

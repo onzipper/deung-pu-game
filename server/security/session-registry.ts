@@ -52,6 +52,22 @@ export function releaseSession(accountId: string, sessionId: string): void {
   if (existing && existing.sessionId === sessionId) active.delete(accountId);
 }
 
+/**
+ * Atomically hand an account slot from a closing transport to a server-owned actor without firing takeover on
+ * that same transport. Returns false when the transport no longer owns the slot (a newer takeover already won).
+ */
+export function transferSession(
+  accountId: string,
+  fromSessionId: string,
+  toSessionId: string,
+  disconnect: () => void,
+): boolean {
+  const existing = active.get(accountId);
+  if (!existing || existing.sessionId !== fromSessionId) return false;
+  active.set(accountId, { sessionId: toSessionId, disconnect });
+  return true;
+}
+
 /** test helper — ล้าง registry ทั้งหมด. */
 export function _resetSessionRegistry(): void {
   active.clear();

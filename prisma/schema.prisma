@@ -423,3 +423,57 @@ model ReinforcementPity {
   @@unique([accountId, bossId]) // §4.2 pity scope = account-per-boss
   @@map("reinforcement_pity")
 }
+
+// ── bot / hunter assistant (0004_bot · D-063) ─────────────────────────────────
+// ⛔ never-downgrade zone (bots mutate the audited economy — same ledger/drop paths as real players).
+//    Standalone tables (no FK — same posture as the progression tables): app-layer integrity. Every tier
+//    cap / price / retention value is a Design Knob in server/config/bot.ts, never in DB.
+
+/// bot_tier_state — one entitlement row per account (D-063). tier = free|plus|pro; passExpiresAt null = Free
+/// (or an expired pass already fell back). Retention/caps are resolved from config against this row + the clock.
+model BotTierState {
+  accountId     String    @id @map("account_id") @db.Char(36) // 1 row per account
+  tier          String    @default("free")
+  passExpiresAt DateTime? @map("pass_expires_at") // epoch of the paid pass end; null = Free
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  @@map("bot_tier_state")
+}
+
+/// bot_profiles — a saved farm profile (D-063: 1/3/10 per tier; excess after downgrade = read-only, not deleted).
+/// rulesJson = validated BotRulesV1 (skillSlots/potionThresholdPct/lootAll). map/pocket must be bot-safe (config).
+model BotProfile {
+  id        String   @id @default(uuid()) @db.Char(36)
+  accountId String   @map("account_id") @db.Char(36)
+  name      String
+  mapId     String   @map("map_id")
+  pocketId  String   @map("pocket_id")
+  rulesJson Json     @map("rules_json") // validated BotRulesV1
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([accountId])
+  @@map("bot_profiles")
+}
+
+/// bot_sessions — one bot run = one report (retention enforced at query time per tier, D-063). Counters are
+/// flushed periodically (~30s) + on stop. stopReason = 1-of-9 mandatory / manual / server_restart. On boot every
+/// still-open row (stoppedAt IS NULL) is closed as server_restart and NOT auto-resumed (owner restarts manually).
+model BotSession {
+  id          String    @id @default(uuid()) @db.Char(36)
+  accountId   String    @map("account_id") @db.Char(36)
+  characterId String    @map("character_id") @db.Char(36)
+  profileId   String    @map("profile_id") @db.Char(36)
+  mapId       String    @map("map_id")
+  startedAt   DateTime  @default(now()) @map("started_at")
+  stoppedAt   DateTime? @map("stopped_at")
+  stopReason  String?   @map("stop_reason")
+  killCount   Int       @default(0) @map("kill_count")
+  goldEarned  Int       @default(0) @map("gold_earned")
+  expEarned   Int       @default(0) @map("exp_earned")
+  dropsJson   Json      @map("drops_json") // itemId → quantity aggregate
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  @@index([accountId, startedAt])
+  @@map("bot_sessions")
+}

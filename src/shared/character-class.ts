@@ -5,9 +5,10 @@
 // (นักดาบ) ที่มี skill data จริงใน src/game/skill/data/warrior-skills-*.ts และเป็นอาชีพเดียวที่เล่นได้ใน P2
 // (brief P2-06a: "P2 เล่นได้เฉพาะนักดาบ — อีก 4 แสดง disabled").
 //
-// ตาม AI.md กฎเหล็ก #1 (ห้ามเดา field/ค่าที่ spec ไม่ครอบคลุม) — CLASS_IDS ที่นี่จึงมีแค่ "swordsman" เท่านั้น
-// (ไม่เดา id ภาษาอังกฤษของอีก 4 อาชีพ). ขยาย list นี้เมื่อ owner เคาะ classId ของอาชีพถัดไป (นักธนู = P2B).
-export const CLASS_IDS = ["swordsman"] as const;
+// classId ภาษาอังกฤษที่ owner เคาะแล้ว: "swordsman" (นักดาบ) + "archer" (นักธนู, Batch 6 — ARCHER_CLASS_SPEC
+// LOCKED 2026-07-14 §6 note 4 / Q6). อีก 3 อาชีพ (นักหอก/นักเวท/นักอาคม) ยังไม่เคาะ id → เพิ่มเมื่อ owner เคาะ.
+// id ล็อกแล้วเปลี่ยนไม่ได้เมื่อมี save data (§6 note 4).
+export const CLASS_IDS = ["swordsman", "archer"] as const;
 
 export type ClassId = (typeof CLASS_IDS)[number];
 

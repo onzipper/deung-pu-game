@@ -82,6 +82,32 @@ export interface PlayerCombatStats {
 }
 
 /**
+ * Batch 6 (ARCHER_CLASS_SPEC §2 — **PENDING OWNER**): ตัวคูณ stat ต่ออาชีพ บน player baseline (D-055 curve)
+ * ก่อนบวก gear. atk/hp/def เท่านั้น (secondary crit/pen = level-invariant ฐานเดียวทุกอาชีพ §15.3). ปัด integer
+ * ที่ apply (server, applyClassStatWeights). นักดาบ = 1.0 ทุกตัว (curve ฐาน); นักธนู ×1.15/×0.85/×0.90.
+ */
+export interface ClassStatWeights {
+  /** ตัวคูณ ATK บน baseline (นักธนู 1.15 = ATK สูง §2.1) */
+  atk: number;
+  /** ตัวคูณ HP บน baseline (นักธนู 0.85 = ตัวบาง) */
+  hp: number;
+  /** ตัวคูณ DEF บน baseline (นักธนู 0.90) */
+  def: number;
+}
+
+/**
+ * Batch 6 (ARCHER_CLASS_SPEC §3 S3 archer_target_mark, §6 note 3): debuff บน **เป้า** → เป้ารับดาเมจ ×multiplier
+ * ช่วง durationSeconds. mirror ฝั่งเป้าของ statusEffectDamageReduction (self-buff). value = Design Knob (§48).
+ * id ไม่อยู่ในตาราง = ไม่มีผล. คูณเข้าสูตร damage ผู้เล่นตีเป้า (formula.ts DamageParams.damageTakenMultiplier).
+ */
+export interface StatusEffectDamageTakenEntry {
+  /** ตัวคูณดาเมจที่เป้ารับ (>1 = รับมากขึ้น เช่น mark_dmg_taken_15 = 1.15) */
+  multiplier: number;
+  /** ระยะเวลา debuff (วินาที) นับจากตอนปัก (§3 S3 = 6) */
+  durationSeconds: number;
+}
+
+/**
  * Mob combat stat ต่อ mobType (P1-05, proposal §2.2 — **PENDING OWNER**). server-authoritative.
  * ใช้ทั้ง damage formula (def/tierReduction) + hp เริ่มต้นของ simulation (single source of truth).
  */
@@ -234,6 +260,26 @@ export interface CombatBalanceConfig {
    * self_damage_reduction_30 → ลด 30%). value เป็น Design Knob (§48). id ไม่อยู่ในตาราง = ไม่มีผล (0).
    */
   statusEffectDamageReduction: Record<string, number>;
+  /**
+   * Batch 6 (ARCHER_CLASS_SPEC §2): ตัวคูณ stat ต่ออาชีพ บน player baseline (classId → weights). นักดาบ = 1.0;
+   * นักธนู = 1.15/0.85/0.90. classId ที่ไม่อยู่ในตาราง → fallback 1.0 (ไม่มีผล). Design Knob (§48) PENDING OWNER.
+   */
+  classStatWeights: Record<string, ClassStatWeights>;
+  /**
+   * Batch 6 (ARCHER_CLASS_SPEC §3 S3 archer_target_mark): debuff บนเป้า → เป้ารับดาเมจ ×multiplier ช่วง duration.
+   * mark_dmg_taken_15 = 1.15/6s. id ไม่อยู่ในตาราง = ไม่มีผล. Design Knob (§48) PENDING OWNER.
+   */
+  statusEffectDamageTakenMultiplier: Record<string, StatusEffectDamageTakenEntry>;
+  /**
+   * Batch 6 (ARCHER_CLASS_SPEC §3 S4 archer_swift_step): self moveSpeed buff → +fraction ระหว่าง activeTime.
+   * swift_step_speed_20 = +0.20. server กว้าง allowance move validation ตาม buff (กัน false-reject). Design Knob (§48).
+   */
+  statusEffectMoveSpeedBonus: Record<string, number>;
+  /**
+   * Batch 6 (ARCHER_CLASS_SPEC §3 S4): ระยะเผ่นถอยหลัง (tile) ของ swift_step-style skill — server ใช้ movement
+   * walkability clamp เดิม (ชนกำแพง = เผ่นเท่าที่เดินได้). Design Knob (§48) PENDING OWNER.
+   */
+  swiftStepDashTiles: number;
 }
 
 /**
@@ -310,10 +356,16 @@ export const DEFAULT_COMBAT_BALANCE_CONFIG: CombatBalanceConfig = {
       moveSpeed: 2.8, attackRange: 2.0, attackCooldown: 3.0,
       anticipationMs: 650, activeMs: 300, recoveryMs: 800, breakPower: 0,
     },
-    // Field Boss หมูป่าหม้อเดือด (boss_map1_boiling_boar) — HP/ATK/DEF/tier จาก P1 Balance Proposal §4/§56.5;
-    // attack timing + breakPower 100 จาก D-055 §9.3 (col boss). breakPower = guard gauge (workstream B, ยังไม่ใช้).
+    // Field Boss หมูป่าหม้อเดือด (boss_map1_boiling_boar) — E3 stats (D-064 P2B prep). atk/def/tier/timing จาก
+    // P1 Balance Proposal §4/§56.5 + D-055 §9.3 (col boss); breakPower 100 = guard gauge (workstream B).
+    // HP tune ให้ solo TTK เข้าเป้า **150–240s** (COMBAT_BIBLE §2.5 ผ่าน Maps2-4 §3 validated model).
+    //   TTK model (basic-attack only — mirror Map2-4 published TTKs · sword_basic_slash cd 0.6s, baseMultiplier 1.0):
+    //     dmg/hit = playerATK × [50/(50+def)] × tier × (1 + critRate·critDmg)  [formula.ts computeDamageExact]
+    //             = ATK × [50/75] × 0.65 × 1.025 = ATK × 0.44417 ; DPS = dmg/hit ÷ 0.6 ; TTK = HP ÷ DPS
+    //   ที่ HP 5000 + D-055 player curve (economy.ts PLAYER_BASELINE): lv8 ATK33 → 204.7s · lv9 ATK36 → 187.6s ·
+    //   lv10 ATK40 → 168.9s → ทุกค่าใน [150,240] ✓ (เดิม 2500 = MVP sponge → ~84–102s เร็วเกินเป้า). Design Knob §48.
     boss_boiling_boar: {
-      hp: 2500, atk: 28, def: 25, tierReduction: 0.65,
+      hp: 5000, atk: 28, def: 25, tierReduction: 0.65,
       moveSpeed: 2.4, attackRange: 2.4, attackCooldown: 3.2,
       anticipationMs: 800, activeMs: 400, recoveryMs: 700, breakPower: 100,
     },
@@ -322,6 +374,94 @@ export const DEFAULT_COMBAT_BALANCE_CONFIG: CombatBalanceConfig = {
       hp: 130, atk: 11, def: 10, tierReduction: 1.0,
       moveSpeed: 2.2, attackRange: 1.2, attackCooldown: 2.0,
       anticipationMs: 350, activeMs: 150, recoveryMs: 500, breakPower: 0,
+    },
+
+    // ── Maps 2–4 (MAPS_2_4_ECONOMY_AND_LOOT_SPEC §3, D-055 §9.3 shape) ─────────────────────────────
+    // ค่า verbatim จากตาราง §3.1/§3.2/§3.3 (atkCD = วินาที; antic/act/rec = ms). key = MobPocket.mobType ที่
+    // map2/3/4.ts ใช้ (mushroom_startle ↔ mon_map2_mushroom_startle ผ่าน MONSTER_ID_BY_MOB_TYPE ใน
+    // server/economy/kill-rewards.ts). aggro/leash ไม่อยู่ใน MobCombatStats (§7 Q4) → อยู่ mob.ts ai.aggroRadius/
+    // leashRadius. bosses มี breakPower>0 → เข้า guard/break system (config boss ใช้ร่วมกัน, per-boss override = future).
+    // ทุกค่า = Design Knob §48 (extrapolate จาก Map 1 D-055 อย่างต่อเนื่อง — HP tune ให้ TTK เป้าหมาย §3).
+
+    // Map 2 — ถนนชายไร่ (§3.1)
+    mushroom_startle: {
+      hp: 120, atk: 24, def: 14, tierReduction: 1.0, // mon_map2_mushroom_startle (เห็ดสะดุ้ง) lv8
+      moveSpeed: 2.2, attackRange: 1.2, attackCooldown: 2.0,
+      anticipationMs: 350, activeMs: 150, recoveryMs: 500, breakPower: 0,
+    },
+    scarecrow_walker: {
+      hp: 190, atk: 30, def: 20, tierReduction: 1.0, // mon_map2_scarecrow_walker (หุ่นฟางเดินได้) lv10
+      moveSpeed: 2.5, attackRange: 1.5, attackCooldown: 2.6,
+      anticipationMs: 500, activeMs: 220, recoveryMs: 650, breakPower: 0,
+    },
+    greenlight_rat: {
+      hp: 150, atk: 30, def: 16, tierReduction: 1.0, // mon_map2_greenlight_rat (หนูนาแสงเขียว) lv11
+      moveSpeed: 3.6, attackRange: 1.3, attackCooldown: 2.2,
+      anticipationMs: 280, activeMs: 120, recoveryMs: 420, breakPower: 0,
+    },
+    talisman_scarecrow: {
+      hp: 1300, atk: 44, def: 30, tierReduction: 0.8, // elite_map2_talisman_scarecrow (หุ่นฟางพันยันต์) lv13
+      moveSpeed: 2.8, attackRange: 2.0, attackCooldown: 3.0,
+      anticipationMs: 650, activeMs: 300, recoveryMs: 800, breakPower: 0,
+    },
+    field_warden: {
+      hp: 6000, atk: 46, def: 34, tierReduction: 0.65, // boss_map2_field_warden (หุ่นฟางผู้เฝ้าไร่) lv14 · TTK ~178s
+      moveSpeed: 2.4, attackRange: 2.4, attackCooldown: 3.2,
+      anticipationMs: 800, activeMs: 400, recoveryMs: 700, breakPower: 100,
+    },
+
+    // Map 3 — ทางป่าเก่า (§3.2)
+    gnawing_root: {
+      hp: 230, atk: 34, def: 26, tierReduction: 1.0, // mon_map3_gnawing_root (รากไม้กัดเท้า) lv12
+      moveSpeed: 1.6, attackRange: 1.4, attackCooldown: 2.8,
+      anticipationMs: 600, activeMs: 260, recoveryMs: 700, breakPower: 0,
+    },
+    shadow_monkey: {
+      hp: 180, atk: 40, def: 22, tierReduction: 1.0, // mon_map3_shadow_monkey (ลิงเงา) lv14
+      moveSpeed: 3.8, attackRange: 1.4, attackCooldown: 2.2,
+      anticipationMs: 280, activeMs: 120, recoveryMs: 420, breakPower: 0,
+    },
+    walking_stone: {
+      hp: 300, atk: 46, def: 42, tierReduction: 1.0, // mon_map3_walking_stone (หินเดินได้) lv15 — DEF สูงสุดของแมพ
+      moveSpeed: 2.0, attackRange: 1.6, attackCooldown: 3.0,
+      anticipationMs: 650, activeMs: 300, recoveryMs: 800, breakPower: 0,
+    },
+    mossless_stone: {
+      hp: 1500, atk: 56, def: 50, tierReduction: 0.8, // elite_map3_mossless_stone (หินไร้ตะไคร่) lv17 · hidden elite
+      moveSpeed: 2.2, attackRange: 2.0, attackCooldown: 3.2,
+      anticipationMs: 700, activeMs: 320, recoveryMs: 850, breakPower: 0,
+    },
+    nameless_warden: {
+      hp: 6800, atk: 58, def: 44, tierReduction: 0.62, // boss_map3_nameless_warden (ผู้เฝ้าทางที่ไม่มีชื่อ) lv18 · TTK ~191s
+      moveSpeed: 2.4, attackRange: 2.6, attackCooldown: 3.2,
+      anticipationMs: 850, activeMs: 420, recoveryMs: 700, breakPower: 110,
+    },
+
+    // Map 4 — ป่าจันทร์เงา (§3.3)
+    moonlight_wisp: {
+      hp: 190, atk: 44, def: 26, tierReduction: 1.0, // mon_map4_moonlight_wisp (ผีแสงจันทร์) lv16
+      moveSpeed: 3.0, attackRange: 1.5, attackCooldown: 2.4,
+      anticipationMs: 300, activeMs: 140, recoveryMs: 450, breakPower: 0,
+    },
+    dream_mushroom: {
+      hp: 200, atk: 44, def: 30, tierReduction: 1.0, // mon_map4_dream_mushroom (เห็ดฝัน) lv17
+      moveSpeed: 2.0, attackRange: 1.3, attackCooldown: 2.6,
+      anticipationMs: 400, activeMs: 180, recoveryMs: 550, breakPower: 0,
+    },
+    shadow_deer: {
+      hp: 250, atk: 54, def: 40, tierReduction: 1.0, // mon_map4_shadow_deer (กวางเงา) lv19 — movement สูง หนีเก่ง
+      moveSpeed: 3.8, attackRange: 1.6, attackCooldown: 2.6,
+      anticipationMs: 350, activeMs: 160, recoveryMs: 480, breakPower: 0,
+    },
+    shattered_moon_deer: {
+      hp: 1600, atk: 68, def: 60, tierReduction: 0.8, // elite_map4_shattered_moon_deer (กวางจันทร์แตก) lv21
+      moveSpeed: 3.0, attackRange: 2.2, attackCooldown: 3.2,
+      anticipationMs: 700, activeMs: 320, recoveryMs: 850, breakPower: 0,
+    },
+    moondark_dryad: {
+      hp: 7800, atk: 70, def: 54, tierReduction: 0.6, // boss_map4_moondark_dryad (นางไม้จันทร์ดับ) lv22 ปิดแบนด์ · TTK ~211s
+      moveSpeed: 2.4, attackRange: 2.6, attackCooldown: 3.4,
+      anticipationMs: 850, activeMs: 440, recoveryMs: 700, breakPower: 120,
     },
   },
   // fallback เมื่อ mobType ไม่ตรง — mirror slime baseline (placeholder, ไม่ใช่ค่า spec ใหม่).
@@ -365,4 +505,20 @@ export const DEFAULT_COMBAT_BALANCE_CONFIG: CombatBalanceConfig = {
   statusEffectDamageReduction: {
     self_damage_reduction_30: 0.3,
   },
+  // Batch 6 (ARCHER_CLASS_SPEC §2): class stat weights บน player baseline. นักดาบ = curve ฐาน (1.0);
+  //   นักธนู = ATK×1.15 / HP×0.85 / DEF×0.90 (ตัวบาง ตีแรง). Design Knob (§48) PENDING OWNER.
+  classStatWeights: {
+    swordsman: { atk: 1.0, hp: 1.0, def: 1.0 },
+    archer: { atk: 1.15, hp: 0.85, def: 0.9 },
+  },
+  // Batch 6 (ARCHER_CLASS_SPEC §3 S3 · §6 note 3): mark debuff → เป้ารับดาเมจ ×1.15 นาน 6s. Design Knob (§48).
+  statusEffectDamageTakenMultiplier: {
+    mark_dmg_taken_15: { multiplier: 1.15, durationSeconds: 6 },
+  },
+  // Batch 6 (ARCHER_CLASS_SPEC §3 S4 · §6 note 3): self moveSpeed buff +20% ระหว่าง activeTime. Design Knob (§48).
+  statusEffectMoveSpeedBonus: {
+    swift_step_speed_20: 0.2,
+  },
+  // Batch 6 (ARCHER_CLASS_SPEC §3 S4): ระยะเผ่นถอยหลัง swift_step = 2.5 tile. Design Knob (§48) PENDING OWNER.
+  swiftStepDashTiles: 2.5,
 };
