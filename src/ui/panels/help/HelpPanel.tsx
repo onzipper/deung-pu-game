@@ -23,7 +23,7 @@ import {
   selectShopList,
 } from "@/ui/store/game-store";
 import { useGameStore } from "@/ui/store/use-game-store";
-import { getHelpArticle, HELP_ARTICLES } from "./help-articles";
+import { getHelpArticle, searchHelpArticles } from "./help-articles";
 import { useHelpFocus } from "./help-focus-context";
 import { createGuidancePreferencesStore } from "./guidance-preferences";
 import {
@@ -103,6 +103,7 @@ export function HelpPanel() {
   const [selectedArticleId, setSelectedArticleId] = useState<string | null>(null);
   const [showMoreDetail, setShowMoreDetail] = useState(false);
   const [sessionIntent, setSessionIntent] = useState<PlayIntent>(null);
+  const [articleSearchQuery, setArticleSearchQuery] = useState("");
 
   const [prefs, setPrefs] = useState(() => prefsStore.load());
   const [runtime, setRuntime] = useState<RuleRuntimeState>(() => runtimeStore.load());
@@ -122,8 +123,9 @@ export function HelpPanel() {
     return () => clearTimeout(timer);
   }, [focusedArticleId]);
 
-  // C4 (§5.1): คลิกดึ๋งๆ companion ในโลก → engine stamp helpPanelRequestedAt → เปิด help panel ("ดึ๋งๆ
-  // ช่วยเหลือ"). setState/openPanel เกิดใน setTimeout callback (deferred, ไม่ใช่ตรงใน effect body — pattern
+  // C4 (§5.1): คลิกดึ๋งๆ companion ในโลก → engine stamp helpPanelRequestedAt → เปิด help panel ("ช่วยเหลือ"
+  // — ชื่อ panel แยกขาดจากดึ๋งๆ ตาม D-068, ไม่ใช่ "ดึ๋งๆ ช่วยเหลือ" อีกต่อไป). setState/openPanel เกิดใน
+  // setTimeout callback (deferred, ไม่ใช่ตรงใน effect body — pattern
   // เดียวกับ DialoguePanel/context-help effect) จึงไม่ผิด react-hooks. ค่าเปลี่ยน = คลิกใหม่ → เปิดอีกครั้ง.
   useEffect(() => {
     if (helpPanelRequestedAt === null) return;
@@ -214,7 +216,7 @@ export function HelpPanel() {
   const checklistDone = isChecklistComplete(checklist);
 
   return (
-    <Panel id={HELP_PANEL_ID} title="ดึ๋งๆ ช่วยเหลือ" widthPx={400}>
+    <Panel id={HELP_PANEL_ID} title="ช่วยเหลือ" widthPx={400}>
       <div className="dp-text-body-sm flex flex-col gap-3">
         <div className="flex flex-wrap gap-1">
           {(Object.keys(TAB_LABELS) as HelpTab[]).map((tab) => (
@@ -242,7 +244,7 @@ export function HelpPanel() {
 
             {shownRecommendations.length === 0 ? (
               <div className="rounded-(--dp-radius-sm) border border-(--dp-soil-brown) bg-(--dp-warm-ink) px-3 py-3 text-(--dp-sand)">
-                ตอนนี้ดึ๋งๆ ยังไม่มีอะไรเร่งด่วน ลองสำรวจต่อ หรือเลือกสิ่งที่อยากทำจากด้านบน
+                ตอนนี้ยังไม่มีอะไรเร่งด่วน ลองสำรวจต่อ หรือเลือกสิ่งที่อยากทำจากด้านบน
               </div>
             ) : (
               <ul className="flex flex-col gap-2">
@@ -313,22 +315,44 @@ export function HelpPanel() {
                 </div>
               </div>
             ) : (
-              <ul className="flex max-h-64 flex-col gap-1 overflow-y-auto">
-                {HELP_ARTICLES.map((article) => (
-                  <li key={article.id}>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setSelectedArticleId(article.id);
-                        setShowMoreDetail(false);
-                      }}
-                      className="dp-focus-ring w-full rounded-(--dp-radius-sm) border border-(--dp-soil-brown) bg-(--dp-warm-ink) px-3 py-2 text-left text-(--dp-parchment) transition-colors hover:bg-(--dp-deep-brown)"
-                    >
-                      {article.title}
-                    </button>
-                  </li>
-                ))}
-              </ul>
+              <div className="flex flex-col gap-2">
+                <input
+                  type="text"
+                  value={articleSearchQuery}
+                  onChange={(e) => setArticleSearchQuery(e.target.value)}
+                  placeholder="ค้นบทความ เช่น เดิน, ตี, เสริมแกร่ง"
+                  aria-label="ค้นบทความช่วยเหลือ"
+                  className="dp-focus-ring w-full rounded-(--dp-radius-sm) border border-(--dp-soil-brown) bg-(--dp-warm-ink) px-3 py-2 text-(--dp-parchment) placeholder:text-(--dp-sand)"
+                />
+                {(() => {
+                  const results = searchHelpArticles(articleSearchQuery);
+                  if (results.length === 0) {
+                    return (
+                      <div className="rounded-(--dp-radius-sm) border border-(--dp-soil-brown) bg-(--dp-warm-ink) px-3 py-3 text-(--dp-sand)">
+                        ไม่พบบทความ
+                      </div>
+                    );
+                  }
+                  return (
+                    <ul className="flex max-h-64 flex-col gap-1 overflow-y-auto">
+                      {results.map((article) => (
+                        <li key={article.id}>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSelectedArticleId(article.id);
+                              setShowMoreDetail(false);
+                            }}
+                            className="dp-focus-ring w-full rounded-(--dp-radius-sm) border border-(--dp-soil-brown) bg-(--dp-warm-ink) px-3 py-2 text-left text-(--dp-parchment) transition-colors hover:bg-(--dp-deep-brown)"
+                          >
+                            {article.title}
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  );
+                })()}
+              </div>
             )}
           </div>
         )}

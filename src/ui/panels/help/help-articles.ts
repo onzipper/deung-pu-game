@@ -187,3 +187,40 @@ export function validateHelpArticle(article: HelpArticle): HelpArticleValidation
 export function validateAllHelpArticles(): HelpArticleValidationResult[] {
   return HELP_ARTICLES.map(validateHelpArticle).filter((result) => result.errors.length > 0);
 }
+
+/** ป้ายหมวดภาษาไทย — ใช้เป็น extra searchable text ใน searchHelpArticles เท่านั้น (ไม่ใช่ UI tab label) */
+const CATEGORY_SEARCH_LABEL: Record<HelpCategory, string> = {
+  movement: "การเดิน",
+  combat: "การต่อสู้",
+  inventory: "กระเป๋า เก็บของ",
+  equipment: "สวมใส่ อุปกรณ์",
+  shop: "ร้านค้า ซื้อขาย",
+  enhancement: "เสริมแกร่ง",
+  death_respawn: "ตาย ฟื้น",
+  afk_tab: "afk สลับแท็บ",
+};
+
+/**
+ * ค้นบทความ (PR9, D-068) แบบ substring บน title + oneLine + steps + moreDetail + ป้ายหมวดภาษาไทย
+ * (CATEGORY_SEARCH_LABEL) — ไม่สนตัวพิมพ์ใหญ่/เล็ก, ยุบช่องว่างซ้ำ/ตัดช่องว่างหัวท้ายของ query ก่อนเทียบ. pure
+ * function, ไม่มี state/side effect.
+ *
+ * query ว่าง/มีแต่ช่องว่าง → ตั้งใจคืน "ทั้ง registry" (ไม่ใช่ []) เพื่อให้ UI เรียกฟังก์ชันเดียวนี้ได้ทั้งตอน
+ * พิมพ์ค้นหาและตอนช่องค้นหายังว่าง (list เต็มเป็นค่าเริ่มต้นของแท็บ "เล่นระบบนี้ยังไง").
+ */
+export function searchHelpArticles(query: string): HelpArticle[] {
+  const normalized = query.trim().replace(/\s+/g, " ").toLowerCase();
+  if (normalized.length === 0) return [...HELP_ARTICLES];
+  return HELP_ARTICLES.filter((article) => {
+    const haystack = [
+      article.title,
+      article.oneLine,
+      ...article.steps,
+      article.moreDetail,
+      CATEGORY_SEARCH_LABEL[article.category],
+    ]
+      .join(" ")
+      .toLowerCase();
+    return haystack.includes(normalized);
+  });
+}
