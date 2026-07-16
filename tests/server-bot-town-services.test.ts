@@ -11,9 +11,11 @@ import { botStopReasonLabel } from "@/ui/panels/bot/bot-view";
 describe("town-trip Design Knobs (D-070 locked 2026-07-16)", () => {
   const { townTrip } = DEFAULT_BOT_CONFIG;
 
-  test("Plus/Pro only — Free never town-trips", () => {
-    expect(townTrip.enabledTiers).toEqual(["plus", "pro"]);
-    expect(townTrip.enabledTiers).not.toContain("free");
+  test("every tier town-trips; Free walks, Plus/Pro warp (D-071)", () => {
+    // D-071 (2026-07-16): Free walk-to-town — Free is now enabled but reaches the city-hub by walking; the paid
+    // tiers still warp. The tier difference is speed (walk = slow), never capability.
+    expect(townTrip.enabledTiers).toEqual(["free", "plus", "pro"]);
+    expect(townTrip.mode).toEqual({ free: "walk", plus: "warp", pro: "warp" });
   });
 
   test("locked numeric + policy values match D-070", () => {

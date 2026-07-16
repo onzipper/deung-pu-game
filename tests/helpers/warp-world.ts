@@ -47,6 +47,15 @@ export interface FakeHostSpec {
   mobs?: () => AgentMob[];
   /** scriptable attack outcome (the bag-full divert path drives an overflow through here). */
   attack?: (target: Vec2) => Promise<BotAttackOutcome>;
+  /** D-071 walk town trip: exits from this map's portals — drives botExitToward (approach tile + target landing). */
+  exits?: { targetMapId: string; approach: Vec2; landing: Vec2 }[];
+  /**
+   * D-071 walk model. When present the host tracks a real tile position: botStepToward advances it toward the
+   * target by `step` tiles (default 6) and botPlanPath returns a direct one-node route; `blocked` makes every step
+   * fail and every plan unreachable (a stuck obstacle). Absent = the warp default (fixed pos, no stepping, empty
+   * routes) so the existing warp/recovery suites stay byte-identical.
+   */
+  walk?: { start?: Vec2; step?: number; blocked?: boolean };
 }
 
 /** Per-host recorded seam calls (which host actually handled a transaction — the rebind proof). */
@@ -80,6 +89,9 @@ export class FakeHost implements BotHost {
   private pos: Vec2 = { tx: 0, ty: 0 };
   private readonly scriptMobs: () => AgentMob[];
   private readonly scriptAttack: (target: Vec2) => Promise<BotAttackOutcome>;
+  /** D-071 walk town trip. */
+  readonly exits: { targetMapId: string; approach: Vec2; landing: Vec2 }[];
+  private readonly walk: { step: number; blocked: boolean } | null;
 
   constructor(
     spec: FakeHostSpec,
@@ -95,6 +107,9 @@ export class FakeHost implements BotHost {
     this.exportReturnsNull = spec.exportReturnsNull ?? false;
     this.scriptMobs = spec.mobs ?? (() => []);
     this.scriptAttack = spec.attack ?? (async () => EMPTY_OUTCOME);
+    this.exits = spec.exits ?? [];
+    this.walk = spec.walk ? { step: spec.walk.step ?? 6, blocked: spec.walk.blocked ?? false } : null;
+    if (spec.walk?.start) this.pos = { tx: spec.walk.start.tx, ty: spec.walk.start.ty };
   }
 
   private pendingSum(): number {
@@ -125,11 +140,12 @@ export class FakeHost implements BotHost {
     this.players.delete(actorId);
     return { actorId } as unknown as BotWarpExport; // attach only round-trips actorId in the FakeWorld.
   }
-  botAttachWarpedActor(exported: BotWarpExport): boolean {
+  botAttachWarpedActor(exported: BotWarpExport, anchor: Vec2): boolean {
     this.calls.attach += 1;
     if (this.attachFails) return false;
     if (this.players.has(exported.actorId)) return false; // invariant breach guard (mirrors MapRoom).
     this.players.add(exported.actorId);
+    if (this.walk) this.pos = { tx: anchor.tx, ty: anchor.ty }; // D-071: land at the transfer anchor (portal entry).
     return true;
   }
   botPersistNow(): void {
@@ -137,6 +153,10 @@ export class FakeHost implements BotHost {
   }
   botSafeCampAnchor(): Vec2 {
     return { tx: this.safeCamp.tx, ty: this.safeCamp.ty };
+  }
+  botExitToward(targetMapId: string): { approach: Vec2; landing: Vec2 } | null {
+    const e = this.exits.find((x) => x.targetMapId === targetMapId);
+    return e ? { approach: { ...e.approach }, landing: { ...e.landing } } : null;
   }
 
   // ── town seams (delegate to the shared world economy; record which host handled it) ──
@@ -190,9 +210,17 @@ export class FakeHost implements BotHost {
   botBaseCooldownSeconds(): number {
     return 1;
   }
-  botStepToward(): boolean {
+  botStepToward(actorId: string, target: Vec2): boolean {
     this.calls.step += 1;
-    return false;
+    if (!this.walk || this.walk.blocked) return false; // warp default / a blocked walk (stuck obstacle).
+    if (!this.players.has(actorId)) return false;
+    const dx = target.tx - this.pos.tx;
+    const dy = target.ty - this.pos.ty;
+    const dist = Math.hypot(dx, dy);
+    if (dist <= 1e-9) return false;
+    const step = Math.min(this.walk.step, dist);
+    this.pos = { tx: this.pos.tx + (dx / dist) * step, ty: this.pos.ty + (dy / dist) * step };
+    return true;
   }
   async botAttack(_actorId: string, target: Vec2): Promise<BotAttackOutcome> {
     this.calls.attack += 1;
@@ -211,8 +239,12 @@ export class FakeHost implements BotHost {
   async botUsePotion(): Promise<BotPotionOutcome> {
     return UNAVAILABLE_POTION;
   }
-  botPlanPath(): Vec2[] | null {
-    return []; // empty route = already at the pocket anchor → recovery settles `arrived` next tick.
+  botPlanPath(_actorId: string, goal: Vec2): Vec2[] | null {
+    if (!this.walk) return []; // warp default: empty route = already at the anchor → recovery settles `arrived`.
+    if (this.walk.blocked) return null; // unreachable (stuck obstacle).
+    const dx = goal.tx - this.pos.tx;
+    const dy = goal.ty - this.pos.ty;
+    return Math.hypot(dx, dy) <= 0.5 ? [] : [{ tx: goal.tx, ty: goal.ty }];
   }
   botPocketAnchor(): Vec2 | null {
     return { tx: 0, ty: 0 };

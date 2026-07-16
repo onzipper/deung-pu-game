@@ -134,13 +134,20 @@ export interface BotConfig {
     tierRecheckIntervalMs: number;
   };
   /**
-   * PR5 Phase C town-trip knobs (D-069/D-070). Plus/Pro only — Free never town-trips (a town obstacle keeps it in
-   * WAITING_FOR_OWNER). Every value is a Design Knob (§48); the trip controller (next task) reads them, this block
-   * only declares the dials — nothing here mutates the economy on its own.
+   * PR5 Phase C town-trip knobs (D-069/D-070). D-071 opens the city-hub to Free by WALKING (paid tiers still warp).
+   * Every value is a Design Knob (§48); the trip controller reads them, this block only declares the dials —
+   * nothing here mutates the economy on its own.
    */
   townTrip: {
-    /** tiers permitted to warp to town for services (Free absent). */
+    /** tiers permitted to town-trip for services. Free walks (D-071); Plus/Pro warp (D-069). */
     enabledTiers: readonly BotTier[];
+    /**
+     * D-071: how each tier reaches the city-hub. `warp` = the instant server-owned actor transfer (Plus/Pro,
+     * D-069); `walk` = A* to the map's portal, transfer at the gate, then walk to the shop and back (Free — slow,
+     * costs farm time; the tier difference is speed, never capability). Absent for a tier → the runtime defaults
+     * it to `warp`.
+     */
+    mode: Record<BotTier, "walk" | "warp">;
     /** minimum interval between town trips per run (D-069). */
     cooldownMs: number;
     /** the city-hub map the actor warps to for services (must host the shop + storage NPC). */
@@ -255,10 +262,11 @@ export const DEFAULT_BOT_CONFIG: BotConfig = {
     routeReplanCooldownMs: 2_000,
     tierRecheckIntervalMs: 60_000,
   },
-  // D-069/D-070 locked 2026-07-16
+  // D-069/D-070 locked 2026-07-16 · D-071 (2026-07-16): Free walks to town, paid tiers warp
   townTrip: {
-    enabledTiers: ["plus", "pro"], // Free never town-trips
-    cooldownMs: 600_000, // 10 min between trips (D-069)
+    enabledTiers: ["free", "plus", "pro"], // D-071: Free walks; Plus/Pro warp (see mode)
+    mode: { free: "walk", plus: "warp", pro: "warp" }, // D-071 — speed differs per tier, capability does not
+    cooldownMs: 600_000, // 10 min between trips (D-069) — the same knob for every tier
     townMapId: "city-hub",
     townAnchor: null, // null → target map safeCamp
     sellRarityMax: "uncommon", // sell only common/uncommon (D-070)

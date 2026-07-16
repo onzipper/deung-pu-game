@@ -152,7 +152,12 @@ describe("bag-full divert (D-069/D-070)", () => {
     expect(world.acquireCalls.length).toBe(acquiresAfterTrip); // refused before any acquire → no warp attempt
   });
 
-  test("(c) Free overflow stops inventory_full with zero town / acquire / tier host calls", async () => {
+  test("(c) Free overflow diverts to a WALK town trip (D-071), not an immediate stop", async () => {
+    // D-071 (2026-07-16): Free walk-to-town — a Free bag overflow now diverts to a WALK trip (RETURNING_TO_TOWN)
+    // instead of stopping inventory_full. The town host is acquired only after the actor walks to the portal, so
+    // one tick after begin nothing is acquired yet and Free never rechecks tier (its tick skips the paid recheck).
+    // The full walk cycle (walk → transfer → sell/deposit/buy → walk home → farm) lives in
+    // server-bot-free-town-walk.test.ts; here we lock only the divert decision.
     let tierCalls = 0;
     const { world, farmHost, townHost, harness } = divertScene({
       tier: "free",
@@ -162,12 +167,11 @@ describe("bag-full divert (D-069/D-070)", () => {
       },
     });
 
-    await harness.tickAndSettle(); // Free farm → attack → overflow → stop("inventory_full")
-    expect(harness.runtime.isStopped).toBe(true);
-    expect(harness.state()).toBe("WAITING_FOR_OWNER");
-    expect(world.stoppedMessage()?.reason).toBe("inventory_full");
+    await harness.tickAndSettle(); // Free farm → attack → overflow → beginTownTrip("bag_full") walk divert
+    expect(harness.runtime.isStopped).toBe(false);
+    expect(harness.state()).toBe("RETURNING_TO_TOWN");
 
-    expect(world.acquireCalls).toHaveLength(0); // never town-tripped
+    expect(world.acquireCalls).toHaveLength(0); // walk hasn't reached the portal yet → no transfer acquire
     expect(tierCalls).toBe(0); // Free never rechecks tier
     for (const h of [farmHost, townHost]) {
       expect(h.calls.sell).toHaveLength(0);
