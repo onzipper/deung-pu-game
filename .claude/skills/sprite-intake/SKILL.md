@@ -1,49 +1,30 @@
 ---
 name: sprite-intake
 description: >
-  รับ sprite sheet จาก AI ภายนอก (ChatGPT/Gemini) เข้าเกม: ตรวจไฟล์ → ซ่อมพื้น/ขนาด →
-  ส่ง art-inspector (sonnet) ตรวจเต็มชุด → ผ่านติดตั้ง+commit / ไม่ผ่านร่างข้อความตีกลับ.
-  ใช้เมื่อ owner ส่งไฟล์ภาพตัวละคร/มอนสเตอร์ใหม่มา หรือพิมพ์ /sprite-intake.
+  รับ sprite sheet จาก AI ภายนอก (ChatGPT/Gemini) เข้าเกม: ตรวจไฟล์ → ซ่อมทุกอย่างที่ซ่อมได้
+  ด้วยเครื่องมือ → ส่ง art-inspector (sonnet) ตรวจเต็มชุด → ผ่านติดตั้ง+commit /
+  ไม่ผ่านร่างข้อความตีกลับเฉพาะเรื่องที่ต้องวาดใหม่. ใช้เมื่อ owner ส่งไฟล์ภาพมา หรือพิมพ์ /sprite-intake.
 ---
 
 # /sprite-intake — ด่านรับอาร์ต AI เข้าเกม
 
-Orchestrator ทำหน้าที่แค่ จัดไฟล์ → ส่ง brief → อ่าน verdict → ติดตั้ง/ตีกลับ
-**งานตรวจทั้งหมดอยู่กับ subagent `art-inspector` (sonnet — งาน vision+checklist ไม่เปลือง opus)**
+Orchestrator ทำหน้าที่ จัดไฟล์ → ซ่อม → ส่ง brief → อ่าน verdict → ติดตั้ง/ตีกลับ
+**งานตรวจอยู่กับ subagent `art-inspector` (sonnet — งาน vision+checklist ไม่เปลือง opus)**
 
-## Contract กลาง (ตัวเลขมาตรฐานตัวละคร — ใส่ใน brief ทุกครั้ง)
-
-| เรื่อง | ค่า |
-|---|---|
-| เฟรม | 96×96 px · sheet ตาม atlas.json (ตัวละครมาตรฐาน 576×1440 = 6 คอลัมน์ × 15 แถว) |
-| แถว | idle×(s,sw,w,nw,n) 2 เฟรม → walk×5 ทิศ 6 เฟรม → attack×5 ทิศ 5 เฟรม · ช่องเหลือโปร่งใสสนิท |
-| ตำแหน่ง | เท้าแตะ y = pivot[1] (81) ±2 ทุกเฟรม · ยืนสูง 76-80px · ห้ามชนขอบช่อง |
-| ทิศ | sw/w/nw หันซ้ายของภาพ · nw = หลังเฉียง ห้ามเห็นหน้าเต็ม · ห้ามทิศเพี้ยนกลางแถว |
-| movement | walk คู่เฟรมติดกัน ≥15% + ก้าวสลับ ≥30% · attack ต่างจาก idle ≥25% (เครื่องวัดใน check-sprite-sheet) |
-| อาร์ต | identity ตรง reference ทุกเฟรม · ห้ามหุ่นวาดด้วยโค้ด · alpha แท้ (พื้นหลอกซ่อมได้ ไม่นับ defect) |
+**Contract + template + นโยบายซ่อม = `scripts/art/templates/README.md` ที่เดียว** — วางตาราง contract ทั้งตารางลงใน brief ทุกครั้ง
 
 ## ขั้นตอน
 
-1. **หาไฟล์** ตามลำดับ: (ก) `art-incoming/` ที่ repo root — **กล่องรับไฟล์ทางการของ owner, git-ignored, ห้าม restore/ลบไฟล์ในนั้นเด็ดขาด** (ข) `C:\Users\PC\.claude\uploads\...` (zip → แตกลง scratchpad) (ค) repo path `public/assets/atlases/chr_*.png` — ก่อนอื่น hash เทียบของเดิมเสมอ (ไฟล์ซ้ำ = จบเลย ไม่ต้อง spawn agent) · เตือน: การ restore เกมกลับเวอร์ชันดีทำเฉพาะไฟล์ใน `public/assets/**` และต้องแจ้ง owner ชัดๆ ทุกครั้งว่า "ไฟล์ที่เห็นในเกมตอนนี้คือเวอร์ชันไหน"
-2. **Spawn `art-inspector`** ด้วย brief ตาม Brief contract (.claude/README.md):
-   - FILES: path png/atlas/manifest ที่จะตรวจ + path เวอร์ชันก่อนหน้า (เทียบ hash) + reference identity
-   - CONTEXT: ตาราง contract ข้างบน (วางทั้งตาราง) — ไม่ต้องให้อ่าน docs อื่น
-   - SPEC: `docs/context/engine.md` §atlas ไม่ต้องอ่าน — เครื่องมือคือ `scripts/art/{fix-sprite-png,check-sprite-sheet}.mjs` + `verify-atlas.ts` (วิธีใช้อยู่ในหัวไฟล์)
-   - TESTS: `node scripts/art/check-sprite-sheet.mjs ... ` exit 0 + verdict ตาม format ใน persona
-3. **อ่าน verdict**:
-   - **PASS** → ติดตั้ง: PNG (ผ่าน fix แล้ว) + atlas.json + manifest.json ลงตำแหน่งจริง →
-     `npx tsx scripts/art/verify-atlas.ts <assetId>` ซ้ำหนึ่งครั้งกับไฟล์จริง →
-     `npx vitest run tests/engine-assets-collect.test.ts tests/engine-config-snapshot.test.ts` →
-     commit (**ห้าม push จนกว่า owner สั่ง**) → อัพเดท memory art track
-   - **REJECT** → คืนไฟล์เกมเป็นเวอร์ชันดีล่าสุด (`git checkout -- <paths>`) → รายงาน owner:
-     ตาราง defect + **ร่างข้อความตีกลับ AI ต้นทาง** (ภาษาไทย สั้น ชี้เฉพาะข้อที่พลาด + กติกาที่ห้ามเปลี่ยน)
-4. asset ใหม่ตัวแรกของ id ใหม่ → อย่าลืมงานฝั่งโค้ด: เพิ่ม/สลับ `assetId` ใน config
-   (ตัวอย่างผู้เล่น: `src/engine/config/player.ts` DEFAULT_PLAYER_ANIMATION_CONFIG.style.assetId)
+1. **หาไฟล์**: (ก) `art-incoming/` ที่ repo root — กล่องรับทางการของ owner (git-ignored) **ห้าม restore/ลบไฟล์ในนั้น** (ข) `C:\Users\PC\.claude\uploads\...` (ค) ตรวจซ้ำ: hash เทียบของเดิมเสมอ — ไฟล์ซ้ำ = จบเลย ไม่ต้อง spawn agent · owner ส่ง atlas/manifest มาด้วยได้ — ใช้ของที่ส่งมา (ตรวจชื่อ field ตาม `src/engine/assets/atlas-format.ts`) ไม่ส่งมาก็ clone จาก template
+2. **ซ่อมก่อนตรวจ** (ทำเลย ไม่ต้องถาม — จดทุกอย่างที่ซ่อมไว้รายงาน): `fix-sprite-png.mjs` ลอกพื้น/resize · crop เฟรมเกิน · จัด scale/baseline ให้ลงช่อง · relabel ทิศ+สลับ mirrorMap
+3. **Spawn `art-inspector`** — brief ตาม Brief contract (.claude/README.md): FILES (png ซ่อมแล้ว + atlas + manifest + reference identity) + CONTEXT (ตาราง contract จาก templates/README.md) + เครื่องมือ `check-sprite-sheet.mjs` (--strips ดูตาทุกแถว) + TESTS (exit 0 + verdict PASS/REJECT)
+4. **PASS** → ติดตั้ง PNG+atlas+manifest ลง `public/assets/**` → `npx tsx scripts/art/verify-atlas.ts <assetId>` → `npx vitest run tests/engine-assets-collect.test.ts tests/engine-config-snapshot.test.ts` → commit บน branch ปัจจุบัน → รายงาน owner ว่าซ่อมอะไรไปบ้าง · asset id ใหม่ตัวแรก → ลงทะเบียน config (`src/engine/config/player.ts` DEFAULT_PLAYER_ANIMATION_CONFIG.style.assetId เป็นตัวอย่างฝั่งผู้เล่น)
+5. **REJECT** (เฉพาะเรื่องที่ซ่อมไม่ได้: ทิศวาดผิด, identity เพี้ยน, ขาไม่ก้าว, ท่าผิด) → เกมคงเวอร์ชันเดิม (แจ้ง owner ชัดๆ ว่าในเกมคือเวอร์ชันไหน) → ตาราง defect + ร่างข้อความตีกลับ AI ต้นทาง (ไทย สั้น ชี้เฉพาะข้อ + กติกาที่ห้ามเปลี่ยน)
 
-## Traps สะสม (จาก memory chatgpt-sprite-art-track — เตือน agent ใน brief เสมอ)
+## Traps สะสม (เตือน agent ใน brief เสมอ)
 
 1. AI ส่งไฟล์เดิมซ้ำทั้งที่บอกว่าแก้แล้ว → hash ก่อนเสมอ
-2. พื้นหลอก (หมากรุก/ขาวทึบ 100%) → fix-sprite-png จัดการ ไม่ใช่ defect
-3. วาดตัวละครใหม่ด้วยโค้ด (หุ่นหน้าเปล่า/เรขาคณิต) → REJECT ทันที
-4. ทิศหันข้างกลับด้าน / nw กลายเป็นหันหน้า / ทิศเพี้ยนกลางแถว → ดู strips ทุกแถว
-5. walk ขาไม่ก้าว (เฟรมต่างกันแค่ผ้าพลิ้ว) → เครื่องวัด movement จับ + ยืนยันด้วยตา
+2. พื้นหลอก/ขนาดเพี้ยน/เฟรมเกิน/ทิศ label สลับ → ซ่อมฝั่งเรา ไม่นับ defect ไม่ตีกลับ
+3. วาดตัวละครด้วยโค้ด (หุ่นหน้าเปล่า/เรขาคณิต/ค่า QA เหมือนกันทุกทิศเป๊ะ) → REJECT ทันที
+4. ทิศหันข้างกลับด้าน / nw เห็นหน้า / ทิศเพี้ยนกลางแถว → ดู strips ทุกแถว
+5. walk ขาไม่ก้าว (เฟรมต่างแค่ผ้าพลิ้ว) → เครื่องวัด movement + ยืนยันด้วยตา

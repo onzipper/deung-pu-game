@@ -42,19 +42,6 @@ const CONTINUITY_STATES = [
 ];
 
 describe("Bot autonomy and Dung-Dung direction docs lock", () => {
-  test("D-067 locks real-character autonomy and tier parity", () => {
-    expectAll("docs/decisions/D-067-character-autonomy.md", [
-      "Character Autonomy",
-      "ไม่มี clone",
-      "worker entity",
-      "manual movement",
-      "combat/reward ceiling",
-      "continuity คือ paid value หลัก",
-      "tier แตกต่างด้วย continuity, recovery และ workflow complexity",
-      "revive แล้ว return area หลังตาย",
-    ]);
-  });
-
   test("canonical tier matrices lock Plus and Pro death recovery", () => {
     expectAll("docs/design/deungpu_project_checkpoint_v15_p0_scope_lock_ready.md", [
       "revive แล้ว return area หลังตาย",
@@ -91,42 +78,12 @@ describe("Bot autonomy and Dung-Dung direction docs lock", () => {
     ]);
   });
 
-  test("D-068 locks contextual Dung-Dung and separate Help", () => {
-    expectAll("docs/decisions/D-068-dungdung-contextual-guide.md", [
-      "ไม่ติดตามตัวละครตลอดเวลา",
-      "searchable, categorized static knowledge base",
-      "ดึ๋งๆ ไม่ใช่ Help database",
-      "ไม่ควบคุม Bot",
-      "ความสัมพันธ์ระหว่าง Bot กับดึ๋งๆ เป็น presentation เท่านั้น",
-      "gameplay progression system",
-    ]);
-  });
-
   test.each(EFFECTIVE_DIRECTION_POINTERS)("%s carries the effective-direction pointer", (path, fragments) => {
     expectAll(path, fragments);
   });
 
   test("routing docs point agents to both decisions and flag implementation drift", () => {
     expectAll("README.md", ["Canonical game spec (v15.5)", "§4.2 Continuity"]);
-    expectAll("docs/README.md", ["Runtime lock v1.2", "continuity reducer"]);
-    expectAll("docs/feature-map.md", [
-      "D-067",
-      "D-068",
-      "PR4 Free one-area/one-goal safe baseline aligned",
-      "PR5 Plus recovery + town warp aligned",
-      "PR6–7 Pro workflow/UX pending",
-      "noncanonical",
-    ]);
-    expectAll("docs/current-state.md", [
-      "D-067",
-      "D-068",
-      "PR1–5 aligned",
-      "Free one-area/one-goal safe baseline",
-      "WAITING_FOR_OWNER",
-      "COMPLETED",
-      "FAILED",
-      "PR6–10 pending",
-    ]);
     expectAll("docs/context/server.md", [
       "PR4 Free is live",
       "one assigned area + one continuous goal",

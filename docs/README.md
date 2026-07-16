@@ -1,26 +1,22 @@
 # docs/ — index
 
-Entry order: `AI.md` (root) → `current-state.md` → `decision-index.md` → the context pack matching your work.
+Entry order: `CLAUDE.md` (root) → `current-state.md` → `decision-index.md` → the context pack matching your work.
 
 ## Live state + guardrails
 
 | File | Role |
 |---|---|
 | `current-state.md` | Status board (EN, ≤3KB) — updated every round |
-| `decision-index.md` | Locked decisions table (EN) — never re-propose · Thai rationale: `decisions/D-NNN-*.md` |
-| `decisions/` | 1 decision = 1 file, Thai verbatim — the rationale authority |
+| `decision-index.md` | Locked decisions table (EN) — never re-propose, rationale inline (one line per decision) |
 | `context/` | Per-layer packs, each ends with **Traps** · shell/tooling traps: `agent-rules.md` |
 | `agent-rules.md` | Shared subagent rules (spec-first, never-downgrade, DoD, report format, language policy, tooling traps) |
 | `deploy-checklist.md` | Real deploy steps — Render (server) + Hostinger (client) + smoke test |
-| `history/` | Archives (off-budget — read only when pointed) |
 
 ## Routing maps
 
 | File | Role |
 |---|---|
 | `CODEMAP.md` | Orientation: which module owns what (grep for symbol-level truth) |
-| `feature-map.md` | Feature → spec § / entry files / tests |
-| `token-budget.md` | Read caps before planning + measured onboarding numbers |
 
 ## Context packs
 

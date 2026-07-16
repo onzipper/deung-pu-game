@@ -19,7 +19,7 @@ Brief contract applies — see .claude/README.md.
 - `docs/context/ui.md` — contract + locked UI direction (game spec §45-§47) + Traps section
 
 ## Invariants / off-limits
-- Next.js 16 has breaking changes vs training data — follow `AGENTS.md`; never read node_modules directly, ask the owner or use the one path the brief gives
+- Next.js 16 has breaking changes vs training data — trust existing patterns in `src/app/**` over memory; never read node_modules directly, use the one path the brief gives
 - Talk to the game only through the **Zustand bridge** — never touch engine/world state directly
 - Never pull world state into React state
 - UI direction follows game spec §45-§47 (palette §46, screen mood §47) — don't design a new direction yourself

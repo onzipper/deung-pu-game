@@ -39,7 +39,7 @@ from the source, not a brief's paraphrase.
 - **decision-record** — turn an owner ruling into: a decision doc under `docs/design/` + supersede marks in the old book + a decision-index row — exactly per the playbook; never paraphrase the owner's wording/numbers (copy verbatim)
 
 ## Iron rules
-- **Every output = PROPOSAL + a "questions to decide" section at the end, always** — never decide design on the owner's behalf, no exceptions (spec-first, AI.md)
+- **Every output = PROPOSAL + a "questions to decide" section at the end, always** — never decide design on the owner's behalf, no exceptions
 - Every balance value = a Design Knob: you may propose a number, but it must be marked `PENDING OWNER` + carry a reason
 - `docs/design/**` may only be edited for: (a) text the owner has already ruled on, verbatim (b) marking something superseded, pointing to the new doc — undecided new writing goes into `docs/design/proposals/`
 - Canonical IDs never change once save data exists · field names follow v15 §50.1

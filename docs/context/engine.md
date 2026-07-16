@@ -37,7 +37,6 @@ Scope: `src/engine/**` (+ `src/game/**` combat mechanics that sit on it) · Read
 ## Traps
 - **texture-set ownership**: `src/engine/animation/texture-set.ts` textures are non-owning — the animator borrows them from the atlas registry; never call `.destroy()` on a texture from animation code, only the registry owns lifecycle.
 - **iso placement: duplicated +0.5** — Symptom: a sprite floats ~half a tile (16px @ 64×32) off the cursor/camera, or the depth-sort order flips. Cause: mixing `tileCenterToScreen` (adds +0.5) with already-centered coords, or an entity on center basis while camera/depthKey use origin basis. Rule: one convention only — entity/prop APIs take a continuous foot position and render via `entityFootToScreen`; bake n+0.5 into the config coords. Never mix two bases inside a depth-sorted layer. Locked by `tests/engine-render-placement.test.ts`.
-  full story: docs/history/2026-07-13-known-traps-archive.md#iso-placement-duplicated-05-sprite-off-by-half-a-tile
 
 ## Tests & commands
 - `npm test` (Vitest + docs path-guard) · combat formula / RNG / pooling need unit tests.

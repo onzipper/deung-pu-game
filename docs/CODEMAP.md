@@ -1,6 +1,6 @@
 # CODEMAP — module ownership
 
-> Use targeted grep for symbol truth (`AI.md`). Update for added/moved/deleted files. Archive: `docs/history/2026-07-13-codemap-archive.md`.
+> Use targeted grep for symbol truth. Update for added/moved/deleted files.
 
 ## src/engine (foundation layer — TA §17, plain TS + PixiJS, no React/Next.js)
 

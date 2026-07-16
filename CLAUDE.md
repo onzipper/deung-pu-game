@@ -1,47 +1,36 @@
-@AGENTS.md
-@AI.md
-@docs/current-state.md
+# CLAUDE.md — กติกาทั้งหมด ฉบับเดียวจบ
 
-# CLAUDE.md — orchestrator entry
+@docs/current-state.md
 
 ## Project
 
-**ดึ๋งปุ๊** — 2.5D web MMORPG (true 2D isometric, SVG-first art) on Next.js + PixiJS 8.
-Source of truth = game spec v15.5 (`docs/design/`) + tech architecture v1.5.3 (`docs/tech/`) — **spec-first, never guess** (AI.md).
+**ดึ๋งปุ๊** — 2.5D web MMORPG (2D isometric) · client Next.js 16 + PixiJS 8 · server Colyseus.
+Commands: `npm run dev` client · `npm run dev:server` server · `npm test` · `npm run e2e` · `npm run lint`.
 
-## Commands (npm)
+## Code — กฎเหล็ก
 
-`npm run dev` dev client · `npm run dev:server` Colyseus · `npm run build` prod build · `npm run lint` ESLint · `npm test` Vitest + docs/context guards · `npm run e2e` smoke.
+- Layers: `src/engine/**` (iso+game loop, ห้ามมี React) · `src/game/**` (combat/entities) · `src/ui/**` (React overlay) · `src/app/**` (Next shell) · `server/**` (authority)
+- World state อยู่ใน game loop — ห้ามอยู่ใน React state
+- ห้ามอ่าน `node_modules/**`, `.next/**` เด็ดขาด · ตามแพทเทิร์นเดิมในโค้ดก่อนคิดใหม่
+- Balance values อ่านจาก config เสมอ ห้าม hardcode · ชื่อ field ใน schema ตาม spec เป๊ะ ห้ามเปลี่ยนเอง
 
-## Architecture — the load-bearing rule
+## Authority — ตัดสินใจเองทุกเรื่อง ยกเว้น 4 เรื่องนี้ถาม owner ก่อนเสมอ
 
-- Layers: `src/engine/**` (iso foundation + game loop, NO React) · `src/game/**` (combat/entities on engine) · `src/ui/**` (React overlay) · `src/app/**` (Next.js shell) · `server/**` (Colyseus authority).
-- World state lives in the game loop (plain TS/ECS-lite) — NEVER in React state (tech §2).
-- Before touching code: read your layer's context pack (`docs/context/`) + `docs/agent-rules.md` (Shell & tooling traps).
+1. push `develop` / `main` (แตก feature branch แล้ว push ได้เสรี ไม่ต้องถาม)
+2. เปลี่ยน tech stack
+3. deploy production / DB migration
+4. เงินจริง / monetization / premium currency
 
-## Orchestration workflow
+spec (`docs/design/**`, `docs/tech/**`) = หนังสืออ้างอิง ไม่ใช่ด่านตรวจ — อ่านเฉพาะ § ที่เกี่ยว ไม่ต้องหยุดรอเคาะ
 
-You = orchestrator: plan, split, synthesize; hands-on work goes to subagents; keep your own context thin.
+## Token discipline
 
-Route by remaining decision-making:
+- Orchestrator ห้ามลงแรงอ่าน/กวาดไฟล์ยาวเอง — โยน agent แล้วเอาข้อสรุปกลับมา · brief ต้อง self-contained (FILES+CONTEXT+SPEC+TESTS — ดู `.claude/README.md`)
+- เลือก model: ตัดสินใจเยอะ/ดีบักยาก → opus · ทำตาม brief ชัด → sonnet · จิ๋วไฟล์เดียว → haiku
+- Never-downgrade (top tier เท่านั้น): iso coordinate/depth-sort · ผลคำนวณ combat · DB schema · currency ledger
 
-| Work | Tier |
-|---|---|
-| Design / unknown-cause debug / trade-offs | highest (opus) — deep-worker |
-| Brief names files+pattern, just execute | mid (sonnet) — fast-worker |
-| One file, exact change (copy/label/knob) | lowest (haiku) — tiny-worker |
+## Docs = ตอนนี้เท่านั้น
 
-- Model override beats creating a new persona.
-- **Never-downgrade zones**: iso coordinate/depth-sort correctness, combat result calculation, DB schema, currency ledger → always top tier.
-- Briefs follow the **Brief contract** (`.claude/README.md`): FILES + CONTEXT (pasted excerpts) + SPEC + TESTS — don't make agents explore.
-- One agent = one task; parallel only on disjoint file zones. High-stakes = 2 independent views, synthesize yourself.
-
-## Docs discipline
-
-Every code change updates affected docs in the SAME change (guards run via `npm test`).
-current-state.md updated every round; superseded blocks → `docs/history/`.
-New owner decisions → `docs/decision-index.md` row + `docs/decisions/D-NNN-*.md` (Thai rationale, absolute dates).
-
-## Subagents
-
-See `.claude/README.md` — 3 generic tiers + layer specialists + game-designer.
+- ไม่เก็บ history/worklog — git จำให้อยู่แล้ว · docs ที่มีอยู่ต้องจริงเสมอ ถ้าไม่จริงให้แก้หรือลบ
+- แผนที่: `docs/CODEMAP.md` (โค้ดส่วนไหนอยู่ไหน) · `docs/current-state.md` (สถานะปัจจุบัน) · `docs/decision-index.md` (กติกาที่ล็อคแล้ว บรรทัดเดียวต่อข้อ — ห้ามเสนอซ้ำ)
+- งานอาร์ต AI: `/sprite-intake` — ซ่อมเชิงกลได้เลยแล้วรายงานว่าซ่อมอะไร ตีกลับเฉพาะที่ต้องวาดใหม่ · contract + template: `scripts/art/templates/`

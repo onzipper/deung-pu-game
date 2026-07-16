@@ -7,7 +7,6 @@
       "Read(./.claude/worktrees/**)"
     ],
     "ask": [
-      "Read(./docs/history/**)",
       "Read(./docs/design/art-reference/**)"
     ]
   }

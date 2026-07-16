@@ -6,7 +6,7 @@ Scope: `src/ui/**`, `src/app/**` (+ tests) · Read this pack + the files in your
 - UI reads/commands the game only through the **Zustand bridge** — never touch engine/world state directly.
 - The game loop pushes what UI must see (HP, cooldown) into the store; UI sends intents back, never mutates world state itself.
 - Imperative commands (e.g. `setDepthDebug`) go through the `EngineHandle` accessor, not the store (the store is read-only "engine→UI").
-- Next.js 16 + React 19 + Tailwind v4 — read `AGENTS.md` before writing framework code (breaking changes vs training data).
+- Next.js 16 + React 19 + Tailwind v4 — trust existing patterns already in `src/app/**` over training data (breaking changes vs training data). **Never read `node_modules/**`** (repo-wide rule).
 
 ## Key files
 - `src/ui/GameCanvas.tsx` — mount bridge; holds `EngineHandle` in a `useRef` (not useState)
@@ -37,14 +37,10 @@ Scope: `src/ui/**`, `src/app/**` (+ tests) · Read this pack + the files in your
 - `HudState` = the throttled snapshot slice every screen needs (currently `debugInfo`; add new slices on the same interface). Never raw world state (TA §2).
 
 ## Traps
-- **Next.js 16 ≠ what the model remembers** — Symptom: code follows old Next conventions and the API/structure doesn't match. Cause: breaking changes vs training data. Rule: read `node_modules/next/dist/docs/` before writing framework code (per `AGENTS.md`).
-  full story: docs/history/2026-07-13-known-traps-archive.md#nextjs-16-is-not-what-the-model-remembers
+- **Next.js 16 ≠ what the model remembers** — Symptom: code follows old Next conventions and the API/structure doesn't match. Cause: breaking changes vs training data. Rule: trust existing patterns already in `src/app/**` over training data before writing framework code — **never read `node_modules/**`** (repo-wide rule).
 - **Passing `fetch` as a DI property → "Illegal invocation"** — Symptom: `deps.fetchFn(...)` throws `TypeError: Illegal invocation` in the browser (this≠window); a best-effort try/catch swallows it; vitest/undici doesn't brand-check so tests pass — the bug only shows in a real browser. Rule: wrap as `(input, init) => fetch(input, init)` (or `fetch.bind(globalThis)`) and call via a local binding (`const f = deps.fetchFn; f(...)`). Tests must simulate the brand-check (`makeBrowserFetch`).
-  full story: docs/history/2026-07-13-known-traps-archive.md#passing-fetch-as-a-di-propertycallback--illegal-invocation-in-the-browser-node-never-catches-this
 - **router.refresh() doesn't reset useState** — Symptom: logout then login at /hub, the character list stays empty until a full page refresh. Cause: the Server Component re-runs and sends fresh props, but React keeps the client instance so the `useState(initialProps)` initializer never re-runs. Rule: a component that seeds state from server props across an auth boundary must bind `key` to identity (`key={session.accountId}` / `key="anon"`); don't "fix" it with a props→state useEffect.
-  full story: docs/history/2026-07-13-known-traps-archive.md#routerrefresh-doesnt-reset-a-client-components-usestate--state-carries-over-across-loginlogout
 - **StrictMode double-mount churns the engine** (half of the reconnect trap) — Symptom (dev): createEngine is async + destroy runs on cleanup → engine1 joins/persists the token then is destroyed before engine2 = position lost + a self-vs-self seat race. Rule: guard with `setTimeout(0)` in `src/ui/GameCanvas.tsx` (StrictMode's cleanup clears the timer before it fires → the engine is created once). The full reconnect story + the sessionStorage-token half live in server.md.
-  full story: docs/history/2026-07-13-known-traps-archive.md#reconnect-token-in-memory--strictmode-double-mount--refresh-turns-you-into-a-new-player--2-tabs-cant-see-each-other-p1-07-fix
 
 ## Tests & commands
 - `npm test` (unit + docs path-guard). E2E Playwright is added when a real flow exists.

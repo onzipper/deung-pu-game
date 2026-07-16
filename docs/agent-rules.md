@@ -5,8 +5,8 @@
 ## Language policy
 
 - Effective 2026-07-13, approved by the owner.
-- **English**: AI-facing internal docs (CODEMAP, agent-rules, playbooks, context packs, token-budget, deploy-checklist, tech notes), agent briefs, internal reports, decision-index, current-state, CLAUDE.md/AI.md/AGENTS.md.
-- **Thai**: everything the owner reads or approves — `docs/design/**`, `docs/decisions/` (rationale, verbatim), the P2 breakdown, PR titles/bodies, commit messages, questions to the owner, and ALL in-game content. Canonical Thai game terms stay Thai even inside English text.
+- **English**: AI-facing internal docs (CODEMAP, agent-rules, playbooks, context packs, deploy-checklist, tech notes), agent briefs, internal reports, decision-index, current-state, CLAUDE.md.
+- **Thai**: everything the owner reads or approves — `docs/design/**`, the P2 breakdown, PR titles/bodies, commit messages, questions to the owner, and ALL in-game content. Canonical Thai game terms stay Thai even inside English text.
 - Other existing Thai files are **not** retro-translated (specs/bibles stay owner-auditable).
 
 ## Proposals & questions placement (owner rule, 2026-07-13)
@@ -15,12 +15,13 @@
 - `.md` files record ONLY decided outcomes — no options, alternatives, or rationale prose left behind in docs; keep every entry as short as completeness allows (the docs are already long, and the owner reads them all).
 - Undecided design work is delivered as chat/PR text for the owner to decide first; after the decision, record only the outcome (lean) in docs.
 
-## 1. Spec-first (summarized from AI.md — the full version always wins)
+## 1. Spec = reference
 
+- `docs/design/**` + `docs/tech/**` are the reference books, not a checkpoint gate — read ONLY the § your brief cites, never the whole file
 - game semantics/balance follow game spec v15.5 + the Production Bible Set (`docs/design/bibles/`) · implementation follows tech architecture v1.5.3
-- work that's outside of/conflicts with spec → **stop, report back** — don't guess, don't decide on the owner's behalf
+- never type a field/value from memory because "it's roughly this" — copy field names/values directly from the cited § (e.g. v15 §50.1) every time
+- not enough info in the cited §, or work looks outside/conflicting with spec → **stop, report back** — don't guess, don't decide on the owner's behalf
 - field names must match v15 §50.1 exactly · every balance value is read from config (Design Knobs §48), never hardcoded
-- **Spec drift (design↔tech)**: never type a field/value from memory because "it's roughly this" — open the § feature-map points to and copy field names directly from v15 §50.1 every time. full story: docs/history/2026-07-13-known-traps-archive.md#spec-drift-between-design-and-tech
 
 ## 2. Before touching code
 
@@ -62,7 +63,6 @@ notes: <only what the orchestrator needs to know next — e.g. a new trap, debt,
 
 - don't read all of src/ — use CODEMAP + the § the brief points to
 - specs/bibles are very long — Grep for the § first, read only the relevant range, never read the whole file
-- `docs/history/` = off-budget, read only when specifically pointed there
 
 ## 7. Docs routing tier (owner ratified 2026-07-12)
 
@@ -83,12 +83,7 @@ Docs work doesn't always need the highest tier — split it by "how much decisio
 Environment/tooling bugs that have already cost real time — read before running gates or writing files. Layer-specific bugs live in the context pack's **Traps** section; these are cross-cutting.
 
 - **vitest fails only in some shells** (`TypeError` reading 'config' at describe) — Symptom: `npm test` fails on every file during collection in some spawned shells even though the code is correct; the owner's main PowerShell passes. Cause: the spawned shell's environment, not the code. Rule: run a bare smoke test — if it also fails it's an env problem, not your code; confirm the real gate on the main PowerShell.
-  full story: docs/history/2026-07-13-known-traps-archive.md#vitest-fails-only-in-some-shells-typeerror-reading-config-at-describe
 - **npm shim: `'node' is not recognized`** — Symptom: `npm test`/`npm run lint`/postinstall fails with `'node' is not recognized` even though `node --version` works in bash. Cause: when npm spawns cmd.exe for a script/bin shim, node isn't on that subprocess's PATH. Rule: run the tool directly through node — `node node_modules/vitest/vitest.mjs run`, `node node_modules/eslint/bin/eslint.js`, `node node_modules/next/dist/bin/next build`, or `node_modules/.bin/<bin>`; install postinstall deps with `--ignore-scripts`.
-  full story: docs/history/2026-07-13-known-traps-archive.md#npm-run-script-fails-node-is-not-recognized-env-of-the-spawned-shell
 - **tsx outside the project dir → can't find node_modules** — Symptom: `Cannot find module 'colyseus.js'` when running a proof script placed in scratchpad. Rule: place integration/proof scripts **inside the project** (a temp file at root, then delete it) or set `NODE_PATH` to the repo's node_modules — node resolves upward from the file's location. (server runs also need `--tsconfig server/tsconfig.json` — see server.md.)
-  full story: docs/history/2026-07-13-known-traps-archive.md#tsx-running-a-script-outside-the-project-dir--cant-find-node_modules
 - **A temp script at the repo root breaks `next build`** — Symptom: `next build`/`tsc -p tsconfig.json` fails `TS1240 Unable to resolve signature of property decorator` at `server/schema/*` even though you touched no server file. Cause: the root tsconfig `include:["**/*.ts"]` catches a root temp file; if it imports `server/**` it pulls the legacy-decorator schema into a program with no experimentalDecorators. Rule: any proof/temp script that imports `server/**` must be **deleted before** the build/tsc gate; confirm `git status` is clean of temp files.
-  full story: docs/history/2026-07-13-known-traps-archive.md#a-prooftemp-script-placed-at-the-repo-root-that-imports-server--next-build-type-check-breaks-decorator
 - **PowerShell writes files with a BOM** — Symptom: `Out-File -Encoding utf8` on PowerShell 5.1 writes UTF-8 **with a BOM** → MySQL/MariaDB can't read migration.sql (error 1064 at `﻿-- CreateTable`). Rule: for any file another tool will read, use the Write/Edit tool (no BOM) or strip it (`sed -i '1s/^\xEF\xBB\xBF//'`). The MariaDB-not-MySQL8 half of this trap lives in server.md.
-  full story: docs/history/2026-07-13-known-traps-archive.md#powershell-writing-files--bom--migration-sql-breaks--the-real-db-turns-out-to-be-mariadb

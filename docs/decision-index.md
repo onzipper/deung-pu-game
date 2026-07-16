@@ -1,67 +1,65 @@
-# Decision index โ€” locked decisions. Do not re-propose. Rationale: docs/decisions/ (Thai).
+# Decision index — กติกาที่ล็อคแล้ว (ห้ามเสนอซ้ำ)
 
-Superseded -> archived in `docs/history/`: D-002->D-012 · D-007/D-010->D-011 · D-016/D-031->D-058 · D-017->D-030->D-056 · D-049->D-055 · D-060->D-063. Partial: D-034->D-068 · D-063->D-067.
+หนึ่งบรรทัด = หนึ่งคำตัดสิน · รายละเอียดเต็มดูได้จาก git history ของ docs/decisions/
 
-| ID | Date | Decision | Status | TH |
-|---|---|---|---|---|
-| D-001 | 2026-07-11 | Spec-first: never guess | Locked | `docs/decisions/D-001-spec-first.md` |
-| D-003 | 2026-07-11 | Skill fields follow v15 ยง50.1 | Locked | `docs/decisions/D-003-skill-schema.md` |
-| D-004 | 2026-07-11 | Locked tech decisions L1-L17 (ยง0.1) | Locked | `docs/decisions/D-004-tech-l1-l17.md` |
-| D-005 | 2026-07-11 | Docs-for-AI system | Locked | `docs/decisions/D-005-ai-starter-kit.md` |
-| D-006 | 2026-07-11 | Branch from develop, PR back | Locked | `docs/decisions/D-006-branch-model.md` |
-| D-008 | 2026-07-11 | Balance: tech proposes | Locked | `docs/decisions/D-008-balance-values.md` |
-| D-009 | 2026-07-11 | Art ref A=style, B=layout only | Locked | `docs/decisions/D-009-art-ref-groups.md` |
-| D-011 | 2026-07-12 | ClickUp cancelled | Locked | `docs/decisions/D-011-clickup-cancelled.md` |
-| D-012 | 2026-07-12 | Spec v15, tech v1.5 | Locked | `docs/decisions/D-012-spec-v15.md` |
-| D-013 | 2026-07-12 | P0 exec: per-issue commits | Locked | `docs/decisions/D-013-p0-exec.md` |
-| D-014 | 2026-07-12 | AI efficiency: trim state | Locked | `docs/decisions/D-014-ai-efficiency.md` |
-| D-015 | 2026-07-12 | P0+P1 merged->main PR#6 | Locked | `docs/decisions/D-015-close-p0-p1.md` |
-| D-018 | 2026-07-12 | Start+map memory -> P2 | Locked | `docs/decisions/D-018-start-map-p2.md` |
-| D-019 | 2026-07-12 | P0/P1 amend; PROD->D-055 | Locked | `docs/decisions/D-019-spec-update.md` |
-| D-020 | 2026-07-12 | Extend P0/P1 run | Locked | `docs/decisions/D-020-extend-p1-run.md` |
-| D-021 | 2026-07-12 | Bible Set v1 baseline | Locked | `docs/decisions/D-021-bible-set-v1.md` |
-| D-022 | 2026-07-12 | P2 balance k=50 | Locked | `docs/decisions/D-022-balance-p2.md` |
-| D-023 | 2026-07-12 | 2nd class = archer | Locked | `docs/decisions/D-023-archer-second.md` |
-| D-024 | 2026-07-12 | Party: public shared channel | Locked | `docs/decisions/D-024-party-model.md` |
-| D-025 | 2026-07-12 | Skill fields/click/Map1 | Locked | `docs/decisions/D-025-skill-click-map1.md` |
-| D-026 | 2026-07-12 | Roadmap P2; P2B = Boss milestone | Locked | `docs/decisions/D-026-roadmap-p2.md` |
-| D-027 | 2026-07-12 | Vertical Slice First | Locked | `docs/decisions/D-027-vertical-slice.md` |
-| D-028 | 2026-07-12 | Clock P2B, weather P3 | Locked | `docs/decisions/D-028-living-world.md` |
-| D-029 | 2026-07-12 | Onboarding: create P2 | Locked | `docs/decisions/D-029-onboarding.md` |
-| D-032 | 2026-07-12 | Docs routing: low/high tier | Locked | `docs/decisions/D-032-docs-routing.md` |
-| D-033 | 2026-07-12 | P2 exec: PR per wave; archer->P2B | Locked | `docs/decisions/D-033-p2-exec.md` |
-| D-034 | 2026-07-12 | Companion+Achieve specs | Locked | `docs/decisions/D-034-companion-guide.md` |
-| D-035 | 2026-07-12 | Companion != Bot A | Locked | `docs/decisions/D-035-not-bot-a.md` |
-| D-036 | 2026-07-12 | Asset priority D3 | Locked | `docs/decisions/D-036-asset-priority-d3.md` |
-| D-037 | 2026-07-12 | Companion local-only; AutoPilot != bot | Locked | `docs/decisions/D-037-autopilot.md` |
-| D-038 | 2026-07-12 | Achievement v1 credit | Locked | `docs/decisions/D-038-achievement-v1.md` |
-| D-039 | 2026-07-12 | Acct/Char/Storage S1-S4 | Locked | `docs/decisions/D-039-acct-storage.md` |
-| D-040 | 2026-07-12 | P2B->Launch baseline | Locked | `docs/decisions/D-040-p2b-launch.md` |
-| D-041 | 2026-07-12 | UI/Visual spec P2 = DRAFT | Locked (draft) | `docs/decisions/D-041-ui-draft.md` |
-| D-042 | 2026-07-12 | SVG-first = permanent art | Locked | `docs/decisions/D-042-svg-first.md` |
-| D-043 | 2026-07-12 | V1-V4 tokens/rarity | Locked | `docs/decisions/D-043-v1-v4-tokens.md` |
-| D-044 | 2026-07-12 | Auth custom light | Locked | `docs/decisions/D-044-auth-lightweight.md` |
-| D-045 | 2026-07-12 | Economy & Loot Map 1 locked | Locked | `docs/decisions/D-045-economy-loot.md` |
-| D-046 | 2026-07-12 | Caveman-code skill not adopted | Locked | `docs/decisions/D-046-caveman-code.md` |
-| D-047 | 2026-07-12 | E1: Map 1 boss id + lv8 | Locked | `docs/decisions/D-047-e1-boss-map1.md` |
-| D-048 | 2026-07-12 | E2: reinforcement +1, cap +15 | Locked | `docs/decisions/D-048-e2-reinforcement.md` |
-| D-050 | 2026-07-12 | Rename reinforcement, tradable | Locked | `docs/decisions/D-050-reinf-rename.md` |
-| D-051 | 2026-07-13 | Fragment boss-only 10.7% | Locked | `docs/decisions/D-051-reinf-fragment.md` |
-| D-052 | 2026-07-13 | R1-R10 closed | Locked | `docs/decisions/D-052-r1-r10-closed.md` |
-| D-053 | 2026-07-13 | Gold milestone grant R5 | Locked | `docs/decisions/D-053-gold-milestone-grant.md` |
-| D-054 | 2026-07-13 | Enh curve +6..+15 R9 | Locked | `docs/decisions/D-054-enhancement-curve-6-15.md` |
-| D-055 | 2026-07-13 | E3 monster + player baseline | Locked | `docs/decisions/D-055-e3-monster-stats-player-baseline.md` |
-| D-056 | 2026-07-13 | Tab: AFK stays, no force-DC | Locked | `docs/decisions/D-056-tab-policy-afk.md` |
-| D-057 | 2026-07-13 | Single DB: Hostinger = prod | Locked | `docs/decisions/D-057-single-db-hostinger-prod.md` |
-| D-058 | 2026-07-13 | Render free until breaks | Locked | `docs/decisions/D-058-render-free-until-break.md` |
-| D-059 | 2026-07-13 | DB backup: after Open Beta | Locked | `docs/decisions/D-059-db-backup-defer.md` |
-| D-061 | 2026-07-13 | Payment mock thru Open Beta | Locked | `docs/decisions/D-061-payment-mock-beta.md` |
-| D-062 | 2026-07-13 | Email via Hostinger SMTP | Locked | `docs/decisions/D-062-smtp-hostinger.md` |
-| D-063 | 2026-07-13 | Bot final + merchant dual-sink | Locked | `docs/decisions/D-063-bot-economy-final.md` |
-| D-064 | 2026-07-13 | Event calendar + boss tiers + Arc1 | Locked | `docs/decisions/D-064-content-liveops.md` |
-| D-065 | 2026-07-13 | Audio JS + art path + OB=Map1 | Locked | `docs/decisions/D-065-production-path.md` |
-| D-066 | 2026-07-13 | Rift Violet family, palette 35 | Locked | `docs/decisions/D-066-rift-violet-palette.md` |
-| D-067 | 2026-07-15 | Bot = real-character autonomy; tiers = continuity/recovery/workflow | Locked | `docs/decisions/D-067-character-autonomy.md` |
-| D-068 | 2026-07-15 | Dung-Dung contextual guide; Help is separate static KB | Locked | `docs/decisions/D-068-dungdung-contextual-guide.md` |
-| D-069 | 2026-07-16 | Bot town warp: Plus/Pro วาปเข้าเมือง-กลับ (PR5) | Locked | `docs/decisions/D-069-bot-town-warp.md` |
-| D-070 | 2026-07-16 | Bot town service policy: ขาย/ฝาก/ซื้อคืน | Locked | `docs/decisions/D-070-bot-town-service-policy.md` |
+- **D-001** — Spec-first rule: เชื่อ spec เป็นหลัก ห้ามเดา/มั่ว/คิดเอง งานนอกเหนือ spec ต้องให้ owner อัปเดต spec ก่อนทุกครั้ง — เหตุผล: owner กำหนดเป็นกติกาหลักของโปรเจกต์ตอน bootstrap (2026-07-11) **[ยกเลิก 2026-07-16 — spec เหลือสถานะหนังสืออ้างอิง, autonomy ตาม CLAUDE.md §Authority]**
+- **D-003** — Skill schema ownership: field ตาม v15 §50.1 · Design Knob ตาม v15 §48 · design คุม semantics/balance, tech คุม implementation — เหตุผล: ตัดปัญหา field ชื่อไม่ตรงกันระหว่าง design/tech (2026-07-11)
+- **D-004** — Locked tech decisions L1-L17 (server-authoritative, MySQL 8 Hostinger, Render always-on, 5 อาชีพ, guest+email login, payment mock, 30 CCU, true isometric, 5-dir+mirror, separated map rooms, reconnect 30s) — เหตุผล: รายละเอียด/เหตุผลอยู่ tech architecture §0.1 เป็น single source (2026-07-11)
+- **D-005** — ใช้ระบบ docs-for-AI ตาม ClickUp "AI Operating System Starter Kit" (entry→current-state→routing maps→context packs→guardrails) — เหตุผล: owner สั่ง setup ตาม starter kit ตอน bootstrap (2026-07-11)
+- **D-006** — Branch model: `develop` = integration branch (PR กลับเข้า develop), merge `develop`→`main` ต้อง owner ยืนยันทุกครั้ง — เหตุผล: owner เคาะ (2026-07-11)
+- **D-008** — ค่า balance ที่ spec ยังไม่กำหนด: tech เสนอเลข + อัปเดต spec ก่อน owner เคาะ ค่อย implement — เหตุผล: สอดคล้อง spec-first rule (2026-07-11)
+- **D-009** — ภาพ art-reference กลุ่ม A (01-03 pixel art) = style+layout target, กลุ่ม B (04-11 painterly) = layout เท่านั้น ห้ามใช้เป็น style — เหตุผล: owner แจ้งว่า 04-11 ไม่ใช่ pixel art ขัด L14 ถ้าใช้เป็น style (2026-07-11)
+- **D-011** — ยกเลิก ClickUp ทั้งหมด ย้าย track งานมาอยู่ใน docs repo เดียว (ไม่ลบข้อมูลเดิมใน ClickUp) — เหตุผล: owner สั่งเลิกใช้ ClickUp มาลุยในเรโปที่เดียว (2026-07-12)
+- **D-012** — Game spec canonical = checkpoint v15, tech spec = architecture v1.5, เพิ่ม P0_SCOPE_LOCK_v1 (v14/v1.4 → history) — เหตุผล: owner นำ spec v15/v1.5 เข้า repo (2026-07-12)
+- **D-013** — P0 execution mode: branch เดียว commit แยกทีละ issue รวมเป็น PR เดียวให้ owner review ทีเดียวตอนจบ — เหตุผล: owner เคาะลด review overhead ระหว่าง P0 (2026-07-12)
+- **D-014** — AI efficiency: ให้ AI เฝ้าดูงานซ้ำเสนอลดเวลา/token (คุณภาพมาก่อน ต้องถกก่อนเสมอ) เคาะแล้ว 3 ข้อ (current-state ผอม/e2e harness ถาวร/agent-rules รวมกติกา) — เหตุผล: owner เคาะ 2026-07-12
+- **D-015** — ปิด P0+P1: merge `develop`→`main` ผ่าน PR#6 (owner สั่ง merge เอง) เป็น release แรก — เหตุผล: owner เคาะ (2026-07-12)
+- **D-018** — จุดเริ่มเกม + จำ map ตอน refresh เลื่อนไป P2 (persistence); ตอนนี้ boot เข้า P0 Test Field เสมอ — เหตุผล: owner เคาะ "รอทำตอน P2 ตามเดิม" (2026-07-12)
+- **D-019** — อัปเดต spec สะท้อน decision ที่เคาะระหว่าง P0/P1 (amend in-place ไม่ rename ไฟล์); ค่า balance ทั้งหมดยังเป็น PENDING OWNER — เหตุผล: owner สั่งปิดงาน P0+P1 (2026-07-12) [ยกเลิกบางส่วน→D-055] (เฉพาะ clause "player baseline balance PENDING")
+- **D-020** — ขยาย run ยาวถึง P1 (World Sync): แตก branch ซ้อนไม่รอ merge P0 ก่อน, ตัวเลข balance ใช้ค่า draft PENDING OWNER ใน config — เหตุผล: owner เคาะรันต่อเนื่องไม่สะดุดด่าน balance (2026-07-12)
+- **D-021** — Production Bible Set v1 = decision baseline ปิด owner queue ทุกข้อ; ลำดับ source-of-truth: Owner Decisions/Checkpoint → Bible → Tech Architecture → Feature Spec → Issue → Code — เหตุผล: owner ส่ง Bible Set ตอบ queue ครบ (2026-07-12)
+- **D-022** — Balance baseline P2 เคาะแล้ว: k=50, ตารางนักดาบ lv1-10+มอน Map1 รับรอง, hit tolerance 1.40/0.35/20°, resource=cooldown-only, DEF เดียวใน P2 — เหตุผล: Bible 1.1-1.9 เลิกสถานะ PENDING OWNER (2026-07-12)
+- **D-023** — ลำดับอาชีพ: อาชีพที่ 2 = นักธนู (เปิด risk ranged/projectile/AoE/multi-hit) → นักหอก → นักเวท → นักอาคม — เหตุผล: Bible 1.4/2.1 (2026-07-12)
+- **D-024** — Party model = public shared channel เป็น default (field farming), dungeon/raid/tutorial = private room; ไม่อยู่ P2 core รอ field model จริง — เหตุผล: Bible 2.2 + Q3 (2026-07-12)
+- **D-025** — Skill field grouping (client/shared vs server-only authoritative), click radius แยก desktop 0.60/touch 0.80/assist 0.65 tile, Map1 40×40 รับรอง — เหตุผล: Bible 2.3-2.5 (2026-07-12)
+- **D-026** — Roadmap: P2 = Persistence & Value scope, P2B = Boss & Encounter Foundation ก่อน P3, production เริ่มเมืองนครอรุณผนึก, Test Field = dev-only ถาวร, mobile polish = gate ก่อน external alpha — เหตุผล: Bible 3.1-3.5 (2026-07-12)
+- **D-027** — Art & asset: Vertical Slice First (scale→นักดาบ→Map1→มอน→VFX→เมือง→นักธนู), size standards ล็อก (tile 64×32 ฯลฯ), master palette 32 สี, กลยุทธ์ Playable-Without-Artist — เหตุผล: Bible 4.1-4.4 + Q1 (2026-07-12)
+- **D-028** — Living World phasing: world clock → P2B, weather/NPC routines → P3, caravan/world events → P4+ — เหตุผล: Q2 (2026-07-12)
+- **D-029** — Onboarding: character creation อยู่ P2, tutorial = guided checklist overlay (ไม่มี dialog system ใน P2) — เหตุผล: Q4 (2026-07-12)
+- **D-032** — Docs routing tier: งาน docs ประจำรอบใช้ tier กลาง/ต่ำ, tier สูง/orchestrator เฉพาะตีความ decision ลง spec/decision-index — เหตุผล: owner เคาะแนวที่ tech เสนอ (2026-07-12)
+- **D-033** — P2 execution mode: PR แยกต่อคลื่น (3 คลื่น), นักธนู→P2B, Hostinger MySQL เปิดแล้ว, Render paid checklist ทำตอน P2-16 — เหตุผล: owner ตอบคำถามท้าย P2 breakdown (2026-07-12)
+- **D-034** — Spec ใหม่ 2 เล่ม locked (ดึ๋งๆ Companion Guide + Achievement/Journal); เฟส P2=DG lite, P2B=ตัวดึ๋งๆ+first encounter+Achievement v1 — เหตุผล: owner เคาะ C1/C2 (2026-07-12) [ยกเลิกบางส่วน→D-068] (follower identity + รวม Help/Journal/Guidance เป็น panel เดียว ถูกแทนที่)
+- **D-035** — ดึ๋งๆ ≠ Bot A: Bot A intro ถอดจาก tutorial เริ่มต้น → optional micro tutorial ตอนปลดล็อก; first encounter = transition pocket ชาน starter district — เหตุผล: owner เคาะ D1/D2 (2026-07-12)
+- **D-036** — Asset priority ใหม่: player+นักดาบ → ดึ๋งๆ mascot core → 4 อาชีพที่เหลือ → มอน Map1 → เมือง → VFX → บอส; ดึ๋งๆ ห้ามใช้ generic kit placeholder — เหตุผล: owner เคาะ (2026-07-12)
+- **D-037** — ดึ๋งๆ = local-only ใน P2/P2B (ไม่ sync network/ไม่มี server tick); Auto Pilot ≠ bot (auto-walk เฉพาะเป้าหมายที่ผู้เล่นยืนยันเอง ห้าม auto โจมตี/เก็บของ/ซื้อขาย) — เหตุผล: owner เคาะ D4/D5 (2026-07-12)
+- **D-038** — Achievement v1: credit policy default = participation (server ตรวจได้), seed catalog v1 เฉพาะระบบที่มีจริง, GameEvent log เริ่มเก็บตั้งแต่ P2 — เหตุผล: owner เคาะ A1-A4 (2026-07-12)
+- **D-039** — Account/Character/Storage spec locked: ตัวละคร 5 ช่อง/บัญชีเปิดครบไม่มี paid unlock, bind/storage/trade policy เป็น config, inventory 40/ตัว, คลังบัญชี 200 ช่อง, Delivery Box 50 — เหตุผล: owner เคาะ S1-S4 (2026-07-12)
+- **D-040** — Production decisions P2B→Launch = locked baseline (bot tier ชม./ราคา, market fee/tax, monetization list, RBAC, backup, launch gates, audio/art hybrid) — เหตุผล: owner ส่งเล่ม, จุดค้าง L1-L7 รอเคาะ (2026-07-12)
+- **D-041** — UI/Visual spec P2 อยู่สถานะ DRAFT: ใช้เป็นแหล่ง layout/tokens ได้ แต่ห้ามผูก logic กับจุด PENDING OWNER (U1-U4) — เหตุผล: บันทึกสถานะ (2026-07-12) [ยกเลิกบางส่วน→D-042] (U1-U4 ถูกปิดครบใน D-042)
+- **D-042** — SVG-first = art direction ถาวร (pixel art เลื่อนไม่มีกำหนด); ปิด U1-U4+L1-L7 ครบ (equipment 5 slots, help panel, จอตีบวกใหม่ 3 คอลัมน์, bot Pro 8ชม./วัน, งบ audio 50,000฿) — เหตุผล: owner ส่งเล่ม + เคาะ (2026-07-12)
+- **D-043** — V1-V4 tokens/art model: touch target ≥48px, Hybrid Art Model คุม SVG quality + Art Readiness Gate 7 ข้อ, palette 32 สี rarity map (ห้ามใช้ Corruption กับ rarity), style ทาง C "Crisp Stylized SVG" (telegraph solid edge ห้าม blur) — เหตุผล: tech เสนอ + owner เคาะ (2026-07-12)
+- **D-044** — Auth = custom lightweight (node:crypto, HS256+scrypt, stateless httpOnly cookie) แทน Auth.js — เหตุผล: NextAuth v5 beta เสี่ยงชน Next รุ่นใหม่, guest→upgrade ไม่ใช่ provider flow, ต้อง auditable (2026-07-12)
+- **D-045** — Economy & Loot Map1 = locked baseline: item master 4 tier + drop tables ทุกมอน + shop starter 6 รายการ + EXP curve + config-first 11 ไฟล์ — เหตุผล: owner ส่งเล่ม (2026-07-12)
+- **D-046** — Caveman-code skill: ไม่ใช้ (savings จริง ~8.5% ไม่คุ้ม trade-off รายงานไทย); หลัก terse data-first ใช้เฉพาะ internal agent report — เหตุผล: owner เคาะ (2026-07-12)
+- **D-047** — E1 resolved: boss Map1 = `boss_map1_resonant_guardian` "ผู้พิทักษ์เสียงสะท้อน" lv8 phase P2B, canonical ID ล็อกหลังมี save data — เหตุผล: owner เคาะ (2026-07-12)
+- **D-048** — E2 resolved: ตีบวก = guaranteed reinforcement ×1 → +1 สำเร็จ 100% ไม่มี RNG/fail/crack; เพดาน +15 ทุกเฟส; แหล่ง boss-only 8% + pity ถึงรอบ 15 — เหตุผล: owner เคาะ (2026-07-12)
+- **D-050** — Rename แกร่ง→เสริมแกร่ง (`upg_reinforcement`), ขาย/trade ได้ (supersede tradable:false เดิม), ค่าทั้งหมด = Static Versioned Config — เหตุผล: owner เคาะ (2026-07-12)
+- **D-051** — เศษเสริมแกร่ง: แหล่ง Map Boss เท่านั้น (`fragmentDropChancePercent` 10.7%, independent roll), ไม่มี fragment pity, phase P2B — เหตุผล: owner เคาะ (2026-07-13)
+- **D-052** — R1-R10 ปิดครบ: bindType TRADE_LIMITED, ขายเฉพาะตลาดผู้เล่นไม่ขาย NPC, flat 1 ชิ้น/ขั้นทุกระดับ, milestone grant→Gold, stat multiplier +6..+15 placeholder — เหตุผล: owner เคาะรวม "โอเคทั้งหมด" (2026-07-13) [ยกเลิกบางส่วน→D-053,D-054] (R5→D-053 ให้ค่า Gold จริง, R9→D-054 ให้ curve จริง)
+- **D-053** — Gold แทน grant เสริมแกร่ง×1 เดิม 5 จุด (สเกลตาม milestone, เพิ่มบนคอลัมน์ Gold เดิม รวม +600 P2 +200 P2B/account) — เหตุผล: owner เคาะ Option A (2026-07-13)
+- **D-054** — Enhancement multiplier +6..+15 = ต่อ curve เดิม delta เร่ง +0.01/ระดับ (+15 = ×2.80), apply `floor(Base×Multiplier)` ต่อ stat — เหตุผล: owner เคาะ Option A (2026-07-13)
+- **D-055** — E3: ล็อกตาราง combat stat มอน Map1 ครบ 5 ตัว + ล็อก player baseline นักดาบ lv1-10 เป็น production คู่กัน (`DMG = ATK×mult×[50/(50+DEF)]`, k=50) — เหตุผล: owner เคาะตารางเต็มตาม proposal (2026-07-13)
+- **D-056** — Tab policy: AFK ค้างในโลกได้เต็มที่ตราบไม่ปิดแท็บ/เบราว์เซอร์ ยกเลิก forced-disconnect countdown ทั้งชุด (คงรับ damage ปกติระหว่าง AFK กันหนีตาย) — เหตุผล: owner เคาะ verbatim "อยากให้ AFK ได้" (2026-07-13)
+- **D-057** — DB เดียว: Hostinger MariaDB ตัวปัจจุบันคือ production เลย ไม่มี test/staging DB แยก — เหตุผล: ข้อจำกัดงบประมาณ (2026-07-13)
+- **D-058** — Render คง free tier + UptimeRobot ต่อไป "จนกว่าจะพังจริงค่อยว่ากัน" (ยกเลิก hard-trigger เดิมที่บังคับขึ้น paid) — เหตุผล: ข้อจำกัดงบประมาณ (2026-07-13)
+- **D-059** — DB backup เลื่อนไปคุยหลัง Open Beta ยังไม่ตั้ง schedule daily/14d/8wk — เหตุผล: ข้อจำกัดงบ/ลำดับความสำคัญ ข้อมูลก่อน beta ยอมเสียได้ (2026-07-13)
+- **D-061** — Payment เป็น mock ยาวถึง Open Beta เลื่อนเลือก payment gateway ออกไปจนกว่า owner สั่งเปิดรับเงินจริง — เหตุผล: owner ยังไม่อยาก invest ส่วนนี้ (2026-07-13)
+- **D-062** — Email ใช้ SMTP ของ Hostinger ที่มีอยู่แล้ว (`no-reply@softrock.space` + nodemailer) งบ 0 — เหตุผล: owner ให้ tech ตัดสินใจเอง (2026-07-13)
+- **D-063** — Bot model: Free tier ฟรีตลอดไป 24/7, paid = duration pass (Plus 9/39/79฿, Pro 15/69/149฿), Mandatory Stop 9 ข้อทุก tier, พ่อค้าพเนจร M1 dual-sink (รับซื้อทำลายจริง ~50% NPC floor) — เหตุผล: owner เคาะรายข้อ (2026-07-13) [ยกเลิกบางส่วน→D-067] (Mandatory Stop 9 ข้อ universal + cap-first tier framing ถูกแทนที่; Free 24/7/ราคา/merchant ยัง Locked)
+- **D-064** — Content & LiveOps: ปฏิทิน event รายสัปดาห์ 6 template, โครงบอส 3 ชั้น (Field=หมูป่าหม้อเดือด `boss_map1_boiling_boar`, Story=ผู้พิทักษ์เสียงสะท้อน, World=รากแรกแห่งรอยแยก), Arc1 Ch1 beats+NPC IDs — เหตุผล: owner เคาะรายข้อ (2026-07-13)
+- **D-065** — Production path: SFX=ZzFX/jsfxr เพลง=chiptune ผ่าน ZzFXM/Tone.js งบ 0, art=pixelate filter+owner-gen sprite import (ไม่มีกำหนดส่ง ไม่ block), Open Beta = ระบบครบ+Map1 เท่านั้น — เหตุผล: owner เคาะ (2026-07-13)
+- **D-066** — เพิ่มตระกูล Rift Violet เข้า Master Palette (32→35 สี) เป็น signature ตัวเอกเท่านั้น (ห้ามใช้กับ rarity), re-tint ดาบ/ออร่านักดาบทันที — เหตุผล: owner รับข้อเสนอ 3 ข้อ (2026-07-13)
+- **D-067** — Bot Mode = Character Autonomy ของตัวละครจริง (ไม่มี clone/worker entity/offline simulation); authority ลำดับ Manual→Assisted→Autonomy; ทุก tier combat/reward ceiling เดียวกันไม่มี paid power; continuity คือ paid value หลัก (tier ต่างที่ recovery/workflow) — เหตุผล: owner เคาะ (2026-07-15)
+- **D-068** — ดึ๋งๆ = Contextual Guide ไม่ติดตามตัวละครตลอดเวลา มีตำแหน่งประจำ+ปรากฏชั่วคราวตามบริบท; Help แยกเป็น static knowledge base ค้นหาได้ (ดึ๋งๆ ไม่ใช่ Help DB ไม่ควบคุม Bot) — เหตุผล: owner เคาะ (2026-07-15)
+- **D-069** — Bot town warp: Plus/Pro วาปเข้า city-hub ทำธุระแล้ววาปกลับ pocket เดิม ฟรีไม่เก็บ gold เพิ่ม (cooldown 10 นาที/trip), Free ไม่ไปเมือง, warp=server-owned actor transfer ห้าม duplicate actor — เหตุผล: owner เคาะ PR5 decision gate (2026-07-16)
+- **D-070** — นโยบายขาย/ฝาก/ซื้อคืนของบอทในเมือง: ขายอัตโนมัติเฉพาะ Common/Uncommon ที่ไม่สวมใส่+ไม่ใน keep list, denylist equipped/quest/unique ห้ามขาย-ฝากเสมอ, ลำดับ SELLING→DEPOSITING→RESTOCKING, gold ผ่าน ledger ปกติ — เหตุผล: owner เคาะ starter policy (2026-07-16)

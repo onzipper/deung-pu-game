@@ -10,12 +10,11 @@ Every brief contains:
 3. **SPEC** — spec § / decision D-NNN IDs / trap names this work relies on (Thai spec text quoted verbatim in backticks)
 4. **TESTS** — commands to run + expected result
 
-Subagents NEVER read on their own: `docs/CODEMAP.md`, `docs/decision-index.md`,
-`docs/feature-map.md`, `docs/history/**` — those are orchestrator maps; the brief
-carries what's needed. Targeted Grep in src/server/tests IS allowed (AI.md Search
-rules), but if the brief was insufficient and you had to explore, you MUST report
-what was missing in the `deviations` field (agent-rules §5) — that feedback loop
-is how briefs improve.
+Subagents NEVER read on their own: `docs/CODEMAP.md`, `docs/decision-index.md` —
+those are orchestrator maps; the brief carries what's needed. Targeted Grep in
+src/server/tests IS allowed, but if the brief was insufficient and you had to
+explore, you MUST report what was missing in the `deviations` field
+(agent-rules §5) — that feedback loop is how briefs improve.
 
 ## Generic workers (by tier)
 
@@ -48,4 +47,4 @@ is how briefs improve.
 
 - A model override beats creating a new persona — never spin up a duplicate persona just to get a different tier
 - Never-downgrade zones: iso coordinate/depth-sort correctness, combat calculation, DB schema, currency ledger → always opus
-- Every persona is bound by the spec-first rule in AI.md — beyond spec = stop and report, never guess
+- spec (`docs/design/**`, `docs/tech/**`) = reference — work from the § quoted in the brief; missing info = report back, never guess

@@ -1,7 +1,7 @@
 # Spec Update Playbook
 
 > วิธีอัปเดต game spec (`docs/design/`) + tech spec (`docs/tech/`) — ใช้ทุกครั้งที่จะแตะ spec
-> กติกาแม่: **spec แก้ได้เฉพาะเมื่อ owner เคาะแล้วเท่านั้น** (spec-first, AI.md ข้อ 1) — ห้ามแก้ล่วงหน้า ห้ามแก้ "ไปพลางๆ"
+> กติกาแม่: **spec แก้ได้เฉพาะเมื่อ owner เคาะแล้วเท่านั้น** (spec files เป็นของ owner — แก้ได้เฉพาะ owner เคาะ) — ห้ามแก้ล่วงหน้า ห้ามแก้ "ไปพลางๆ"
 
 ## เลือกโหมดก่อน
 
@@ -25,11 +25,11 @@
 ตัวอย่างจริง: v14 → v15 (2026-07-12)
 
 1. Owner เซฟไฟล์จริงเอง — **ห้ามรับเนื้อ spec ผ่านการ paste ในแชท** (เคยเจอ mojibake ภาษาไทยเพี้ยน) · ตำแหน่งที่ถูก: game spec → `docs/design/` · tech → `docs/tech/`
-2. ย้ายเวอร์ชันเก่า → `docs/history/`
+2. ทับไฟล์เดิมได้เลย (git เก็บเวอร์ชันเก่าให้)
 3. ไล่อัปเดต **pointer ทุกจุด** (checklist):
    - `docs/decision-index.md` — แถว canonical (supersede แถวเก่า อย่าลบ)
    - `docs/README.md` — ตาราง index
-   - `AI.md` + `CLAUDE.md` — เลขเวอร์ชันใน rule
+   - `CLAUDE.md` — เลขเวอร์ชันใน rule
    - `docs/context/engine.md` / `ui.md` — ถ้าอ้างเลขเวอร์ชัน
    - `docs/current-state.md` — บันทึกการย้าย
    - grep เลขเวอร์ชันเก่าทั่ว `docs/` + `src/` + `server/` เก็บตก (comment ในโค้ดอ้าง § ได้ แต่ต้องยังชี้ถูกไฟล์)
