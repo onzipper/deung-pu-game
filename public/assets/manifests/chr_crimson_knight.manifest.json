@@ -2,12 +2,12 @@
   "assetId": "chr_crimson_knight",
   "category": "characters",
   "frameSize": [
-    64,
-    64
+    96,
+    96
   ],
   "pivot": [
-    32,
-    54
+    48,
+    81
   ],
   "mirrorSafe": true,
   "drawnDirections": [
