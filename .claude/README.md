@@ -35,6 +35,7 @@ is how briefs improve.
 | `qa-specialist` | sonnet | `tests/**`, `*.test.ts` | expected values come from spec, never from the implementation |
 | `docs-curator` | sonnet | `docs/**` (except design/tech) | never edits spec — spec changes are owner-only |
 | `game-designer` | opus | `docs/design/**` + all design drafting work | every output = PROPOSAL + questions to decide — never decides on the owner's behalf; paired with the `/game-design` skill for chat sessions |
+| `art-inspector` | sonnet | `public/assets/**` intake QA (read/run only) | ตรวจรับ sprite sheet จาก AI ภายนอกด้วย `scripts/art/**` + vision; paired with the `/sprite-intake` skill; never commits/edits art |
 
 ## Deferred (don't create yet — wait for a real file zone)
 
