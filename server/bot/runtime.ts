@@ -242,6 +242,13 @@ export interface BotHost {
   botAttachWarpedActor(exported: BotWarpExport, anchor: Vec2): boolean;
   /** Fire-and-forget durable save of the actor's position/progression (best-effort; never throws). */
   botPersistNow(actorId: string): void;
+  /**
+   * D-071 (walk town trip): the exit on THIS map toward `targetMapId` — a walkable `approach` tile inside the
+   * exit's trigger area (the bot walks here before the server-owned transfer, mirroring where a real player
+   * crosses) and the `landing` spawn in the target map. null when no exit connects the two maps. Optional: a host
+   * that never carries a walking bot (warp-only tiers, most fakes) may omit it — the runtime falls back to null.
+   */
+  botExitToward?(targetMapId: string): { approach: Vec2; landing: Vec2 } | null;
 
   // ── D-069/D-070 town transaction seams (PR5 Phase C) ──────────────────────────────────────────────────────
   // Delegate to the SAME pure shop/storage services the manual handlers use, gated by the room's own map
@@ -392,6 +399,12 @@ export class BotRuntime {
   private currentHost: BotHost;
   /** Active town trip, or null when farming. While non-null, tickPaid delegates the whole tick to it (no planner). */
   private tripController: TownTripController | null = null;
+  /**
+   * D-071 (walk town trip): the active walk cursor toward an arbitrary tile (a map portal, the town shop). Driven
+   * directly by the controller — independent of the recovery planner — so Free (whose tick never enters
+   * runRecoveryFarm) walks to the city-hub and back. null when not mid-walk.
+   */
+  private tripWalk: { goal: Vec2; waypoints: Vec2[]; nextIndex: number } | null = null;
   /** Last completed town trip (epoch ms) — the cooldown gate; NEGATIVE_INFINITY = never (first trip allowed). */
   private lastTownTripAt = Number.NEGATIVE_INFINITY;
   /** Short backoff after a trip that never moved the actor (target/seat unavailable) so it does not spin per tick. */
@@ -485,6 +498,13 @@ export class BotRuntime {
     // Free tier is byte-identical to PR4: the farm loop verbatim, no recovery planner, no tier recheck, no new
     // host calls. `activePocketId` never leaves the assigned pocket for Free, and the inline low-hp stop stays.
     if (this.currentTier === "free") {
+      // D-071: a Free WALK town trip owns the tick (walk to the city-hub → services → walk home). Without an
+      // active trip this stays byte-identical to PR4 — Free only ever holds a trip after a bag-full walk divert.
+      if (this.tripController) {
+        if (this.hasPendingAttack()) return; // never warp/walk-out while a committed grant is still draining.
+        this.tripController.tickTrip(dtMs);
+        return;
+      }
       this.runFarmBody(dtMs, false);
       return;
     }
@@ -617,7 +637,7 @@ export class BotRuntime {
       // controller only inside the attack continuation (the lease releases in that same microtask, before any
       // later tick), so this defers at most nothing in practice — it makes the invariant explicit + refactor-safe.
       if (this.hasPendingAttack()) return;
-      this.tripController.tickTrip();
+      this.tripController.tickTrip(dtMs);
       return;
     }
 
@@ -648,7 +668,7 @@ export class BotRuntime {
     // (b) an active town trip owns the whole tick (a workflow town step, or a bag-full divert).
     if (this.tripController) {
       if (this.hasPendingAttack()) return;
-      this.tripController.tickTrip();
+      this.tripController.tickTrip(dtMs);
       return;
     }
 
@@ -986,16 +1006,14 @@ export class BotRuntime {
     // LOOTING→WORKING). It issues no world command and never resets the attack cadence — only continuity revisions
     // change — so the ceiling (§6.2) is untouched. Gated to Pro+workflow, so Free/Plus stay byte-identical.
     this.maybeLootBeat(o);
-    // Bag overflow is the town-trip trigger (D-069/D-070). Free stays byte-identical to PR4 — one area, one goal
-    // → stop safely and report. A paid tier diverts to a town trip instead; beginTownTrip refuses on cooldown /
-    // active trip / stopped / no warp dep, and the fallback stop keeps every refusal honest (farming on with a
-    // full bag leaks loot — never acceptable). This runs in the attack continuation with the attack lease still
-    // held; beginTownTrip only advances continuity + constructs the controller here — the trip's warp export runs
-    // on a later tick, after releaseLease has drained this committed grant into the report.
+    // Bag overflow is the town-trip trigger (D-069/D-070/D-071). Every tier now diverts: paid tiers WARP to town,
+    // Free WALKS (D-071) — the mode is a config knob, not a capability gate. beginTownTrip refuses on cooldown /
+    // active trip / stopped / no warp dep / tier-not-enabled, and the fallback stop keeps every refusal honest
+    // (farming on with a full bag leaks loot — never acceptable). This runs in the attack continuation with the
+    // attack lease still held; beginTownTrip only advances continuity + constructs the controller here — the trip's
+    // first warp/walk step runs on a later tick, after releaseLease has drained this committed grant into the report.
     const bag = stopForInventoryOverflow(o.bagOverflowed ? 1 : 0);
-    if (bag) {
-      if (this.currentTier === "free" || !this.beginTownTrip("bag_full")) this.stop(bag);
-    }
+    if (bag && !this.beginTownTrip("bag_full")) this.stop(bag);
   }
 
   /**
@@ -1083,16 +1101,16 @@ export class BotRuntime {
   // ── PR5 Phase C town-trip wiring (D-069/D-070) ────────────────────────────────────────────────────────────
 
   /**
-   * Begin a town trip (Plus/Pro): warp the real actor to the city-hub, run sell → deposit → restock, warp back and
-   * resume farming. Guards: paid tier in `townTrip.enabledTiers`, past the trip cooldown and any short retry
-   * backoff, no trip already active, not stopped, and the warp acquisition dep is wired. Advances the continuity to
-   * RETURNING_TO_TOWN before constructing the controller. Returns true when the trip started. Called by the (next
-   * task's) bag-pressure trigger and directly by the warp-handoff tests.
+   * Begin a town trip: bring the real actor to the city-hub, run sell → deposit → restock, return and resume
+   * farming. Paid tiers WARP (D-069); Free WALKS (D-071) — the mode is `townTrip.mode[tier]` (defaults to warp).
+   * Guards: the tier is in `townTrip.enabledTiers`, past the trip cooldown and any short retry backoff, no trip
+   * already active, not stopped, and the warp acquisition dep is wired. Advances the continuity to
+   * RETURNING_TO_TOWN before constructing the controller. Returns true when the trip started.
    */
   beginTownTrip(trigger: TownTripTrigger): boolean {
     if (this.stopped || this.tripController) return false;
     if (!canIssueAutomationCommand(this.continuity)) return false;
-    if (this.currentTier === "free" || !this.d.config.townTrip.enabledTiers.includes(this.currentTier)) return false;
+    if (!this.d.config.townTrip.enabledTiers.includes(this.currentTier)) return false; // D-071: Free now included.
     if (!this.d.acquireHostForMap) return false;
     const now = this.d.now();
     if (now < this.townTripRetryUntil) return false;
@@ -1104,7 +1122,9 @@ export class BotRuntime {
           ? "workflow_town_step"
           : "preflight_town_trip";
     if (!this.advanceContinuity("RETURNING_TO_TOWN", reason)) return false; // fence lost (takeover/stop raced).
-    this.tripController = new TownTripController(this.makeTripFacade(), this.tripSeq);
+    const mode = this.d.config.townTrip.mode?.[this.currentTier] ?? "warp";
+    this.tripWalk = null; // fresh walk cursor per trip (D-071).
+    this.tripController = new TownTripController(this.makeTripFacade(), this.tripSeq, mode);
     return true;
   }
 
@@ -1127,6 +1147,69 @@ export class BotRuntime {
     this.recoveryPhase = { kind: "returning", targetPocketId, waypoints: route, nextIndex: 0 };
     this.idleDecisions = 0;
     return true;
+  }
+
+  /**
+   * D-071 (walk town trip): step the driven actor toward an arbitrary tile `goal` on the current host, one node per
+   * tick, planning A* lazily and replanning a blocked route on the recovery cooldown. Independent of the recovery
+   * planner so it drives Free too. Returns "arrived" at/near the goal, "stuck" once the idle-decision limit is hit
+   * (the controller settles the Free obstacle baseline), else "walking". Mirrors the recovery follow-route cadence:
+   * normal-speed movement every tick, throttled idle sampling on a blocked step.
+   */
+  private walkTripToward(goal: Vec2, dtMs: number): "walking" | "arrived" | "stuck" {
+    const host = this.currentHost;
+    const pos = host.botPos(this.d.actorId);
+    if (!pos) return "stuck"; // the member vanished mid-walk — an obstacle the controller settles.
+    if (withinRange(pos, goal, this.d.config.recovery.pocketArriveRadiusTiles)) {
+      this.tripWalk = null;
+      this.idleDecisions = 0;
+      this.decisionTimer = 0;
+      return "arrived";
+    }
+    // (re)plan when there is no active route or the goal changed.
+    if (!this.tripWalk || this.tripWalk.goal.tx !== goal.tx || this.tripWalk.goal.ty !== goal.ty) {
+      const route = host.botPlanPath(this.d.actorId, goal);
+      if (route === null) return this.countWalkStuck(dtMs); // unreachable this tick — count idle, maybe settle stuck.
+      if (route.length === 0) {
+        this.tripWalk = null;
+        this.idleDecisions = 0;
+        return "arrived";
+      }
+      this.tripWalk = { goal: { tx: goal.tx, ty: goal.ty }, waypoints: route, nextIndex: 0 };
+    }
+    const walk = this.tripWalk;
+    const waypoint = walk.waypoints[walk.nextIndex];
+    if (!waypoint) {
+      this.tripWalk = null;
+      this.idleDecisions = 0;
+      return "arrived";
+    }
+    const progressed = host.botStepToward(this.d.actorId, waypoint, dtMs);
+    if (progressed) {
+      this.idleDecisions = 0;
+      const now = host.botPos(this.d.actorId);
+      if (now && withinRange(now, waypoint, RETURN_WAYPOINT_ARRIVE_TILES)) {
+        walk.nextIndex += 1;
+        this.decisionTimer = 0;
+      }
+      return "walking";
+    }
+    return this.countWalkStuck(dtMs); // blocked step.
+  }
+
+  /** Throttled idle sampling for a blocked walk step: replan once per cooldown, settle "stuck" at the limit. */
+  private countWalkStuck(dtMs: number): "walking" | "stuck" {
+    this.decisionTimer += dtMs;
+    if (this.decisionTimer < this.throttleMs) return "walking";
+    this.decisionTimer = 0;
+    this.idleDecisions += 1;
+    const now = this.d.now();
+    if (this.tripWalk && now - this.lastRouteReplanMs >= this.d.config.recovery.routeReplanCooldownMs) {
+      this.lastRouteReplanMs = now;
+      const route = this.currentHost.botPlanPath(this.d.actorId, this.tripWalk.goal);
+      if (route && route.length > 0) this.tripWalk = { goal: this.tripWalk.goal, waypoints: route, nextIndex: 0 };
+    }
+    return stopForStuck(this.idleDecisions, this.d.config.stuckTickLimit) ? "stuck" : "walking";
   }
 
   /** Record a completed trip: arm the cooldown from now and bump the idempotency-key trip sequence. */
@@ -1157,6 +1240,8 @@ export class BotRuntime {
       bagItems: () => this.currentHost.botBagItems(this.d.actorId),
       ownerStatusPush: () => this.pushStatus(),
       beginReturnRouteFromCurrent: (pocketId) => this.beginReturnRouteFromCurrent(pocketId),
+      exitToward: (targetMapId) => this.currentHost.botExitToward?.(targetMapId) ?? null,
+      walkToward: (goal, dtMs) => this.walkTripToward(goal, dtMs),
       markTripComplete: () => this.markTripComplete(),
       settleTakeover: (checkpointId, requestedAt) => void this.applyTakeoverPause(checkpointId, requestedAt),
       armRetryBackoff: () => {
@@ -1164,6 +1249,7 @@ export class BotRuntime {
       },
       onTripEnded: () => {
         this.tripController = null;
+        this.tripWalk = null;
       },
     };
   }

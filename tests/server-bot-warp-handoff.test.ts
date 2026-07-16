@@ -218,10 +218,13 @@ describe("town-trip warp handoff — return warp target selection", () => {
 });
 
 describe("town-trip warp handoff — begin guards", () => {
-  test("free tier refuses a trip: no continuity advance, no acquire", async () => {
+  test("free tier begins a WALK trip (D-071): advances RETURNING_TO_TOWN, no warp acquire at begin", async () => {
+    // D-071 (2026-07-16): Free walk-to-town — Free no longer refuses a trip; it diverts to a walk trip. The town
+    // host is acquired only after it walks to the portal, so no acquire is recorded at begin (unlike a paid warp,
+    // which acquires on its first trip tick). The full walk cycle lives in server-bot-free-town-walk.test.ts.
     const { world, harness } = scene({ tier: "free" });
-    expect(harness.runtime.beginTownTrip("bag_full")).toBe(false);
-    expect(harness.state()).toBe("WORKING");
+    expect(harness.runtime.beginTownTrip("bag_full")).toBe(true);
+    expect(harness.state()).toBe("RETURNING_TO_TOWN");
     expect(world.acquireCalls).toHaveLength(0);
   });
 

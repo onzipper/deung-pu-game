@@ -3659,7 +3659,16 @@ export class MapRoom extends Room<MapRoomState> {
   botPocketAnchor(pocketId: string): Vec2 | null {
     const pocket = this.map.mobPockets.find((p) => p.pocketId === pocketId);
     if (!pocket) return null;
-    const { tx, ty, width, height } = pocket.area;
+    return this.walkableTileInRect(pocket.area);
+  }
+
+  /**
+   * A walkable route target inside a tile rect: the rect's center, or (if blocked) the nearest walkable tile
+   * scanned outward in Chebyshev rings bounded by the rect. null = the rect holds no walkable tile. Shared by
+   * botPocketAnchor (pocket center) and botExitToward (exit-area approach tile).
+   */
+  private walkableTileInRect(rect: { tx: number; ty: number; width: number; height: number }): Vec2 | null {
+    const { tx, ty, width, height } = rect;
     const cx = tx + Math.floor(width / 2);
     const cy = ty + Math.floor(height / 2);
     if (this.isWalkableAt(cx, cy)) return { tx: cx, ty: cy };
@@ -3676,6 +3685,20 @@ export class MapRoom extends Room<MapRoomState> {
       }
     }
     return null;
+  }
+
+  /**
+   * BotHost.botExitToward (D-071 walk town trip) — the exit on THIS map toward `targetMapId`: a walkable approach
+   * tile inside the exit's trigger area (the bot walks here before the server-owned transfer, mirroring where a
+   * real player crosses) and the landing spawn in the target map. Reuses the SAME exit data the player MSG_MOVE
+   * detection reads (findExitAt). null = no exit connects the two maps, or the trigger area has no walkable tile.
+   */
+  botExitToward(targetMapId: string): { approach: Vec2; landing: Vec2 } | null {
+    const exit = this.map.exits.find((e) => e.targetMapId === targetMapId);
+    if (!exit) return null;
+    const approach = this.walkableTileInRect(exit.area);
+    if (!approach) return null;
+    return { approach, landing: { tx: exit.targetSpawn.x, ty: exit.targetSpawn.y } };
   }
 
   // ── D-069/D-070 town transaction seams (PR5 Phase C) ───────────────────────────────────────────────────────
