@@ -328,6 +328,13 @@ export interface BotRuntimeDeps {
    * next real overflow. Absent/false = the ordinary farm start. Free never sets this (no bag read at all).
    */
   initialTownTrip?: boolean;
+  /**
+   * PR6a (D-067): persist a durable running checkpoint so a Pro run survives a server restart. The runtime calls
+   * this ONLY for Pro (gated on the live tier) — piggybacked on the flush cadence and once more on a graceful
+   * `server_restart` stop. Optional: absent (Free path + the recovery/warp suites) = no durable persistence, so
+   * every tier's in-process behavior is byte-identical to before. The manager reads {@link BotRuntime.runningCheckpoint}.
+   */
+  persistRunningCheckpoint?: () => void;
 }
 
 export class BotRuntime {
@@ -430,6 +437,19 @@ export class BotRuntime {
     return toBotContinuityWire(this.continuity);
   }
 
+  /**
+   * PR6a (D-067): the durable running-checkpoint snapshot the manager persists for a Pro restart resume. `mapId` +
+   * `pocketId` are where the actor currently farms; `continuity` is diagnostic only — resume starts a NEW run at
+   * WORKING and re-validates the live actor. Never replayed.
+   */
+  get runningCheckpoint(): { mapId: string; pocketId: string; continuity: BotContinuitySnapshotWire } {
+    return {
+      mapId: this.currentHost.mapId,
+      pocketId: this.activePocketId,
+      continuity: toBotContinuityWire(this.continuity),
+    };
+  }
+
   /** advance one host sim tick; may stop the bot. */
   tick(dtMs: number): void {
     if (this.stopped || !canIssueAutomationCommand(this.continuity)) return;
@@ -519,6 +539,9 @@ export class BotRuntime {
     if (this.sinceFlushMs >= config.sessionFlushIntervalMs) {
       this.sinceFlushMs = 0;
       void this.flush(null);
+      // PR6a (D-067): piggyback a durable running checkpoint so a Pro run survives a restart. Pro-only, and a
+      // no-op without the manager dep wired (Free/recovery suites) → every tier's flush cadence is unchanged.
+      if (this.currentTier === "pro") this.d.persistRunningCheckpoint?.();
     }
     this.sinceStatusMs += dtMs;
     if (this.sinceStatusMs >= config.statusPushIntervalMs) {
@@ -877,6 +900,10 @@ export class BotRuntime {
   /** stop the bot for a reason (mandatory / manual / death / restart). Idempotent. */
   stop(reason: BotStopReason): void {
     if (this.stopped) return;
+    // PR6a (D-067): a graceful server_restart shutdown persists the freshest running snapshot BEFORE the run
+    // settles, so a Pro resume lands on the last live state (not the last ~30s flush). Pro-only; runs while still
+    // !stopped so the manager reads the live snapshot. No-op without the dep wired (in-process behavior unchanged).
+    if (reason === "server_restart" && this.currentTier === "pro") this.d.persistRunningCheckpoint?.();
     const settlement = settlementForStoppedPlan(reason);
     const settled = applyBotContinuityTransition(this.continuity, {
       kind: settlement,

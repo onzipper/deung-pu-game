@@ -2,7 +2,7 @@
 
 _2026-07-16 · อัพเดตเมื่อสถานะเปลี่ยนจริง_
 
-- **Live:** server `https://deung-pu-game.onrender.com` (Render free + UptimeRobot `/healthz`) · client `https://deung-pu.softrock.space/game` (Hostinger) · DB Hostinger MariaDB (0001-0002 applied · 0003/0004_bot ยังไม่ apply)
+- **Live:** server `https://deung-pu-game.onrender.com` (Render free + UptimeRobot `/healthz`) · client `https://deung-pu.softrock.space/game` (Hostinger) · DB Hostinger MariaDB (0001-0002 applied · 0003/0004_bot/0005_bot_checkpoint ยังไม่ apply)
 - **Phase:** P2 wave 3 code-complete · OB push — คิวงาน: PR6 (Pro workflows/restart resume) → PR7 (Bot UX) → PR8-10 · งานแทรก: จอกระตุก / starter loadout / E2E
 - **Art track: ⏸ พัก (owner สั่ง 2026-07-16 หลัง v8 ตีกลับ)** · เกมใช้ chr_crimson_knight v3 · v6-v8 ตีกลับด้วย defect โครงสร้างเดิม (ตัวเกินช่อง+เฟรมเกิน — ChatGPT แก้ไม่ได้สักรอบ) · ของพร้อมกลับมาต่อ: contract `scripts/art/templates/` + JSON engine-schema 576×1440 รอในตัว template · ตัวเลือกถัดไปที่เคาะคร่าวๆ: PixelLab.ai (ลอง free ก่อน)
 - **ค้างกับ owner:** production smoke test เต็มรอบ (deploy-checklist §3) · L2 final-art order

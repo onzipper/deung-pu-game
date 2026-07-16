@@ -1068,6 +1068,12 @@ export interface BotStoppedMessage {
 }
 /** A takeover checkpoint is saving until the accepted in-flight reward and report close have drained. */
 export type BotCheckpointStateWire = "saving" | "ready" | "failed";
+/**
+ * How the checkpoint came to be (PR6a durable resume): `takeover` = a manual takeover in this process; `running`
+ * = a Pro-only periodic durable snapshot of a live run; `restart` = a durable checkpoint that survived a server
+ * restart (Pro-only resume, D-067). Optional — absent on the pre-PR6a in-process takeover checkpoints.
+ */
+export type BotCheckpointKindWire = "takeover" | "running" | "restart";
 export interface BotCheckpointWire {
   id: string;
   profileId: string;
@@ -1078,6 +1084,8 @@ export interface BotCheckpointWire {
   state: BotCheckpointStateWire;
   /** PAUSED snapshot plus the interrupted operational state; resume still re-evaluates the live actor. */
   continuity: BotContinuitySnapshotWire;
+  /** PR6a durable-resume provenance; `restart` requires Pro to resume (D-067). Absent = in-process takeover. */
+  kind?: BotCheckpointKindWire;
 }
 /** S→C: current manual-takeover checkpoint; null means consumed/cleared by a successful start or resume. */
 export const MSG_BOT_CHECKPOINT = "bot:checkpoint";

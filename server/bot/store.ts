@@ -9,6 +9,11 @@ import { getPrisma } from "../../src/server/db";
 import type { BotTier, BotStopReason } from "../config/bot";
 import type { ProfileRepo } from "./profiles";
 import type { BotProfileRow, BotRulesV1, BotSessionRow, BotTierStateRow } from "./types";
+import type {
+  BotCheckpointKindWire,
+  BotCheckpointStateWire,
+} from "../../src/shared/net-protocol";
+import type { BotContinuitySnapshotWire } from "../../src/shared/bot-continuity";
 
 /** Bots require a real DB (they touch the audited economy). Mirrors the best-effort gate used elsewhere. */
 export function botPersistenceAvailable(): boolean {
@@ -204,6 +209,105 @@ export const prismaSessionRepo: SessionRepo = {
     const res = await getPrisma().botSession.updateMany({
       where: { stoppedAt: null, startedAt: { lt: new Date(nowMs) } },
       data: { stoppedAt: new Date(nowMs), stopReason: "server_restart" },
+    });
+    return res.count;
+  },
+};
+
+// ── checkpoints (durable restart resume — PR6a · D-067) ─────────────────────────
+// Write-behind: the manager's in-process Map stays authority while the process lives; this row exists ONLY to
+// cross a server restart. One row per account (accountId PK). continuity is a diagnostic snapshot — resume starts
+// a NEW run at WORKING and re-validates the live actor (never replays the interrupted state).
+
+/** bot_checkpoints row (kind = takeover|running|restart; state = saving|ready|failed). */
+export interface BotCheckpointRow {
+  accountId: string;
+  id: string;
+  characterId: string;
+  profileId: string;
+  sourceSessionId: string;
+  mapId: string;
+  pocketId: string;
+  kind: BotCheckpointKindWire;
+  state: BotCheckpointStateWire;
+  continuity: BotContinuitySnapshotWire;
+  savedAt: number;
+  updatedAt: number;
+}
+
+/** Upsert payload (updatedAt is DB-managed via @updatedAt). */
+export type BotCheckpointUpsert = Omit<BotCheckpointRow, "updatedAt">;
+
+export interface CheckpointRepo {
+  get(accountId: string): Promise<BotCheckpointRow | null>;
+  upsert(row: BotCheckpointUpsert): Promise<void>;
+  remove(accountId: string): Promise<void>;
+  /** on boot: every still-running snapshot crossed the restart → mark kind='restart', state='ready'. */
+  markRunningAsRestart(): Promise<number>;
+}
+
+function toCheckpointRow(r: {
+  accountId: string;
+  id: string;
+  characterId: string;
+  profileId: string;
+  sourceSessionId: string;
+  mapId: string;
+  pocketId: string;
+  kind: string;
+  state: string;
+  continuityJson: unknown;
+  savedAt: Date;
+  updatedAt: Date;
+}): BotCheckpointRow {
+  return {
+    accountId: r.accountId,
+    id: r.id,
+    characterId: r.characterId,
+    profileId: r.profileId,
+    sourceSessionId: r.sourceSessionId,
+    mapId: r.mapId,
+    pocketId: r.pocketId,
+    kind: r.kind as BotCheckpointKindWire,
+    state: r.state as BotCheckpointStateWire,
+    continuity: r.continuityJson as BotContinuitySnapshotWire,
+    savedAt: reqMs(r.savedAt),
+    updatedAt: reqMs(r.updatedAt),
+  };
+}
+
+export const prismaCheckpointRepo: CheckpointRepo = {
+  async get(accountId) {
+    const r = await getPrisma().botCheckpoint.findUnique({ where: { accountId } });
+    return r ? toCheckpointRow(r) : null;
+  },
+  async upsert(row) {
+    const shared = {
+      id: row.id,
+      characterId: row.characterId,
+      profileId: row.profileId,
+      sourceSessionId: row.sourceSessionId,
+      mapId: row.mapId,
+      pocketId: row.pocketId,
+      kind: row.kind,
+      state: row.state,
+      continuityJson: row.continuity as unknown as object,
+      savedAt: new Date(row.savedAt),
+    };
+    await getPrisma().botCheckpoint.upsert({
+      where: { accountId: row.accountId },
+      create: { accountId: row.accountId, ...shared },
+      update: shared,
+    });
+  },
+  async remove(accountId) {
+    await getPrisma().botCheckpoint.deleteMany({ where: { accountId } });
+  },
+  async markRunningAsRestart() {
+    // onBoot runs before any client can start a bot, so every kind='running' row is a pre-restart survivor.
+    const res = await getPrisma().botCheckpoint.updateMany({
+      where: { kind: "running" },
+      data: { kind: "restart", state: "ready" },
     });
     return res.count;
   },

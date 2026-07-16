@@ -242,6 +242,8 @@ export function botOpRejectionLabel(reason: string | undefined): string {
     case "checkpoint_character_mismatch":
     case "actor_mismatch":
       return "จุดทำงานนี้ไม่ใช่ของตัวละครที่กำลังเล่น";
+    case "checkpoint_requires_pro":
+      return "ต้องเป็นแพ็กเกจ Pro เพื่อกู้แผนต่อหลังเซิร์ฟเวอร์รีสตาร์ท";
     case "free_not_purchasable":
       return "แพ็กเกจ Free ใช้ได้ฟรีอยู่แล้ว ไม่ต้องซื้อ";
     case "unknown_tier":
