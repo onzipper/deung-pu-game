@@ -124,6 +124,26 @@ export class CharacterAuthorityRegistry {
     return actor;
   }
 
+  /**
+   * D-069 warp attach: register the SAME actor id (no new uuid) already exported from a sibling room. The adopted
+   * actor looks exactly like a bot-held actor after onLeave retention — no controller transport, autonomy mode —
+   * so the running runtime keeps driving it and a later owner reconnect binds a controller normally. Returns null
+   * (attach failure) when the actor id or character is already bound here, preserving the one-actor invariant.
+   */
+  adoptActor(input: { actorId: string; accountId: string; characterId: string }): CharacterActorAuthority | null {
+    if (this.actors.has(input.actorId) || this.characterToActor.has(input.characterId)) return null;
+    const actor: CharacterActorAuthority = {
+      actorId: input.actorId,
+      accountId: input.accountId,
+      characterId: input.characterId,
+      controllerSessionId: null,
+      mode: "autonomy",
+    };
+    this.actors.set(actor.actorId, actor);
+    this.characterToActor.set(input.characterId, actor.actorId);
+    return actor;
+  }
+
   removeActor(actorId: string): CharacterActorAuthority | null {
     const actor = this.actors.get(actorId);
     if (!actor) return null;

@@ -94,6 +94,8 @@ import {
   MSG_EQUIP_ITEM,
   MSG_UNEQUIP_ITEM,
   MSG_MOVE_ITEM,
+  MSG_USE_ITEM,
+  MSG_USE_ITEM_RESULT,
   MSG_ENHANCE_ITEM,
   MSG_ENHANCE_RESULT,
   MSG_FRAGMENT_EXCHANGE,
@@ -134,6 +136,8 @@ import {
   type SkillResultMessage,
   type EquipItemMessage,
   type MoveItemMessage,
+  type UseItemMessage,
+  type UseItemResultMessage,
   type EnhanceItemMessage,
   type EnhanceResultMessage,
   type FragmentExchangeMessage,
@@ -194,6 +198,11 @@ import {
   type EnhanceResult,
 } from "../../src/server/inventory/enhancement-service";
 import {
+  useConsumable,
+  type UseConsumableReject,
+  type UseConsumableResult,
+} from "../../src/server/inventory/consumable-service";
+import {
   exchangeFragments,
   type FragmentExchangeResult,
 } from "../../src/server/inventory/fragment-exchange-service";
@@ -209,10 +218,11 @@ import {
   type DeliveryClaimResult,
 } from "../../src/server/inventory/storage-service";
 import { aggregateEquipmentBonus } from "../../src/server/inventory/equipment-stats";
-import { applyEquipmentBonus } from "../../src/server/inventory/item-catalog";
+import { applyEquipmentBonus, sharingPolicyOf } from "../../src/server/inventory/item-catalog";
 import {
   INVENTORY_CAPACITY,
   ITEM_CATALOG,
+  CONSUMABLE_CONFIG,
   ENHANCEMENT_CURVE,
   REINFORCEMENT_RULES,
   FRAGMENT_EXCHANGE_RULES,
@@ -250,10 +260,11 @@ import { SHOP_CONFIG, shopForMap, shopItemMeta } from "../economy/shop-state";
 import {
   buyShopItem,
   sellItem,
+  NON_SELLABLE_ITEM_IDS,
   type ShopBuyResult,
   type ShopSellResult,
 } from "../../src/server/economy/shop";
-import { appendEntry } from "../db/ledger";
+import { appendEntry, getBalance } from "../db/ledger";
 import {
   applyClassStatWeights,
   applyExpGain,
@@ -312,7 +323,16 @@ import { resolveDirection, type Direction } from "../../src/engine/movement/dire
 import { defaultRng } from "../../src/game/mob/rng";
 import { botManager } from "../bot/manager";
 import { nextStepToward, type AgentMob, type Vec2 } from "../bot/agent";
-import type { BotAttackOutcome, BotAuthorityInput } from "../bot/runtime";
+import { findPath } from "../../src/engine/pathfinding/astar";
+import type {
+  BotAttackOutcome,
+  BotAuthorityInput,
+  BotBagItemView,
+  BotMemberState,
+  BotPotionOutcome,
+  BotTownTxResult,
+  BotWarpExport,
+} from "../bot/runtime";
 import { isForbiddenAutomationMobClass } from "../bot/policy";
 import {
   MSG_BOT_PROFILE_LIST,
@@ -357,19 +377,22 @@ interface KillGrant {
   members: { sessionId: string; sharePct: number }[];
 }
 
+// Batch 7b (Bot): BotMemberState (per-bot state alongside the shared session maps) is defined in
+// server/bot/runtime.ts — the canonical bot-facing types module — so warp types never pull this room/schema
+// module into the client/test tsc program. Re-imported below with the other bot host types.
+
 /**
- * Batch 7b (Bot): per-bot state kept alongside the shared session maps (trackers/cooldowns/effectiveStats/
- * sessionProgress/sessionClassId are reused as-is). Identity = the owner's account/character (rewards land on
- * them via the identical economy path); `skill` = the resolved basic-attack skill the bot casts each cadence.
+ * PR5: map the pure consumable-service rejects onto the bot potion outcome status. `unknown_item`/`no_effect`
+ * are catalogue/config errors → fail closed to "unavailable" (never silently succeed on a bad config).
  */
-interface BotMemberState {
-  accountId: string;
-  characterId: string;
-  profileId: string;
-  classId: string;
-  skill: SkillDefinition;
-  pocketId: string;
-}
+const BOT_POTION_REJECT_STATUS: Record<UseConsumableReject, BotPotionOutcome["status"]> = {
+  no_stock: "no_potion",
+  on_cooldown: "on_cooldown",
+  hp_already_full: "not_needed",
+  version_conflict: "conflict",
+  unknown_item: "unavailable",
+  no_effect: "unavailable",
+};
 
 /**
  * P1-08: channel number registry (display label CH.n ต่อ mapId) — **module-level singleton** ใช้ร่วมทุก
@@ -544,6 +567,12 @@ export class MapRoom extends Room<MapRoomState> {
   /** cooldown state ต่อ (sessionId → skillId → readyAtMs) — server clock authority (§16.3). ไม่ broadcast. */
   private readonly cooldowns = new Map<string, Map<string, number>>();
   /**
+   * PR5 (Economy §7.1): per-actor consumable cooldown (actorId → epoch ms until next allowed use) — server clock
+   * authority, keyed by the stable actor so the manual + future bot heal paths share one gate. Not in schema
+   * (server-only, never broadcast). Cleaned up in removePlayer alongside the other per-actor cooldown maps.
+   */
+  private readonly consumableCooldowns = new Map<string, number>();
+  /**
    * P2-07: effective combat stats ต่อ session = base (นักดาบ lv1) + equipment bonus (aggregate จากของที่สวม).
    * recompute ตอน join + หลังทุก equip/unequip สำเร็จ. ไม่อยู่ใน schema (server-only, ใช้ในสูตร damage §15.2).
    * default = this.balance.player (anonymous / ไม่มีของ). never-downgrade zone (combat calc) — ต่อผ่าน pure fn.
@@ -595,8 +624,11 @@ export class MapRoom extends Room<MapRoomState> {
     string,
     readonly { itemId: string; enhancementLevel: number }[]
   >();
-  /** P1-08: partyId ของ channel นี้ ("" = solo channel, ≠"" = party channel) — จาก options คนแรก */
-  private partyId = DEFAULT_PARTY_ID;
+  /**
+   * P1-08: partyId ของ channel นี้ ("" = solo channel, ≠"" = party channel) — จาก options คนแรก.
+   * Public (BotHost.partyId): the warp target selection skips party channels. Set in onCreate.
+   */
+  partyId = DEFAULT_PARTY_ID;
   /** P1-08: display channelId (CH.n) ที่ registry จ่ายให้ตอน onCreate — release ตอน onDispose */
   private assignedChannelId = "";
   /** P1-07: grace window (วินาที) สำหรับ allowReconnection (§59.1) — set ตอน onCreate */
@@ -939,6 +971,14 @@ export class MapRoom extends Room<MapRoomState> {
           capacity: INVENTORY_CAPACITY,
         }),
       );
+    });
+
+    // PR5 (Economy §7.1): manual consumable use (heal potion) — server-authoritative, HP applied to the room
+    //   schema. Same manual-mutation fence as equip/move (a bot-held actor must not manually drink → takeover
+    //   required); the run method coerces the payload defensively + answers MSG_USE_ITEM_RESULT (+ fresh snapshot).
+    this.onMessage(MSG_USE_ITEM, (client: Client, message: UseItemMessage) => {
+      if (this.manualMutationBlocked(client)) return;
+      void this.runUseItem(client, message);
     });
 
     // P2-10: guaranteed reinforcement (+1, cap +15) — server-authoritative, atomic, 100% success no RNG.
@@ -2211,6 +2251,83 @@ export class MapRoom extends Room<MapRoomState> {
   }
 
   /**
+   * PR5 (Economy §7.1): run one manual consumable use (heal potion) then answer the client. Only a character-bound
+   * session with a live actor + DB (anonymous/dev has no persisted bag → reject with the closest inventory posture).
+   * The pure `useConsumable` service commits the consume BEFORE the heal (never-downgrade), so success ⟹ the item
+   * really left the bag. Success → set schema HP + store the per-actor cooldown (shared heal-apply path) →
+   * MSG_USE_ITEM_RESULT{ok} + fresh inventory snapshot. Business reject → ok:false + reason; a stale-version reject
+   * ALSO pushes a fresh snapshot (client version was stale). A thrown repo error mirrors the equip/shop posture
+   * (log + version_conflict reject) — a use that did not persist must not look like it worked.
+   */
+  private async runUseItem(client: Client, message: UseItemMessage): Promise<void> {
+    const actorId = this.actorIdOf(client);
+    const player = actorId ? this.state.players.get(actorId) : undefined;
+    const rec = this.characterRecordOf(client);
+    if (!actorId || !player || !rec || !inventoryPersistenceAvailable()) {
+      // no persisted bag / no live actor → closest existing failure posture (mirror the equip guard).
+      const rejected: UseItemResultMessage = { ok: false, reason: "unknown_item" };
+      client.send(MSG_USE_ITEM_RESULT, rejected);
+      return;
+    }
+    let result: UseConsumableResult;
+    try {
+      result = await useConsumable(
+        getInventoryRepository(),
+        ITEM_CATALOG,
+        (id) => CONSUMABLE_CONFIG.effects[id],
+        {
+          characterId: rec.characterId,
+          selector: {
+            by: "instance",
+            instanceId: String(message?.instanceId ?? ""),
+            expectedVersion: Number(message?.expectedVersion),
+          },
+          hp: player.hp,
+          maxHp: player.maxHp,
+          nowMs: Date.now(),
+          cooldownUntilMs: this.consumableCooldowns.get(actorId) ?? 0,
+        },
+      );
+    } catch (err) {
+      console.warn(
+        `[MapRoom ${this.roomId}] use-item DB error ${client.sessionId}: ` +
+          (err instanceof Error ? err.message : String(err)),
+      );
+      const rejected: UseItemResultMessage = { ok: false, reason: "version_conflict" };
+      client.send(MSG_USE_ITEM_RESULT, rejected);
+      return;
+    }
+    if (!result.ok) {
+      const rejected: UseItemResultMessage = { ok: false, reason: result.reason };
+      client.send(MSG_USE_ITEM_RESULT, rejected);
+      // version_conflict = the client's expectedVersion was stale → push fresh state so it re-syncs (client can
+      //   never fake a heal off a stale bag; the consume did NOT commit).
+      if (result.reason === "version_conflict") await this.sendInventorySnapshot(client, rec.characterId);
+      return;
+    }
+    this.applyConsumableHeal(actorId, result.healedToHp, result.cooldownUntilMs);
+    const ok: UseItemResultMessage = {
+      ok: true,
+      itemId: result.itemId,
+      hp: result.healedToHp,
+      cooldownUntilMs: result.cooldownUntilMs,
+    };
+    client.send(MSG_USE_ITEM_RESULT, ok);
+    await this.sendInventorySnapshot(client, rec.characterId);
+  }
+
+  /**
+   * PR5: apply a committed consumable heal to an actor by id + store its next-allowed-use time. Keyed by actorId
+   * (not client) so the manual path here and a future bot heal path share one code path — write schema HP (auto-
+   * sync, clamp not needed: healedToHp is already clamped to Max HP by the service) + record the per-actor cooldown.
+   */
+  private applyConsumableHeal(actorId: string, healedToHp: number, cooldownUntilMs: number): void {
+    const player = this.state.players.get(actorId);
+    if (player) player.hp = healedToHp;
+    this.consumableCooldowns.set(actorId, cooldownUntilMs);
+  }
+
+  /**
    * P2-11: ตอบ catalog ของร้านบน map ปัจจุบัน (Economy §8). ราคาซื้อมาจาก config (ไม่ bundle ในclient) — map
    * ที่ไม่มีร้าน → available:false (client ซ่อนปุ่มร้าน). ไม่ต้องมี DB (ราคา = config).
    */
@@ -2776,6 +2893,7 @@ export class MapRoom extends Room<MapRoomState> {
     this.state.players.delete(sessionId);
     this.trackers.delete(sessionId);
     this.cooldowns.delete(sessionId);
+    this.consumableCooldowns.delete(sessionId); // PR5: drop the per-actor consumable cooldown gate
     this.effectiveStats.delete(sessionId);
     this.sessionBreakPower.delete(sessionId);
     this.damageReductionUntil.delete(sessionId); // A3: เคลียร์ S4 buff
@@ -3070,6 +3188,171 @@ export class MapRoom extends Room<MapRoomState> {
     return out;
   }
 
+  // ── D-069 server-owned warp seams (PR5 Phase B) ──────────────────────────────────────────────────────────
+  // Move the ONE real character actor between a farm MapRoom and the city-hub MapRoom with zero duplicate-actor
+  // windows. The trip controller (next task) calls botExportActor + botAttachWarpedActor inside ONE synchronous
+  // block, so both are fully synchronous. Reservation/persistence are thin wrappers over the existing seams.
+
+  /** BotHost.botReserveWarpSeat — hold a world seat for an incoming warp (same actor-keyed cap as onJoin). */
+  botReserveWarpSeat(actorId: string): boolean {
+    return this.reserveWorldSeat(actorId);
+  }
+
+  /** BotHost.botReleaseWarpSeat — release a warp seat reservation (mirrors the onJoin finally). */
+  botReleaseWarpSeat(actorId: string): void {
+    this.releaseWorldSeat(actorId);
+  }
+
+  /**
+   * BotHost.botExportActor — synchronously detach a live bot actor from THIS room and collect its full transferable
+   * state. null unless the actor is BOTH a bot member and materialized here (or a durable session gap is found).
+   *
+   * ⚠ This is a warp TRANSFER, not a leave: it deliberately does NOT call removePlayer. removePlayer would fire
+   * leave-shaped side effects — forgetAchievementSession, releaseRetainedActorSession, and (via botReleaseAuthority)
+   * the autonomy_stopped_offline dematerialize microtask — that would tear the running bot down. Instead we lift the
+   * actor out of every per-actor structure while the runtime keeps running, so botAttachWarpedActor rebuilds it at
+   * the target anchor. Deliberately NOT called: botReleaseAuthority, removePlayer, any botManager notification.
+   */
+  botExportActor(actorId: string): BotWarpExport | null {
+    if (!this.botMembers.has(actorId) || !this.state.players.has(actorId)) return null;
+    const player = this.state.players.get(actorId)!;
+    const botMember = this.botMembers.get(actorId)!;
+    const rec = this.sessionCharacters.get(actorId);
+    const progress = this.sessionProgress.get(actorId);
+    const classId = this.sessionClassId.get(actorId);
+    // A bot member must always carry durable identity/progression/class; a gap = never export (fail closed).
+    if (!rec || !progress || !classId) return null;
+    const equipment = this.sessionEquipment.get(actorId) ?? [];
+    const ownerAttached = this.characterAuthority.get(actorId)?.controllerSessionId != null;
+
+    const exported: BotWarpExport = {
+      actorId,
+      accountId: botMember.accountId,
+      characterId: botMember.characterId,
+      classId: player.classId,
+      name: player.name,
+      hp: player.hp,
+      maxHp: player.maxHp,
+      level: player.level,
+      exp: player.exp,
+      expFloor: player.expFloor,
+      expCeil: player.expCeil,
+      sessionProgress: { level: progress.level, exp: progress.exp },
+      sessionCharacters: { accountId: rec.accountId, characterId: rec.characterId, lastSaveMs: rec.lastSaveMs },
+      sessionEquipment: equipment.map((e) => ({ itemId: e.itemId, enhancementLevel: e.enhancementLevel })),
+      sessionClassId: classId,
+      botMember: { ...botMember },
+      ownerAttached,
+    };
+
+    // Lift the actor out of every per-actor structure (the removePlayer checklist minus the leave-only side
+    // effects). Mirrors removePlayer's map deletes exactly so no stale entry survives the transfer.
+    this.state.players.delete(actorId);
+    this.trackers.delete(actorId);
+    this.cooldowns.delete(actorId);
+    this.consumableCooldowns.delete(actorId);
+    this.effectiveStats.delete(actorId);
+    this.sessionBreakPower.delete(actorId);
+    this.damageReductionUntil.delete(actorId);
+    this.moveSpeedBonusUntil.delete(actorId);
+    this.sessionClassId.delete(actorId);
+    this.sessionProgress.delete(actorId);
+    this.sessionEquipment.delete(actorId);
+    this.sessionCharacters.delete(actorId);
+    this.transitioningSessions.delete(actorId);
+    this.retainedActors.delete(actorId);
+    this.botMembers.delete(actorId);
+    const removed = this.characterAuthority.removeActor(actorId);
+    if (removed?.controllerSessionId) this.state.controllers.delete(removed.controllerSessionId);
+    this.refreshAutoDispose();
+    return exported;
+  }
+
+  /**
+   * BotHost.botAttachWarpedActor — synchronously re-materialize an exported actor at `anchor` in THIS room and
+   * re-register its automation so the running runtime keeps driving it. Combat stats are RECOMPUTED from the
+   * carried level + equipment (never-downgrade), while live vitals (hp/maxHp/level/exp) are carried verbatim.
+   */
+  botAttachWarpedActor(exported: BotWarpExport, anchor: Vec2): boolean {
+    // Invariant breach guard: an actor observable in two rooms is exactly the window D-069 forbids.
+    if (this.state.players.has(exported.actorId)) return false;
+    const adopted = this.characterAuthority.adoptActor({
+      actorId: exported.actorId,
+      accountId: exported.accountId,
+      characterId: exported.characterId,
+    });
+    if (!adopted) return false;
+    const actorId = exported.actorId;
+
+    const spawn = resolveSpawnPosition({ tx: anchor.tx, ty: anchor.ty }, this.safeCamp, this.isWalkableAt);
+    const player = new PlayerState();
+    player.tx = spawn.pos.tx;
+    player.ty = spawn.pos.ty;
+    player.direction = "S";
+    player.anim = "idle";
+    player.partyId = this.partyId;
+    player.classId = exported.classId;
+    player.name = exported.name;
+    player.isBot = true;
+    const tracker: MoveTracker = {
+      tx: player.tx,
+      ty: player.ty,
+      lastMoveTime: Date.now(),
+      lastCorrectionTime: 0,
+      lastExitId: null,
+      lastInputMs: Date.now(),
+      connectedAtMs: Date.now(),
+    };
+
+    this.state.players.set(actorId, player);
+    this.trackers.set(actorId, tracker);
+    this.cooldowns.set(actorId, new Map());
+    this.sessionProgress.set(actorId, { level: exported.sessionProgress.level, exp: exported.sessionProgress.exp });
+    this.sessionClassId.set(actorId, exported.sessionClassId);
+    this.sessionCharacters.set(actorId, {
+      accountId: exported.sessionCharacters.accountId,
+      characterId: exported.sessionCharacters.characterId,
+      lastSaveMs: exported.sessionCharacters.lastSaveMs,
+    });
+    // Recompute combat stats from the carried level + class + equipment (do NOT copy the source effectiveStats).
+    this.recomputeEffectiveStats(actorId);
+    this.applyEquipmentStats(actorId, exported.sessionEquipment);
+    // Warp preserves live vitals (not a fresh spawn): maxHp equals the recomputed baseline by construction.
+    player.maxHp = exported.maxHp;
+    player.hp = Math.min(exported.hp, player.maxHp);
+    player.level = exported.level;
+    player.exp = exported.exp;
+    player.expFloor = exported.expFloor;
+    player.expCeil = exported.expCeil;
+    this.botMembers.set(actorId, { ...exported.botMember });
+
+    // When the owner was offline at export, keep the actor retained + the account slot pinned to it so the room
+    // survives and a later reconnect routes back here. When the owner was attached, the trip controller (next
+    // task) redirects the transport, which re-binds through the onJoin retained-actor path.
+    if (!exported.ownerAttached) {
+      this.retainedActors.add(actorId);
+      this.retainWarpedActorSession(exported.accountId, actorId, exported.sessionCharacters.characterId);
+    }
+    this.refreshAutoDispose();
+    console.log(`[MapRoom ${this.roomId}] warp attach ${actorId} @(${player.tx.toFixed(1)},${player.ty.toFixed(1)})`);
+    return true;
+  }
+
+  /**
+   * Warp counterpart of retainAccountSessionForActor (no transport to transfer from — the account slot is already
+   * actor-keyed process-wide). Re-point the DB lease's serverId to THIS room so cross-process reconnect routing
+   * finds the actor's new home; the in-process slot transfer is idempotent when the slot already holds the actor.
+   */
+  private retainWarpedActorSession(accountId: string, actorId: string, characterId: string): void {
+    transferSession(accountId, actorId, actorId, () => undefined);
+    void acquireLease(accountId, actorId, { characterId, serverId: this.roomId });
+  }
+
+  /** BotHost.botPersistNow — fire-and-forget durable save of the warped actor (best-effort; swallows errors). */
+  botPersistNow(actorId: string): void {
+    this.persistSession(actorId, true);
+  }
+
   botPos(sessionId: string): Vec2 | null {
     const p = this.state.players.get(sessionId);
     return p ? { tx: p.tx, ty: p.ty } : null;
@@ -3295,6 +3578,294 @@ export class MapRoom extends Room<MapRoomState> {
   /** true when a bot-safe pocket still exists on this map (map_unsafe guard). */
   pocketExists(pocketId: string): boolean {
     return this.map.mobPockets.some((p) => p.pocketId === pocketId);
+  }
+
+  /**
+   * BotHost.botUsePotion — drink one unit of `itemId` for the automated actor through the SAME consumable service
+   * + per-actor cooldown gate as manual play (never-downgrade: the consume commits before the heal). `member` is
+   * captured BEFORE any await (command-lease convention, mirrors botAttack): a manual takeover may drop botMembers
+   * mid-flight, yet this already-issued potion command must still settle exactly once against the real actor.
+   * Missing member/persistence/state, a config reject (unknown_item/no_effect), or a thrown repo error all fail
+   * closed to "unavailable". hpFraction + cooldownUntilMs are read fresh (post-heal) so the caller sees live state.
+   */
+  async botUsePotion(actorId: string, itemId: string): Promise<BotPotionOutcome> {
+    const member = this.botMembers.get(actorId);
+    const outcome = (status: BotPotionOutcome["status"]): BotPotionOutcome => ({
+      status,
+      hpFraction: this.botHpFraction(actorId), // guards maxHp<=0 → 0
+      cooldownUntilMs: this.consumableCooldowns.get(actorId) ?? 0,
+    });
+    if (!member) return outcome("unavailable"); // authority dropped mid-flight (or never claimed)
+    if (!inventoryPersistenceAvailable()) return outcome("unavailable"); // same guard as manual runUseItem
+    const player = this.state.players.get(actorId);
+    if (!player) return outcome("unavailable");
+
+    let result: UseConsumableResult;
+    try {
+      result = await useConsumable(
+        getInventoryRepository(),
+        ITEM_CATALOG,
+        (id) => CONSUMABLE_CONFIG.effects[id],
+        {
+          characterId: member.characterId,
+          selector: { by: "item", itemId }, // bot path: first live bag stack of itemId, at its LIVE version
+          hp: player.hp,
+          maxHp: player.maxHp,
+          nowMs: Date.now(),
+          cooldownUntilMs: this.consumableCooldowns.get(actorId) ?? 0,
+        },
+      );
+    } catch (err) {
+      console.warn(
+        `[MapRoom ${this.roomId}] bot use-item DB error ${actorId}: ` +
+          (err instanceof Error ? err.message : String(err)),
+      );
+      return outcome("unavailable");
+    }
+
+    if (!result.ok) return outcome(BOT_POTION_REJECT_STATUS[result.reason]);
+
+    this.applyConsumableHeal(actorId, result.healedToHp, result.cooldownUntilMs);
+    // Mirror the reward/economy path (botGrantForKill): push a fresh bag snapshot to the owner's client when it
+    // is attached — the manual runUseItem sends the same MSG_INVENTORY_STATE snapshot after a successful use.
+    const controller = this.clientForActor(actorId);
+    if (controller) {
+      const items = await loadCharacterItemsBestEffort(member.characterId);
+      controller.send(MSG_INVENTORY_STATE, buildSnapshot(items, INVENTORY_CAPACITY));
+    }
+    return outcome("healed");
+  }
+
+  /**
+   * BotHost.botPlanPath — A* route from the actor's current tile to `goal` on this room's collision grid, reusing
+   * the engine pathfinding module + node cap (single source of truth = DEFAULT_ENGINE_CONFIG.pathfinding). Returns
+   * Vec2 waypoints (excluding start); `[]` = already at goal; null = no member/unreachable/over cap.
+   */
+  botPlanPath(actorId: string, goal: Vec2): Vec2[] | null {
+    const p = this.state.players.get(actorId);
+    if (!p) return null;
+    const path = findPath({ tx: p.tx, ty: p.ty }, goal, this.isWalkableAt, {
+      maxSearchNodes: DEFAULT_ENGINE_CONFIG.pathfinding.maxSearchNodes,
+    });
+    if (path === null) return null;
+    return path.map((wp) => ({ tx: wp.tx, ty: wp.ty }));
+  }
+
+  /**
+   * BotHost.botPocketAnchor — a walkable route target for a mob pocket: the pocket rect's center tile, or (if the
+   * center is blocked) the nearest walkable tile scanned outward in Chebyshev rings bounded by the rect. Returns
+   * null when the pocket is missing or holds no walkable tile.
+   */
+  botPocketAnchor(pocketId: string): Vec2 | null {
+    const pocket = this.map.mobPockets.find((p) => p.pocketId === pocketId);
+    if (!pocket) return null;
+    const { tx, ty, width, height } = pocket.area;
+    const cx = tx + Math.floor(width / 2);
+    const cy = ty + Math.floor(height / 2);
+    if (this.isWalkableAt(cx, cy)) return { tx: cx, ty: cy };
+    const maxR = Math.max(width, height);
+    for (let r = 1; r <= maxR; r++) {
+      for (let dy = -r; dy <= r; dy++) {
+        for (let dx = -r; dx <= r; dx++) {
+          if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue; // ring perimeter only (nearest-first)
+          const nx = cx + dx;
+          const ny = cy + dy;
+          if (nx < tx || nx >= tx + width || ny < ty || ny >= ty + height) continue; // stay within the rect
+          if (this.isWalkableAt(nx, ny)) return { tx: nx, ty: ny };
+        }
+      }
+    }
+    return null;
+  }
+
+  // ── D-069/D-070 town transaction seams (PR5 Phase C) ───────────────────────────────────────────────────────
+  // Each captures `member` BEFORE any await (command-lease convention, mirrors botAttack/botUsePotion: a manual
+  // takeover may drop botMembers mid-flight). Every seam delegates to the SAME pure service the manual handler uses
+  // and NEVER emits an achievement/milestone (D-070). Gold moves ONLY through the normal shop_sell/shop_buy ledger
+  // reasons inside those services. All four are structurally no-ops on a farm map (shopForMap/storageAvailableForMap
+  // yield nothing there) and stay INERT until the trip controller (next task) calls them from the city-hub room.
+
+  /**
+   * BotHost.botBagItems — the actor's live bag + worn gear projected to {@link BotBagItemView} for policy filtering.
+   * `rarity` from the item catalog; `equipped` from the instance location; `sellPrice` from THIS map's shop sell
+   * table (null when no shop here, a NON_SELLABLE id, or no configured price); `deliverable=false` for equipped or
+   * bound/blocked-storage items (the same gate depositToStorage enforces). Best-effort load → [] on missing member
+   * / no persistence / DB error (never throws).
+   */
+  async botBagItems(actorId: string): Promise<BotBagItemView[]> {
+    const member = this.botMembers.get(actorId);
+    if (!member || !inventoryPersistenceAvailable()) return [];
+    const items = await loadCharacterItemsBestEffort(member.characterId);
+    const sellPrices = shopForMap(this.state.mapId)?.sellPrices ?? null;
+    const views: BotBagItemView[] = [];
+    for (const r of items) {
+      if (r.location !== "CHARACTER_INVENTORY" && r.location !== "CHARACTER_EQUIPMENT") continue;
+      const def = ITEM_CATALOG.get(r.itemId);
+      const equipped = r.location === "CHARACTER_EQUIPMENT";
+      const policy = sharingPolicyOf(def);
+      const deliverable =
+        !equipped &&
+        policy.bindType !== "CHARACTER_BOUND" &&
+        policy.storagePolicy !== "BLOCKED" &&
+        policy.storagePolicy !== "CONDITIONAL";
+      const configured = sellPrices?.[r.itemId];
+      const sellPrice =
+        equipped || configured == null || NON_SELLABLE_ITEM_IDS.has(r.itemId) ? null : configured;
+      views.push({
+        instanceId: r.id,
+        itemId: r.itemId,
+        quantity: r.quantity,
+        version: r.version,
+        rarity: def?.rarity ?? "common",
+        equipped,
+        sellPrice,
+        deliverable,
+      });
+    }
+    return views;
+  }
+
+  /** BotHost.botTownSell — sell one owned bag instance through the manual sell service; goldDelta = +proceeds. */
+  async botTownSell(
+    actorId: string,
+    instanceId: string,
+    expectedVersion: number,
+    quantity: number,
+    idemKey: string,
+  ): Promise<BotTownTxResult> {
+    const member = this.botMembers.get(actorId);
+    if (!member) return { ok: false, reason: "unavailable", goldDelta: 0 };
+    const shop = shopForMap(this.state.mapId);
+    if (!shop || !inventoryPersistenceAvailable()) return { ok: false, reason: "unavailable", goldDelta: 0 };
+    let result: ShopSellResult;
+    try {
+      result = await sellItem(
+        {
+          shop,
+          ledger: { appendEntry: (e) => appendEntry(e) },
+          inventory: getInventoryRepository(),
+        },
+        {
+          characterId: member.characterId,
+          capacity: INVENTORY_CAPACITY,
+          instanceId,
+          expectedVersion,
+          quantity,
+          idempotencyKey: idemKey,
+        },
+      );
+    } catch (err) {
+      console.error(
+        `[MapRoom ${this.roomId}] bot town sell error ${actorId} (${instanceId}): ` +
+          (err instanceof Error ? err.message : String(err)),
+      );
+      return { ok: false, reason: "error", goldDelta: 0 };
+    }
+    if (!result.ok) return { ok: false, reason: result.reason, goldDelta: 0 };
+    // Proceeds = configured sell price × quantity sold (the exact amount credited by the service). No achievement.
+    const proceeds = (shop.sellPrices[result.itemId] ?? 0) * result.quantity;
+    return { ok: true, goldDelta: proceeds };
+  }
+
+  /** BotHost.botTownDeposit — move one bag instance into account storage via the manual deposit service. */
+  async botTownDeposit(
+    actorId: string,
+    instanceId: string,
+    expectedVersion: number,
+    idemKey: string,
+  ): Promise<BotTownTxResult> {
+    const member = this.botMembers.get(actorId);
+    if (!member) return { ok: false, reason: "unavailable", goldDelta: 0 };
+    if (!storageAvailableForMap(this.state.mapId) || !inventoryPersistenceAvailable()) {
+      return { ok: false, reason: "unavailable", goldDelta: 0 };
+    }
+    let result: StorageOpResult;
+    try {
+      result = await depositToStorage(this.storageServiceDeps(), {
+        accountId: member.accountId,
+        characterId: member.characterId,
+        instanceId,
+        expectedVersion,
+        idempotencyKey: idemKey,
+      });
+    } catch (err) {
+      console.error(
+        `[MapRoom ${this.roomId}] bot town deposit error ${actorId} (${instanceId}): ` +
+          (err instanceof Error ? err.message : String(err)),
+      );
+      return { ok: false, reason: "error", goldDelta: 0 };
+    }
+    if (!result.ok) return { ok: false, reason: result.reason, goldDelta: 0 };
+    return { ok: true, goldDelta: 0 }; // a deposit moves items, not gold
+  }
+
+  /** BotHost.botTownBuy — buy `quantity` of `itemId` via the manual buy service; goldDelta = -(net cost). */
+  async botTownBuy(
+    actorId: string,
+    itemId: string,
+    quantity: number,
+    idemKey: string,
+  ): Promise<BotTownTxResult> {
+    const member = this.botMembers.get(actorId);
+    if (!member) return { ok: false, reason: "unavailable", goldDelta: 0 };
+    const shop = shopForMap(this.state.mapId);
+    if (!shop || !inventoryPersistenceAvailable()) return { ok: false, reason: "unavailable", goldDelta: 0 };
+    let result: ShopBuyResult;
+    try {
+      result = await buyShopItem(
+        {
+          shop,
+          itemMeta: shopItemMeta,
+          ledger: { appendEntry: (e) => appendEntry(e) },
+          inventory: getInventoryRepository(),
+        },
+        {
+          characterId: member.characterId,
+          accountId: member.accountId,
+          capacity: INVENTORY_CAPACITY,
+          itemId,
+          quantity,
+          idempotencyKey: idemKey,
+        },
+      );
+    } catch (err) {
+      console.error(
+        `[MapRoom ${this.roomId}] bot town buy error ${actorId} (${itemId}): ` +
+          (err instanceof Error ? err.message : String(err)),
+      );
+      return { ok: false, reason: "error", goldDelta: 0 };
+    }
+    if (!result.ok) return { ok: false, reason: result.reason, goldDelta: 0 };
+    // Net cost = buy price × granted quantity (result.quantity already nets out any overflow refund). No achievement.
+    const cost = (shop.entries.find((e) => e.itemId === result.itemId)?.buyPrice ?? 0) * result.quantity;
+    return { ok: true, goldDelta: -cost };
+  }
+
+  /**
+   * BotHost.botGoldBalance — the actor's authoritative gold balance = SUM(ledger) for the character, the SAME
+   * value the shop buy path debits against (D-070 minGoldReserve is checked against this, NOT a summed goldDelta —
+   * a duplicate-replay edge makes deltas unreliable). null on missing member / no persistence / ledger error.
+   */
+  async botGoldBalance(actorId: string): Promise<number | null> {
+    const member = this.botMembers.get(actorId);
+    if (!member || !inventoryPersistenceAvailable()) return null;
+    try {
+      return Number(await getBalance(member.characterId, "gold"));
+    } catch (err) {
+      console.error(
+        `[MapRoom ${this.roomId}] bot gold balance error ${actorId}: ` +
+          (err instanceof Error ? err.message : String(err)),
+      );
+      return null;
+    }
+  }
+
+  /**
+   * BotHost.botSafeCampAnchor — THIS room's safe-camp tile (§59.1). The warp anchor for a null townTrip.townAnchor
+   * and the always-safe return anchor at the farm. A read-only position getter (no balance/combat semantics).
+   */
+  botSafeCampAnchor(): Vec2 {
+    return { tx: this.safeCamp.tx, ty: this.safeCamp.ty };
   }
 
   /**

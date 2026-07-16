@@ -57,6 +57,7 @@ import { createRemotePlayerManager } from "../net/remote-player-manager";
 import {
   advanceSendTimer,
   coerceAnim,
+  planMapReentry,
   snapshotChanged,
   toMoveMessage,
 } from "../net/sync";
@@ -115,6 +116,7 @@ import {
   setSkillSlots,
   setStorageResult,
   setStorageState,
+  setUseItemResult,
 } from "@/ui/store/game-store";
 import { getSoundManager } from "@/engine/audio/sound-manager";
 
@@ -182,6 +184,14 @@ const FPS_SAMPLE_INTERVAL_MS = 250;
  * อยู่แล้ว; ทำซ้ำที่นี่ให้ชัด/รับประกันไม่ว่า ticker จะถูกตั้งค่าใด (operational const ไม่ใช่ balance).
  */
 const MAX_TICK_DELTA_MS = 100;
+
+/**
+ * PR5-fix loop-guard: max consecutive map-mismatch re-entries (a 4216 redirect / reconnect that lands the
+ * client in a DIFFERENT map's room than it loaded, because the server-owned bot "warp" moved the real
+ * actor). 2 re-entries absorb a warp that happens mid-boot; a 3rd fresh mismatch means the actor keeps
+ * moving between reload windows → abort to the offline UX instead of looping (operational const, not balance).
+ */
+const MAX_MAP_MISMATCH_RETRIES = 2;
 
 /**
  * "world" ต่อ 1 map (P1-10) — ทุกอย่างที่ผูกกับ map (scene/player/mobs/combat/net/input). สร้างใหม่
@@ -305,6 +315,11 @@ export async function createEngine(
   // state ระดับ engine (คงข้ามการสลับ world/ข้าม map). rain แสดงเฉพาะ map ใน config.world.rainMapIds (§4.1 Map 1).
   // TODO LW1: world clock → server-authoritative (MSG_WORLD_TIME §3.2) + weather §4.2/§4.3 scheduler.
   let currentMapId = "";
+  // PR5-fix: consecutive map-mismatch re-entries (server warped the real actor to another map's room while
+  // we booted; net-client detects it via room state.mapId). Lives at engine scope so it survives the world
+  // remount each re-entry performs (each rebuilds its own net client). Reset on a correct settle (onSelfSpawn
+  // with matching map); capped by MAX_MAP_MISMATCH_RETRIES to break warp-during-reload loops.
+  let mapMismatchRetries = 0;
   let weather: WeatherKind = "clear";
   let phaseOffsetMs = 0; // debug fast-forward (cyclePhaseKeyCode) — บวกกับ Date.now() เพื่อ demo phase
   // C2b (§13): living-world client-event edge state — report weather/phase only on TRANSITION edges + a rain
@@ -602,6 +617,10 @@ export async function createEngine(
           // position + camera) — กัน "วาร์ปกลับจุดเดิม" + กัน exit detection พลาดเพราะ desync. fresh join
           // = ไม่มี goal → no-op; reconnect กลาง walk → resume goal เดิม (prod fix 2026-07-12).
           onSelfSpawn: (snap) => {
+            // PR5-fix: self settled into a room. If its map matches the one we loaded, the redirect chain
+            // ended correctly → clear the mismatch loop-guard. Mismatched worlds keep the counter so repeated
+            // warp-during-reload can't loop forever. (status.mapId is set in wire before onSelfSpawn fires.)
+            if (net !== null && net.status.mapId === map.mapId) mapMismatchRetries = 0;
             player.applyCorrection(snap.tx, snap.ty);
             lastSent = null;
             sendAccumMs = 0;
@@ -702,12 +721,36 @@ export async function createEngine(
               x: msg.targetSpawn.x,
               y: msg.targetSpawn.y,
             }),
+          // PR5-fix: we joined a room whose real map differs from the one we loaded (server-owned bot "warp"
+          // moved the real actor to city-hub while booting, surfaced as a 4216 redirect / reconnect). Re-enter
+          // on the correct map using the SAME teardown+rejoin flow as MSG_MAP_TRANSITION. Loop-guard: a fresh
+          // mismatch each attempt means the actor moved again mid-reload → cap re-entries then surface the
+          // offline UX (net.disconnect: debug overlay shows offline + auto-pilot stops) instead of looping.
+          onMapMismatch: (correctMapId) => {
+            const targetMap = getMap(correctMapId);
+            if (!targetMap) return; // unknown map — nothing valid to re-enter into (fail-soft, keep world)
+            if (planMapReentry(mapMismatchRetries, MAX_MAP_MISMATCH_RETRIES) === "abort") {
+              net?.disconnect();
+              return;
+            }
+            mapMismatchRetries += 1;
+            // Persist so pickBootMapId boots the right map if the owner refreshes during the fade (server is
+            // still authoritative for the exact position via onSelfSpawn adoption; spawnPoint is a placeholder).
+            rememberSelectedCharacterMapId(correctMapId);
+            requestTransition(correctMapId, {
+              x: targetMap.spawnPoint.x,
+              y: targetMap.spawnPoint.y,
+            });
+          },
           // P2-07: inventory/equipment snapshot + mutation ปฏิเสธ → push เข้า Zustand bridge ตรง ๆ
           // (event-driven, ไม่ผ่าน hudPublisher throttle — ดู comment ที่ game-store.ts setInventoryState).
           onInventoryState: (snap) => setInventoryState(snap),
           onInventoryOpRejected: (rejected) => setInventoryRejection(rejected),
           // P2-10: ผลเสริมแกร่ง → Zustand bridge ตรง ๆ (event-driven, ดู comment ที่ game-store.ts setEnhanceResult)
           onEnhanceResult: (result) => setEnhanceResult(result),
+          // PR5: ผลใช้ consumable → Zustand bridge ตรง ๆ (event-driven, เหมือน onEnhanceResult — HP จริง sync
+          // ทาง PlayerState schema แยก, message นี้แค่ ack feedback + cooldown)
+          onUseItemResult: (result) => setUseItemResult(result),
           // B4: ผลแลกเศษ 5→1 → Zustand bridge ตรง ๆ (event-driven, เหมือน onEnhanceResult)
           onFragmentExchangeResult: (result) => setFragmentExchangeResult(result),
           // P2-11: catalog ร้าน + ผลซื้อ/ขาย → Zustand bridge ตรง ๆ (event-driven, เหมือน onEnhanceResult)

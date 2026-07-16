@@ -190,6 +190,8 @@ export function botStopReasonLabel(reason: string): string {
       return "เซิร์ฟเวอร์รีสตาร์ท บอทหยุดปลอดภัยแล้ว (ของที่ได้ถูกบันทึกแล้ว)";
     case "expired_readonly":
       return "แพ็กเกจหมดอายุ โปรไฟล์นี้ถูกพัก (อ่านอย่างเดียว)";
+    case "town_trip_failed":
+      return "วาร์ปเข้าเมืองล้มเหลว ตัวละครพักปลอดภัยอยู่ในเมือง บอทรอคุณ";
     default:
       return "บอทหยุดทำงาน";
   }

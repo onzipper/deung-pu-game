@@ -35,6 +35,15 @@ Runtime invariants:
 - PR3 wire/runtime ใช้จริงเฉพาะ `WORKING`/`TRAVELING`/`COMBAT`/`PAUSED`. `LOOTING` และ recovery/town/workflow/terminal entry policy ยัง inert จนมี authoritative seam ใน PR4–PR6
 - PR3 ห้ามเพิ่ม Prisma/migration, auto-sell, recovery routine, goal chain, map transition, schedule หรือ restart resume
 
+## 0.0.2 Amendment Log — v1.3 (2026-07-16) — PR5 recovery seams + town warp (D-069/D-070)
+
+PR5 เปิด authoritative seam ตามลำดับ (owner lock 2026-07-16 — `docs/decisions/D-069-bot-town-warp.md`, `docs/decisions/D-070-bot-town-service-policy.md`):
+
+- **Same-map recovery ใช้งานจริง:** `RECOVERING`/`RETURNING_TO_WORK` มี execution seam จริง (opt-in potion ผ่าน consumable service เดียวกับ manual, death recovery สังเกต respawn จริง + A* กลับ pocket, pocket fallback ใน map เดิม) — Free ไม่ใช้เส้นทางเหล่านี้และคง behavior PR4 เดิม
+- **Town states เปิดพร้อม server-owned warp transfer:** `RETURNING_TO_TOWN`/`SELLING`/`DEPOSITING`/`RESTOCKING` ผูกกับ actor transfer ระหว่าง MapRoom (reserve seat → detach → attach identity เดิม → rollback fail-closed; actor อยู่ห้องเดียวเสมอ) — runtime ตัวเดิม rebind host เพื่อรักษา revision fence และ `bot_sessions` row เดียวต่อ run; `LOOTING` ยัง inert
+- Town transaction ทำที่ตำแหน่งจริงใน city-hub ผ่าน service/gate เดิม (`shopForMap`/`storageAvailableForMap`) — โครงสร้างกัน remote transaction โดยตัวมันเอง; ห้าม emit achievement จาก seam ของบอท
+- Stop reason `town_trip_failed` → `WAITING_FOR_OWNER` (ตาราง settlement 14 ตัว); live tier recheck ระหว่าง run fire `expired_readonly` ได้จริง
+
 # 1. Purpose
 
 v13 ปิด engine foundation หลักแล้ว ได้แก่:

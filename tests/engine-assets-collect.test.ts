@@ -50,7 +50,7 @@ describe("collectMapAssetIds", () => {
   test("DEFAULT config (Phase 5 atlas เปิดใช้แล้ว) → เก็บเฉพาะ assetId ที่มีจริง, mushroom/defaultStyle/defaultProp ยังไม่มี assetId → กรองทิ้ง; ground tile F1 v2 (grass a..f) ต่อท้าย", () => {
     const map = mapWith(["slime", "mushroom"]);
     expect(collectMapAssetIds(map, DEFAULT_ENGINE_CONFIG)).toEqual([
-      "chr_swordsman",
+      "chr_crimson_knight",
       "cmp_dungdung",
       "mon_map1_slime",
       "prop_map1_tree",

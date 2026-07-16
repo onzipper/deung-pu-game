@@ -6,7 +6,9 @@
 // ⛔ SERVER-ONLY. Bots require a DB (they mutate the audited economy) — every op rejects `requires_db` with none.
 
 import { randomUUID } from "node:crypto";
+import { matchMaker } from "colyseus";
 import {
+  MAP_ROOM_NAME,
   MSG_BOT_CHECKPOINT,
   MSG_BOT_OP_RESULT,
   MSG_BOT_PROFILES,
@@ -43,7 +45,8 @@ import {
   type ProfileRepo,
 } from "./profiles";
 import { fetchReport, listReports } from "./reports";
-import { BotRuntime, type BotHost } from "./runtime";
+import { BotRuntime, type BotBagItemView, type BotHost } from "./runtime";
+import { DEFAULT_INVENTORY_CAPACITY } from "../../src/server/inventory/item-catalog";
 import {
   botPersistenceAvailable,
   prismaProfileRepo,
@@ -62,10 +65,28 @@ import {
 
 type Send = (type: string, msg: unknown) => void;
 
+/**
+ * Free bag slots for the proactive town-trip preflight = capacity − occupied (non-equipped) bag instances.
+ * Mirrors the trip controller's route-home success math (town-trip.ts: capacity − bag.filter(!equipped).length)
+ * so the proactive preflight and the trip's own resume criterion agree on what "full" means. Pure — unit-tested.
+ */
+export function freeBagSlots(bag: readonly BotBagItemView[], capacity: number): number {
+  let occupied = 0;
+  for (const item of bag) if (!item.equipped) occupied += 1;
+  return capacity - occupied;
+}
+
 interface StoredCheckpoint extends BotCheckpointWire {
   accountId: string;
   characterId: string;
   host: BotHost;
+  /**
+   * The live runtime whose actor this checkpoint captured (a running-bot takeover only; absent for a pending-start
+   * takeover, which never moved the actor). Read at settle time to reconcile `mapId` with where the actor really
+   * paused: a mid-trip takeover whose return warp failed lands PAUSED in place at the city-hub, so the checkpoint
+   * must tell the truth about the current host rather than the profile's farm map (D-069).
+   */
+  runtime?: BotRuntime;
 }
 
 interface StartingActorPresence {
@@ -150,11 +171,11 @@ export class BotManager {
     }
   }
 
-  /** Host reports actor death; current safe-stop remains until PR4/PR5 add tier-specific handling. */
+  /** Host reports actor death; the running runtime settles it per tier (Free stops, paid may recover — PR5). */
   onBotDied(actorId: string): void {
     const accountId = this.actorToAccount.get(actorId);
     if (accountId) {
-      this.bots.get(accountId)?.stop("death");
+      this.bots.get(accountId)?.onActorDied();
       return;
     }
     for (const [startingAccountId, presence] of this.startingActors) {
@@ -183,8 +204,62 @@ export class BotManager {
     this.drainingAccounts.delete(accountId);
     const checkpoint = this.checkpoints.get(accountId);
     if (!checkpoint || checkpoint.id !== checkpointId) return;
+    // Reconcile the checkpoint's map with where the actor actually paused (D-069). The profile's farm map was
+    // stamped at takeover time; a mid-trip takeover whose return warp failed pauses in place at the city-hub, so
+    // read the runtime's CURRENT host and tell the truth. The normal farm-landing path leaves this identical (the
+    // runtime's host is already the farm map), and pocketId stays the plan's assigned pocket (unchanged by a trip).
+    if (saved && checkpoint.runtime) checkpoint.mapId = checkpoint.runtime.host.mapId;
     checkpoint.state = saved ? "ready" : "failed";
-    checkpoint.host.botOwnerSend(accountId, MSG_BOT_CHECKPOINT, this.checkpointMessage(checkpoint));
+    // Fan out across every registered host: after a warp the owner's transport may sit in a sibling room, not
+    // checkpoint.host. Fall back to the stored host when the fan-out reaches nobody (owner offline, or the host
+    // was never registered) so the last-known channel still gets the update.
+    const message = this.checkpointMessage(checkpoint);
+    if (!this.ownerSend(accountId, MSG_BOT_CHECKPOINT, message)) {
+      checkpoint.host.botOwnerSend(accountId, MSG_BOT_CHECKPOINT, message);
+    }
+  }
+
+  /**
+   * PR5 Phase B (D-069): deliver an owner-directed message across every registered host. The owner's transport can
+   * be attached to a sibling room after a server-owned warp, so a single stored host is no longer authoritative.
+   * Returns true once any host delivers it (each host sends only to its own connected owner clients).
+   */
+  ownerSend(accountId: string, type: string, message: unknown): boolean {
+    for (const hosts of this.roomsByMap.values()) {
+      for (const host of hosts) {
+        if (host.botOwnerSend(accountId, type, message)) return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * PR5 Phase B (D-069): find (or create) a SOLO host MapRoom for `mapId` to receive a warped actor. Party channels
+   * are never warp targets. Does NOT reserve a seat — the trip controller reserves inside its own synchronous
+   * export→attach block. Returns null when no solo host exists and creation fails.
+   */
+  async acquireHostForMap(mapId: string): Promise<BotHost | null> {
+    const existing = this.firstSoloHostForMap(mapId);
+    if (existing) return existing;
+    try {
+      // registerRoom runs synchronously inside MapRoom.onCreate, so the new host is in roomsByMap once this resolves.
+      const created = await matchMaker.createRoom(MAP_ROOM_NAME, { mapId, partyId: "" });
+      for (const host of this.roomsByMap.get(mapId) ?? []) {
+        if (host.roomId === created.roomId) return host;
+      }
+      return this.firstSoloHostForMap(mapId);
+    } catch (e) {
+      console.error(`[bot] acquireHostForMap(${mapId}) failed: ${e instanceof Error ? e.message : String(e)}`);
+      return null;
+    }
+  }
+
+  /** First registered solo (partyId === "") host for a map, or null. Party channels are excluded as warp targets. */
+  private firstSoloHostForMap(mapId: string): BotHost | null {
+    for (const host of this.roomsByMap.get(mapId) ?? []) {
+      if (host.partyId === "") return host;
+    }
+    return null;
   }
 
   private clearCheckpoint(accountId: string, send: Send): void {
@@ -536,6 +611,24 @@ export class BotManager {
       pocketId: profile.pocketId,
       continuity,
     });
+
+    // PR5 Phase C (D-069/D-070) proactive bag preflight — paid tiers only, never Free. Read the actor's live bag
+    // through the SAME best-effort seam the trip controller uses (botBagItems → [] on any load failure) and, if
+    // free bag slots already sit below the town-trip resume threshold, open the run with a town trip before it
+    // farms a single mob (never farm with a full bag → loot leaks). Best-effort: a load failure/[] yields a full
+    // slot count → no preflight, so it never blocks a start. Placed before the cancelled re-check so a cancel
+    // during the read is caught below (which releases authority). Free reads nothing at all.
+    let initialTownTrip = false;
+    if (tier !== "free" && this.d.config.townTrip.enabledTiers.includes(tier)) {
+      try {
+        const bag = await requestHost.botBagItems(actorId);
+        initialTownTrip =
+          freeBagSlots(bag, DEFAULT_INVENTORY_CAPACITY) < this.d.config.townTrip.resumeMinFreeSlots;
+      } catch {
+        initialTownTrip = false; // never block a start on a bag-read failure.
+      }
+    }
+
     if (this.cancelledStarts.has(accountId)) {
       this.startingActors.delete(accountId);
       requestHost.botReleaseAuthority(actorId);
@@ -596,12 +689,21 @@ export class BotManager {
       mapId: profile.mapId,
       pocketId: profile.pocketId,
       rules: profile.rules,
+      tier,
+      resolveTier: () => this.resolveTierFor(accountId),
       baseCooldownSeconds: requestHost.botBaseCooldownSeconds(actorId),
       startedAtMs: now,
       initialContinuity: continuity,
       now: () => this.d.now(),
       onStopped: (acc, stoppedSessionRowId) => this.dropRuntime(acc, stoppedSessionRowId),
       onTakeoverSettled: (acc, checkpointId, saved) => this.settleTakeoverCheckpoint(acc, checkpointId, saved),
+      // PR5 Phase C (D-069): the town-trip warp needs a solo host for a target map, and owner pushes must fan out
+      // across every registered host (the owner's transport can sit in a sibling room after a warp).
+      acquireHostForMap: (mapId) => this.acquireHostForMap(mapId),
+      ownerSend: (acc, type, message) => this.ownerSend(acc, type, message),
+      // PR5 Phase C (D-069/D-070): a paid start whose bag is already at/over town pressure opens with a town trip
+      // before farming (the first paid tick warps to town). Always false for Free (no bag read above).
+      initialTownTrip,
     });
     this.bots.set(accountId, runtime);
     this.actorToAccount.set(actorId, accountId);
@@ -620,15 +722,20 @@ export class BotManager {
     send: Send,
     m: BotTakeoverMessage,
   ): boolean {
-    if (!accountId || !actorId) return false;
+    if (!accountId) return false;
     const runtime = this.bots.get(accountId);
+    // A null/undefined actorId means the caller has no local actor for this account (e.g. it warped to a sibling
+    // room, so the source room's actorIdOf returns null). Fall back to the account's running runtime / pending
+    // start so an explicit owner takeover still routes to the correct actor.
+    const resolvedActorId = actorId ?? runtime?.actorId ?? this.startingActors.get(accountId)?.actorId ?? null;
+    if (!resolvedActorId) return false;
     if (!runtime) {
       const pending = this.startingActors.get(accountId);
-      if (pending?.actorId === actorId) return this.takeoverPendingStart(accountId, pending, send, m);
+      if (pending?.actorId === resolvedActorId) return this.takeoverPendingStart(accountId, pending, send, m);
       this.reject(send, "takeover", "not_running", m?.requestId);
       return false;
     }
-    if (runtime.actorId !== actorId || runtime.isStopped) {
+    if (runtime.actorId !== resolvedActorId || runtime.isStopped) {
       this.reject(send, "takeover", runtime.isStopped ? "checkpoint_saving" : "actor_mismatch", m?.requestId);
       return false;
     }
@@ -638,6 +745,7 @@ export class BotManager {
       accountId,
       characterId: runtime.characterId,
       host: runtime.host,
+      runtime, // settle-time map reconciliation reads runtime.host (return-warp failure → city-hub, D-069)
       profileId: runtime.profileId,
       sourceSessionId: runtime.sessionRowId,
       mapId: runtime.mapId,

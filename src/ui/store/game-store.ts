@@ -28,6 +28,7 @@ import {
   type ShopResultMessage,
   type StorageResultMessage,
   type StorageStateMessage,
+  type UseItemResultMessage,
   type BotProfileWire,
   type BotProfilesMessage,
   type BotTierStateMessage,
@@ -181,6 +182,17 @@ export interface HudState {
   /** ผลรับของล่าสุด (P2-17, MSG_DELIVERY_CLAIM) — null = ยังไม่เคย claim ใน session นี้. */
   deliveryResult: DeliveryResultMessage | null;
   /**
+   * PR5: ผลใช้ consumable ล่าสุด (MSG_USE_ITEM_RESULT) — ok=true มากับ `cooldownUntilMs`
+   * (ก็อปเข้า `potionCooldownUntilMs` ด้วยในตัว); ok=false มี reason ให้ toast. HP จริง sync ทาง
+   * PlayerState schema แยก (setPlayerVitals) — message นี้ = ack feedback เท่านั้น. null = ยังไม่เคยใช้ใน session นี้.
+   */
+  useItemResult: UseItemResultMessage | null;
+  /**
+   * PR5: เวลา (epoch ms, server clock) ที่ potion พร้อมใช้อีกครั้ง — 0 = ไม่มี cooldown ค้าง (ปุ่ม "ใช้" กดได้).
+   * single value พอสำหรับ v1 (P2 มี consumable เดียว, con_small_potion).
+   */
+  potionCooldownUntilMs: number;
+  /**
    * A1/A2 (COMBAT_BIBLE §2/§10): hp/maxHp ของ **local player** (server-authoritative, ride PlayerState schema).
    * null ก่อน server sync ครั้งแรก. แถบ HP = E3 อ่านค่านี้. อัปเดตทุกครั้งที่ hp/maxHp เปลี่ยน (โดนตี/respawn/
    * level-up/equip).
@@ -298,6 +310,8 @@ export const INITIAL_HUD_STATE: HudState = {
   storageResult: null,
   deliveryState: null,
   deliveryResult: null,
+  useItemResult: null,
+  potionCooldownUntilMs: 0,
   playerHp: null,
   playerMaxHp: null,
   playerDead: false,
@@ -486,6 +500,22 @@ export const selectDeliveryState = (state: HudState): DeliveryStateMessage | nul
 
 /** typed selector — ผลรับของล่าสุด (P2-17) */
 export const selectDeliveryResult = (state: HudState): DeliveryResultMessage | null => state.deliveryResult;
+
+/**
+ * PR5: engine เรียกทันทีที่ MSG_USE_ITEM_RESULT มาถึง (event-driven เหมือน setEnhanceResult) — ok=true พร้อม
+ * `cooldownUntilMs` → อัปเดต `potionCooldownUntilMs` ไปด้วยในตัว (ปุ่ม "ใช้" ใน InventoryPanel disable ตามค่านี้).
+ */
+export function setUseItemResult(result: UseItemResultMessage): void {
+  const patch: Partial<HudState> = { useItemResult: result };
+  if (result.ok && result.cooldownUntilMs !== undefined) patch.potionCooldownUntilMs = result.cooldownUntilMs;
+  gameStore.setState(patch);
+}
+
+/** typed selector — ผลใช้ consumable ล่าสุด (PR5) */
+export const selectUseItemResult = (state: HudState): UseItemResultMessage | null => state.useItemResult;
+
+/** typed selector — เวลาที่ potion พร้อมใช้อีกครั้ง (PR5, epoch ms) */
+export const selectPotionCooldownUntilMs = (state: HudState): number => state.potionCooldownUntilMs;
 
 /**
  * A1/A2: engine เรียกทันทีที่ hp/maxHp ของ local player เปลี่ยน (self schema listen — event-driven, ไม่ throttle:

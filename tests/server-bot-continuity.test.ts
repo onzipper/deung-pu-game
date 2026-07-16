@@ -93,23 +93,82 @@ describe("tier-neutral operational topology", () => {
     }
   });
 
-  test("keeps PR5-PR6 loot/recovery/town/workflow topology inert instead of guessing ordering", () => {
+  test("PR5 Phase C opens the town cycle and keeps only LOOTING inert", () => {
     expect(BOT_CONTINUITY_ADVANCE_GRAPH).toMatchObject({
-      WORKING: ["TRAVELING", "COMBAT"],
-      TRAVELING: ["WORKING", "COMBAT"],
-      COMBAT: ["WORKING", "TRAVELING"],
+      WORKING: ["TRAVELING", "COMBAT", "RECOVERING", "RETURNING_TO_TOWN"],
+      TRAVELING: ["WORKING", "COMBAT", "RECOVERING", "RETURNING_TO_TOWN"],
+      COMBAT: ["WORKING", "TRAVELING", "RECOVERING", "RETURNING_TO_TOWN"],
       LOOTING: [],
-      RECOVERING: [],
-      RETURNING_TO_TOWN: [],
-      SELLING: [],
-      DEPOSITING: [],
-      RESTOCKING: [],
-      RETURNING_TO_WORK: [],
+      RECOVERING: ["RETURNING_TO_WORK", "WORKING", "RETURNING_TO_TOWN"],
+      RETURNING_TO_TOWN: ["SELLING", "WORKING"],
+      SELLING: ["DEPOSITING"],
+      DEPOSITING: ["RESTOCKING"],
+      RESTOCKING: ["RETURNING_TO_WORK"],
+      RETURNING_TO_WORK: ["WORKING", "RECOVERING"],
     });
-    const current = snapshot("WORKING");
+    // LOOTING is the only state still inert (PR6): no outbound edge exists yet.
+    const looting = snapshot("LOOTING");
     expect(
-      applyBotContinuityTransition(current, { kind: "advance", to: "RECOVERING", ...meta() }),
-    ).toEqual({ ok: false, error: "invalid_transition", snapshot: current });
+      applyBotContinuityTransition(looting, { kind: "advance", to: "WORKING", ...meta() }),
+    ).toEqual({ ok: false, error: "invalid_transition", snapshot: looting });
+  });
+
+  test("accepts the PR5 recovery edges", () => {
+    const cases: Array<[BotContinuityOperationalStateWire, BotContinuityOperationalStateWire]> = [
+      ["WORKING", "RECOVERING"],
+      ["COMBAT", "RECOVERING"],
+      ["RECOVERING", "RETURNING_TO_WORK"],
+      ["RECOVERING", "WORKING"],
+      ["RETURNING_TO_WORK", "WORKING"],
+      ["RETURNING_TO_WORK", "RECOVERING"],
+    ];
+    for (const [from, to] of cases) {
+      const result = applyBotContinuityTransition(snapshot(from), { kind: "advance", to, ...meta() });
+      expect(result, `${from}->${to}`).toMatchObject({
+        ok: true,
+        changed: true,
+        snapshot: { state: to, revision: 5, previousState: from },
+      });
+    }
+  });
+
+  test("accepts the PR5 Phase C town cycle edges", () => {
+    const cases: Array<[BotContinuityOperationalStateWire, BotContinuityOperationalStateWire]> = [
+      ["WORKING", "RETURNING_TO_TOWN"],
+      ["TRAVELING", "RETURNING_TO_TOWN"],
+      ["COMBAT", "RETURNING_TO_TOWN"],
+      ["RECOVERING", "RETURNING_TO_TOWN"],
+      ["RETURNING_TO_TOWN", "SELLING"],
+      ["RETURNING_TO_TOWN", "WORKING"], // outbound abort before the actor moved
+      ["SELLING", "DEPOSITING"],
+      ["DEPOSITING", "RESTOCKING"],
+      ["RESTOCKING", "RETURNING_TO_WORK"],
+    ];
+    for (const [from, to] of cases) {
+      const result = applyBotContinuityTransition(snapshot(from), { kind: "advance", to, ...meta() });
+      expect(result, `${from}->${to}`).toMatchObject({
+        ok: true,
+        changed: true,
+        snapshot: { state: to, revision: 5, previousState: from },
+      });
+    }
+  });
+
+  test("rejects out-of-order town-cycle edges and the still-inert loot edge", () => {
+    const rejections: Array<[BotContinuityOperationalStateWire, BotContinuityOperationalStateWire]> = [
+      ["RECOVERING", "COMBAT"], // recovery never re-enters combat directly
+      ["SELLING", "RESTOCKING"], // cannot skip DEPOSITING
+      ["RETURNING_TO_TOWN", "DEPOSITING"], // cannot skip SELLING
+      ["WORKING", "SELLING"], // a town service run only begins via RETURNING_TO_TOWN
+      ["COMBAT", "LOOTING"], // LOOTING still has no inbound edge (PR6)
+    ];
+    for (const [from, to] of rejections) {
+      const current = snapshot(from);
+      expect(
+        applyBotContinuityTransition(current, { kind: "advance", to, ...meta() }),
+        `${from}->${to}`,
+      ).toEqual({ ok: false, error: "invalid_transition", snapshot: current });
+    }
   });
 
   test("same-state signals are idempotent and do not consume a revision", () => {

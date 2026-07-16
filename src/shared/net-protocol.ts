@@ -481,6 +481,41 @@ export interface InventoryOpRejectedMessage {
   reason: string;
 }
 
+// ── PR5 use consumable (ดื่มโพชั่นฟื้น HP) — server-authoritative, HP apply เข้า PlayerState schema · Economy §7.1 ──
+//
+// Client ส่ง **intent เท่านั้น** (instanceId + expectedVersion ที่เห็นล่าสุด) — server ตัดสินทั้งหมด (per-actor
+// cooldown + optimistic lock + heal amount จาก config Design Knob). HP จริง ride PlayerState schema (auto-sync);
+// MSG_USE_ITEM_RESULT = ack ตรงให้ client เล่น potion cooldown/heal feedback ทันทีโดยไม่รอ schema patch.
+
+/** message type: client → server (intent) — ใช้ consumable 1 ชิ้นจากกระเป๋า (PR5). */
+export const MSG_USE_ITEM = "use_item";
+
+/** payload ของ MSG_USE_ITEM (client → server, PR5). expectedVersion = optimistic lock ของ stack ที่เห็นล่าสุด. */
+export interface UseItemMessage {
+  instanceId: string;
+  expectedVersion: number;
+}
+
+/** message type: server → **client เดียว** — ผลการใช้ consumable (สำเร็จ/ปฏิเสธ) (PR5). */
+export const MSG_USE_ITEM_RESULT = "use_item_result";
+
+/**
+ * payload ของ MSG_USE_ITEM_RESULT (server → client เดียว, PR5). สำเร็จ → itemId + hp (= healedToHp) +
+ * cooldownUntilMs; ปฏิเสธ → ok:false + reason (UseConsumableReject). **NOTE: HP จริง sync ทาง PlayerState
+ * schema ด้วย** — message นี้ = ack ตรง (client เรนเดอร์ potion cooldown/heal โดยไม่รอ schema patch).
+ */
+export interface UseItemResultMessage {
+  ok: boolean;
+  /** UseConsumableReject เมื่อ ok=false: "unknown_item"|"no_effect"|"on_cooldown"|"hp_already_full"|"no_stock"|"version_conflict". */
+  reason?: string;
+  /** itemId ที่ใช้ไป เมื่อ ok=true. */
+  itemId?: string;
+  /** healedToHp เมื่อ ok=true (client โชว์ HP / heal number). */
+  hp?: number;
+  /** epoch ms ที่ potion พร้อมใช้อีกครั้ง เมื่อ ok=true (client เรนเดอร์ potion cooldown). */
+  cooldownUntilMs?: number;
+}
+
 // ── P2-10 guaranteed reinforcement (เสริมแกร่งการันตี +1, cap +15 · Reinforcement §2) ─────────────────
 //
 // Client ส่ง **intent เท่านั้น** (instanceId + expectedVersion ที่เห็นล่าสุด + idempotencyKey) — server ตัดสิน

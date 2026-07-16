@@ -11,6 +11,9 @@
 //    knobs never enter the client bundle). Plain TS only. Import from "../config" (server/**).
 // ⛔ Payment = MOCK ONLY in beta (D-061): the pass prices here label a mock purchase op — no real billing.
 
+// Type-only (erased under isolatedModules — no runtime cycle): the town-trip warp anchor shares the agent Vec2.
+import type { Vec2 } from "../bot/agent";
+
 /** The three bot tiers (D-063). Runtime is 24/7 for ALL tiers — the difference is capability, never power. */
 export type BotTier = "free" | "plus" | "pro";
 export const BOT_TIERS: readonly BotTier[] = ["free", "plus", "pro"] as const;
@@ -69,7 +72,8 @@ export type BotStopReason =
   | "manual" // owner pressed "หยุดเดี๋ยวนี้"
   | "profile_deleted" // the active plan definition was deleted; this run cannot resume
   | "server_restart" // process restarted — sessions with stoppedAt IS NULL are marked this on boot, NOT resumed
-  | "expired_readonly"; // tier downgrade paused this profile (excess) — running bot stopped safely
+  | "expired_readonly" // tier downgrade paused this profile (excess) — running bot stopped safely
+  | "town_trip_failed"; // D-069: warp to city-hub for services failed; actor parked safely in town → wait_for_owner
 
 export interface BotConfig {
   /** tier caps + passes (D-063). Keyed by tier. */
@@ -105,6 +109,60 @@ export interface BotConfig {
   bossStopRadiusTiles: number;
   /** approach until within attackRange × this factor before casting (ensures the hit-test lands). */
   attackRangeFactor: number;
+  /** PR5 Plus-tier recovery knobs (auto-potion / respawn observation / pocket fallback / replan / tier recheck). */
+  recovery: {
+    /** consumable used for auto-potion recovery; must be kind "consumable" in the item catalog. */
+    potionItemId: string;
+    /** backoff after a failed drink (no_potion / on_cooldown) so the DB is not hammered. */
+    potionRetryIntervalMs: number;
+    /** hp fraction at/above which a respawn is considered observed (respawn = full HP today). */
+    respawnObserveMinHpFraction: number;
+    /** give up waiting for respawn observation → stop("death"). */
+    respawnObserveTimeoutMs: number;
+    /** D-070 locked 2026-07-16 — repeated death usually means an under-leveled pocket. */
+    maxDeathRecoveriesPerSession: number;
+    /** D-070 locked 2026-07-16 — consecutive idle decisions before pocket fallback; must stay < stuckTickLimit. */
+    pocketFallbackIdleDecisions: number;
+    /** D-070 locked 2026-07-16 — assigned pocket wins again as soon as it has alive mobs. */
+    preferAssignedPocket: boolean;
+    /** arrival radius (tiles) for return-to-pocket. */
+    pocketArriveRadiusTiles: number;
+    /** minimum interval between A* replans when a route step is blocked. */
+    routeReplanCooldownMs: number;
+    /** throttle for live tier entitlement recheck during a run. */
+    tierRecheckIntervalMs: number;
+  };
+  /**
+   * PR5 Phase C town-trip knobs (D-069/D-070). Plus/Pro only — Free never town-trips (a town obstacle keeps it in
+   * WAITING_FOR_OWNER). Every value is a Design Knob (§48); the trip controller (next task) reads them, this block
+   * only declares the dials — nothing here mutates the economy on its own.
+   */
+  townTrip: {
+    /** tiers permitted to warp to town for services (Free absent). */
+    enabledTiers: readonly BotTier[];
+    /** minimum interval between town trips per run (D-069). */
+    cooldownMs: number;
+    /** the city-hub map the actor warps to for services (must host the shop + storage NPC). */
+    townMapId: string;
+    /** warp arrival anchor in town; null → the town map's safeCamp. */
+    townAnchor: Vec2 | null;
+    /** auto-sell only items at/below this rarity — common/uncommon (D-070); rare+ is never auto-sold. */
+    sellRarityMax: "common" | "uncommon" | "rare";
+    /** never auto-sold or deposited (the starter potion, D-070). */
+    keepItemIds: readonly string[];
+    /** never spend gold below this reserve during restock (D-070). */
+    minGoldReserve: number;
+    /** the consumable restocked at the town shop. */
+    potionItemId: string;
+    /** refill potions up to this count (equal to the starter-loadout count, D-070). */
+    potionRestockTarget: number;
+    /** trip succeeds only when free bag slots reach this after returning to farm (D-070). */
+    resumeMinFreeSlots: number;
+    /** retry a failed transaction at most this many times, then skip it (D-070). */
+    maxTxRetries: number;
+    /** start a trip on the first bag overflow instead of waiting for a later cue. */
+    tripOnFirstOverflow: boolean;
+  };
 }
 
 /** Caps table verbatim from D-063 / §15 — the canonical source; never edit without an owner decision. */
@@ -176,4 +234,31 @@ export const DEFAULT_BOT_CONFIG: BotConfig = {
   statusPushIntervalMs: 2_000, // P3 §16 Q1 proposal (2s while panel open) — provisional
   bossStopRadiusTiles: 8,
   attackRangeFactor: 0.95,
+  recovery: {
+    potionItemId: "con_small_potion",
+    potionRetryIntervalMs: 5_000,
+    respawnObserveMinHpFraction: 0.9,
+    respawnObserveTimeoutMs: 10_000,
+    maxDeathRecoveriesPerSession: 3, // D-070 locked
+    pocketFallbackIdleDecisions: 3, // D-070 locked
+    preferAssignedPocket: true, // D-070 locked
+    pocketArriveRadiusTiles: 2,
+    routeReplanCooldownMs: 2_000,
+    tierRecheckIntervalMs: 60_000,
+  },
+  // D-069/D-070 locked 2026-07-16
+  townTrip: {
+    enabledTiers: ["plus", "pro"], // Free never town-trips
+    cooldownMs: 600_000, // 10 min between trips (D-069)
+    townMapId: "city-hub",
+    townAnchor: null, // null → target map safeCamp
+    sellRarityMax: "uncommon", // sell only common/uncommon (D-070)
+    keepItemIds: ["con_small_potion"], // never sold/deposited
+    minGoldReserve: 50, // never spend below this (D-070) — potion costs 18 each
+    potionItemId: "con_small_potion",
+    potionRestockTarget: 5, // refill to starter-loadout count (D-070)
+    resumeMinFreeSlots: 5, // trip success criterion (D-070) — of 40 bag slots
+    maxTxRetries: 1, // retry-once per transaction (D-070)
+    tripOnFirstOverflow: true,
+  },
 };

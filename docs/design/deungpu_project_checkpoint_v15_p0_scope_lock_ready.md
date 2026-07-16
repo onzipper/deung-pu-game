@@ -413,6 +413,16 @@ FAILED
 - PR3 ต่อ runtime เฉพาะ `WORKING`, `TRAVELING`, `COMBAT`, `PAUSED` ที่มี execution seam จริง. State อื่นเป็น contract สำหรับ PR4–PR6 และต้องไม่ถูกทำให้ดูเหมือนทำงานแล้ว
 - PR4 เป็นเจ้าของ Free obstacle/wait/completion policy; PR5 เป็นเจ้าของ recovery/town/service/return flow; PR6 เป็นเจ้าของ Pro workflow, cross-map, durable checkpoint และ validated restart resume
 
+## 4.3 Amendment (v15.5, 2026-07-16) — D-069/D-070: PR5 town warp + town service policy
+
+Owner lock 2026-07-16 (รายละเอียด: `docs/decisions/D-069-bot-town-warp.md`, `docs/decisions/D-070-bot-town-service-policy.md`):
+
+- **Town trip ของ PR5 ใช้ "วาป"**: บอท Plus/Pro ที่ต้องใช้บริการเมือง (ขาย/ฝาก/ซื้อคืนที่ city-hub) ย้ายด้วย **server-owned actor transfer** (จองที่ปลายทาง → detach → attach ตัวเดิม identity เดิม → rollback fail-closed; actor อยู่ห้องเดียวเสมอ ไม่มี duplicate) ทำธุรกรรมที่ตำแหน่งจริงในเมือง แล้ววาปกลับ pocket เดิมทำงานต่อ
+- ข้อความ §4.1 "Plus = same-map fallback" ยังถูกต้องสำหรับ combat/farm; town trip เป็นข้อยกเว้นเฉพาะที่ D-069 อนุญาต. **Cross-map workflow** (ฟาร์มหลาย map, goal chain ข้าม map) ยังเป็น Pro/PR6 ตามเดิม
+- Warp ฟรีสำหรับ Plus+Pro (จ่าย pass แล้ว) มี cooldown เป็น Design Knob; **Free ไม่ไปเมือง** — หยุด `WAITING_FOR_OWNER` เหมือนเดิมทุกกรณี; ไม่มี paid power ใหม่ (ไม่แตะ damage/EXP/drop ceiling)
+- นโยบายขาย/ฝาก/ซื้อคืนตาม D-070: ขายอัตโนมัติเฉพาะ Common/Uncommon ที่ไม่ได้สวมใส่, denylist กลาง equipped/quest/unique/critical, ลำดับ `SELLING → DEPOSITING → RESTOCKING`, จบ trip ช่องว่างไม่พอ → `inventory_full` ตามจริง
+- Takeover กลาง trip = finish-and-return-then-pause; stop reason ใหม่ `town_trip_failed` → `WAITING_FOR_OWNER` (วาปพังแต่ตัวละครจอดปลอดภัยในเมือง — ไม่ใช่แผนล้มเหลว)
+
 ---
 
 # 5. Market Helper

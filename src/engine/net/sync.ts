@@ -140,6 +140,36 @@ export function isCharacterWorldCapacityError(error: unknown): boolean {
 }
 
 /**
+ * PR5-fix (server-owned bot "warp"): after a successful join/reconnect/4216-redirect the room we actually
+ * landed in can be a DIFFERENT map's room than the one the client loaded (joinOptions.mapId) — the server
+ * moved the real actor to the city-hub while we booted. Compare the room's authoritative `state.mapId`
+ * against the loaded map and return the map the client must re-enter on, or null when they already match
+ * (or the server hasn't published a map yet). Pure — net-client fires onMapMismatch(result) once per
+ * connection when non-null; loaded scene otherwise renders the wrong map under the authoritative actor.
+ */
+export function resolveMapReentry(
+  loadedMapId: string,
+  serverMapId: string | null | undefined,
+): string | null {
+  if (typeof serverMapId !== "string" || serverMapId.length === 0) return null;
+  return serverMapId === loadedMapId ? null : serverMapId;
+}
+
+/**
+ * PR5-fix loop-guard: decide the next action when a map mismatch is detected, given how many consecutive
+ * re-entries have already happened. "reenter" until the cap, then "abort" (caller surfaces the offline
+ * connection UX). This breaks a pathological loop where the actor keeps warping between our reload windows,
+ * so every fresh join lands on yet another map. Pure; the caller owns the counter (it must survive the
+ * world remount each re-entry performs).
+ */
+export function planMapReentry(
+  retriesSoFar: number,
+  maxRetries: number,
+): "reenter" | "abort" {
+  return retriesSoFar >= maxRetries ? "abort" : "reenter";
+}
+
+/**
  * ควรส่ง MSG_MOVE ขึ้น server ไหม (fix issue #1/#2): ต้อง online **และ** adopt ตำแหน่ง authoritative
  * ของตัวเองจาก server แล้ว (self เข้า room state ครั้งแรกต่อ 1 connection).
  *

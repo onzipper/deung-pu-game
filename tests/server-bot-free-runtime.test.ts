@@ -1,5 +1,10 @@
 import { describe, expect, test } from "vitest";
-import { BotRuntime, type BotAttackOutcome, type BotHost } from "../server/bot/runtime";
+import {
+  BotRuntime,
+  type BotAttackOutcome,
+  type BotHost,
+  type BotPotionOutcome,
+} from "../server/bot/runtime";
 import type { SessionRepo } from "../server/bot/store";
 import { DEFAULT_BOT_CONFIG, type BotConfig } from "../server/config/bot";
 import {
@@ -19,12 +24,15 @@ const EMPTY_OUTCOME: BotAttackOutcome = {
   leveledUp: false,
 };
 
+const UNAVAILABLE_POTION: BotPotionOutcome = { status: "unavailable", hpFraction: 1, cooldownUntilMs: 0 };
+
 interface RuntimeHarnessOptions {
   config?: BotConfig;
   mobs?: ReturnType<BotHost["botMobs"]>;
   hpFraction?: number;
   stepToward?: () => boolean;
   attack?: () => Promise<BotAttackOutcome>;
+  usePotion?: () => Promise<BotPotionOutcome>;
   rarityOf?: (itemId: string) => string | undefined;
 }
 
@@ -67,6 +75,21 @@ function createRuntimeHarness(options: RuntimeHarnessOptions = {}) {
     },
     isForbiddenTargetType: () => false,
     pocketExists: () => true,
+    botUsePotion: options.usePotion ?? (async () => UNAVAILABLE_POTION),
+    botPlanPath: () => null,
+    botPocketAnchor: () => null,
+    partyId: "",
+    botReserveWarpSeat: () => true,
+    botReleaseWarpSeat: () => undefined,
+    botExportActor: () => null,
+    botAttachWarpedActor: () => false,
+    botPersistNow: () => undefined,
+    botBagItems: async () => [],
+    botTownSell: async () => ({ ok: false, reason: "unavailable" }),
+    botTownDeposit: async () => ({ ok: false, reason: "unavailable" }),
+    botTownBuy: async () => ({ ok: false, reason: "unavailable" }),
+    botGoldBalance: async () => null,
+    botSafeCampAnchor: () => ({ tx: 0, ty: 0 }),
   };
   const runtime = new BotRuntime({
     host,
@@ -81,6 +104,8 @@ function createRuntimeHarness(options: RuntimeHarnessOptions = {}) {
     mapId: "map1",
     pocketId: "pocket",
     rules: { skillSlots: [0], potionThresholdPct: null, lootAll: true },
+    tier: "free",
+    resolveTier: async () => "free",
     baseCooldownSeconds: 1,
     startedAtMs: now,
     now: () => ++now,

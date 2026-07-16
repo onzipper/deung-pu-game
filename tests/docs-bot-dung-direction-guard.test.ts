@@ -113,24 +113,26 @@ describe("Bot autonomy and Dung-Dung direction docs lock", () => {
       "D-067",
       "D-068",
       "PR4 Free one-area/one-goal safe baseline aligned",
-      "PR5–7 Plus recovery/Pro workflow/UX pending",
+      "PR5 Plus recovery + town warp aligned",
+      "PR6–7 Pro workflow/UX pending",
       "noncanonical",
     ]);
     expectAll("docs/current-state.md", [
       "D-067",
       "D-068",
-      "PR1–4 aligned",
+      "PR1–5 aligned",
       "Free one-area/one-goal safe baseline",
       "WAITING_FOR_OWNER",
       "COMPLETED",
       "FAILED",
-      "PR5–10 pending",
+      "PR6–10 pending",
     ]);
     expectAll("docs/context/server.md", [
       "PR4 Free is live",
       "one assigned area + one continuous goal",
       "WAITING_FOR_OWNER/COMPLETED/FAILED",
-      "PR5–6 still own recovery",
+      "PR5 live: Plus recovery + town warp",
+      "PR6 owns workflow/restart resume",
     ]);
     expectAll("docs/context/ui.md", ["PR4 status/stopped messages", "PR7 UX"]);
     expectAll("docs/CODEMAP.md", ["policy.ts", "PR4 Free one-area/one-goal safe-stop settlement"]);

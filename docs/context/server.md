@@ -12,7 +12,7 @@ Scope: `server/**`, `src/server/**`, `src/shared/**` · Read this pack + the fil
 - `server/index.ts` — Colyseus Server + `.filterBy(['mapId','partyId'])`, ws://localhost:2567
 - `server/schema/` — @colyseus/schema room/player/mob state
 - `server/security/` — WS handshake (JWT+origin+rate limit), session takeover/lease (Bible 5.2)
-- `server/characters/` + `server/bot/` — real actor, no clone; PR2–3 own takeover/continuity. PR4 Free is live: one assigned area + one continuous goal, with WAITING_FOR_OWNER/COMPLETED/FAILED reports. PR5–6 still own recovery/town/workflow/restart.
+- `server/characters/` + `server/bot/` — real actor, no clone; PR2–3 own takeover/continuity. PR4 Free is live: one assigned area + one continuous goal, with WAITING_FOR_OWNER/COMPLETED/FAILED reports. PR5 live: Plus recovery + town warp (`server/bot/town-trip.ts`, D-069/D-070); PR6 owns workflow/restart resume.
 - `src/engine/net/net-client.ts` — connect/reconnect/self-adopt + cast and Bot takeover/checkpoint/resume
 - `src/server/db.ts` + `server/db/` — Prisma singletons (server-only) + ledger contract
 
