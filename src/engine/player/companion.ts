@@ -1,31 +1,24 @@
-// ดึ๋งๆ COMPANION follow-entity (C4-MVP, DUNG_DUNG_COMPANION_GUIDE_SYSTEM_SPEC §12.2 + §5.1).
+// ดึ๋งๆ COMPANION entity — spawn/atlas/nameplate creation only (D-068 PR8: follower model ถอดออกแล้ว).
 // Plain TS + PixiJS เท่านั้น (engine layer contract — ห้าม import React/Next).
 //
-// Client-only cosmetic entity (§3.2): no stats, no damage, cannot be hit — purely visual. Follows the LOCAL
-// player at a 0.6–1.2 tile trail (§12.2), moves through everything (no collision), teleport catch-up when
-// very far (>teleportDistance tiles — after map transition / server correction). It enters the scene entity
-// layer like mobs/NPCs → depth-sorts by iso foot position (never-downgrade adjacency preserved).
-//
-// แยก calc (stepCompanionFollow, companion-follow.ts = pure) ออกจาก render (scene entity + animator) เพื่อ
-// เตรียม server-authoritative ตอน P1. facing derive จาก movement delta ผ่าน resolveDirection เดียวกับ mob.
+// Client-only cosmetic entity (§3.2): no stats, no damage, cannot be hit — purely visual. Kept **disabled by
+// default** (config.companion.enabled=false, D-068) — PR10 reuses this entity-creation code for a contextual
+// (spawns-by-context, not a permanent follower) redesign. No follow-step / no per-frame chase-the-player logic
+// here anymore (that pure calc lived in companion-follow.ts — deleted with the follower model).
 //
 // Fail-soft: peek atlas ไม่เจอ (ยังไม่ preload / โหลดพลาด / anim ไม่ครบ) → teal Graphics blob placeholder
-//   (mirror NPC manager's placeholder approach) — ไม่มี animator, แค่ก้อนตามผู้เล่น. คลิกเปิด help ผูกที่ app.ts.
+//   (mirror NPC manager's placeholder approach) — ไม่มี animator, แค่ก้อนนิ่งที่จุด spawn.
 
 import { Container, Graphics } from "pixi.js";
 import type { EngineConfig } from "@/engine/config";
 import type { TilePoint } from "@/engine/iso/coords";
 import type { MapSceneHandle } from "@/engine/render/scene";
-import { resolveDirection, type Direction } from "@/engine/movement/direction";
+import type { Direction } from "@/engine/movement/direction";
 import { createSpriteAnimator, type SpriteAnimator } from "@/engine/animation/animator";
 import type { AnimationManifest } from "@/engine/animation/manifest";
 import type { AssetRegistry } from "@/engine/assets/registry";
 import { createNameLabel, setNameLabelText } from "@/engine/render/name-label";
 import type { NameplateLayerHandle } from "@/engine/render/nameplate-layer";
-import {
-  stepCompanionFollow,
-  type CompanionFollowParams,
-} from "@/engine/player/companion-follow";
 
 /** entity id ใน scene registry — unique, กันชนกับ mob:/npc:/__local_player__. */
 export const COMPANION_ENTITY_ID = "companion";
@@ -58,9 +51,9 @@ function drawPlaceholder(): Graphics {
 }
 
 export interface CompanionHandle {
-  /** ตำแหน่ง foot ปัจจุบัน (read-only) — app.ts ใช้ตรวจคลิก (§5.1). */
+  /** ตำแหน่ง foot ปัจจุบัน (read-only). */
   getPosition(): Readonly<TilePoint>;
-  /** เรียกทุก frame (วินาที) — follow-step + depth move + anim. */
+  /** เรียกทุก frame (วินาที) — anim only (ไม่มี follow-step, D-068 PR8). */
   update(dtSeconds: number): void;
   /** ลบ entity + nameplate + ปล่อย texture (world teardown). */
   destroy(): void;
@@ -69,8 +62,9 @@ export interface CompanionHandle {
 /**
  * สร้าง companion: spawn ที่ player offset (0.8,0.8) ข้างหลัง, atlas art (fail-soft → placeholder),
  * เข้า scene entity layer (depth-sort เหมือน mob/NPC) + ป้ายชื่อบน full-res nameplate overlay.
+ * ไม่มี follow-step — นิ่งอยู่จุด spawn (D-068 PR8 ถอด follower model; PR10 reuse ฟังก์ชันนี้สำหรับ contextual spawn).
  *
- * @param player ต้องมี `position` (foot ปัจจุบัน) — companion ตามตำแหน่งนี้ทุก frame.
+ * @param player ต้องมี `position` (foot ปัจจุบัน) — ใช้แค่คำนวณจุด spawn offset ครั้งเดียว.
  */
 export function createCompanion(
   scene: MapSceneHandle,
@@ -79,12 +73,12 @@ export function createCompanion(
   player: { readonly position: Readonly<TilePoint> },
   nameplates?: NameplateLayerHandle,
 ): CompanionHandle {
-  const { companion, tileSize } = config;
+  const { companion } = config;
   const pos: TilePoint = {
     tx: player.position.tx - SPAWN_OFFSET,
     ty: player.position.ty - SPAWN_OFFSET,
   };
-  let facing: Direction = INITIAL_FACING;
+  const facing: Direction = INITIAL_FACING;
 
   // atlas (fail-soft): มี assetId + peek เจอ + anim ครบ → animator; ไม่งั้น teal blob placeholder (ไม่มี animator).
   const atlas = companion.assetId ? (registry?.peek(companion.assetId) ?? null) : null;
@@ -110,32 +104,14 @@ export function createCompanion(
 
   scene.addEntity(COMPANION_ENTITY_ID, container, pos);
 
-  const followParams: CompanionFollowParams = {
-    trailDistanceTiles: companion.trailDistanceTiles,
-    deadZoneTiles: companion.deadZoneTiles,
-    teleportDistanceTiles: companion.teleportDistanceTiles,
-    speedTilesPerSec: config.player.speed * companion.speedFactor,
-  };
-
   return {
     getPosition(): Readonly<TilePoint> {
       return pos;
     },
 
     update(dtSeconds: number): void {
-      const r = stepCompanionFollow(pos, player.position, dtSeconds, followParams);
-      if (r.tx !== pos.tx || r.ty !== pos.ty) {
-        pos.tx = r.tx;
-        pos.ty = r.ty;
-        scene.moveEntity(COMPANION_ENTITY_ID, pos); // depth-resort ตาม iso foot เหมือน mob
-        nameplates?.moveEntity(COMPANION_ENTITY_ID, pos);
-      }
-      // facing derive จาก movement delta (เหมือน mob view) — teleport/นิ่ง (dx=dy=0) → คงทิศเดิม
-      if (r.moved) facing = resolveDirection({ tx: r.dx, ty: r.dy }, tileSize, facing);
-      if (animator) {
-        animator.setState(r.moved ? "walk" : "idle", facing);
-        animator.update(dtSeconds);
-      }
+      // ไม่มี follow-step (D-068 PR8) — นิ่งอยู่จุด spawn, เล่นแค่ idle anim.
+      animator?.update(dtSeconds);
     },
 
     destroy(): void {

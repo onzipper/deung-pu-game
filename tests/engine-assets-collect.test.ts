@@ -51,7 +51,6 @@ describe("collectMapAssetIds", () => {
     const map = mapWith(["slime", "mushroom"]);
     expect(collectMapAssetIds(map, DEFAULT_ENGINE_CONFIG)).toEqual([
       "chr_crimson_knight",
-      "cmp_dungdung",
       "mon_map1_slime",
       "prop_map1_tree",
       "prop_map1_rock",
