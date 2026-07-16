@@ -4,6 +4,7 @@ import {
   getHelpArticle,
   getHelpArticlesByCategory,
   HELP_ARTICLES,
+  searchHelpArticles,
   validateAllHelpArticles,
   validateHelpArticle,
 } from "@/ui/panels/help/help-articles";
@@ -103,6 +104,39 @@ describe("getHelpArticlesByCategory / getHelpArticle", () => {
 
   test("id ไม่มีจริง → undefined", () => {
     expect(getHelpArticle("not_a_real_id")).toBeUndefined();
+  });
+});
+
+describe("searchHelpArticles (PR9, D-068 — Help ค้นหาได้ แยกขาดจากดึ๋งๆ)", () => {
+  test("เจอด้วยคำใน title", () => {
+    const results = searchHelpArticles("เดินยังไง");
+    expect(results.some((a) => a.id === "movement")).toBe(true);
+  });
+
+  test("เจอด้วยคำใน steps", () => {
+    const results = searchHelpArticles("virtual joystick");
+    expect(results.some((a) => a.id === "movement")).toBe(true);
+  });
+
+  test("เจอด้วยคำใน oneLine", () => {
+    const results = searchHelpArticles("ปุ่มสกิลแถบล่างจอ");
+    expect(results.some((a) => a.id === "combat")).toBe(true);
+  });
+
+  test("ไม่พบ query ที่ไม่มีในบทความไหนเลย → คืน []", () => {
+    expect(searchHelpArticles("ไม่มีทางเจอคำนี้แน่นอน123xyz")).toEqual([]);
+  });
+
+  test("query ว่าง/ช่องว่างล้วน → คืนทั้ง registry", () => {
+    expect(searchHelpArticles("")).toEqual([...HELP_ARTICLES]);
+    expect(searchHelpArticles("   ")).toEqual([...HELP_ARTICLES]);
+  });
+
+  test("ตัวพิมพ์ต่างกัน (คำอังกฤษใน steps) ก็เจอเหมือนกัน", () => {
+    const lower = searchHelpArticles("joystick");
+    const upper = searchHelpArticles("JOYSTICK");
+    expect(upper).toEqual(lower);
+    expect(upper.some((a) => a.id === "movement")).toBe(true);
   });
 });
 
