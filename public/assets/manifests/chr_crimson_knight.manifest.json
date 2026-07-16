@@ -12,15 +12,15 @@
   "mirrorSafe": true,
   "drawnDirections": [
     "S",
-    "SE",
-    "E",
-    "NE",
+    "SW",
+    "W",
+    "NW",
     "N"
   ],
   "mirrorMap": {
-    "SW": "SE",
-    "W": "E",
-    "NW": "NE"
+    "SE": "SW",
+    "E": "W",
+    "NE": "NW"
   },
   "animations": {
     "idle": {
@@ -33,9 +33,9 @@
       "fps": 4,
       "directions": [
         "s",
-        "se",
-        "e",
-        "ne",
+        "sw",
+        "w",
+        "nw",
         "n"
       ]
     },
@@ -51,9 +51,9 @@
       "fps": 8,
       "directions": [
         "s",
-        "se",
-        "e",
-        "ne",
+        "sw",
+        "w",
+        "nw",
         "n"
       ]
     },
@@ -68,9 +68,9 @@
       "fps": 10,
       "directions": [
         "s",
-        "se",
-        "e",
-        "ne",
+        "sw",
+        "w",
+        "nw",
         "n"
       ],
       "contactFrame": 1
