@@ -1392,7 +1392,7 @@ exports[`engine config — value identity (DEFAULT_* consts) > DEFAULT_ENGINE_CO
       "idleFrames": 2,
       "style": {
         "accentColor": 14042437,
-        "assetId": "chr_swordsman",
+        "assetId": "chr_crimson_knight",
         "bodyColor": 16765514,
         "bodyHeight": 34,
         "bodyWidth": 20,
@@ -2007,7 +2007,7 @@ exports[`engine config — value identity (DEFAULT_* consts) > DEFAULT_PLAYER_AN
   "idleFrames": 2,
   "style": {
     "accentColor": 14042437,
-    "assetId": "chr_swordsman",
+    "assetId": "chr_crimson_knight",
     "bodyColor": 16765514,
     "bodyHeight": 34,
     "bodyWidth": 20,
@@ -2030,7 +2030,7 @@ exports[`engine config — value identity (DEFAULT_* consts) > DEFAULT_PLAYER_CO
     "idleFrames": 2,
     "style": {
       "accentColor": 14042437,
-      "assetId": "chr_swordsman",
+      "assetId": "chr_crimson_knight",
       "bodyColor": 16765514,
       "bodyHeight": 34,
       "bodyWidth": 20,
@@ -3139,7 +3139,7 @@ exports[`engine config — value identity (factory / pure functions) > createEng
       "idleFrames": 2,
       "style": {
         "accentColor": 14042437,
-        "assetId": "chr_swordsman",
+        "assetId": "chr_crimson_knight",
         "bodyColor": 16765514,
         "bodyHeight": 34,
         "bodyWidth": 20,
@@ -4239,7 +4239,7 @@ exports[`engine config — value identity (factory / pure functions) > createEng
       "idleFrames": 2,
       "style": {
         "accentColor": 14042437,
-        "assetId": "chr_swordsman",
+        "assetId": "chr_crimson_knight",
         "bodyColor": 16765514,
         "bodyHeight": 34,
         "bodyWidth": 20,
