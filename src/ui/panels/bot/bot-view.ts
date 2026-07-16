@@ -9,22 +9,28 @@
 // ⚠ ห้ามปนกับ Auto Pilot (D-037 auto-walk) หรือดึ๋งๆ companion (D-035) — คนละปุ่ม/คนละ panel/คนละสิทธิ์ (§0.1).
 
 import type {
+  BotCheckpointKindWire,
   BotOpResultMessage,
   BotRulesWire,
   BotTierCapsWire,
   BotTierStateMessage,
   BotTierWire,
 } from "@/shared/net-protocol";
+import type { BotContinuityStateWire } from "@/shared/bot-continuity";
 import {
   validateWorkflow,
+  type BotWorkflowBranchStep,
   type BotWorkflowCondition,
   type BotWorkflowFarmStep,
   type BotWorkflowMetric,
+  type BotWorkflowStatusCursor,
   type BotWorkflowStep,
+  type BotWorkflowStepKind,
   type BotWorkflowTownStep,
   type BotWorkflowV1,
   BOT_WORKFLOW_VERSION,
 } from "@/shared/bot-workflow";
+import type { KeyValueStorage } from "@/engine/net/reconnect-store";
 import type { PanelId } from "@/ui/panels";
 
 /** panel id คงที่ของ bot hub (7b-UI) — ใช้ทั้ง openPanel/closePanel และ <Panel id> */
@@ -32,9 +38,11 @@ export const BOT_PANEL_ID: PanelId = "bot";
 
 export type BotTab = "status" | "profiles" | "reports" | "packages";
 
+// PR7 terminology (P3 Bot UI spec §2 locked): "แผนงาน" แทน "โปรไฟล์/บอท" ทั้ง panel — Hub สื่อ "แผนที่บันทึกไว้
+// + ตัวละครจริงกำลังทำแผนไหน" ไม่ใช่ "บอทหลายตัว". `BotTab`/type อื่นคงชื่อ id เดิม (ไม่ใช่ user-facing copy).
 export const BOT_TAB_LABELS: Readonly<Record<BotTab, string>> = {
   status: "สถานะ",
-  profiles: "โปรไฟล์",
+  profiles: "แผนงาน",
   reports: "รายงาน",
   packages: "แพ็กเกจ",
 };
@@ -131,13 +139,13 @@ export function botTierComparisonRows(): readonly BotTierCompareRow[] {
     for (const plan of BOT_TIER_PLANS) out[plan.tier] = fmt(plan.caps[key]);
     return out as Readonly<Record<BotTierWire, string>>;
   };
+  // D-072: ถอดแถว Schedule/ตารางเวลา ออกทั้งหมด (deferred feature — ไม่โชว์ใน tier table อีกต่อไป).
   return [
     { label: "Runtime", values: { free: "24/7 ไม่จำกัด", plus: "24/7 ไม่จำกัด", pro: "24/7 ไม่จำกัด" } },
-    { label: "โปรไฟล์", values: by("profiles", (v) => String(v)) },
+    { label: "แผน", values: by("profiles", (v) => String(v)) },
     { label: "กฎ (skill+potion+loot+custom stop)", values: by("rules", (v) => String(v)) },
     { label: "เก็บรายงานย้อนหลัง", values: by("reportRetentionDays", (v) => `${v} วัน`) },
     { label: "แจ้งเตือนนอกเกม", values: by("notifications", (v) => (v ? "เปิด" : "ปิด")) },
-    { label: "ตั้งเวลา (Schedule)", values: by("schedules", (v) => (v > 0 ? String(v) : "—")) },
     { label: "Analytics ขั้นสูง", values: by("analytics", (v) => (v ? "✓" : "—")) },
     { label: "เพดานพลัง/รางวัล", values: { free: "เท่ากัน", plus: "เท่ากัน", pro: "เท่ากัน" } },
   ];
@@ -199,7 +207,7 @@ export function botStopReasonLabel(reason: string): string {
     case "server_restart":
       return "เซิร์ฟเวอร์รีสตาร์ท บอทหยุดปลอดภัยแล้ว (ของที่ได้ถูกบันทึกแล้ว)";
     case "expired_readonly":
-      return "แพ็กเกจหมดอายุ โปรไฟล์นี้ถูกพัก (อ่านอย่างเดียว)";
+      return "แพ็กเกจหมดอายุ แผนนี้ถูกพัก (อ่านอย่างเดียว)";
     case "town_trip_failed":
       return "วาร์ปเข้าเมืองล้มเหลว ตัวละครพักปลอดภัยอยู่ในเมือง บอทรอคุณ";
     default:
@@ -223,13 +231,13 @@ export function botOpRejectionLabel(reason: string | undefined): string {
     case "pocket_not_allowed":
       return "พื้นที่นี้ไม่อนุญาตให้บอทเข้า";
     case "profiles_at_cap":
-      return "โปรไฟล์เต็มเพดานของแพ็กเกจนี้แล้ว";
+      return "แผนเต็มเพดานของแพ็กเกจนี้แล้ว";
     case "rules_over_cap":
       return "กฎเกินเพดานของแพ็กเกจนี้";
     case "not_found":
-      return "ไม่พบโปรไฟล์นี้";
+      return "ไม่พบแผนนี้";
     case "profile_readonly":
-      return "โปรไฟล์นี้ถูกพัก (อ่านอย่างเดียว) จากการลดระดับแพ็กเกจ";
+      return "แผนนี้ถูกพัก (อ่านอย่างเดียว) จากการลดระดับแพ็กเกจ";
     case "no_character":
       return "ไม่พบตัวละคร";
     case "already_running":
@@ -446,6 +454,49 @@ export function botActionLabel(action: string): string {
   return BOT_ACTION_LABELS[action] ?? action;
 }
 
+// ── PR7: continuity.state = authority for status display (server-owned, client never advances it) ───────
+// ครบ 14 states ตาม src/shared/bot-continuity.ts BOT_CONTINUITY_STATES — Record นี้บังคับด้วย TS ให้ครบทุกตัว.
+export const BOT_CONTINUITY_LABELS: Readonly<Record<BotContinuityStateWire, string>> = {
+  WORKING: "ทำงาน",
+  TRAVELING: "เดินทาง",
+  COMBAT: "ต่อสู้",
+  LOOTING: "เก็บของ",
+  RECOVERING: "ฟื้นตัว",
+  RETURNING_TO_TOWN: "เข้าเมือง",
+  SELLING: "ขายของ",
+  DEPOSITING: "ฝากของ",
+  RESTOCKING: "ซื้อของ",
+  RETURNING_TO_WORK: "กลับไปทำงาน",
+  PAUSED: "พัก",
+  WAITING_FOR_OWNER: "รอเจ้าของ",
+  COMPLETED: "จบแผน",
+  FAILED: "ล้มเหลว",
+};
+
+export function botContinuityLabel(state: BotContinuityStateWire): string {
+  return BOT_CONTINUITY_LABELS[state];
+}
+
+/** ป้ายสถานะที่ UI แสดงจริง — authority คือ continuity.state เสมอ, action เป็น fallback เฉพาะไม่มี continuity. */
+export function botStatusStateLabel(
+  continuity: { state: BotContinuityStateWire } | null | undefined,
+  action: string,
+): string {
+  return continuity ? botContinuityLabel(continuity.state) : botActionLabel(action);
+}
+
+// ── PR7 §3: resume CTA แยกตาม checkpoint.kind (takeover vs restart) + reassure ผลฟาร์มไม่หาย เสมอ ────────
+export const BOT_RESUME_REASSURANCE = "ผลที่ฟาร์มมาไม่หาย";
+
+export function botResumeCtaLabel(kind: BotCheckpointKindWire | undefined): string {
+  return kind === "restart" ? "ทำต่อ (เซิร์ฟเวอร์รีสตาร์ท)" : "ทำต่อจากที่ค้าง";
+}
+
+/** ป้ายบอกที่มา checkpoint เฉพาะตอน restart (D-067 durable resume) — null = ไม่ต้องแสดง (takeover ปกติ) */
+export function botCheckpointRestartBadge(kind: BotCheckpointKindWire | undefined): string | null {
+  return kind === "restart" ? "จุดทำงานนี้มาจากตอนเซิร์ฟเวอร์รีสตาร์ท" : null;
+}
+
 export function formatHpPercent(hpFraction: number): string {
   return `${Math.round(Math.max(0, Math.min(1, hpFraction)) * 100)}%`;
 }
@@ -472,7 +523,7 @@ export function formatEpochMs(ms: number): string {
 //
 // ⚠ ต้องตรงกับ server/config/bot.ts workflow.maxSteps เสมอ (Design Knob) — client mirror เพื่อ defense-in-depth
 // เท่านั้น; server validate ซ้ำทุก create/update/start (validateWorkflow เดียวกัน, allow-list ฝั่ง server เป็นจริง).
-// UI ขั้นต่ำของ PR6b รองรับ step ชนิด farm + town_service (branch เป็น contract-only ไว้ให้ PR7 ทำ UI).
+// PR6b UI รองรับ step ชนิด farm + town_service; PR7 เติม branch step editor + live progress ด้านล่าง.
 
 export const BOT_WORKFLOW_MAX_STEPS_CLIENT = 10;
 
@@ -515,7 +566,7 @@ export function isValidBotWorkflowClient(workflow: BotWorkflowV1): boolean {
   }).ok;
 }
 
-/** true = โปรไฟล์นี้ตั้งงานหลายขั้นไว้ (มี step อย่างน้อย 1) */
+/** true = แผนนี้ตั้งงานหลายขั้นไว้ (มี step อย่างน้อย 1) */
 export function hasWorkflow(rules: BotRulesWire): boolean {
   return !!rules.workflow && rules.workflow.steps.length > 0;
 }
@@ -560,4 +611,258 @@ export function setWorkflowFarmGoal(
   const target = type === "durationMs" ? Math.max(1, Math.round(rawTarget)) * 60000 : Math.max(1, Math.round(rawTarget));
   const steps = workflow.steps.map((s, i) => (i === index && s.kind === "farm" ? { ...s, goal: { type, target } } : s));
   return { version: BOT_WORKFLOW_VERSION, steps };
+}
+
+// ── PR7 §4: live workflow progress (แท็บสถานะ) — "ขั้น x/y · ชนิดขั้น · เป้า goalDone/goalTarget" ────────────
+
+export const BOT_WORKFLOW_STEP_KIND_LABELS: Readonly<Record<BotWorkflowStepKind, string>> = {
+  farm: "ฟาร์ม",
+  town_service: "แวะเมือง",
+  branch: "เงื่อนไข",
+};
+
+/** ป้าย progress ของ cursor ปัจจุบัน (bot:status.workflow) — เป้าโชว์เฉพาะ step ฟาร์ม (town/branch ไม่มีเป้า) */
+export function formatWorkflowStepProgress(cursor: BotWorkflowStatusCursor): string {
+  const head = `ขั้น ${cursor.stepIndex + 1}/${cursor.stepCount} · ${BOT_WORKFLOW_STEP_KIND_LABELS[cursor.stepKind] ?? cursor.stepKind}`;
+  if (cursor.stepKind !== "farm") return head;
+  return `${head} · เป้า ${formatWorkflowProgress(cursor.goalDone, cursor.goalTarget)}`;
+}
+
+// ── PR7 §4: branch step editor helpers (เลือกเงื่อนไข + then/else จาก step ที่มีอยู่แล้ว) ─────────────────
+
+/** branch step ใหม่ — then/else ต้องเป็น id ของ step ที่มีอยู่แล้วเสมอ (ผู้เรียกส่ง target มาให้) */
+export function newWorkflowBranchStep(
+  id: string,
+  when: BotWorkflowCondition,
+  thenStepId: string,
+  elseStepId: string,
+): BotWorkflowBranchStep {
+  return { id, kind: "branch", when, thenStepId, elseStepId };
+}
+
+/** ตัวเลือกปลายทาง then/else ของ branch หนึ่งอัน — ทุก step อื่นในสาย (ไม่รวมตัวเอง กันชี้วนตัวเองเปล่าประโยชน์) */
+export function workflowBranchTargetOptions(
+  workflow: BotWorkflowV1,
+  excludeIndex: number,
+): readonly { id: string; label: string }[] {
+  return workflow.steps
+    .map((step, index) => ({ step, index }))
+    .filter(({ index }) => index !== excludeIndex)
+    .map(({ step, index }) => ({ id: step.id, label: botWorkflowStepLabel(step, index) }));
+}
+
+/** อัปเดตเงื่อนไข (metric+target) ของ branch step ตาม index; durationMs รับเป็น "นาที" เหมือน setWorkflowFarmGoal */
+export function setWorkflowBranchWhen(
+  workflow: BotWorkflowV1,
+  index: number,
+  type: BotWorkflowMetric,
+  rawTarget: number,
+): BotWorkflowV1 {
+  const target = type === "durationMs" ? Math.max(1, Math.round(rawTarget)) * 60000 : Math.max(1, Math.round(rawTarget));
+  const steps = workflow.steps.map((s, i) => (i === index && s.kind === "branch" ? { ...s, when: { type, target } } : s));
+  return { version: BOT_WORKFLOW_VERSION, steps };
+}
+
+/** อัปเดตปลายทาง then/else ของ branch step ตาม index */
+export function setWorkflowBranchTarget(
+  workflow: BotWorkflowV1,
+  index: number,
+  branch: "then" | "else",
+  stepId: string,
+): BotWorkflowV1 {
+  const steps = workflow.steps.map((s, i) => {
+    if (i !== index || s.kind !== "branch") return s;
+    return branch === "then" ? { ...s, thenStepId: stepId } : { ...s, elseStepId: stepId };
+  });
+  return { version: BOT_WORKFLOW_VERSION, steps };
+}
+
+// ── PR7 §5: setup wizard (สร้างแผนใหม่) — stepper ง่าย ๆ ในหน้าเดิม ไม่เปิดหน้าต่างใหม่ ────────────────────
+// ลำดับล็อค: map → pocket (เฉพาะ allowed) → preset พื้นฐาน → กฎ → นโยบายหยุด (global safety + recovery ตาม tier).
+
+export type BotWizardStep = "map" | "pocket" | "preset" | "rules" | "stop_policy";
+
+export const BOT_WIZARD_STEPS: readonly BotWizardStep[] = ["map", "pocket", "preset", "rules", "stop_policy"];
+
+export const BOT_WIZARD_STEP_LABELS: Readonly<Record<BotWizardStep, string>> = {
+  map: "เลือกแผนที่",
+  pocket: "เลือกจุดฟาร์ม",
+  preset: "ชุดเริ่มต้น",
+  rules: "ปรับกฎ",
+  stop_policy: "นโยบายหยุด",
+};
+
+export function nextBotWizardStep(step: BotWizardStep): BotWizardStep | null {
+  const i = BOT_WIZARD_STEPS.indexOf(step);
+  return i >= 0 && i < BOT_WIZARD_STEPS.length - 1 ? BOT_WIZARD_STEPS[i + 1] : null;
+}
+
+export function prevBotWizardStep(step: BotWizardStep): BotWizardStep | null {
+  const i = BOT_WIZARD_STEPS.indexOf(step);
+  return i > 0 ? BOT_WIZARD_STEPS[i - 1] : null;
+}
+
+export interface BotWizardFormSnapshot {
+  name: string;
+  mapId: string;
+  pocketId: string;
+  rules: BotRulesWire;
+}
+
+/** ก้าวถัดไปกดได้ไหม ณ ขั้นนี้ (mirror validation เดียวกับตอน submit สุดท้าย — server เป็น truth จริงเสมอ) */
+export function isBotWizardStepValid(
+  step: BotWizardStep,
+  form: BotWizardFormSnapshot,
+  rulesCap: number | null,
+): boolean {
+  switch (step) {
+    case "map":
+      return botPocketOptions(form.mapId).length > 0;
+    case "pocket":
+      return isBotAllowedPocketClient(form.mapId, form.pocketId);
+    case "preset":
+      return true;
+    case "rules":
+      return (
+        hasAtLeastOneSkillSlot(form.rules) &&
+        (rulesCap === null || countBotRules(form.rules) <= rulesCap) &&
+        (!form.rules.workflow || isValidBotWorkflowClient(form.rules.workflow))
+      );
+    case "stop_policy":
+      return isValidBotProfileName(form.name);
+    default:
+      return false;
+  }
+}
+
+// ── PR7 §5: rule presets ("preset พื้นฐาน") — ปรับกฎเริ่มต้นให้เร็ว ผู้เล่นแก้ต่อได้เสมอหลังเลือก ────────────
+export interface BotRulePreset {
+  id: string;
+  label: string;
+  apply: (rules: BotRulesWire) => BotRulesWire;
+}
+
+export const BOT_RULE_PRESETS: readonly BotRulePreset[] = [
+  {
+    id: "balanced",
+    label: "สมดุล — ใช้สกิลหลัก + เก็บของทั้งหมด",
+    apply: (rules) => ({ ...rules, skillSlots: [0], lootAll: true }),
+  },
+  {
+    id: "all_skills",
+    label: "ดุเดือด — ใช้ทุกสกิล + เก็บของทั้งหมด",
+    apply: (rules) => ({ ...rules, skillSlots: [...BOT_RULE_SKILL_SLOTS], lootAll: true }),
+  },
+];
+
+export function applyBotRulePreset(rules: BotRulesWire, presetId: string): BotRulesWire {
+  const preset = BOT_RULE_PRESETS.find((p) => p.id === presetId);
+  return preset ? preset.apply(rules) : rules;
+}
+
+// ── PR7 §5: นโยบายหยุด (wizard ขั้นสุดท้าย, informational เท่านั้น) — global safety stops ทุก tier เหมือนกัน
+// + recovery ตาม tier (mirror เชิงคุณภาพของ server/config/bot.ts recovery/townTrip blocks, ไม่ใช่ตัวเลข balance) ──
+
+/** เหตุผลหยุดที่เป็น "global safety" เหมือนกันทุก tier (mirror รายการใน botStopReasonLabel ด้านบน) */
+export const BOT_GLOBAL_SAFETY_STOP_REASONS: readonly string[] = [
+  "inventory_full",
+  "low_hp",
+  "death",
+  "map_unsafe",
+  "stuck",
+  "rare_found",
+  "boss_or_event",
+  "secret_trigger",
+  "captcha",
+];
+
+export function botTierRecoveryLabel(tier: BotTierWire): string {
+  switch (tier) {
+    case "free":
+      return "Free: หยุดปลอดภัยเมื่อเจอปัญหาแล้วรอคุณกลับมากดทำต่อเอง";
+    case "plus":
+      return "Plus: ตายแล้วพยายามใช้โพชั่นฟื้นตัวเองและกลับไปฟาร์มต่อให้ก่อน ถ้าทำไม่ได้จึงหยุดรอคุณ";
+    case "pro":
+      return "Pro: เหมือน Plus และยังทำแผนต่อได้แม้เซิร์ฟเวอร์รีสตาร์ท";
+  }
+}
+
+// ── PR7 §7: micro-tutorial ครั้งแรกที่เปิด panel — persist localStorage (pattern เดียวกับ
+// help/tutorial-checklist-storage.ts: KeyValueStorage injectable, try/catch ทุก op, memory fallback ตอนไม่มี window) ──
+
+export const BOT_TUTORIAL_STORAGE_KEY = "dungdung.bot.tutorial.v1";
+
+export interface BotTutorialSlide {
+  title: string;
+  body: string;
+}
+
+/** 5 ข้อความ (ในช่วง 5-7 ที่ spec กำหนด) — จุดสำคัญ: ตัวจริงตัวเดียว/รับช่วงต่อทันที/หยุดปลอดภัย/ผลไม่หาย */
+export const BOT_TUTORIAL_SLIDES: readonly BotTutorialSlide[] = [
+  { title: "ตัวจริงตัวเดียว", body: "แผนควบคุมตัวละครจริงของคุณเท่านั้น ไม่ใช่ตัวช่วยแยกหรือหลายตัวพร้อมกัน" },
+  { title: "รับช่วงต่อได้ทันทีเสมอ", body: "กด “รับช่วงต่อ” เมื่อไหร่ก็ได้ คุมตัวละครกลับมาทันที ไม่มีขั้นตอนยืนยัน" },
+  { title: "หยุดปลอดภัยเมื่อเจอปัญหา", body: "เจอบอส เอลิต ของแรร์ HP ต่ำ หรือทางตัน ระบบหยุดให้เองเพื่อรอคุณ" },
+  { title: "ผลที่ฟาร์มมาไม่หาย", body: "ของ ทอง และ EXP ที่ได้ระหว่างทางถูกเก็บไว้เสมอ ไม่ว่าจะหยุดด้วยเหตุผลไหน" },
+  { title: "แผนที่บันทึกไว้หลายแผน", body: "ตั้งแผนล่วงหน้าได้หลายแผน แล้วเลือกว่าจะให้ตัวละครจริงทำแผนไหนตอนนี้" },
+];
+
+export interface BotTutorialState {
+  dismissed: boolean;
+}
+
+export const INITIAL_BOT_TUTORIAL_STATE: BotTutorialState = { dismissed: false };
+
+export function parseStoredBotTutorialState(raw: unknown): BotTutorialState {
+  if (typeof raw !== "object" || raw === null) return { ...INITIAL_BOT_TUTORIAL_STATE };
+  return { dismissed: (raw as Record<string, unknown>).dismissed === true };
+}
+
+export interface BotTutorialStore {
+  load(): BotTutorialState;
+  save(state: BotTutorialState): void;
+}
+
+export function createStorageBotTutorialStore(
+  storage: KeyValueStorage,
+  key: string = BOT_TUTORIAL_STORAGE_KEY,
+): BotTutorialStore {
+  return {
+    load(): BotTutorialState {
+      try {
+        const raw = storage.getItem(key);
+        if (raw === null) return { ...INITIAL_BOT_TUTORIAL_STATE };
+        return parseStoredBotTutorialState(JSON.parse(raw));
+      } catch {
+        return { ...INITIAL_BOT_TUTORIAL_STATE };
+      }
+    },
+    save(state: BotTutorialState): void {
+      try {
+        storage.setItem(key, JSON.stringify(state));
+      } catch {
+        /* quota / private mode — tutorial dismiss เป็น best-effort, ปล่อยผ่าน */
+      }
+    },
+  };
+}
+
+export function createMemoryBotTutorialStore(): BotTutorialStore {
+  let current: BotTutorialState = { ...INITIAL_BOT_TUTORIAL_STATE };
+  return {
+    load: () => current,
+    save: (state) => {
+      current = state;
+    },
+  };
+}
+
+export function createBotTutorialStore(): BotTutorialStore {
+  if (typeof window !== "undefined" && window.localStorage) {
+    return createStorageBotTutorialStore(window.localStorage);
+  }
+  return createMemoryBotTutorialStore();
+}
+
+export function dismissBotTutorial(prev: BotTutorialState): BotTutorialState {
+  return { ...prev, dismissed: true };
 }
