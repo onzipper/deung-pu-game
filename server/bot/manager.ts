@@ -49,9 +49,11 @@ import { BotRuntime, type BotBagItemView, type BotHost } from "./runtime";
 import { DEFAULT_INVENTORY_CAPACITY } from "../../src/server/inventory/item-catalog";
 import {
   botPersistenceAvailable,
+  prismaCheckpointRepo,
   prismaProfileRepo,
   prismaSessionRepo,
   prismaTierRepo,
+  type CheckpointRepo,
   type SessionRepo,
   type TierRepo,
 } from "./store";
@@ -79,7 +81,11 @@ export function freeBagSlots(bag: readonly BotBagItemView[], capacity: number): 
 interface StoredCheckpoint extends BotCheckpointWire {
   accountId: string;
   characterId: string;
-  host: BotHost;
+  /**
+   * The live host at capture time (a takeover checkpoint only). Absent on a checkpoint hydrated from the durable
+   * store after a restart — that fresh process has no live host, and a hydrated checkpoint is never settled.
+   */
+  host?: BotHost;
   /**
    * The live runtime whose actor this checkpoint captured (a running-bot takeover only; absent for a pending-start
    * takeover, which never moved the actor). Read at settle time to reconcile `mapId` with where the actor really
@@ -106,6 +112,12 @@ export interface BotManagerDeps {
   tierRepo: TierRepo;
   profileRepo: ProfileRepo;
   sessionRepo: SessionRepo;
+  /**
+   * PR6a (D-067): durable checkpoint store for restart resume. Optional — absent = no durable persistence (the
+   * in-process Map stays the sole authority, every tier's behavior byte-identical to pre-PR6a). The recovery/warp
+   * unit suites omit it; the process singleton wires the Prisma repo.
+   */
+  checkpointRepo?: CheckpointRepo;
   /** Rarity lookup for ordinary-rare notification and future plan-selected actions. */
   rarityOf: (itemId: string) => string | undefined;
   /** best-effort DB gate — every op rejects when false. */
@@ -147,6 +159,17 @@ export class BotManager {
       if (closed > 0) console.log(`[bot] boot: closed ${closed} orphaned session(s) as server_restart`);
     } catch (e) {
       console.error(`[bot] boot cleanup error: ${e instanceof Error ? e.message : String(e)}`);
+    }
+    // PR6a (D-067): every durable running snapshot that survived into this fresh process crossed the restart →
+    // becomes a `restart` resume candidate (Pro-only, re-gated at surface time). Takeover rows stay as-is; they are
+    // re-stamped `restart` in memory when hydrated (a hydrated checkpoint always crossed a restart).
+    if (this.d.checkpointRepo) {
+      try {
+        const swept = await this.d.checkpointRepo.markRunningAsRestart();
+        if (swept > 0) console.log(`[bot] boot: marked ${swept} running checkpoint(s) as restart`);
+      } catch (e) {
+        console.error(`[bot] boot checkpoint sweep error: ${e instanceof Error ? e.message : String(e)}`);
+      }
     }
   }
 
@@ -196,8 +219,8 @@ export class BotManager {
 
   private checkpointMessage(checkpoint: StoredCheckpoint | null): BotCheckpointMessage {
     if (!checkpoint) return { checkpoint: null };
-    const { id, profileId, sourceSessionId, mapId, pocketId, savedAt, state, continuity } = checkpoint;
-    return { checkpoint: { id, profileId, sourceSessionId, mapId, pocketId, savedAt, state, continuity } };
+    const { id, profileId, sourceSessionId, mapId, pocketId, savedAt, state, continuity, kind } = checkpoint;
+    return { checkpoint: { id, profileId, sourceSessionId, mapId, pocketId, savedAt, state, continuity, kind } };
   }
 
   private settleTakeoverCheckpoint(accountId: string, checkpointId: string, saved: boolean): void {
@@ -210,13 +233,139 @@ export class BotManager {
     // runtime's host is already the farm map), and pocketId stays the plan's assigned pocket (unchanged by a trip).
     if (saved && checkpoint.runtime) checkpoint.mapId = checkpoint.runtime.host.mapId;
     checkpoint.state = saved ? "ready" : "failed";
+    // PR6a (D-067): a ready takeover checkpoint is persisted durably so a Pro owner can resume it across a restart
+    // (Pro-only — the persist re-resolves the tier and drops the write for any other tier). Write-behind: the
+    // in-process Map above stays authority; a persist failure never affects the in-process settle.
+    if (saved) this.persistTakeoverCheckpoint(checkpoint);
     // Fan out across every registered host: after a warp the owner's transport may sit in a sibling room, not
     // checkpoint.host. Fall back to the stored host when the fan-out reaches nobody (owner offline, or the host
     // was never registered) so the last-known channel still gets the update.
     const message = this.checkpointMessage(checkpoint);
     if (!this.ownerSend(accountId, MSG_BOT_CHECKPOINT, message)) {
-      checkpoint.host.botOwnerSend(accountId, MSG_BOT_CHECKPOINT, message);
+      checkpoint.host?.botOwnerSend(accountId, MSG_BOT_CHECKPOINT, message);
     }
+  }
+
+  // ── PR6a durable checkpoint persistence (D-067) ───────────────────────────────────────────────────────────
+  // Write-behind, best-effort: the in-process `checkpoints` Map is authority while the process lives; these rows
+  // exist ONLY to cross a server restart. A DB failure logs and is swallowed — it never breaks the in-process flow.
+
+  private checkpointError(op: string, e: unknown): void {
+    console.error(`[bot] checkpoint ${op} error: ${e instanceof Error ? e.message : String(e)}`);
+  }
+
+  /** Persist a ready takeover checkpoint (Pro-only). Fire-and-forget: resolves the tier, then upserts kind='takeover'. */
+  private persistTakeoverCheckpoint(checkpoint: StoredCheckpoint): void {
+    const repo = this.d.checkpointRepo;
+    if (!repo) return;
+    void (async () => {
+      try {
+        if ((await this.resolveTierFor(checkpoint.accountId)) !== "pro") return;
+        await repo.upsert({
+          accountId: checkpoint.accountId,
+          id: checkpoint.id,
+          characterId: checkpoint.characterId,
+          profileId: checkpoint.profileId,
+          sourceSessionId: checkpoint.sourceSessionId,
+          mapId: checkpoint.mapId,
+          pocketId: checkpoint.pocketId,
+          kind: "takeover",
+          state: "ready",
+          continuity: checkpoint.continuity,
+          savedAt: checkpoint.savedAt,
+        });
+      } catch (e) {
+        this.checkpointError("persist takeover", e);
+      }
+    })();
+  }
+
+  /**
+   * Persist a live Pro run's durable snapshot (kind='running'). The runtime pre-gates on the live Pro tier, so no
+   * tier re-resolve here — reads the runtime's current farm map + active pocket + continuity. Fire-and-forget.
+   */
+  private persistRunningCheckpoint(accountId: string): void {
+    const repo = this.d.checkpointRepo;
+    if (!repo) return;
+    const rt = this.bots.get(accountId);
+    if (!rt || rt.isStopped) return;
+    const snap = rt.runningCheckpoint;
+    void repo
+      .upsert({
+        accountId,
+        id: rt.sessionRowId, // stable per-run id (also the sourceSessionId) — a new run re-upserts fresh
+        characterId: rt.characterId,
+        profileId: rt.profileId,
+        sourceSessionId: rt.sessionRowId,
+        mapId: snap.mapId,
+        pocketId: snap.pocketId,
+        kind: "running",
+        state: "ready",
+        continuity: snap.continuity,
+        savedAt: this.d.now(),
+      })
+      .catch((e: unknown) => this.checkpointError("persist running", e));
+  }
+
+  /** Best-effort delete of the durable checkpoint row (start/resume supersedes it; a non-Pro hydrate drops it). */
+  private async deleteCheckpointRow(accountId: string): Promise<void> {
+    if (!this.d.checkpointRepo) return;
+    try {
+      await this.d.checkpointRepo.remove(accountId);
+    } catch (e) {
+      this.checkpointError("delete", e);
+    }
+  }
+
+  /** Drop both the in-memory checkpoint and the durable row (no wire push — the caller sends the null itself). */
+  private async dropCheckpoint(accountId: string): Promise<void> {
+    this.checkpoints.delete(accountId);
+    await this.deleteCheckpointRow(accountId);
+  }
+
+  /**
+   * Read the durable checkpoint row into the in-memory Map (no tier gate here — the Pro gate + row delete live at
+   * each surface: {@link sendCheckpoint} and {@link onResume}). Stamps kind='restart' because a row present with no
+   * in-memory entry means this process restarted since it was written. Returns null on miss/error.
+   */
+  private async hydrateCheckpoint(accountId: string): Promise<StoredCheckpoint | null> {
+    const repo = this.d.checkpointRepo;
+    if (!repo) return null;
+    let row;
+    try {
+      row = await repo.get(accountId);
+    } catch (e) {
+      this.checkpointError("hydrate", e);
+      return null;
+    }
+    if (!row) return null;
+    const hydrated: StoredCheckpoint = {
+      id: row.id,
+      accountId: row.accountId,
+      characterId: row.characterId,
+      profileId: row.profileId,
+      sourceSessionId: row.sourceSessionId,
+      mapId: row.mapId,
+      pocketId: row.pocketId,
+      savedAt: row.savedAt,
+      state: row.state,
+      continuity: row.continuity,
+      kind: "restart",
+    };
+    this.checkpoints.set(accountId, hydrated);
+    return hydrated;
+  }
+
+  /**
+   * The checkpoint to surface for this account: the in-memory one, or a durable row hydrated ONLY when nothing is
+   * live. A running/starting bot means the process never restarted, so its periodic running-row is a diagnostic
+   * snapshot, never a resume candidate — surfacing it while the bot runs would offer a bogus resume.
+   */
+  private async surfaceCheckpoint(accountId: string): Promise<StoredCheckpoint | null> {
+    const inMemory = this.checkpoints.get(accountId);
+    if (inMemory) return inMemory;
+    if (this.bots.has(accountId) || this.startingAccounts.has(accountId)) return null;
+    return this.hydrateCheckpoint(accountId);
   }
 
   /**
@@ -263,12 +412,20 @@ export class BotManager {
   }
 
   private clearCheckpoint(accountId: string, send: Send): void {
-    if (!this.checkpoints.delete(accountId)) return;
-    send(MSG_BOT_CHECKPOINT, this.checkpointMessage(null));
+    const had = this.checkpoints.delete(accountId);
+    void this.deleteCheckpointRow(accountId); // PR6a: a start/resume/reject supersedes any durable row too.
+    if (had) send(MSG_BOT_CHECKPOINT, this.checkpointMessage(null));
   }
 
-  private sendCheckpoint(accountId: string, send: Send): void {
-    send(MSG_BOT_CHECKPOINT, this.checkpointMessage(this.checkpoints.get(accountId) ?? null));
+  private async sendCheckpoint(accountId: string, send: Send): Promise<void> {
+    let checkpoint = await this.surfaceCheckpoint(accountId);
+    // PR6a (D-067): a checkpoint that crossed a restart (kind='restart') surfaces for Pro only; any other tier
+    // safe-stops → drop the durable row and show nothing to resume.
+    if (checkpoint?.kind === "restart" && (await this.resolveTierFor(accountId)) !== "pro") {
+      await this.dropCheckpoint(accountId);
+      checkpoint = null;
+    }
+    send(MSG_BOT_CHECKPOINT, this.checkpointMessage(checkpoint));
   }
 
   /** Authenticated reconnect routing. Never returns another account's actor. */
@@ -324,6 +481,7 @@ export class BotManager {
       accountId,
       characterId: presence.characterId,
       host: presence.host,
+      kind: "takeover",
       profileId: presence.profileId,
       sourceSessionId: presence.sourceSessionId,
       mapId: presence.mapId,
@@ -418,7 +576,7 @@ export class BotManager {
     if (!accountId || !this.guardDb(send, "profileList")) return;
     await this.sendTierState(accountId, send);
     await this.sendProfiles(accountId, send);
-    this.sendCheckpoint(accountId, send);
+    await this.sendCheckpoint(accountId, send);
   }
 
   async onProfileCreate(accountId: string | null, send: Send, m: BotProfileCreateMessage): Promise<void> {
@@ -504,7 +662,8 @@ export class BotManager {
   ): Promise<void> {
     if (!accountId || !this.guardDb(send, "resume")) return;
     if (!characterId) return this.reject(send, "resume", "no_character");
-    const checkpoint = this.checkpoints.get(accountId);
+    // Surface the in-memory checkpoint, or hydrate a durable one after a restart (only when nothing is live).
+    const checkpoint = await this.surfaceCheckpoint(accountId);
     if (!checkpoint || checkpoint.id !== m?.checkpointId) {
       return this.reject(send, "resume", "checkpoint_not_found", m?.checkpointId);
     }
@@ -516,6 +675,14 @@ export class BotManager {
     }
     if (checkpoint.characterId !== characterId) {
       return this.reject(send, "resume", "checkpoint_character_mismatch", checkpoint.id);
+    }
+    // PR6a (D-067): a checkpoint that crossed a server restart (kind='restart') resumes for Pro only — Free/Plus
+    // safe-stop across a restart. Clear it (memory + durable row) and reject. In-process takeover checkpoints
+    // (kind='takeover') resume for every tier exactly as before. Resume itself is a NEW run via `startReserved`,
+    // which re-validates live HP/inventory/position/pocket/profile — the interrupted continuity is never replayed.
+    if (checkpoint.kind === "restart" && (await this.resolveTierFor(accountId)) !== "pro") {
+      this.clearCheckpoint(accountId, send);
+      return this.reject(send, "resume", "checkpoint_requires_pro", checkpoint.id);
     }
     await this.start(
       requestHost,
@@ -704,6 +871,9 @@ export class BotManager {
       // PR5 Phase C (D-069/D-070): a paid start whose bag is already at/over town pressure opens with a town trip
       // before farming (the first paid tick warps to town). Always false for Free (no bag read above).
       initialTownTrip,
+      // PR6a (D-067): the runtime piggybacks a Pro-only durable running checkpoint on its flush cadence + graceful
+      // server_restart. The manager reads the runtime's live snapshot here (no-op without a checkpoint repo wired).
+      persistRunningCheckpoint: () => this.persistRunningCheckpoint(accountId),
     });
     this.bots.set(accountId, runtime);
     this.actorToAccount.set(actorId, accountId);
@@ -746,6 +916,7 @@ export class BotManager {
       characterId: runtime.characterId,
       host: runtime.host,
       runtime, // settle-time map reconciliation reads runtime.host (return-warp failure → city-hub, D-069)
+      kind: "takeover",
       profileId: runtime.profileId,
       sourceSessionId: runtime.sessionRowId,
       mapId: runtime.mapId,
@@ -810,6 +981,7 @@ export const botManager = new BotManager({
   tierRepo: prismaTierRepo,
   profileRepo: prismaProfileRepo,
   sessionRepo: prismaSessionRepo,
+  checkpointRepo: prismaCheckpointRepo,
   rarityOf: (itemId) => rarityLookup(itemId),
   dbAvailable: botPersistenceAvailable,
   now: () => Date.now(),

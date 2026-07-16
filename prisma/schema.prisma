@@ -477,3 +477,27 @@ model BotSession {
   @@index([accountId, startedAt])
   @@map("bot_sessions")
 }
+
+/// bot_checkpoints — durable restart resume (PR6a · D-067, checkpoint v15.5 §4.1–4.2). One row per account (the
+/// process holds the in-memory checkpoint as authority; this row exists only to cross a server restart). kind =
+/// takeover|running|restart; on boot every running row becomes restart (state=ready). Only Pro resumes across a
+/// restart (re-gated at surface time); continuityJson is a diagnostic snapshot — resume starts a NEW run at
+/// WORKING and re-validates live HP/inventory/position (never replays the interrupted state). workflowJson is
+/// reserved for the PR6b goal-chain/schedule payload (null until then).
+model BotCheckpoint {
+  accountId       String   @id @map("account_id") @db.Char(36) // 1 durable checkpoint per account
+  id              String   @db.Char(36)
+  characterId     String   @map("character_id") @db.Char(36)
+  profileId       String   @map("profile_id") @db.Char(36)
+  sourceSessionId String   @map("source_session_id") @db.Char(36)
+  mapId           String   @map("map_id")
+  pocketId        String   @map("pocket_id")
+  kind            String // takeover | running | restart
+  state           String // saving | ready | failed
+  continuityJson  Json     @map("continuity_json") // diagnostic PAUSED/operational snapshot (resume re-validates)
+  workflowJson    Json?    @map("workflow_json") // reserved for PR6b goal-chain/schedule payload
+  savedAt         DateTime @map("saved_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  @@map("bot_checkpoints")
+}
