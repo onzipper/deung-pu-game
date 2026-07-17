@@ -68,8 +68,11 @@ const MSG_BOT_START = "bot:start"; // net-protocol.ts:1010
 const MSG_BOT_STOP = "bot:stop"; // net-protocol.ts:1015
 const MSG_BOT_PROFILES = "bot:profiles"; // net-protocol.ts:1048
 const MSG_BOT_STATUS = "bot:status"; // net-protocol.ts:1076
+const MSG_BOT_ACTOR_MAP = "bot:actorMap"; // net-protocol.ts — owner-follow push after a server-owned transfer
 const MSG_BOT_STOPPED = "bot:stopped"; // net-protocol.ts:1106
 const MSG_BOT_OP_RESULT = "bot:opResult"; // net-protocol.ts:1180
+
+const CITY_HUB_ID = "city-hub"; // src/engine/map/city-hub.ts — the Free walk town-trip destination
 
 // ── Map/class knobs (mirror src/engine/map/map1.ts + src/shared/character-class.ts) ─────────────────────
 const MAP1_ID = "map1"; // map1.ts:26 MAP1_ID
@@ -227,6 +230,7 @@ async function main() {
   let latestProfiles = null;
   let latestStatus = null;
   let statusHistory = []; // [{t, state, killCount, townTrips}]
+  let actorMapHistory = []; // [{t, mapId}] — every bot:actorMap owner-follow push (the transfer trail)
   let lastState = null;
   let firstKillAt = null; // ms since bot:start ack, when we first saw a farm state with killCount>0
   let startAckAtMs = null;
@@ -283,6 +287,13 @@ async function main() {
       sawStopped = true;
       stoppedReason = msg.reason;
       console.log(`[e2e] bot:stopped reason=${msg.reason} kills=${msg.killCount}`);
+    });
+    // The server pushes bot:actorMap after every server-owned transfer so a watching owner FOLLOWS the actor. This
+    // raw smoke client deliberately does NOT follow (it is not the game engine) — it stays in map1 and records the
+    // trail, then asserts the actor came home to map1 (below). A real game client would re-enter each mapId here.
+    room.onMessage(MSG_BOT_ACTOR_MAP, (msg) => {
+      actorMapHistory.push({ t: Date.now(), mapId: msg.mapId });
+      console.log(`[e2e] bot:actorMap mapId=${msg.mapId} tx=${msg.tx?.toFixed?.(1)} ty=${msg.ty?.toFixed?.(1)}`);
     });
     room.onMessage(MSG_BOT_STATUS, (msg) => {
       latestStatus = msg;
@@ -380,7 +391,33 @@ async function main() {
     report(
       "bot:status.stats.townTrips >= 1",
       typeof townTripsCount === "number" && townTripsCount >= 1,
-      `stats.townTrips=${townTripsCount} (purchase itself may be skipped if gold < ${MIN_GOLD_RESERVE + POTION_PRICE_APPROX} — not asserted)`,
+      `stats.townTrips=${townTripsCount} (purchase itself may be skipped if gold < ${MIN_GOLD_RESERVE + POTION_PRICE_APPROX} — not asserted; skip reason on latestStatus.lastTownSkip=${latestStatus?.lastTownSkip ?? "none"})`,
+    );
+
+    // bot:actorMap owner-follow trail: the Free walk trip transfers the actor map1 -> city-hub (outbound) and
+    // city-hub -> map1 (return). A watching owner would follow each hop; here we assert the server EMITTED the
+    // round-trip signal in order (the first push is the outbound to the town, a later push brings it home to map1).
+    const outboundIdx = actorMapHistory.findIndex((h) => h.mapId === CITY_HUB_ID);
+    const returnIdx = actorMapHistory.findIndex((h, i) => i > outboundIdx && h.mapId === MAP1_ID);
+    report(
+      "bot:actorMap owner-follow trail: outbound city-hub then return map1",
+      outboundIdx !== -1 && returnIdx !== -1,
+      `trail=${actorMapHistory.map((h) => h.mapId).join(" -> ") || "(none)"}`,
+    );
+
+    // The actor came home to THIS room (map1): the smoke client never followed, so once the return transfer
+    // re-materializes the actor in map1 it must reappear in room.state.players under its stable actorId.
+    let selfBackHome = false;
+    try {
+      await waitFor(() => room.state?.players?.get(selfActorId) != null, 15_000, "self actor back in map1 players");
+      selfBackHome = true;
+    } catch (err) {
+      console.log(`[e2e] self actor did not reappear in map1: ${describeError(err)}`);
+    }
+    report(
+      "self actor returned to map1 room.state.players after the trip",
+      selfBackHome,
+      selfBackHome ? `actorId=${selfActorId}` : "actor absent from map1 state at trip end",
     );
 
     // (6) bot:stop -> bot:profileDelete -> leave

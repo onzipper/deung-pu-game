@@ -20,7 +20,14 @@ import type { SessionRepo } from "../../server/bot/store";
 import type { AgentMob, Vec2 } from "../../server/bot/agent";
 import type { BotRulesV1 } from "../../server/bot/types";
 import { DEFAULT_BOT_CONFIG, type BotConfig, type BotTier } from "../../server/config/bot";
-import { MSG_BOT_STOPPED, type BotStoppedMessage } from "../../src/shared/net-protocol";
+import {
+  MSG_BOT_ACTOR_MAP,
+  MSG_BOT_STATUS,
+  MSG_BOT_STOPPED,
+  type BotActorMapMessage,
+  type BotStatusMessage,
+  type BotStoppedMessage,
+} from "../../src/shared/net-protocol";
 
 const EMPTY_OUTCOME: BotAttackOutcome = {
   killed: 0,
@@ -394,6 +401,33 @@ export class FakeWorld {
 
   stoppedMessage(): BotStoppedMessage | undefined {
     return this.messages.find((m) => m.type === MSG_BOT_STOPPED)?.message as BotStoppedMessage | undefined;
+  }
+
+  /** Every owner-follow (MSG_BOT_ACTOR_MAP) push in order — one per successful actor transfer (rebind proof). */
+  followMessages(): BotActorMapMessage[] {
+    return this.messages
+      .filter((m) => m.type === MSG_BOT_ACTOR_MAP)
+      .map((m) => m.message as BotActorMapMessage);
+  }
+
+  /** The destination map of each owner-follow push in order (the actor's transfer trail as the owner sees it). */
+  followMaps(): string[] {
+    return this.followMessages().map((m) => m.mapId);
+  }
+
+  /** The most recent live status push (bot:status), or undefined before the first one. */
+  latestStatus(): BotStatusMessage | undefined {
+    for (let i = this.messages.length - 1; i >= 0; i--) {
+      if (this.messages[i].type === MSG_BOT_STATUS) return this.messages[i].message as BotStatusMessage;
+    }
+    return undefined;
+  }
+
+  /** Every status push's `mapId` in order — proves the live status tracks the actor's map across a trip (item 4). */
+  statusMaps(): string[] {
+    return this.messages
+      .filter((m) => m.type === MSG_BOT_STATUS)
+      .map((m) => (m.message as BotStatusMessage).mapId);
   }
 }
 

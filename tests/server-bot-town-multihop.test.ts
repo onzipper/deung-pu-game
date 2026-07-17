@@ -138,6 +138,13 @@ describe("Free multi-hop walk town trip — map3 → 2 hops → city-hub → bac
     // acquireHostForMap was called for each hop in order — no duplicate rooms (the same pre-registered hosts resolve).
     expect(world.acquireCalls).toEqual(["map2", "map1", "city-hub", "map1", "map2", "map3"]);
 
+    // Every successful transfer pushed one owner-follow (MSG_BOT_ACTOR_MAP) so a watching owner is walked the whole
+    // chain to the town and back — the destination map of each push mirrors the transfer trail exactly.
+    expect(world.followMaps()).toEqual(["map2", "map1", "city-hub", "map1", "map2", "map3"]);
+    // Landing rides the transfer anchor (portal entry on a hop, safe camp in town) — a placeholder the client's
+    // onSelfSpawn adoption later corrects; it must never be undefined.
+    expect(world.followMessages().every((m) => Number.isFinite(m.tx) && Number.isFinite(m.ty))).toBe(true);
+
     // The economy ran entirely on the town host (transfer rebind proof) with the deterministic idempotency keys.
     expect(townHost.calls.sell).toEqual([
       "bot:run-warp:t0:sell:s1",
@@ -162,6 +169,8 @@ describe("Free multi-hop walk town trip — map3 → 2 hops → city-hub → bac
     for (const step of trail) expect(step.count).toBe(1);
     expect(dedupe(trail.map((t) => t.mapId))).toEqual(["map1", "city-hub", "map1"]);
     expect(world.acquireCalls).toEqual(["city-hub", "map1"]);
+    // One follow out to the town, one follow back to the farm (the direct-portal case).
+    expect(world.followMaps()).toEqual(["city-hub", "map1"]);
     expect(harness.runtime.isStopped).toBe(false);
     expect(world.usedSlots()).toBe(1);
   });

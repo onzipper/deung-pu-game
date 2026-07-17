@@ -1,7 +1,6 @@
 import { describe, expect, test } from "vitest";
 import {
   canCreateProfile,
-  countRules,
   createProfile,
   deleteProfile,
   isBotAllowedPocket,
@@ -16,8 +15,9 @@ import {
 import { DEFAULT_BOT_CONFIG } from "../server/config/bot";
 import type { BotProfileRow, BotRulesV1 } from "../server/bot/types";
 
-// Batch 7b — Profile service (pure + DI repo). D-063 gating: profiles cap · rules cap · read-only excess after
-// downgrade (never deleted) · bot-safe pockets only. No DB — an in-memory fake repo drives the CRUD tests.
+// Batch 7b — Profile service (pure + DI repo). D-063 gating: profiles cap · read-only excess after downgrade
+// (never deleted) · bot-safe pockets only. D-074 removed the rule-count quota (feature gates only). No DB — an
+// in-memory fake repo drives the CRUD tests.
 
 const NOW = 1_800_000_000_000;
 
@@ -46,21 +46,28 @@ function fakeRepo(seed: BotProfileRow[] = []): ProfileRepo {
 
 const okRules = { skillSlots: [0], potionThresholdPct: null, lootAll: true };
 
-describe("validateRules + countRules (cap enforcement)", () => {
-  test("valid minimal rules pass (1 skill + loot = 2 rules ≤ free 3)", () => {
+describe("validateRules (D-074: no rule-count quota — tier only gates FEATURES, never how many rules)", () => {
+  test("valid minimal rules pass", () => {
     const r = validateRules(okRules, "free");
     expect(r.ok).toBe(true);
-    if (r.ok) expect(r.ruleCount).toBe(2);
   });
-  test("countRules: skills + potion + loot", () => {
-    expect(countRules({ skillSlots: [0, 1], potionThresholdPct: 40, lootAll: true })).toBe(4); // 2 + 1 + 1
+  test("D-074: free — a fully-loaded skill set + potion + loot passes (would have blown the old free cap of 3)", () => {
+    const r = validateRules({ skillSlots: [0, 1, 2, 3, 4, 5, 6, 7], potionThresholdPct: 50, lootAll: true }, "free");
+    expect(r.ok).toBe(true);
   });
-  test("over the free cap (3) is rejected", () => {
-    const r = validateRules({ skillSlots: [0, 1, 2], potionThresholdPct: 30, lootAll: true }, "free"); // 3+1+1=5
-    expect(r).toEqual({ ok: false, reason: "rules_over_cap" });
-  });
-  test("same rules fit under pro cap (25)", () => {
-    const r = validateRules({ skillSlots: [0, 1, 2], potionThresholdPct: 30, lootAll: true }, "pro");
+  test("D-074: pro — skills + potion + loot + a maxSteps-full workflow all pass together, no quota rejects it", () => {
+    const workflow = {
+      version: 1,
+      steps: Array.from({ length: DEFAULT_BOT_CONFIG.workflow.maxSteps }, (_, i) => ({
+        id: `s${i}`,
+        kind: "farm" as const,
+        mapId: "map1",
+        pocketId: "map1-slime-center",
+        goal: { type: "kills" as const, target: 1 },
+        fallbacks: [],
+      })),
+    };
+    const r = validateRules({ skillSlots: [0, 1, 2, 3], potionThresholdPct: 50, lootAll: true, workflow }, "pro");
     expect(r.ok).toBe(true);
   });
   test("bad shapes rejected", () => {
@@ -216,13 +223,12 @@ describe("M1 target mode (SELECTED_TYPES)", () => {
     expect(r).toEqual({ ok: false, reason: "target_mode_requires_plus" });
   });
 
-  test("Plus + a normal type in the pocket passes and counts +1 rule", () => {
+  test("Plus + a normal type in the pocket passes", () => {
     const r = validateRules({ ...base, targetMode: "SELECTED_TYPES", selectedMobTypes: ["slime", "slime"] }, "plus", DEFAULT_BOT_CONFIG, slimeCtx);
     expect(r.ok).toBe(true);
     if (!r.ok) return;
     expect(r.rules.targetMode).toBe("SELECTED_TYPES");
     expect(r.rules.selectedMobTypes).toEqual(["slime"]); // deduped
-    expect(r.ruleCount).toBe(3); // skill 1 + loot 1 + targeting 1
   });
 
   test("an empty selectedMobTypes list is rejected (bad_selected_mob_types)", () => {
@@ -274,13 +280,12 @@ describe("M1 single goal + completion action", () => {
     expect(validateRules({ ...base, goal }, "free")).toEqual({ ok: false, reason: "goal_requires_plus" });
   });
 
-  test("Plus goal passes, defaults completionAction to safe_stop, counts +1 rule", () => {
+  test("Plus goal passes, defaults completionAction to safe_stop", () => {
     const r = validateRules({ ...base, goal }, "plus");
     expect(r.ok).toBe(true);
     if (!r.ok) return;
     expect(r.rules.goal).toEqual({ type: "kills", target: 100 });
     expect(r.rules.completionAction).toBe("safe_stop");
-    expect(r.ruleCount).toBe(3); // skill 1 + loot 1 + goal 1
   });
 
   test("a bad goal shape is rejected (bad_goal)", () => {

@@ -259,7 +259,7 @@ export function botOpRejectionLabel(reason: string | undefined): string {
       return "พื้นที่นี้ไม่อนุญาตให้บอทเข้า";
     case "profiles_at_cap":
       return "แผนเต็มเพดานของแพ็กเกจนี้แล้ว";
-    case "rules_over_cap":
+    case "rules_over_cap": // dormant (D-074 — server no longer sends this; kept for skew vs. an older server)
       return "กฎเกินเพดานของแพ็กเกจนี้";
     case "not_found":
       return "ไม่พบแผนนี้";
@@ -568,26 +568,6 @@ export function resolveBotCtaAction(
   }
   if (!selectedProfileId) return null;
   return { kind: "start", profileId: selectedProfileId };
-}
-
-// ── Rule count (mirror server/bot/profiles.ts countRules — §16 Q3/Q4 นับรวม 1 toggle/condition = 1 rule) ──
-
-/**
- * นับกฎที่ profile นี้ใช้ไปกี่ rule ต่อเพดาน tier — สูตรตรงกับ server (server/bot/profiles.ts countRules,
- * documented ที่นั่นว่า "client counter สามารถ mirror ได้" — defense-in-depth, server เป็น truth สุดท้าย).
- */
-export function countBotRules(rules: BotRulesWire): number {
-  const skill = rules.skillSlots.length;
-  const potion = rules.potionThresholdPct != null ? 1 : 0;
-  const loot = 1; // loot filter นับเป็น 1 rule เสมอ (v1)
-  const workflow = rules.workflow ? rules.workflow.steps.length : 0; // PR6b: แต่ละ step นับเป็น 1 rule
-  const targeting = rules.targetMode === "SELECTED_TYPES" ? 1 : 0; // M1: ตัวกรองชนิดมอนนับเป็น 1 rule
-  const goal = rules.goal ? 1 : 0; // M1: เป้าหมายเดี่ยวนับเป็น 1 rule
-  return skill + potion + loot + workflow + targeting + goal;
-}
-
-export function ruleCountLabel(used: number, cap: number): string {
-  return `ใช้กฎไป ${used}/${cap}`;
 }
 
 export function profileCountLabel(used: number, cap: number): string {
@@ -966,6 +946,17 @@ export function formatBotGoalProgress(goal: { type: BotWorkflowMetric; target: n
   return `${BOT_WORKFLOW_METRIC_LABELS[goal.type]} ${formatWorkflowProgress(goal.done, goal.target)}`;
 }
 
+/**
+ * เหตุผลที่รอบเข้าเมืองล่าสุด "ไม่ได้ซื้อยา" (BotStatusMessage.lastTownSkip — server เขียน gold_reserve/
+ * restock_skipped, restock_done = ไม่มีค่า) — โชว์ให้ owner รู้ว่าบอทไปเมืองแล้วแต่ข้ามการซื้อเพราะอะไร
+ * (แก้ความงงจากเคส prod "บอทไม่ซื้อยา"). reason ที่ไม่รู้จัก → ข้อความกลาง (forward-compat).
+ */
+export function botTownSkipLabel(reason: string | undefined): string | null {
+  if (!reason) return null;
+  if (reason === "gold_reserve") return "รอบเข้าเมืองล่าสุดไม่ได้ซื้อยา — เก็บเงินสำรองขั้นต่ำตามนโยบาย";
+  return "รอบเข้าเมืองล่าสุดไม่ได้ซื้อยา (ของครบ/ซื้อไม่สำเร็จ)";
+}
+
 /** สร้าง step id ใหม่ที่ไม่ชนของเดิม (deterministic: step-1, step-2, …) */
 export function nextWorkflowStepId(workflow: BotWorkflowV1 | undefined): string {
   const existing = new Set((workflow?.steps ?? []).map((s) => s.id));
@@ -1105,11 +1096,7 @@ export interface BotWizardFormSnapshot {
 }
 
 /** ก้าวถัดไปกดได้ไหม ณ ขั้นนี้ (mirror validation เดียวกับตอน submit สุดท้าย — server เป็น truth จริงเสมอ) */
-export function isBotWizardStepValid(
-  step: BotWizardStep,
-  form: BotWizardFormSnapshot,
-  rulesCap: number | null,
-): boolean {
+export function isBotWizardStepValid(step: BotWizardStep, form: BotWizardFormSnapshot): boolean {
   switch (step) {
     case "map":
       return botPocketOptions(form.mapId).length > 0;
@@ -1120,7 +1107,6 @@ export function isBotWizardStepValid(
     case "rules":
       return (
         hasAtLeastOneSkillSlot(form.rules) &&
-        (rulesCap === null || countBotRules(form.rules) <= rulesCap) &&
         (!form.rules.workflow || isValidBotWorkflowClient(form.rules.workflow))
       );
     case "stop_policy":

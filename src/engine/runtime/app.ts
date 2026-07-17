@@ -60,6 +60,7 @@ import {
   advanceSendTimer,
   coerceAnim,
   planMapReentry,
+  shouldFollowBotActor,
   snapshotChanged,
   toMoveMessage,
 } from "../net/sync";
@@ -819,6 +820,29 @@ export async function createEngine(
           onBotTierState: (msg) => setBotTierState(msg),
           onBotProfiles: (msg) => setBotProfiles(msg),
           onBotStatus: (msg) => setBotStatus(msg),
+          // The server moved our autonomous actor to another MapRoom (town-trip hop / warp / workflow cross-map).
+          // Our transport is stranded in the source room (self players.onRemove is a no-op → the character freezes
+          // at the exit). FOLLOW the actor: re-enter on the target map via the SAME teardown+rejoin flow as
+          // onMapTransition/onMapMismatch (onSelfSpawn adopts the authoritative position, autonomy re-locks via the
+          // isBot schema flip). Guarded by shouldFollowBotActor (autonomy still active, not mid-transition, real map
+          // change) so a takeover-ended run or a same-map re-attach is a no-op and manual play is never disturbed.
+          onBotActorMap: (msg) => {
+            if (
+              !shouldFollowBotActor({
+                autonomyActive: characterAutonomyActive,
+                currentMapId: map.mapId,
+                targetMapId: msg.mapId,
+                transitioning: transition.isLocked(),
+              })
+            ) {
+              return;
+            }
+            if (!getMap(msg.mapId)) return; // unknown map — nothing valid to re-enter into (fail-soft, keep world)
+            // Persist so a refresh mid-follow boots the right map (server stays authoritative for the exact
+            // position via onSelfSpawn adoption; the landing tile is a placeholder).
+            rememberSelectedCharacterMapId(msg.mapId);
+            requestTransition(msg.mapId, { x: msg.tx, y: msg.ty });
+          },
           onBotStopped: (msg) => setBotStopped(msg),
           onBotCheckpoint: (msg) => setBotCheckpoint(msg),
           onBotAlert: (msg) => setBotAlert(msg),

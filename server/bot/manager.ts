@@ -561,7 +561,7 @@ export class BotManager {
       passExpiresAt: resolved.passExpiresAt,
       caps: {
         profiles: caps.profiles,
-        rules: caps.rules,
+        rules: caps.rules, // dormant (D-074 — quota removed, field kept only to avoid wire/version skew)
         reportRetentionDays: caps.reportRetentionDays,
         notifications: caps.notifications,
         schedules: caps.schedules,

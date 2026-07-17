@@ -10,6 +10,7 @@ import {
   planMapReentry,
   resolveMapReentry,
   resolveSelfActorId,
+  shouldFollowBotActor,
   snapshotChanged,
   toMoveMessage,
 } from "@/engine/net/sync";
@@ -239,5 +240,29 @@ describe("net sync — canSendLocalMove (gate ก่อน adopt ตำแหน
       expect(canSendLocalMove(s, true)).toBe(false);
       expect(canSendLocalMove(s, false)).toBe(false);
     }
+  });
+});
+
+describe("net sync — shouldFollowBotActor (owner follows the actor across a server-owned transfer)", () => {
+  const base = { autonomyActive: true, currentMapId: "map1", targetMapId: "city-hub", transitioning: false };
+
+  test("autonomy active + not transitioning + a real map change → follow", () => {
+    expect(shouldFollowBotActor(base)).toBe(true);
+  });
+
+  test("autonomy ended (takeover) → do NOT follow (the owner drives locally from where they are)", () => {
+    expect(shouldFollowBotActor({ ...base, autonomyActive: false })).toBe(false);
+  });
+
+  test("already mid-transition → do NOT follow (dedupe a re-enter already in flight)", () => {
+    expect(shouldFollowBotActor({ ...base, transitioning: true })).toBe(false);
+  });
+
+  test("target === current map → no-op (a re-attach on the same map)", () => {
+    expect(shouldFollowBotActor({ ...base, targetMapId: "map1" })).toBe(false);
+  });
+
+  test("empty/blank target map → no-op (defensive against a malformed message)", () => {
+    expect(shouldFollowBotActor({ ...base, targetMapId: "" })).toBe(false);
   });
 });

@@ -87,6 +87,7 @@ import {
   MSG_BOT_STATUS,
   MSG_BOT_STOPPED,
   MSG_BOT_ALERT,
+  MSG_BOT_ACTOR_MAP,
   MSG_BOT_REPORTS,
   MSG_BOT_REPORT,
   MSG_BOT_OP_RESULT,
@@ -144,6 +145,7 @@ import {
   type BotStatusMessage,
   type BotStoppedMessage,
   type BotAlertMessage,
+  type BotActorMapMessage,
   type BotReportsMessage,
   type BotReportMessage,
   type BotOpResultMessage,
@@ -400,6 +402,12 @@ export interface NetClientHandlers {
    * (server/bot/runtime.ts botOwnerSend — ห้อง/แผนที่อื่นจะไม่เห็น push นี้จนกว่าจะย้ายมา). optional.
    */
   onBotStatus?(msg: BotStatusMessage): void;
+  /**
+   * The server moved the owner's autonomous actor to another MapRoom (town-trip walk hop / warp / workflow
+   * cross-map). The watching client is stranded in the source room (self `players.onRemove` is a no-op) → follow
+   * the actor to `mapId` (re-enter on the same teardown+rejoin flow as onMapTransition). optional.
+   */
+  onBotActorMap?(msg: BotActorMapMessage): void;
   /** D-067: server-authored continuity settlement + reason + run summary. optional. */
   onBotStopped?(msg: BotStoppedMessage): void;
   /** PR2: manual-takeover checkpoint lifecycle (saving → ready/failed; null when consumed). */
@@ -894,6 +902,9 @@ export function createNetClient(
     });
     joinedRoom.onMessage(MSG_BOT_STATUS, (msg: BotStatusMessage) => {
       handlers.onBotStatus?.(msg);
+    });
+    joinedRoom.onMessage(MSG_BOT_ACTOR_MAP, (msg: BotActorMapMessage) => {
+      handlers.onBotActorMap?.(msg);
     });
     joinedRoom.onMessage(MSG_BOT_STOPPED, (msg: BotStoppedMessage) => {
       handlers.onBotStopped?.(msg);

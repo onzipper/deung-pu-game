@@ -185,3 +185,24 @@ export function canSendLocalMove(
 ): boolean {
   return state === "online" && selfAdopted;
 }
+
+/**
+ * Should the client FOLLOW a `bot:actorMap` message (the server moved the owner's autonomous actor to another
+ * MapRoom)? Follow only while:
+ *   • `autonomyActive` — the bot still owns the actor (a takeover already ended autonomy → the owner drives locally
+ *     from wherever they are; a stale follow would yank them to the bot's last room);
+ *   • `!transitioning` — a re-enter is already in flight (dedupe; the transition controller also guards this);
+ *   • `targetMapId` differs from `currentMapId` — same map = the actor stayed put (a re-attach) → nothing to do.
+ * Pure so the follow decision is unit-testable in isolation from the transition/rejoin machinery.
+ */
+export function shouldFollowBotActor(input: {
+  autonomyActive: boolean;
+  currentMapId: string;
+  targetMapId: string;
+  transitioning: boolean;
+}): boolean {
+  if (!input.autonomyActive) return false;
+  if (input.transitioning) return false;
+  if (typeof input.targetMapId !== "string" || input.targetMapId.length === 0) return false;
+  return input.targetMapId !== input.currentMapId;
+}

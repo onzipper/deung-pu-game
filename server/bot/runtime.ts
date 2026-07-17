@@ -9,9 +9,11 @@
 // ⛔ SERVER-ONLY. DB writes (counter flush + stop) are best-effort — a DB error never crashes the room.
 
 import {
+  MSG_BOT_ACTOR_MAP,
   MSG_BOT_ALERT,
   MSG_BOT_STATUS,
   MSG_BOT_STOPPED,
+  type BotActorMapMessage,
   type BotAlertMessage,
   type BotStatusMessage,
   type BotStoppedMessage,
@@ -502,6 +504,12 @@ export class BotRuntime {
   private goalReached = false;
   /** In-memory-only activity stats surfaced in every status push (data, never power; not persisted, no column). */
   private readonly stats = { townTrips: 0, potionsUsed: 0, deaths: 0, msFarming: 0, msWalking: 0, msInTown: 0 };
+  /**
+   * The reason the last restock did not fully top up potions (`gold_reserve` / `restock_skipped`), or null once a
+   * restock completes (`restock_done`) — folded into every status push so the owner can see WHY the bot did not
+   * buy potions. In-memory only (diagnostic, never power); the town-trip controller reports it via the facade.
+   */
+  private lastTownSkip: string | null = null;
 
   constructor(deps: BotRuntimeDeps) {
     this.d = deps;
@@ -1436,6 +1444,22 @@ export class BotRuntime {
   /** Swap the driven host (town-trip warp export→attach→rebind). tickRoom routing follows `rt.host` automatically. */
   rebindHost(next: BotHost): void {
     this.currentHost = next;
+    // One rebind fires per successful transfer (town walk hop out/back, warp out/back, workflow cross-map) — the
+    // ONE choke point every transfer routes through — so the owner-follow push here covers every mode without
+    // scattering. An owner watching from the source room follows the actor to its new room (no client is notified
+    // otherwise: self `players.onRemove` is a no-op). No owner connected → silent (headless / offline safe).
+    this.notifyOwnerFollow(next);
+  }
+
+  /**
+   * D-069/D-071/PR6b: tell the owner's watching client to follow the actor into its new room after a transfer.
+   * Fanned across every host (the owner's transport may still sit in the source room). The landing is the actor's
+   * live tile post-attach — a placeholder; onSelfSpawn adoption corrects the authoritative position on re-entry.
+   */
+  private notifyOwnerFollow(host: BotHost): void {
+    const pos = host.botPos(this.d.actorId) ?? host.botSafeCampAnchor();
+    const msg: BotActorMapMessage = { mapId: host.mapId, tx: pos.tx, ty: pos.ty };
+    this.ownerSendMessage(MSG_BOT_ACTOR_MAP, msg);
   }
 
   /**
@@ -1578,6 +1602,10 @@ export class BotRuntime {
       nextHopToward: (finalMapId) => this.planNextHop(finalMapId),
       walkToward: (goal, dtMs) => this.walkTripToward(goal, dtMs),
       markTripComplete: () => this.markTripComplete(),
+      reportTownSkip: (reason) => {
+        // `restock_done` clears the flag (a fresh successful top-up); any skip reason surfaces in the next status.
+        this.lastTownSkip = reason === "restock_done" ? null : reason;
+      },
       settleTakeover: (checkpointId, requestedAt) => void this.applyTakeoverPause(checkpointId, requestedAt),
       armRetryBackoff: () => {
         this.townTripRetryUntil = this.d.now() + Math.floor(this.d.config.townTrip.cooldownMs / 10);
@@ -1673,7 +1701,9 @@ export class BotRuntime {
     const msg: BotStatusMessage = {
       profileId: this.d.profileId,
       sessionId: this.d.sessionRowId,
-      mapId: this.d.mapId,
+      // The map the actor currently stands on (rebinds across every hop / warp), not the fixed farm map — so the
+      // hub/chip label tracks the actor through a town trip. No client consumer reads this field for routing.
+      mapId: this.currentHost.mapId,
       pocketId: this.activePocketId,
       continuity: toBotContinuityWire(this.continuity),
       action: pos ? legacyBotActionForContinuity(this.continuity.state) : "searching",
@@ -1688,6 +1718,7 @@ export class BotRuntime {
       // and the completion action taking effect / a notify_continue run farming on).
       stats: { ...this.stats },
       goal: this.goalStatusView(),
+      lastTownSkip: this.lastTownSkip ?? undefined,
     };
     this.ownerSendMessage(MSG_BOT_STATUS, msg);
   }
