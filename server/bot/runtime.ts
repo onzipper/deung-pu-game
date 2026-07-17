@@ -496,6 +496,12 @@ export class BotRuntime {
   private bagStat: { freeSlots: number; potionCount: number; readAtMs: number } | null = null;
   /** true while a bag sample read is in flight (one read at a time — never read every tick). */
   private bagStatInFlight = false;
+  /**
+   * D-075 follow-up: has THIS run ever observed a potion in the bag (a sample saw potionCount > 0)? Gates the
+   * proactive `potion_low` trigger so it means "ran out mid-run", not "a fresh actor carries no potions". Per-run
+   * (a new run = a new BotRuntime), so it never needs resetting.
+   */
+  private hadPotionsThisRun = false;
   /** ms since the last bag sample read (initialized past the interval so the first farm tick samples). */
   private sinceBagCheckMs = 0;
 
@@ -1194,6 +1200,7 @@ export class BotRuntime {
       potionLowReserve: this.d.rules.potionLowReserve ?? cfg.townTrip.potionLowReserveDefault,
       pressureMinFreeSlots: cfg.townTrip.pressureMinFreeSlots,
       lowHpStopFraction: cfg.lowHpStopFraction,
+      hadPotionsThisRun: this.hadPotionsThisRun, // D-075 follow-up: gate potion_low to "ran out mid-run".
     });
     return result.kind === "town_trip" ? result.trigger : null;
   }
@@ -1222,6 +1229,7 @@ export class BotRuntime {
           occupied += 1;
           if (item.itemId === potionId) potions += item.quantity;
         }
+        if (potions > 0) this.hadPotionsThisRun = true; // D-075 follow-up: the run has carried a potion at least once.
         this.bagStat = {
           freeSlots: DEFAULT_INVENTORY_CAPACITY - occupied,
           potionCount: potions,

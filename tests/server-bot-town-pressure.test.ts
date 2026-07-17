@@ -12,6 +12,9 @@ const input = (o: Partial<TownPressureInput> = {}): TownPressureInput => ({
   potionLowReserve: 1,
   pressureMinFreeSlots: 5,
   lowHpStopFraction: 0.15,
+  // Default = a run that HAS carried potions (the common "running low" case) so the potion_low tests read naturally;
+  // the fresh-actor bootstrap cases set this false explicitly.
+  hadPotionsThisRun: true,
   ...o,
 });
 
@@ -78,6 +81,30 @@ describe("planTownPressure — hp_no_potion", () => {
     // hp low but potions held → not hp_no_potion; hp above the threshold so no potion decision here → potion_low
     // fires only when at/below the reserve. With 3 potions (> reserve 1) and free slots → none.
     expect(planTownPressure(input({ potionCount: 3, hpFraction: 0.1, freeSlots: 40 }))).toEqual({ kind: "none" });
+  });
+});
+
+describe("planTownPressure — D-075 follow-up: potion_low means RAN OUT mid-run, not a fresh empty bag", () => {
+  test("(ก) had potions then ran out (hadPotionsThisRun) + full HP → potion_low (ยาหมด → ไปซื้อ)", () => {
+    expect(
+      planTownPressure(input({ hadPotionsThisRun: true, potionCount: 0, hpFraction: 1, potionLowReserve: 1 })),
+    ).toEqual({ kind: "town_trip", trigger: "potion_low" });
+  });
+  test("(ข) never carried potions + full HP → none (fresh actor farms bootstrap, does not get dragged to town)", () => {
+    expect(
+      planTownPressure(input({ hadPotionsThisRun: false, potionCount: 0, hpFraction: 1, potionLowReserve: 1 })),
+    ).toEqual({ kind: "none" });
+  });
+  test("(ค) never carried potions + hp ≤ the threshold → hp_no_potion (the existing floor/low-hp path, unchanged)", () => {
+    expect(
+      planTownPressure(input({ hadPotionsThisRun: false, potionCount: 0, hpFraction: 0.3, potionThresholdPct: 50 })),
+    ).toEqual({ kind: "town_trip", trigger: "hp_no_potion" });
+  });
+  test("potionCount in (0, reserve] still trips even for a fresh run when auto-potion is on and it holds a potion", () => {
+    // A run that currently holds a potion at the reserve implies it carried one (a sample saw > 0) → potion_low.
+    expect(
+      planTownPressure(input({ hadPotionsThisRun: true, potionCount: 1, hpFraction: 1, potionLowReserve: 1 })),
+    ).toEqual({ kind: "town_trip", trigger: "potion_low" });
   });
 });
 

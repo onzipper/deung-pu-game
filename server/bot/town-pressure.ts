@@ -27,6 +27,13 @@ export interface TownPressureInput {
   potionThresholdPct: number | null;
   /** effective "potions running low" reserve (rules.potionLowReserve ?? config default). */
   potionLowReserve: number;
+  /**
+   * D-075 follow-up: has the run ACTUALLY carried a potion at some point (a bag sample saw potionCount > 0)? Gates
+   * `potion_low` so "ยาหมดแล้ว → ไปซื้อ" means ran out mid-run — a FRESH actor that simply never carried potions and
+   * is at full HP keeps farming (bootstrap) rather than being dragged to a town it cannot afford. It still restocks
+   * once hp actually falls (hp_no_potion) — by then kills have earned gold.
+   */
+  hadPotionsThisRun: boolean;
   /** config: min free bag slots below which bag pressure alone may trigger a trip. */
   pressureMinFreeSlots: number;
   /** config: the low-hp floor (used as the `hp_no_potion` bound when auto-potion is off). */
@@ -41,7 +48,8 @@ export type TownPressureDecision =
  * Deterministic proactive town-trip decision for one bag sample. First match wins (priority order above):
  *   1. hp_no_potion — no potions held AND hp ≤ (potionThresholdPct/100 when set, else the low-hp floor).
  *   2. bag_pressure — free slots ≤ pressureMinFreeSlots.
- *   3. potion_low   — auto-potion is on AND potions held ≤ the low reserve.
+ *   3. potion_low   — auto-potion is on AND potions held ≤ the low reserve AND (the run ran out mid-run OR hp ≤ the
+ *                     drink threshold) — a fresh actor with no potions at full HP keeps farming (D-075 follow-up).
  * Otherwise `none` (keep farming).
  */
 export function planTownPressure(input: TownPressureInput): TownPressureDecision {
@@ -53,6 +61,7 @@ export function planTownPressure(input: TownPressureInput): TownPressureDecision
     potionLowReserve,
     pressureMinFreeSlots,
     lowHpStopFraction,
+    hadPotionsThisRun,
   } = input;
 
   // D-075: auto-potion is on only for a positive threshold — `0` (player turned it off) reads the same as null here.
@@ -66,8 +75,11 @@ export function planTownPressure(input: TownPressureInput): TownPressureDecision
   // 2 — Bag nearly full: a hard overflow would soon leak loot, so divert before it happens.
   if (freeSlots <= pressureMinFreeSlots) return { kind: "town_trip", trigger: "bag_pressure" };
 
-  // 3 — Potions running low (only meaningful when auto-potion is on).
-  if (potionEnabled && potionCount <= potionLowReserve) {
+  // 3 — Potions running low (auto-potion on AND ≤ the reserve). D-075 follow-up: only when the run RAN OUT mid-run
+  //     (`hadPotionsThisRun`) or the bot is already hurt (hp ≤ the drink threshold). A fresh actor that never carried
+  //     potions and is at full HP keeps farming — it heads to town only once hp actually falls (hp_no_potion, by
+  //     which point kills earned the gold for the emergency buy). "ยาหมดแล้ว → ไปซื้อ", never "ไม่มียาติดตัว = ห้ามฟาร์ม".
+  if (potionEnabled && potionCount <= potionLowReserve && (hadPotionsThisRun || hpFraction <= hpBound)) {
     return { kind: "town_trip", trigger: "potion_low" };
   }
 
