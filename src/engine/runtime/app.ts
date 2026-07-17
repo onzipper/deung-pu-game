@@ -87,6 +87,7 @@ import {
   resetHudState,
   setActiveDialogue,
   setAutoPilotState,
+  setConnectionState,
   setDeathNotice,
   setDeliveryResult,
   setDeliveryState,
@@ -638,6 +639,9 @@ export async function createEngine(
         },
         { mapId: map.mapId, ...initial, partyId: localPartyId, characterId: localCharacterId, classId: localClassId },
         {
+          // fix(bot-hub-connection-state): mirror net-client's connection lifecycle into the Zustand bridge
+          // (event-driven, not the throttled ~4Hz debugInfo poll) — Bot Hub/HUD chip gate on this directly.
+          onConnectionStateChange: (state) => setConnectionState(state),
           onPlayerAdd: (id, snap) => remotes?.onPlayerAdd(id, snap),
           onPlayerChange: (id, snap) => remotes?.onPlayerChange(id, snap),
           onPlayerRemove: (id) => remotes?.onPlayerRemove(id),

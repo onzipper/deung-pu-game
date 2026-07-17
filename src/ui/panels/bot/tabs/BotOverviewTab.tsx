@@ -31,7 +31,10 @@ export interface BotOverviewTabProps {
   checkpoint: BotCheckpointWire | null;
   authorityActive: boolean;
   inventory: InventorySnapshot | null;
+  /** fix(bot-hub-connection-state): includes offline-ness now (BotPanel.tsx) — disables the CTA button too. */
   busy: boolean;
+  /** fix(bot-hub-connection-state): op currently in flight (processing/timed_out only) — CTA label text only. */
+  busyOp: string | null;
   cta: BotCta;
   onCtaClick: () => void;
   onGoToPlans: () => void;
@@ -46,6 +49,7 @@ export function BotOverviewTab({
   authorityActive,
   inventory,
   busy,
+  busyOp,
   cta,
   onCtaClick,
   onGoToPlans,
@@ -58,8 +62,8 @@ export function BotOverviewTab({
     <div className="flex flex-col gap-3">
       {/* CTA เดียวของทั้ง panel (product decision #1) — min-width กันปุ่มกระโดดขนาดตอนสลับ "เริ่มบอท"/"หยุดบอท" */}
       <div className="flex flex-col gap-1 rounded-(--dp-radius-sm) border border-(--dp-soil-brown) bg-(--dp-warm-ink) px-3 py-3">
-        <Button variant={cta.kind === "stop" ? "destructive" : "primary"} size="lg" fullWidth disabled={!cta.enabled} onClick={onCtaClick} className="min-w-[160px]">
-          {botCtaButtonLabel(cta, busy)}
+        <Button variant={cta.kind === "stop" ? "destructive" : "primary"} size="lg" fullWidth disabled={!cta.enabled || busy} onClick={onCtaClick} className="min-w-[160px]">
+          {botCtaButtonLabel(cta, busyOp)}
         </Button>
         {cta.disabledReason && <span className="dp-text-caption text-center text-(--dp-fire-light)">{cta.disabledReason}</span>}
         {cta.helperText && <span className="dp-text-caption text-center text-(--dp-resonance-light)">{cta.helperText}</span>}

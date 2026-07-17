@@ -337,9 +337,12 @@ export type BotOpPhase =
   | { kind: "idle" }
   | { kind: "processing"; op: string }
   | { kind: "settled"; result: BotOpResultMessage }
-  | { kind: "timed_out"; op: string };
+  | { kind: "timed_out"; op: string }
+  // fix(bot-hub-connection-state): send() refused to call fn/enter "processing" because connection wasn't
+  // "online" (FIX2 fail-fast — no more 8s UNKNOWN_RECONCILING timeout for a request that never left the client).
+  | { kind: "offline" };
 
-export type BotOpState = "IDLE" | "PROCESSING" | "SUCCESS" | "REJECTED" | "UNKNOWN_RECONCILING";
+export type BotOpState = "IDLE" | "PROCESSING" | "SUCCESS" | "REJECTED" | "UNKNOWN_RECONCILING" | "OFFLINE";
 
 export function resolveBotOpState(phase: BotOpPhase): BotOpState {
   switch (phase.kind) {
@@ -349,6 +352,8 @@ export function resolveBotOpState(phase: BotOpPhase): BotOpState {
       return "UNKNOWN_RECONCILING";
     case "settled":
       return phase.result.ok ? "SUCCESS" : "REJECTED";
+    case "offline":
+      return "OFFLINE";
     default:
       return "IDLE";
   }
@@ -368,8 +373,47 @@ export function botOpMessage(state: BotOpState, result: BotOpResultMessage | nul
       return botOpRejectionLabel(result?.reason);
     case "UNKNOWN_RECONCILING":
       return "ไม่ได้รับผลลัพธ์ กำลังซิงก์ข้อมูลล่าสุด กรุณารอสักครู่";
+    case "OFFLINE":
+      return "ยังเชื่อมต่อเซิร์ฟเวอร์ไม่ได้ — คำสั่งยังไม่ถูกส่ง ลองใหม่เมื่อเชื่อมต่อแล้ว";
     default:
       return "";
+  }
+}
+
+/**
+ * fix(bot-hub-connection-state): op ที่กำลัง busy จริง (มี request ค้างรอ server จริง ๆ) — "processing" หรือ
+ * "timed_out" เท่านั้น (settled/offline/idle = ไม่มี request ค้าง). ใช้แยกว่า CTA ควรโชว์ "กำลังเริ่ม…"/
+ * "กำลังหยุด…" หรือ label ปกติ (botCtaButtonLabel ด้านล่าง) — กัน op อื่น (เช่น profileCreate) มาทำให้ CTA
+ * label ผิดว่า "กำลังเริ่ม…" ทั้งที่ยังไม่ได้กด CTA เลย.
+ */
+export function botBusyOpFromPhase(phase: BotOpPhase): string | null {
+  return phase.kind === "processing" || phase.kind === "timed_out" ? phase.op : null;
+}
+
+/**
+ * fix(bot-hub-connection-state): true เฉพาะ connectionState === "online" — Bot Hub/HUD chip ปิดปุ่ม op ทั้งหมด
+ * (CTA/สร้าง-แก้ไข-ลบแผน/ซื้อแพ็กเกจ) เมื่อ false เพื่อกัน silent no-op (ทุก sendBot* ใน net-client เป็น
+ * no-op ถ้า status.state ≠ "online" — ไม่ gate ตรงนี้ = ตั้ง processing ค้างจน timeout 8 วิ, root cause เดิม).
+ */
+export function botOpsAvailable(connectionState: "connecting" | "online" | "offline" | "reconnecting"): boolean {
+  return connectionState === "online";
+}
+
+/**
+ * fix(bot-hub-connection-state): ข้อความ banner ถาวรของ Bot Hub เมื่อ connectionState ≠ "online" — null =
+ * ไม่ต้องแสดง banner (online). "connecting"/"reconnecting" = กำลังพยายามต่อ (จะกลับมาเอง), "offline" = เล่น
+ * solo อยู่ (server ล่ม/หลุดถาวร — ต้องรีเฟรชหรือรอ server กลับมา).
+ */
+export function botConnectionBannerMessage(
+  connectionState: "connecting" | "online" | "offline" | "reconnecting",
+): string | null {
+  switch (connectionState) {
+    case "online":
+      return null;
+    case "offline":
+      return "ออฟไลน์อยู่ — ระบบบอทใช้ได้เมื่อเชื่อมต่อเซิร์ฟเวอร์";
+    default:
+      return "ยังเชื่อมต่อเซิร์ฟเวอร์ไม่ได้ — กำลังเชื่อมต่อใหม่ ระบบบอทใช้ไม่ได้ชั่วคราว";
   }
 }
 
@@ -486,13 +530,18 @@ export function resolveActiveBotProfileId(input: {
 
 /**
  * ป้ายบนปุ่ม CTA ระหว่างกำลังส่งคำขอ (product decision #1: "กำลังเริ่ม…"/"กำลังหยุด…" แยกจาก "กำลังทำรายการ…"
- * generic ของ opMessage banner) — busy มาจาก !canConfirmBotOp(opState) เดียวกับที่ disable ปุ่มอื่นทั้ง panel;
- * cta.kind ระหว่าง processing ยังเป็นค่าเดิมก่อนกดเสมอ (authorityActive/status ไม่เปลี่ยนจนกว่า server จะตอบ)
- * จึงอ่าน kind ตรง ๆ ได้อย่างปลอดภัยไม่ต้องรอผล.
+ * generic ของ opMessage banner) — cta.kind ระหว่าง processing ยังเป็นค่าเดิมก่อนกดเสมอ (authorityActive/
+ * status ไม่เปลี่ยนจนกว่า server จะตอบ) จึงอ่าน kind ตรง ๆ ได้อย่างปลอดภัยไม่ต้องรอผล.
+ *
+ * fix(bot-hub-connection-state): รับ `busyOp` (จาก botBusyOpFromPhase) แทน `busy: boolean` เดิม — เดิม op
+ * อื่น (เช่น profileCreate ค้างจนกลายเป็น UNKNOWN_RECONCILING) ทำให้ CTA โชว์ "กำลังเริ่ม…" ผิด ๆ ทั้งที่ยังไม่ได้
+ * กด CTA เลย. ตอนนี้โชว์ "กำลังเริ่ม…"/"กำลังหยุด…" เฉพาะตอน busyOp ตรงกับ action ของ CTA นี้จริง ๆ เท่านั้น
+ * (start/resume ↔ cta.kind="start", stop ↔ cta.kind="stop") — busy จาก op อื่นคง label ปกติ (ปุ่มยัง disabled
+ * ผ่าน cta.enabled/busy เดิมที่ caller คำนวณแยก).
  */
-export function botCtaButtonLabel(cta: BotCta, busy: boolean): string {
-  if (!busy) return cta.label;
-  return cta.kind === "stop" ? "กำลังหยุด…" : "กำลังเริ่ม…";
+export function botCtaButtonLabel(cta: BotCta, busyOp: string | null): string {
+  if (cta.kind === "stop") return busyOp === "stop" ? "กำลังหยุด…" : cta.label;
+  return busyOp === "start" || busyOp === "resume" ? "กำลังเริ่ม…" : cta.label;
 }
 
 /** ผลของการกด CTA เดียว — component แค่แปลงเป็น net call ที่ตรงกัน (sendBotStart/Resume/Stop) */
