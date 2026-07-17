@@ -7,6 +7,7 @@
 
 import type { ReactNode } from "react";
 import { Button } from "@/ui/components";
+import { hudIconUrl } from "@/ui/panels/hud-icon-catalog";
 import {
   BOT_TAB_LABELS,
   BOT_TAB_ORDER,
@@ -18,6 +19,13 @@ import {
   type BotTutorialState,
 } from "./bot-view";
 import type { BotTierStateMessage } from "@/shared/net-protocol";
+
+// M5 §5: icon ประดับแท็บ (ตามเหมาะ) — เฉพาะ 2 แท็บที่มี icon ที่สื่อความหมายชัดพอ (แผนฟาร์ม = workflow node,
+// รายงาน = ม้วนกระดาษ) — ภาพรวม/แพ็กเกจไม่มี icon เดี่ยวที่สื่อสารได้ดีกว่าข้อความเปล่า เลยเว้นว่างไว้.
+const BOT_TAB_ICON: Partial<Record<BotTab, string>> = {
+  profiles: hudIconUrl("workflow"),
+  reports: hudIconUrl("report"),
+};
 
 export interface BotHubWindowProps {
   tab: BotTab;
@@ -63,6 +71,10 @@ export function BotHubWindow({
         <div className="flex flex-wrap gap-1">
           {BOT_TAB_ORDER.map((t) => (
             <Button key={t} variant={tab === t ? "primary" : "ghost"} size="sm" onClick={() => onTabChange(t)}>
+              {BOT_TAB_ICON[t] && (
+                // eslint-disable-next-line @next/next/no-img-element -- decorative tab glyph, closed icon set (hud-icon-catalog.ts)
+                <img src={BOT_TAB_ICON[t]} alt="" aria-hidden className="h-4 w-4 shrink-0" />
+              )}
               {BOT_TAB_LABELS[t]}
             </Button>
           ))}

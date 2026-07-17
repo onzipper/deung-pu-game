@@ -4,17 +4,24 @@ import {
   type BotAttackOutcome,
   type BotHost,
   type BotPotionOutcome,
+  type BotTownTxResult,
 } from "../server/bot/runtime";
-import type { SessionRepo } from "../server/bot/store";
+import { BotManager, type BotManagerDeps } from "../server/bot/manager";
+import type { ProfileRepo } from "../server/bot/profiles";
+import type { SessionRepo, TierRepo } from "../server/bot/store";
 import type { AgentMob, Vec2 } from "../server/bot/agent";
-import type { BotRulesV1 } from "../server/bot/types";
+import type { BotProfileRow, BotRulesV1, BotTierStateRow } from "../server/bot/types";
+import { MSG_BOT_OP_RESULT, type BotOpResultMessage } from "../src/shared/net-protocol";
 import { DEFAULT_BOT_CONFIG, type BotConfig, type BotTier } from "../server/config/bot";
 import {
+  MSG_BOT_ALERT,
   MSG_BOT_STATUS,
   MSG_BOT_STOPPED,
+  type BotAlertMessage,
   type BotStatusMessage,
   type BotStoppedMessage,
 } from "../src/shared/net-protocol";
+import { createWarpHarness, FakeWorld, warpConfig, type BagSeed } from "./helpers/warp-world";
 
 // PR5 Phase A — Plus/Pro recovery runtime. The Free baseline stays byte-identical (see
 // server-bot-free-runtime.test.ts); this suite drives the paid recovery loop (auto-potion, death respawn/return,
@@ -521,5 +528,328 @@ describe("Free tier — auto-potion (D-073), still no death recovery / pocket fa
     death.runtime.onActorDied();
     expect(death.runtime.isStopped).toBe(true);
     expect(death.stoppedMessage()).toMatchObject({ reason: "death" });
+  });
+});
+
+// ── M1 Plus single-goal + completion action ─────────────────────────────────────────────────────────────────
+// A paid single-pocket run may carry rules.goal (kills/gold/exp/durationMs). When the whole-run session counters
+// reach the target, the completion action fires once: safe_stop / notify_continue / town_stop / town_continue.
+
+const KILL_OUTCOME: BotAttackOutcome = { killed: 1, gold: 5, exp: 3, loot: [], bagOverflowed: false, overflow: [], leveledUp: false };
+
+function goalRules(over: Partial<BotRulesV1>): BotRulesV1 {
+  return { skillSlots: [0], potionThresholdPct: null, lootAll: true, ...over };
+}
+
+const lastStatus = (msgs: { type: string; message: unknown }[]): BotStatusMessage | undefined =>
+  [...msgs].reverse().find((m) => m.type === MSG_BOT_STATUS)?.message as BotStatusMessage | undefined;
+
+describe("M1 Plus single-goal — completion actions (in-place)", () => {
+  test("safe_stop: reaching the kill target completes (goal_complete → COMPLETED)", async () => {
+    const h = createPlusHarness({
+      tier: "plus",
+      rules: goalRules({ goal: { type: "kills", target: 1 }, completionAction: "safe_stop" }),
+      mobs: () => [slime("m1", "A")],
+      attack: async () => KILL_OUTCOME,
+    });
+    h.runtime.tick(2_000); // farm → attack dispatched
+    await flush(); // killCount → 1
+    expect(h.runtime.isStopped).toBe(false);
+
+    h.runtime.tick(2_000); // goal met → safe_stop
+    expect(h.runtime.isStopped).toBe(true);
+    expect(h.state()).toBe("COMPLETED");
+    expect(h.stoppedMessage()).toMatchObject({ reason: "goal_complete", continuity: { state: "COMPLETED" } });
+  });
+
+  test("notify_continue: fires ONE alert (kind goal) then keeps farming", async () => {
+    const h = createPlusHarness({
+      tier: "plus",
+      rules: goalRules({ goal: { type: "kills", target: 1 }, completionAction: "notify_continue" }),
+      mobs: () => [slime("m1", "A")],
+      attack: async () => KILL_OUTCOME,
+    });
+    for (let i = 0; i < 3; i++) {
+      h.runtime.tick(2_000);
+      await flush();
+    }
+    const alerts = h.messages.filter((m) => m.type === MSG_BOT_ALERT).map((m) => m.message as BotAlertMessage);
+    expect(alerts).toHaveLength(1); // fenced by goalReached — never a second alert
+    expect(alerts[0]).toMatchObject({ kind: "goal" });
+    expect(h.runtime.isStopped).toBe(false); // farmed on past the goal
+  });
+
+  test("duration goal (fake clock): elapsed reaching the target completes", () => {
+    const h = createPlusHarness({
+      tier: "plus",
+      rules: goalRules({ goal: { type: "durationMs", target: 3_000 }, completionAction: "safe_stop" }),
+      mobs: () => [],
+    });
+    h.runtime.tick(2_000); // elapsed 0 → not met
+    expect(h.runtime.isStopped).toBe(false);
+
+    h.advanceClock(4_000); // elapsed 4000 ≥ 3000
+    h.runtime.tick(2_000); // goal met → safe_stop
+    expect(h.runtime.isStopped).toBe(true);
+    expect(h.stoppedMessage()).toMatchObject({ reason: "goal_complete" });
+  });
+
+  test("live goal progress rides every status push (type/target/done = whole-run counter)", async () => {
+    const h = createPlusHarness({
+      tier: "plus",
+      rules: goalRules({ goal: { type: "kills", target: 100 }, completionAction: "safe_stop" }),
+      mobs: () => [slime("m1", "A")],
+      attack: async () => KILL_OUTCOME,
+    });
+    for (let i = 0; i < 3; i++) {
+      h.runtime.tick(2_000);
+      await flush();
+    }
+    const s = lastStatus(h.messages);
+    expect(s?.goal).toMatchObject({ type: "kills", target: 100 });
+    expect(s?.goal?.done).toBe(s?.killCount); // done = the same live counter carried in the push
+    expect(s!.killCount).toBeGreaterThanOrEqual(1);
+  });
+});
+
+// ── M1 warp town trip completion actions + live stats ────────────────────────────────────────────────────────
+// town_stop parks in the city-hub and completes; town_continue services then resumes farming. Driven over the real
+// FakeWorld warp handoff (createWarpHarness).
+
+const OVERFLOW_OUTCOME: BotAttackOutcome = { killed: 1, gold: 0, exp: 0, loot: [], bagOverflowed: true, overflow: [], leveledUp: false };
+const CLEAN_OUTCOME: BotAttackOutcome = { killed: 1, gold: 0, exp: 0, loot: [], bagOverflowed: false, overflow: [], leveledUp: false };
+const FARM_MOB: AgentMob = { id: "m1", mobType: "slime", tx: 0, ty: 0, hp: 10, pocketId: "A" };
+
+interface WarpSceneOpts {
+  gold?: number;
+  bag?: BagSeed[];
+  rules?: BotRulesV1;
+  attack?: (target: Vec2) => Promise<BotAttackOutcome>;
+  townEnabledTiers?: readonly BotTier[];
+  withTownHost?: boolean;
+}
+
+function warpScene(opts: WarpSceneOpts = {}) {
+  const world = new FakeWorld({ actorId: "actor:real", gold: opts.gold ?? 20, buyPrice: 18, bag: opts.bag ?? [] });
+  const farmHost = world.addHost({
+    roomId: "room-farm",
+    mapId: "map1",
+    mobs: () => [FARM_MOB],
+    attack: opts.attack ?? (async () => KILL_OUTCOME),
+  });
+  farmHost.players.add("actor:real");
+  if (opts.withTownHost ?? true) world.addHost({ roomId: "room-town", mapId: "city-hub" });
+  const config = opts.townEnabledTiers ? warpConfig({ enabledTiers: opts.townEnabledTiers }) : warpConfig();
+  const harness = createWarpHarness({ world, farmHost, tier: "plus", config, rules: opts.rules });
+  return { world, farmHost, harness };
+}
+
+describe("M1 Plus single-goal — town_stop / town_continue (warp)", () => {
+  test("town_stop: services run, then the actor parks in town and completes", async () => {
+    const { world, harness } = warpScene({
+      rules: goalRules({ goal: { type: "kills", target: 1 }, completionAction: "town_stop" }),
+    });
+    for (let i = 0; i < 40 && !harness.runtime.isStopped; i++) await harness.tickAndSettle();
+
+    expect(harness.runtime.isStopped).toBe(true);
+    expect(world.stoppedMessage()?.reason).toBe("goal_complete");
+    expect(harness.state()).toBe("COMPLETED");
+    expect(world.acquireCalls).toContain("city-hub"); // the service trip actually ran
+    expect(world.hostsContaining("actor:real")[0]?.mapId).toBe("city-hub"); // parked in town (no return leg)
+  });
+
+  test("town_stop with a refused begin completes in place (no trip)", async () => {
+    const { world, harness } = warpScene({
+      townEnabledTiers: ["pro"], // plus not enabled → beginTownTrip refuses
+      withTownHost: false,
+      rules: goalRules({ goal: { type: "kills", target: 1 }, completionAction: "town_stop" }),
+    });
+    for (let i = 0; i < 5 && !harness.runtime.isStopped; i++) await harness.tickAndSettle();
+
+    expect(harness.runtime.isStopped).toBe(true);
+    expect(world.stoppedMessage()?.reason).toBe("goal_complete");
+    expect(world.acquireCalls).toHaveLength(0); // begin refused → no trip
+    expect(world.hostsContaining("actor:real")[0]?.mapId).toBe("map1"); // never left the farm
+  });
+
+  test("town_continue: services run, then farming resumes (no stop; goal fenced)", async () => {
+    const { world, harness } = warpScene({
+      gold: 200,
+      rules: goalRules({ goal: { type: "kills", target: 1 }, completionAction: "town_continue" }),
+    });
+    for (let i = 0; i < 40 && !harness.runtime.isStopped; i++) {
+      await harness.tickAndSettle();
+      if (harness.state() === "WORKING" && world.acquireCalls.includes("city-hub")) break;
+    }
+    expect(harness.runtime.isStopped).toBe(false);
+    expect(world.acquireCalls).toContain("city-hub"); // trip ran
+    expect(harness.state()).toBe("WORKING"); // resumed farming after returning home
+    expect(world.hostsContaining("actor:real")[0]?.mapId).toBe("map1"); // returned to the farm
+  });
+
+  test("town_continue with a refused begin marks reached and keeps farming", async () => {
+    const { world, harness } = warpScene({
+      townEnabledTiers: ["pro"],
+      withTownHost: false,
+      rules: goalRules({ goal: { type: "kills", target: 1 }, completionAction: "town_continue" }),
+    });
+    for (let i = 0; i < 5; i++) await harness.tickAndSettle();
+
+    expect(harness.runtime.isStopped).toBe(false); // never stopped — farmed on
+    expect(world.acquireCalls).toHaveLength(0); // begin refused → no trip
+  });
+});
+
+describe("M1 live stats", () => {
+  test("potionsUsed increments on a successful drink", async () => {
+    let hp = 0.4;
+    const h = createPlusHarness({
+      tier: "plus",
+      rules: POTION_RULES,
+      hpFraction: () => hp,
+      usePotion: async () => HEALED_POTION,
+      mobs: () => [],
+    });
+    h.runtime.tick(2_000); // use_potion → RECOVERING
+    await flush(); // healed → potionsUsed → 1, WORKING
+    hp = 1;
+    h.runtime.tick(2_000); // farm tick → status push carries the stats
+    expect(lastStatus(h.messages)?.stats?.potionsUsed).toBe(1);
+  });
+
+  test("a full round-trip records townTrips=1 with msWalking + msInTown split into buckets", async () => {
+    let overflowed = false;
+    const { world, harness } = warpScene({
+      gold: 200,
+      bag: [
+        { instanceId: "s1", itemId: "mat_a", rarity: "common", sellPrice: 30, deliverable: true },
+        { instanceId: "s2", itemId: "mat_b", rarity: "common", sellPrice: 30, deliverable: true },
+      ],
+      attack: async () => {
+        if (!overflowed) {
+          overflowed = true;
+          return OVERFLOW_OUTCOME; // first kill overflows → bag-full town trip
+        }
+        return CLEAN_OUTCOME; // afterwards clean → no re-trigger
+      },
+    });
+    for (let i = 0; i < 60 && !harness.runtime.isStopped; i++) {
+      await harness.tickAndSettle();
+      if (harness.state() === "WORKING" && world.acquireCalls.includes("city-hub")) {
+        await harness.tickAndSettle(); // one more farm tick pushes a status with the final stats
+        await harness.tickAndSettle();
+        break;
+      }
+    }
+    const s = lastStatus(world.messages);
+    expect(s?.stats?.townTrips).toBe(1);
+    expect(s?.stats?.msWalking).toBeGreaterThan(0); // RETURNING_TO_TOWN + RETURNING_TO_WORK ticks
+    expect(s?.stats?.msInTown).toBeGreaterThan(0); // SELLING / DEPOSITING / RESTOCKING ticks
+  });
+});
+
+// ── M1 start re-gate: SELECTED_TYPES re-validated against the live pocket ─────────────────────────────────────
+// A profile can be saved when its pocket held the selected type, then the map/pocket data changes. `start`
+// re-checks selectedMobTypes against the LIVE pocket (resolveTargetCtx) and rejects mob_type_not_in_pocket.
+
+function regateManager(profile: BotProfileRow) {
+  const profileRepo: ProfileRepo = {
+    listByAccount: async (a) => (a === profile.accountId ? [profile] : []),
+    getById: async (a, id) => (a === profile.accountId && id === profile.id ? profile : null),
+    insert: async () => undefined,
+    update: async () => undefined,
+    remove: async () => undefined,
+  };
+  const paidRow: BotTierStateRow = { accountId: profile.accountId, tier: "plus", passExpiresAt: 10_000_000_000, updatedAt: 0 };
+  const tierRepo: TierRepo = { get: async () => paidRow, upsert: async () => undefined };
+  const sessionRepo: SessionRepo = {
+    insert: async () => undefined,
+    patch: async () => undefined,
+    listByAccount: async () => [],
+    getById: async () => null,
+    markOpenAsRestart: async () => 0,
+  };
+  const noTx: BotTownTxResult = { ok: false, reason: "unavailable" };
+  const host: BotHost = {
+    mapId: "map1",
+    roomId: "room-1",
+    partyId: "",
+    botClaimAuthority: () => "actor:real",
+    botReleaseAuthority: () => undefined,
+    botMobs: () => [],
+    botPos: () => ({ tx: 0, ty: 0 }),
+    botHpFraction: () => 1,
+    botAttackRange: () => 1,
+    botBaseCooldownSeconds: () => 1,
+    botStepToward: () => false,
+    botAttack: async () => CLEAN_OUTCOME,
+    botOwnerSend: () => true,
+    isForbiddenTargetType: () => false,
+    pocketExists: () => true,
+    botUsePotion: async () => ({ status: "unavailable", hpFraction: 1, cooldownUntilMs: 0 }),
+    botPlanPath: () => null,
+    botPocketAnchor: () => null,
+    botReserveWarpSeat: () => true,
+    botReleaseWarpSeat: () => undefined,
+    botExportActor: () => null,
+    botAttachWarpedActor: () => false,
+    botPersistNow: () => undefined,
+    botBagItems: async () => [],
+    botTownSell: async () => noTx,
+    botTownDeposit: async () => noTx,
+    botTownBuy: async () => noTx,
+    botGoldBalance: async () => null,
+    botSafeCampAnchor: () => ({ tx: 0, ty: 0 }),
+  };
+  const deps: BotManagerDeps = {
+    config: DEFAULT_BOT_CONFIG,
+    tierRepo,
+    profileRepo,
+    sessionRepo,
+    rarityOf: () => undefined,
+    dbAvailable: () => true,
+    now: () => 1_000,
+  };
+  return { manager: new BotManager(deps), host };
+}
+
+function selectedTypesProfile(selectedMobTypes: string[]): BotProfileRow {
+  return {
+    id: "p-regate",
+    accountId: "acc",
+    name: "selected",
+    mapId: "map1",
+    pocketId: "map1-slime-center", // live mobType = "slime"
+    rules: { skillSlots: [0], potionThresholdPct: null, lootAll: true, targetMode: "SELECTED_TYPES", selectedMobTypes },
+    createdAt: 1,
+    updatedAt: 1,
+  };
+}
+
+describe("M1 start re-gate — SELECTED_TYPES vs live pocket", () => {
+  test("a selected type absent from the assigned pocket rejects mob_type_not_in_pocket", async () => {
+    // "boar" is a real normal mob, but it lives in map1-boar-southwest, not the slime pocket.
+    const { manager, host } = regateManager(selectedTypesProfile(["boar"]));
+    const messages: { type: string; message: unknown }[] = [];
+    await manager.onStart(host, "controller-1", "acc", "character-a", (type, message) => messages.push({ type, message }), {
+      profileId: "p-regate",
+    });
+    const result = messages.find((m) => m.type === MSG_BOT_OP_RESULT)?.message as BotOpResultMessage | undefined;
+    expect(result).toMatchObject({ op: "start", ok: false, reason: "mob_type_not_in_pocket" });
+    expect(manager.activeActorForAccount("acc")).toBeNull();
+  });
+
+  test("a selected type present in the assigned pocket starts", async () => {
+    const { manager, host } = regateManager(selectedTypesProfile(["slime"]));
+    const messages: { type: string; message: unknown }[] = [];
+    await manager.onStart(host, "controller-1", "acc", "character-a", (type, message) => messages.push({ type, message }), {
+      profileId: "p-regate",
+    });
+    const rejects = messages
+      .filter((m) => m.type === MSG_BOT_OP_RESULT)
+      .map((m) => m.message as BotOpResultMessage)
+      .filter((r) => r.ok === false);
+    expect(rejects).toHaveLength(0);
+    expect(manager.activeActorForAccount("acc")).not.toBeNull();
   });
 });

@@ -84,3 +84,26 @@ export function facingToArrowRadians(dir: Direction): number {
   const { sx, sy } = directionToScreenUnit(dir);
   return Math.atan2(sy, sx);
 }
+
+// ── M5 §4: minimap header (ชื่อแมพ + channel) — ป้ายไทยชื่อแมพ ────────────────────────────────────────────
+//
+// ย้ายมาจาก src/ui/panels/bot/bot-view.ts (M4 BOT_MAP_LABELS/botMapLabel) — Minimap เป็นเจ้าของ "ชื่อแมพไทย"
+// ตัวจริงตอนนี้ (แสดงบนหัว widget); bot-view.ts re-export ชื่อเดิมไว้ (ไม่ duplicate ตาราง, ไม่กระทบ import
+// เดิมที่กระจายอยู่หลายไฟล์ใต้ src/ui/panels/bot/**).
+
+export const MAP_LABELS_TH: Readonly<Record<string, string>> = {
+  map1: "แผนที่ 1",
+  map2: "แผนที่ 2",
+  map3: "แผนที่ 3",
+  map4: "แผนที่ 4",
+};
+
+export function mapLabelTh(mapId: string): string {
+  return MAP_LABELS_TH[mapId] ?? mapId;
+}
+
+/** ป้าย channel สั้น ๆ ("CH.3") จาก channelId ดิบ (NetDebugInfo.net.channelId) — null/ว่าง = ยังไม่รู้/offline */
+export function channelLabel(channelId: string | null): string | null {
+  if (!channelId) return null;
+  return `CH.${channelId}`;
+}

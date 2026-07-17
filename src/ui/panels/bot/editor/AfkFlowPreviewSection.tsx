@@ -5,6 +5,7 @@
 
 import { afkFlowStepsFor, lockedBotFeaturesFor, type BotRulesWire, type BotTierWire } from "../bot-view";
 import { BOT_EDITOR_SECTION_CARD_CLASS } from "../bot-layout";
+import { LockedBadge } from "../LockedBadge";
 
 export interface AfkFlowPreviewSectionProps {
   tier: BotTierWire;
@@ -30,7 +31,7 @@ export function AfkFlowPreviewSection({ tier, rules }: AfkFlowPreviewSectionProp
           {locked.map((f) => (
             <div key={f.feature} className="dp-text-caption flex items-center justify-between gap-2 text-(--dp-parchment)">
               <span>{f.label}</span>
-              <span className="text-(--dp-fire-light)">🔒 {f.requiredTierLabel}</span>
+              <LockedBadge requiredTierLabel={f.requiredTierLabel} />
             </div>
           ))}
         </div>

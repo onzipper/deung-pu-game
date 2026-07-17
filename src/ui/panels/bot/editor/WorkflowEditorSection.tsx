@@ -26,6 +26,7 @@ import {
 } from "../bot-view";
 import { BOT_EDITOR_NUMBER_INPUT_CLASS, BOT_EDITOR_SECTION_CARD_CLASS, BOT_EDITOR_SELECT_CLASS } from "../bot-layout";
 import { Button } from "@/ui/components";
+import { LockedBadge } from "../LockedBadge";
 import type { BotWorkflowMetric, BotWorkflowV1 } from "@/shared/bot-workflow";
 
 export interface WorkflowEditorSectionProps {
@@ -51,7 +52,7 @@ export function WorkflowEditorSection({ tier, mapId, pocketId, rules, disabled, 
     <div className={BOT_EDITOR_SECTION_CARD_CLASS}>
       <div className="flex items-center justify-between gap-2">
         <span className="dp-text-label text-(--dp-sand)">งานหลายขั้น (Pro)</span>
-        {!isPro && <span className="dp-text-caption text-(--dp-fire-light)">🔒 Pro</span>}
+        {!isPro && <LockedBadge requiredTierLabel="Pro" />}
       </div>
 
       {hasGoalWorkflowConflict(rules) && (

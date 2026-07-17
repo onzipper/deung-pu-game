@@ -8,6 +8,7 @@
 import { useEffect, useState } from "react";
 import type { BotTierStateMessage, BotTierWire } from "@/shared/net-protocol";
 import { Button, ConfirmDialog } from "@/ui/components";
+import { hudIconUrl, type HudIconId } from "@/ui/panels/hud-icon-catalog";
 import { botTierComparisonRows, botTierLabel, formatPassExpiry, resolveBotPurchaseConfirmation, type BotOpPhase } from "../bot-view";
 import type { BotNet } from "../BotPanel";
 
@@ -15,6 +16,13 @@ const TIER_HEADLINE: Readonly<Record<BotTierWire, string>> = {
   free: "ฟาร์มพื้นฐานครบวงจร",
   plus: "ฟาร์มแม่นยำและกลับมาทำต่อเร็วขึ้น",
   pro: "จัดการแผน AFK หลายขั้นให้ครบวงจร",
+};
+
+// M5 §5: โล่ tier — icon_hud_tier_<tier>_v01.svg (pro = gold, ดู hud-icon-catalog.ts)
+const TIER_SHIELD_ICON: Readonly<Record<BotTierWire, HudIconId>> = {
+  free: "tier_free",
+  plus: "tier_plus",
+  pro: "tier_pro",
 };
 
 export interface BotPackagesTabProps {
@@ -57,7 +65,11 @@ export function BotPackagesTab({ tierState, nowMs, busy, phase, send }: BotPacka
               plan.tier === "pro" ? "border-(--dp-legendary-gold)" : "border-(--dp-soil-brown)",
             ].join(" ")}
           >
-            <span className={plan.tier === "pro" ? "text-(--dp-legendary-gold)" : "text-(--dp-highlight)"}>{botTierLabel(plan.tier)}</span>
+            <span className="flex items-center gap-1.5">
+              {/* eslint-disable-next-line @next/next/no-img-element -- decorative tier glyph, closed icon set (hud-icon-catalog.ts) */}
+              <img src={hudIconUrl(TIER_SHIELD_ICON[plan.tier])} alt="" aria-hidden className="h-5 w-5 shrink-0" />
+              <span className={plan.tier === "pro" ? "text-(--dp-legendary-gold)" : "text-(--dp-highlight)"}>{botTierLabel(plan.tier)}</span>
+            </span>
             <span className="dp-text-caption text-(--dp-parchment)">{TIER_HEADLINE[plan.tier]}</span>
             {tierState?.tier === plan.tier && (
               <span className="dp-text-caption text-(--dp-pale-moss)">tier ปัจจุบัน · {formatPassExpiry(tierState.passExpiresAt, nowMs)}</span>
@@ -73,7 +85,11 @@ export function BotPackagesTab({ tierState, nowMs, busy, phase, send }: BotPacka
               <th className="py-1 pr-2 font-normal">ความสามารถ</th>
               {plans.map((p) => (
                 <th key={p.tier} className={["px-2 py-1 text-center font-semibold", p.tier === "pro" ? "text-(--dp-legendary-gold)" : "text-(--dp-highlight)"].join(" ")}>
-                  {botTierLabel(p.tier)}
+                  <span className="inline-flex items-center gap-1">
+                    {/* eslint-disable-next-line @next/next/no-img-element -- decorative tier glyph, closed icon set (hud-icon-catalog.ts) */}
+                    <img src={hudIconUrl(TIER_SHIELD_ICON[p.tier])} alt="" aria-hidden className="h-4 w-4 shrink-0" />
+                    {botTierLabel(p.tier)}
+                  </span>
                 </th>
               ))}
             </tr>

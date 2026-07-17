@@ -15,6 +15,7 @@ import {
   type BotTierWire,
 } from "../bot-view";
 import { BOT_EDITOR_NUMBER_INPUT_CLASS, BOT_EDITOR_SECTION_CARD_CLASS, BOT_EDITOR_SELECT_CLASS } from "../bot-layout";
+import { LockedBadge } from "../LockedBadge";
 import type { BotCompletionActionWire } from "@/shared/net-protocol";
 import type { BotWorkflowMetric } from "@/shared/bot-workflow";
 
@@ -40,7 +41,7 @@ export function CompletionSection({ rules, tier, disabled, onChange }: Completio
     <div className={BOT_EDITOR_SECTION_CARD_CLASS}>
       <div className="flex items-center justify-between gap-2">
         <span className="dp-text-label text-(--dp-sand)">ครบเป้าหมาย</span>
-        {lock.locked && <span className="dp-text-caption text-(--dp-fire-light)">🔒 {lock.requiredTierLabel}</span>}
+        {lock.locked && lock.requiredTierLabel && <LockedBadge requiredTierLabel={lock.requiredTierLabel} />}
       </div>
 
       {workflowActive ? (

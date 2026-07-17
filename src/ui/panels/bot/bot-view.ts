@@ -564,16 +564,9 @@ export const BOT_ALLOWED_POCKETS: Readonly<Record<string, readonly string[]>> = 
   map4: ["map4-wisp-west", "map4-wisp-center", "map4-dream-center", "map4-deer-east"],
 };
 
-export const BOT_MAP_LABELS: Readonly<Record<string, string>> = {
-  map1: "แผนที่ 1",
-  map2: "แผนที่ 2",
-  map3: "แผนที่ 3",
-  map4: "แผนที่ 4",
-};
-
-export function botMapLabel(mapId: string): string {
-  return BOT_MAP_LABELS[mapId] ?? mapId;
-}
+// M5: ชื่อแมพไทยย้ายไปเป็นเจ้าของที่ Minimap (src/ui/panels/minimap/minimap-view.ts MAP_LABELS_TH/mapLabelTh —
+// Minimap header ก็ใช้ตารางเดียวกันนี้) — re-export ชื่อเดิมไว้กัน import ที่กระจายอยู่หลายไฟล์ใต้ bot/** พัง.
+export { MAP_LABELS_TH as BOT_MAP_LABELS, mapLabelTh as botMapLabel } from "@/ui/panels/minimap/minimap-view";
 
 const BOT_POCKET_LABELS: Readonly<Record<string, string>> = {
   "map1-slime-center": "กลางทุ่ง (สไลม์)",

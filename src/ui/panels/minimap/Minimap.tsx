@@ -30,6 +30,8 @@ import {
   projectTileToMinimap,
   unprojectMinimapToTile,
   facingToArrowRadians,
+  mapLabelTh,
+  channelLabel,
 } from "./minimap-view";
 
 // breakpoint ของ "Compact" (§8.4) ไม่ได้ระบุตัวเลขไว้ตรง ๆ ในสเปก (ต่างจาก §9.2 มือถือที่ระบุ <420px เป๊ะ) —
@@ -43,6 +45,10 @@ const AUTO_PILOT_PROPOSED_COLOR = "#ffffff";
 
 // ตำแหน่ง top ของ widget (top-12 = 3rem = 48px) — ใช้คำนวณ top ของ confirm chip ที่วางใต้ widget.
 const MINIMAP_TOP_PX = 48;
+
+// M5 §4: header แถบเล็ก (ชื่อแมพ + channel) เหนือ canvas — บวกเข้า confirm-chip offset ด้านล่างด้วย (ไม่กระทบ
+// canvas size/click math เอง เพราะ canvas ยังคงกว้าง/สูง = size เท่าเดิมทุกประการ, header เป็นแถวแยกอยู่เหนือมัน).
+const MINIMAP_HEADER_HEIGHT_PX = 18;
 
 interface MinimapColors {
   exit: string;
@@ -212,40 +218,52 @@ export function Minimap({ getHandle }: MinimapProps) {
     );
   }
 
+  const channel = channelLabel(debugInfo?.net.channelId ?? null);
+
   return (
     <>
       <div
-        className="pointer-events-auto fixed right-4 top-12 z-30 select-none overflow-hidden rounded-(--dp-radius-md) border-2 border-(--dp-warm-wood) bg-(--dp-deep-brown) dp-shadow-raised"
-        style={{ width: size, height: size }}
+        className="pointer-events-auto fixed right-4 top-12 z-30 flex select-none flex-col overflow-hidden rounded-(--dp-radius-md) border-2 border-(--dp-warm-wood) bg-(--dp-deep-brown) dp-shadow-raised"
+        style={{ width: size }}
       >
-        <canvas
-          ref={canvasRef}
-          onClick={onCanvasClick}
-          aria-label="มินิแมป — คลิกเพื่อเลือกจุดหมายเดินอัตโนมัติ"
-          className="absolute inset-0 h-full w-full cursor-crosshair"
-          style={{ width: size, height: size }}
-        />
-        {/* North indicator (§8.4) — static, ไม่หมุนตามกล้อง (โลกนี้ไม่มี camera rotate) */}
-        <span
-          aria-hidden
-          className="pointer-events-none absolute left-1/2 top-0.5 -translate-x-1/2 text-[9px] font-bold leading-none text-(--dp-parchment)"
+        {/* M5 §4: header เล็ก — ชื่อแมพ (ไทย) + channel (CH.x, จาก debugInfo.net.channelId) */}
+        <div
+          className="flex items-center justify-between gap-1 border-b border-(--dp-soil-brown) px-1.5 text-[9px] font-semibold text-(--dp-parchment)"
+          style={{ height: MINIMAP_HEADER_HEIGHT_PX }}
         >
-          N
-        </span>
-        <button
-          type="button"
-          onClick={toggleCollapsed}
-          aria-label="ย่อมินิแมป"
-          className="pointer-events-auto absolute right-1 top-1 z-10 rounded-(--dp-radius-sm) bg-black/40 px-1 text-[10px] leading-tight text-(--dp-parchment) hover:bg-black/60"
-        >
-          −
-        </button>
+          <span className="truncate">{mapLabelTh(mapId)}</span>
+          {channel && <span className="shrink-0 text-(--dp-sand)">{channel}</span>}
+        </div>
+        <div className="relative" style={{ width: size, height: size }}>
+          <canvas
+            ref={canvasRef}
+            onClick={onCanvasClick}
+            aria-label="มินิแมป — คลิกเพื่อเลือกจุดหมายเดินอัตโนมัติ"
+            className="absolute inset-0 h-full w-full cursor-crosshair"
+            style={{ width: size, height: size }}
+          />
+          {/* North indicator (§8.4) — static, ไม่หมุนตามกล้อง (โลกนี้ไม่มี camera rotate) */}
+          <span
+            aria-hidden
+            className="pointer-events-none absolute left-1/2 top-0.5 -translate-x-1/2 text-[9px] font-bold leading-none text-(--dp-parchment)"
+          >
+            N
+          </span>
+          <button
+            type="button"
+            onClick={toggleCollapsed}
+            aria-label="ย่อมินิแมป"
+            className="pointer-events-auto absolute right-1 top-1 z-10 rounded-(--dp-radius-sm) bg-black/40 px-1 text-[10px] leading-tight text-(--dp-parchment) hover:bg-black/60"
+          >
+            −
+          </button>
+        </div>
       </div>
       {/* Auto Pilot (D-037): confirm chip ใต้ widget เมื่อมี proposed — ยืนยันจุดหมายก่อนเดิน (player-CONFIRMED) */}
       {proposed && (
         <div
           className="pointer-events-auto fixed right-4 z-30 flex items-center gap-2 rounded-(--dp-radius-md) border border-(--dp-warm-wood) bg-(--dp-deep-brown)/95 px-2 py-1 text-[11px] text-(--dp-parchment) dp-shadow-raised"
-          style={{ top: MINIMAP_TOP_PX + size + 6 }}
+          style={{ top: MINIMAP_TOP_PX + MINIMAP_HEADER_HEIGHT_PX + size + 6 }}
         >
           <span>
             เดินไป ({proposed.tx}, {proposed.ty})?

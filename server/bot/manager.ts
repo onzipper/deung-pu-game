@@ -793,6 +793,18 @@ export class BotManager {
     if (profile.mapId !== requestHost.mapId) {
       return this.reject(send, op, "character_not_in_profile_map", profile.id);
     }
+
+    // M1 start re-gate: a SELECTED_TYPES profile is re-validated against the LIVE pocket — map/pocket data can
+    // change after the profile was saved (resolveTargetCtx reads the current map registry), so a selected type may
+    // no longer be a normal mob that lives in the assigned pocket. Mirrors validateRules' SELECTED_TYPES check.
+    if (profile.rules.targetMode === "SELECTED_TYPES") {
+      const ctx = this.resolveTargetCtx(profile.mapId, profile.pocketId);
+      const invalid = (profile.rules.selectedMobTypes ?? []).some(
+        (t) => ctx.mobClassOf(t) !== "normal" || (ctx.mobTypesInPocket != null && !ctx.mobTypesInPocket.includes(t)),
+      );
+      if (invalid) return this.reject(send, op, "mob_type_not_in_pocket", profile.id);
+    }
+
     if (this.cancelledStarts.has(accountId)) return this.reject(send, op, "cancelled", profile.id);
 
     const now = this.d.now();

@@ -19,6 +19,7 @@ import {
 import type {
   BotContinuityOperationalStateWire,
   BotContinuitySnapshotWire,
+  BotContinuityStateWire,
 } from "../../src/shared/bot-continuity";
 import type { BotConfig, BotStopReason, BotTier } from "../config/bot";
 import {
@@ -50,9 +51,14 @@ import {
 import { settlementForStoppedPlan } from "./policy";
 import { buildMapAdjacency, nextHopToward, type MapAdjacency } from "./map-route";
 import { MAP_REGISTRY } from "../../src/engine/map/registry";
-import { TownTripController, type TownTripFacade, type TownTripTrigger } from "./town-trip";
+import { TownTripController, type TownTripFacade, type TownTripTrigger, type TripEndAction } from "./town-trip";
 import { WorkflowController, type WorkflowFacade } from "./workflow";
-import type { BotWorkflowStatusCursor } from "../../src/shared/bot-workflow";
+import {
+  workflowConditionMet,
+  workflowMetricValue,
+  type BotWorkflowProgress,
+  type BotWorkflowStatusCursor,
+} from "../../src/shared/bot-workflow";
 import type { SkillDefinition } from "../../src/game/skill/types";
 
 /**
@@ -148,7 +154,41 @@ const TOWN_TRIP_REASON: Record<TownTripTrigger, string> = {
   potion_low: "potion_low_town_trip", // M2a (D-073)
   bag_pressure: "bag_pressure_town_trip", // M2a (D-073)
   hp_no_potion: "hp_no_potion_town_trip", // M2a (D-073)
+  goal: "goal_town_trip", // M1 Plus single-goal town_stop / town_continue completion action
 };
+
+/**
+ * M1 Plus single-goal: project the runtime's live session counters (kills/gold/exp) + the run duration into the
+ * shared workflow-progress shape, so a single goal reuses `workflowConditionMet` / `workflowMetricValue` — never a
+ * duplicate formula. A single goal reads WHOLE-RUN counters (a workflow farm-step reads a per-step delta). Pure.
+ */
+export function goalProgress(
+  counters: Pick<BotSessionCounters, "killCount" | "goldEarned" | "expEarned">,
+  elapsedMs: number,
+): BotWorkflowProgress {
+  return { kills: counters.killCount, gold: counters.goldEarned, exp: counters.expEarned, elapsedMs };
+}
+
+/**
+ * M1 live-stats time bucket for one tick, derived from the current continuity operational state (the runtime
+ * already owns it, so no controller/phase peeking). Trip travel to/from town (RETURNING_TO_TOWN / RETURNING_TO_WORK,
+ * which also covers the post-warp walk home) is `walking`; the in-town service beats (SELLING / DEPOSITING /
+ * RESTOCKING) are `inTown`; everything else (farming / combat / recovery at the pocket, incl. the walk-to-service
+ * leg which is still RETURNING_TO_TOWN → walking) is `farming`. Pure.
+ */
+export function statsTimeBucket(state: BotContinuityStateWire): "farming" | "walking" | "inTown" {
+  switch (state) {
+    case "RETURNING_TO_TOWN":
+    case "RETURNING_TO_WORK":
+      return "walking";
+    case "SELLING":
+    case "DEPOSITING":
+    case "RESTOCKING":
+      return "inTown";
+    default:
+      return "farming";
+  }
+}
 
 /** Verified request to hand an already-materialized character actor to automation. */
 export interface BotAuthorityInput {
@@ -455,6 +495,14 @@ export class BotRuntime {
   /** The goal-chain engine, or null when the run has no workflow (Free/Plus, or Pro without a chain). */
   private readonly workflowController: WorkflowController | null;
 
+  // ── M1 Plus single-goal + targeting + live stats (paid single-pocket runs; Free/workflow are null-ops here) ──
+  /** SELECTED_TYPES filter (undefined = ALL_IN_AREA, the pre-M1 behaviour). Built once from the normalized rules. */
+  private readonly selectedMobTypes: ReadonlySet<string> | undefined;
+  /** True once the single goal (rules.goal) has been dispatched — fences a second completion action / alert. */
+  private goalReached = false;
+  /** In-memory-only activity stats surfaced in every status push (data, never power; not persisted, no column). */
+  private readonly stats = { townTrips: 0, potionsUsed: 0, deaths: 0, msFarming: 0, msWalking: 0, msInTown: 0 };
+
   constructor(deps: BotRuntimeDeps) {
     this.d = deps;
     this.currentHost = deps.host;
@@ -473,6 +521,12 @@ export class BotRuntime {
       deps.tier === "pro" && deps.rules.workflow
         ? new WorkflowController(this.makeWorkflowFacade(), deps.rules.workflow, deps.workflowStartStepIndex ?? 0)
         : null;
+    // M1 SELECTED_TYPES: the runtime only ever restricts targets to a non-empty selected set; ALL_IN_AREA (or a
+    // malformed empty list) leaves the filter off so the farm loop targets every bot-safe mob in the pocket.
+    this.selectedMobTypes =
+      deps.rules.targetMode === "SELECTED_TYPES" && deps.rules.selectedMobTypes && deps.rules.selectedMobTypes.length > 0
+        ? new Set(deps.rules.selectedMobTypes)
+        : undefined;
   }
 
   get actorId(): string {
@@ -533,6 +587,8 @@ export class BotRuntime {
   /** advance one host sim tick; may stop the bot. */
   tick(dtMs: number): void {
     if (this.stopped || !canIssueAutomationCommand(this.continuity)) return;
+    // M1 live stats: bucket this tick's elapsed time by the CURRENT operational state (before any transition below).
+    this.accrueStatsTime(dtMs);
 
     // Free tier (D-073): auto-potion + proactive town pressure around the PR4 farm loop. No death recovery, no
     // pocket fallback, no tier recheck (`activePocketId` never leaves the assigned pocket for Free).
@@ -661,7 +717,9 @@ export class BotRuntime {
     );
     if (bossStop) return void this.stop(bossStop);
 
-    const target = pickTarget(pos, mobs, pocketId);
+    // M1 SELECTED_TYPES: the same farm loop for every path (Free / paid / Pro chain), so the type filter applies
+    // uniformly. undefined = ALL_IN_AREA (every bot-safe mob in the pocket).
+    const target = pickTarget(pos, mobs, pocketId, this.selectedMobTypes);
     this.decisionTimer += dtMs;
 
     if (target) {
@@ -754,8 +812,57 @@ export class BotRuntime {
       return;
     }
 
+    // (b2) M1 Plus single-goal: a met goal dispatches its completion action (stop / notify+farm / town trip). It
+    //      runs AFTER the active-trip check so a goal never re-fires mid-trip, and BEFORE the farm loop so a met
+    //      goal need not farm one more mob. Free (no goal by validation) never reaches here; a Pro chain uses
+    //      tickWorkflow. Returns true when the tick is handled (stopped, or a completion town-trip opened).
+    if (this.maybeHandleGoal()) return;
+
     // (c)+(d) one deterministic recovery decision + the farm loop.
     this.runRecoveryFarm(dtMs);
+  }
+
+  /**
+   * M1 Plus single-goal completion (paid single-pocket runs only — a Pro workflow carries its own per-step goals,
+   * Free has no goal). Once the whole-run session counters reach the goal target, dispatch the completion action
+   * ONCE (fenced by `goalReached`). Returns true when this tick is fully handled — the caller must not farm:
+   *   • safe_stop → stop("goal_complete").
+   *   • notify_continue → one owner alert (kind "goal") + keep farming (returns false so the farm loop still runs).
+   *   • town_stop → open a services town trip that PARKS in town + completes; a refused begin completes in place.
+   *   • town_continue → mark reached, open a services town trip that resumes farming; a refused begin farms on now.
+   */
+  private maybeHandleGoal(): boolean {
+    const goal = this.d.rules.goal;
+    if (!goal || this.goalReached || this.workflowController) return false;
+    if (!workflowConditionMet(goalProgress(this.counters, this.d.now() - this.d.startedAtMs), goal)) return false;
+
+    switch (this.d.rules.completionAction ?? "safe_stop") {
+      case "notify_continue": {
+        this.goalReached = true;
+        const alert: BotAlertMessage = {
+          profileId: this.d.profileId,
+          kind: "goal",
+          message: "บอททำเป้าหมายสำเร็จแล้ว",
+        };
+        this.ownerSendMessage(MSG_BOT_ALERT, alert);
+        return false; // farm on — goalReached fences a second alert/dispatch.
+      }
+      case "town_stop":
+        // Run sell → deposit → restock, then park in the city-hub and settle goal_complete (no return leg). A
+        // refused begin (cooldown / gate / no warp dep) completes in place instead of hanging.
+        if (this.beginTownTrip("goal", "stop_in_town")) return true;
+        this.stop("goal_complete");
+        return true;
+      case "town_continue":
+        // Run the town service and resume farming afterward; a refused begin just keeps farming this tick. Either
+        // way goalReached fences a re-trigger once the run continues.
+        this.goalReached = true;
+        return this.beginTownTrip("goal");
+      case "safe_stop":
+      default:
+        this.stop("goal_complete");
+        return true;
+    }
   }
 
   /**
@@ -859,6 +966,7 @@ export class BotRuntime {
    */
   onActorDied(): void {
     if (this.stopped) return;
+    this.stats.deaths += 1; // M1 live stats: every death (Free stop, or a paid recovery attempt below).
     if (this.currentTier === "free") return void this.stop("death");
     // A death during a town trip can only happen in the outbound window (the city-hub is a safe zone once the actor
     // lands), so there is no recovery to attempt — settle `death` like Free. The controller observes `stopped` and
@@ -942,8 +1050,11 @@ export class BotRuntime {
     if (outcome.status === "healed" || outcome.status === "not_needed") {
       // M2a (D-073): a successful drink consumed one potion — keep the pressure sample fresh between reads so a
       // potion_low / hp_no_potion trigger reflects the real stock (not_needed drank nothing → leave it).
-      if (outcome.status === "healed" && this.bagStat) {
-        this.bagStat = { ...this.bagStat, potionCount: Math.max(0, this.bagStat.potionCount - 1) };
+      if (outcome.status === "healed") {
+        this.stats.potionsUsed += 1; // M1 live stats: one potion actually drunk (not_needed drank nothing).
+        if (this.bagStat) {
+          this.bagStat = { ...this.bagStat, potionCount: Math.max(0, this.bagStat.potionCount - 1) };
+        }
       }
       this.recoveryPhase = { kind: "none" };
       this.advanceContinuity("WORKING", "potion_heal_applied");
@@ -1301,8 +1412,11 @@ export class BotRuntime {
    * Guards: the tier is in `townTrip.enabledTiers`, past the trip cooldown and any short retry backoff, no trip
    * already active, not stopped, and the warp acquisition dep is wired. Advances the continuity to
    * RETURNING_TO_TOWN before constructing the controller. Returns true when the trip started.
+   *
+   * M1 `endAction` (default "return"): "stop_in_town" makes a Plus single-goal `town_stop` park in the city-hub
+   * and settle `goal_complete` after services instead of returning home.
    */
-  beginTownTrip(trigger: TownTripTrigger): boolean {
+  beginTownTrip(trigger: TownTripTrigger, endAction: TripEndAction = "return"): boolean {
     if (this.stopped || this.tripController) return false;
     if (!canIssueAutomationCommand(this.continuity)) return false;
     if (!this.d.config.townTrip.enabledTiers.includes(this.currentTier)) return false; // D-071: Free now included.
@@ -1315,7 +1429,7 @@ export class BotRuntime {
     this.tripWalk = null; // fresh walk cursor per trip (D-071).
     // D-071 M2b: the trigger tells the controller how to settle an unroutable FIRST hop — a proactive trigger stops
     // (wait_for_owner), a bag_full overflow keeps the retryable abort (the runtime's inventory_full fallback guards it).
-    this.tripController = new TownTripController(this.makeTripFacade(), this.tripSeq, mode, trigger);
+    this.tripController = new TownTripController(this.makeTripFacade(), this.tripSeq, mode, trigger, endAction);
     return true;
   }
 
@@ -1421,6 +1535,21 @@ export class BotRuntime {
   private markTripComplete(): void {
     this.lastTownTripAt = this.d.now();
     this.tripSeq += 1;
+    this.stats.townTrips += 1; // M1 live stats: a full trip cycle reached its return leg (arm-cooldown point).
+  }
+
+  /** M1 live stats: add this tick's elapsed time to the bucket for the current continuity state. */
+  private accrueStatsTime(dtMs: number): void {
+    switch (statsTimeBucket(this.continuity.state)) {
+      case "walking":
+        this.stats.msWalking += dtMs;
+        break;
+      case "inTown":
+        this.stats.msInTown += dtMs;
+        break;
+      default:
+        this.stats.msFarming += dtMs;
+    }
   }
 
   /** Build the narrow facade the controller drives the runtime through (keeps runtime internals private). */
@@ -1554,8 +1683,24 @@ export class BotRuntime {
       hpFraction: this.currentHost.botHpFraction(this.d.actorId),
       uptimeMs: this.d.now() - this.d.startedAtMs,
       workflow: this.workflowStatusView(),
+      // M1 live stats (every tier — data, not power) + Plus single-goal live progress (absent for a workflow /
+      // goal-less run). `done` is the raw whole-run metric value (it may pass `target` between the goal being met
+      // and the completion action taking effect / a notify_continue run farming on).
+      stats: { ...this.stats },
+      goal: this.goalStatusView(),
     };
     this.ownerSendMessage(MSG_BOT_STATUS, msg);
+  }
+
+  /** M1: the live single-goal progress projection for bot:status (undefined for a workflow / goal-less run). */
+  private goalStatusView(): BotStatusMessage["goal"] {
+    const goal = this.d.rules.goal;
+    if (!goal || this.workflowController) return undefined;
+    return {
+      type: goal.type,
+      target: goal.target,
+      done: workflowMetricValue(goalProgress(this.counters, this.d.now() - this.d.startedAtMs), goal.type),
+    };
   }
 
   /** PR6b: the goal-chain cursor for bot:status (undefined for a single-pocket run — the field is omitted). */

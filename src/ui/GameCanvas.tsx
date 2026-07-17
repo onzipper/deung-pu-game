@@ -16,26 +16,21 @@ import { createEngine, type EngineHandle } from "@/engine/runtime/app";
 import { DEFAULT_ENGINE_CONFIG, createEngineConfig } from "@/engine/config";
 import { DebugOverlay } from "@/ui/DebugOverlay";
 import { PanelProvider } from "@/ui/panels";
-import { InventoryHudButton } from "@/ui/panels/inventory/InventoryHudButton";
+import { HudRoot } from "@/ui/hud/HudRoot";
+import { UtilityDock } from "@/ui/hud/UtilityDock";
+import { BotStatusChip } from "@/ui/hud/BotStatusChip";
 import { InventoryPanel } from "@/ui/panels/inventory/InventoryPanel";
 import { EnhancementTargetProvider } from "@/ui/panels/enhancement/enhancement-target-context";
-import { EnhancementHudButton } from "@/ui/panels/enhancement/EnhancementHudButton";
 import { EnhancementPanel } from "@/ui/panels/enhancement/EnhancementPanel";
-import { ShopHudButton } from "@/ui/panels/shop/ShopHudButton";
 import { ShopPanel } from "@/ui/panels/shop/ShopPanel";
-import { StorageHudButton } from "@/ui/panels/storage/StorageHudButton";
 import { StoragePanel } from "@/ui/panels/storage/StoragePanel";
-import { JournalHudButton } from "@/ui/panels/journal/JournalHudButton";
 import { JournalPanel } from "@/ui/panels/journal/JournalPanel";
-import { BotHudButton } from "@/ui/panels/bot/BotHudButton";
 import { BotPanel } from "@/ui/panels/bot/BotPanel";
 import { BotAlertToast } from "@/ui/panels/bot/BotAlertToast";
 import { BotTakeoverToast } from "@/ui/panels/bot/BotTakeoverToast";
 import { HelpFocusProvider } from "@/ui/panels/help/help-focus-context";
-import { HelpHudButton } from "@/ui/panels/help/HelpHudButton";
 import { HelpPanel } from "@/ui/panels/help/HelpPanel";
 import { DialoguePanel } from "@/ui/panels/dialogue/DialoguePanel";
-import { SettingsHudButton } from "@/ui/panels/settings/SettingsHudButton";
 import { SettingsPanel } from "@/ui/panels/settings/SettingsPanel";
 import { applyEffectQualityPreferences } from "@/ui/panels/settings/settings-view";
 import { createEffectQualityPreferencesStore } from "@/ui/panels/settings/effect-quality-preference";
@@ -139,8 +134,8 @@ export function GameCanvas() {
     // เผื่ออนาคตต้องคุยกับ panel state (ตอนนี้ยังไม่ต้อง).
     <PanelProvider>
       {/* P2-10: EnhancementTargetProvider ครอบ InventoryPanel (ปุ่ม "เสริมแกร่ง" ตั้ง target) +
-          EnhancementHudButton/Panel (อ่าน target) — ดู rationale ที่ enhancement-target-context.tsx.
-          P2-12: HelpFocusProvider ครอบเช่นกัน (ContextHelpButton ในแต่ละจอ + HelpHudButton/Panel อ่าน
+          EnhancementPanel (อ่าน target) — ดู rationale ที่ enhancement-target-context.tsx.
+          P2-12: HelpFocusProvider ครอบเช่นกัน (ContextHelpButton ในแต่ละจอ + UtilityDock/HelpPanel อ่าน
           focusedArticleId เดียวกัน) — ดู rationale ที่ help-focus-context.tsx */}
       <EnhancementTargetProvider>
         <HelpFocusProvider>
@@ -150,37 +145,53 @@ export function GameCanvas() {
             aria-label="game viewport"
           />
           <DebugOverlay getHandle={() => engineRef.current} />
-          <InventoryHudButton />
+          {/* M5: HudRoot = layout owner ของ HUD ทั้งชุด (src/ui/hud/HudRoot.tsx) — ทุก widget ด้านล่างยังคุม
+              ตำแหน่งพิกเซล/z ของตัวเองเหมือนเดิม (organizational slots เท่านั้น, ดู HudRoot.tsx header comment).
+              DebugOverlay/MobileControls/toasts/panels ไม่ผ่าน HudRoot (mount แยกด้านนอกเหมือนเดิม). */}
+          <HudRoot
+            topLeft={
+              // E3 (P2 UI §8.2): player status cluster (level + HP bar + EXP bar + low-HP pulse)
+              <StatusCluster />
+            }
+            topCenter={
+              // Living World LW0 (§18): World Status chip (phase + weather) — display-only
+              <WorldStatusChip />
+            }
+            topRight={
+              // §8.4: minimap — top-12 (แทน top-4 ที่ brief แนะนำ) กันชนกับปุ่ม DebugOverlay ที่ยุบอยู่
+              // (right-2 top-2 z-50); z-30 = ต่ำกว่า DebugOverlay ตอนขยาย (F3) ตั้งใจ. M5 §4: header เล็ก
+              // (ชื่อแมพ+channel) เพิ่มในตัว widget แล้ว. Auto Pilot (D-037): คลิกมินิแมป = เสนอจุดหมาย →
+              // confirm → startAutoPilot ผ่าน getHandle.
+              <Minimap getHandle={() => engineRef.current} />
+            }
+            bottomLeft={
+              // M5 §3: bot status chip — reuse resolveBotCta เดียวกับ Bot Hub. ห้ามปน/ชน AutoPilotChip.
+              <BotStatusChip getHandle={() => engineRef.current} />
+            }
+            bottomCenter={
+              <>
+                {/* Auto Pilot (Batch 7a, D-037): HUD chip สถานะเดินอัตโนมัติ (กำลังเดิน ✖หยุด / เหตุผลหยุดสั้น ๆ) */}
+                <AutoPilotChip getHandle={() => engineRef.current} />
+                {/* A3 (P2 UI §8.3): แถบสกิล hotbar (S1-S4) — desktop (Digit1-4/คลิก) + มือถือ (แตะช่อง) */}
+                <SkillBar getHandle={() => engineRef.current} />
+              </>
+            }
+            bottomRight={
+              // M5 §2: Utility Dock — กระเป๋า/เสริมแกร่ง/ร้านค้า/คลัง/สมุด/บอท/ช่วยเหลือ/ตั้งค่า จุดเดียว
+              // (แทนปุ่ม fixed กระจาย 8 ปุ่มเดิม). mobile: ปุ่ม toggle เดี่ยวที่ right-rail (คุมตำแหน่งเอง).
+              <UtilityDock />
+            }
+          />
           <InventoryPanel getHandle={() => engineRef.current} />
-          <EnhancementHudButton />
           <EnhancementPanel getHandle={() => engineRef.current} />
-          {/* P2-11: ปุ่มร้านค้า render เฉพาะ available:true (city-hub) — ดู ShopHudButton.tsx */}
-          <ShopHudButton />
           <ShopPanel getHandle={() => engineRef.current} />
-          {/* P2-17: ปุ่มคลัง render เฉพาะ available:true (city-hub) — ดู StorageHudButton.tsx */}
-          <StorageHudButton />
           <StoragePanel getHandle={() => engineRef.current} />
-          {/* C3-MVP: ปุ่ม "สมุด" render เสมอทุก map (เหมือน inventory/enhancement) — ดู JournalHudButton.tsx */}
-          <JournalHudButton />
           <JournalPanel getHandle={() => engineRef.current} />
-          {/* 7b-UI: ปุ่ม "บอท" (ผู้ช่วยนักล่า) render เสมอทุก map — ดู BotHudButton.tsx. ห้ามปนกับ Auto Pilot/ดึ๋งๆ (D-035/D-037). */}
-          <BotHudButton />
+          {/* 7b-UI/M5: Bot Hub — เปิดผ่าน Utility Dock/คีย์ B/BotStatusChip. ห้ามปนกับ Auto Pilot/ดึ๋งๆ (D-035/D-037). */}
           <BotPanel getHandle={() => engineRef.current} />
-          {/* P2-12: ปุ่ม "?" หลัก render เสมอ (DG §5.2) */}
-          <HelpHudButton />
           <HelpPanel />
           {/* LW0: dialogue panel — เปิดเองตอนคลิก NPC ในโลก (ไม่มีปุ่ม HUD ของตัวเอง) */}
           <DialoguePanel getHandle={() => engineRef.current} />
-          {/* E3 (P2 UI §8.2): player status cluster (level + HP bar + EXP bar + low-HP pulse) top-left */}
-          <StatusCluster />
-          {/* §8.4: minimap top-right — top-12 (แทน top-4 ที่ brief แนะนำ) กันชนกับปุ่ม DebugOverlay
-              ที่ยุบอยู่ (right-2 top-2 z-50); z-30 = ต่ำกว่า DebugOverlay ตอนขยาย (F3) ตั้งใจ.
-              Auto Pilot (D-037): คลิกมินิแมป = เสนอจุดหมาย → confirm → startAutoPilot ผ่าน getHandle. */}
-          <Minimap getHandle={() => engineRef.current} />
-          {/* Auto Pilot (Batch 7a, D-037): HUD chip สถานะเดินอัตโนมัติ (กำลังเดิน ✖หยุด / เหตุผลหยุดสั้น ๆ) */}
-          <AutoPilotChip getHandle={() => engineRef.current} />
-          {/* Living World LW0 (§18): World Status chip (phase + weather) top-center — display-only */}
-          <WorldStatusChip />
           {/* E4 (§13): death toast สั้น ๆ ตอนตาย (respawn instant ตามมาทันที, owner ruling) */}
           <DeathToast />
           {/* C1 (Economy §18): milestone reward toast สั้น ๆ ตอนปลดล็อก (แจก EXP/Gold ครั้งเดียวต่อบัญชี) */}
@@ -192,10 +203,7 @@ export function GameCanvas() {
           {/* M4 §7: takeover toast — manual input (move/skill/pointer/touch) already returns control instantly;
               this is just the confirmation notice. */}
           <BotTakeoverToast />
-          {/* A3 (P2 UI §8.3): แถบสกิล hotbar (S1-S4) — desktop (Digit1-4/คลิก) + มือถือ (แตะช่อง) */}
-          <SkillBar getHandle={() => engineRef.current} />
-          {/* P2-15: settings (effect quality/screen shake) + mobile controls + OS notice */}
-          <SettingsHudButton />
+          {/* P2-15: settings (effect quality/screen shake, ปุ่มเปิดอยู่ใน Utility Dock แล้ว) + mobile controls + OS notice */}
           <SettingsPanel getHandle={() => engineRef.current} />
           <MobileControls
             getHandle={() => engineRef.current}

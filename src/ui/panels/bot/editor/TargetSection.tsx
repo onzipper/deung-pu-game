@@ -18,6 +18,7 @@ import {
   type BotTierWire,
 } from "../bot-view";
 import { BOT_EDITOR_SECTION_CARD_CLASS, BOT_EDITOR_SELECT_CLASS, mobTypesForPocket } from "../bot-layout";
+import { LockedBadge } from "../LockedBadge";
 
 export interface TargetSectionProps {
   mapId: string;
@@ -85,7 +86,7 @@ export function TargetSection({ mapId, pocketId, rules, tier, disabled, onMapCha
             className="h-4 w-4 accent-(--dp-resonance-teal)"
           />
           เลือกเฉพาะชนิด
-          {lock.locked && <span className="dp-text-caption text-(--dp-fire-light)">🔒 {lock.requiredTierLabel}</span>}
+          {lock.locked && lock.requiredTierLabel && <LockedBadge requiredTierLabel={lock.requiredTierLabel} />}
         </label>
       </div>
 

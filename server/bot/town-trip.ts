@@ -26,8 +26,8 @@ import { transferActor, type TransferResult } from "./warp";
  * What kicked off a trip. `bag_full` = a real overflow; `preflight` = an already-full proactive check;
  * `workflow` = a Pro goal-chain town_service step (PR6b) — an explicit service run, not bag pressure.
  * M2a (D-073) proactive pressure triggers: `potion_low` (potions running low), `bag_pressure` (bag nearly full),
- * `hp_no_potion` (low hp with no potion to drink). Only the continuity reason code differs — the trip itself is
- * identical (Free walks, paid warps).
+ * `hp_no_potion` (low hp with no potion to drink). M1: `goal` = a Plus single-goal town_stop / town_continue
+ * completion action. Only the continuity reason code differs — the trip itself is identical (Free walks, paid warps).
  */
 export type TownTripTrigger =
   | "bag_full"
@@ -35,7 +35,8 @@ export type TownTripTrigger =
   | "workflow"
   | "potion_low"
   | "bag_pressure"
-  | "hp_no_potion";
+  | "hp_no_potion"
+  | "goal";
 
 /**
  * The narrow runtime surface the controller drives. The runtime builds this from private closures (keeping its own
@@ -114,6 +115,13 @@ type TripPhase =
 /** How a trip reaches the city-hub (D-069 warp vs D-071 walk). */
 export type TownTripMode = "walk" | "warp";
 
+/**
+ * M1: what the trip does once services finish (after restock). `return` (default) = the D-069/D-071 return leg
+ * back to farming. `stop_in_town` = a Plus single-goal `town_stop` completion: park in the city-hub and settle
+ * `goal_complete` WITHOUT returning (no return warp/walk). A takeover/expiry still preempts either (safety wins).
+ */
+export type TripEndAction = "return" | "stop_in_town";
+
 /** Rarity ladder (Economy §5.1: common/uncommon/rare). Unknown rarities fall outside every "up to max" band. */
 const RARITY_LADDER: readonly string[] = ["common", "uncommon", "rare"];
 
@@ -127,6 +135,8 @@ export class TownTripController {
   private readonly cfg: BotConfig["townTrip"];
   private readonly tripSeq: number;
   private readonly mode: TownTripMode;
+  /** M1: `stop_in_town` parks in the city-hub + settles `goal_complete` after services (a Plus goal `town_stop`). */
+  private readonly endAction: TripEndAction;
   /** D-071 M2b: an unroutable FIRST hop STOPS (wait_for_owner) for a proactive trigger; a bag_full overflow aborts (retryable). */
   private readonly noRouteStops: boolean;
   private readonly sellRarities: ReadonlySet<string>;
@@ -156,11 +166,13 @@ export class TownTripController {
     tripSeq: number,
     mode: TownTripMode = "warp",
     trigger: TownTripTrigger = "bag_full",
+    endAction: TripEndAction = "return",
   ) {
     this.f = facade;
     this.cfg = facade.config.townTrip;
     this.tripSeq = tripSeq;
     this.mode = mode;
+    this.endAction = endAction;
     // D-071 M2b: only a bag_full overflow keeps the retryable abort on an unroutable first hop — every proactive
     // trigger (potion_low / bag_pressure / hp_no_potion / preflight) surfaces the routing failure to the owner.
     this.noRouteStops = trigger !== "bag_full";
@@ -423,6 +435,10 @@ export class TownTripController {
   }
 
   private finishRestock(reason: string): void {
+    // M1 `town_stop`: services done → park in the city-hub and settle `goal_complete` (no return leg). Reached only
+    // with abortMode === "none" (interrupted() short-circuits restock to the return phase for a takeover/expiry, so
+    // safety still preempts this). The actor stays materialized in the safe city-hub for the owner to reclaim.
+    if (this.endAction === "stop_in_town") return this.stopEnd("goal_complete");
     this.f.advance("RETURNING_TO_WORK", reason);
     this.phase = this.returnPhase(); // walk_return (D-071) or warp_back (D-069).
   }
