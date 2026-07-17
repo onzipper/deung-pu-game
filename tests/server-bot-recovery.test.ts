@@ -183,6 +183,17 @@ describe("potion (opt-in)", () => {
       planRecovery(snap({ potionThresholdFraction: 0.5, hpFraction: 0.1 }), cfg()),
     ).toEqual({ kind: "use_potion" });
   });
+
+  // D-075: fraction 0 (the player-off sentinel, pct 0) reads exactly like null — never drinks, floor still stops.
+  test("threshold fraction 0 = off → never drinks; hp above floor → baseline", () => {
+    expect(planRecovery(snap({ potionThresholdFraction: 0, hpFraction: 0.4 }), cfg())).toEqual({ kind: "baseline" });
+  });
+  test("threshold fraction 0 = off + hp ≤ floor → floor stop low_hp (no drink)", () => {
+    expect(planRecovery(snap({ potionThresholdFraction: 0, hpFraction: 0.1 }), cfg())).toEqual({
+      kind: "stop",
+      reason: "low_hp",
+    });
+  });
 });
 
 describe("death recovery", () => {

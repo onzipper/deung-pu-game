@@ -13,6 +13,7 @@ import {
   MSG_BOT_ALERT,
   MSG_BOT_STATUS,
   MSG_BOT_STOPPED,
+  botPotionThresholdEnabled,
   type BotActorMapMessage,
   type BotAlertMessage,
   type BotStatusMessage,
@@ -447,6 +448,8 @@ export class BotRuntime {
   private currentTier: BotTier;
   private recoveryPhase: RecoveryPhase = { kind: "none" };
   private deathRecoveryCount = 0;
+  /** D-075 (F7): log a failed no_potion drink at most once per episode (reset on a successful heal) — not every retry. */
+  private noPotionLogged = false;
   private sinceTierCheckMs = 0;
   private tierCheckInFlight = false;
   /** Log a flaky tier-recheck DB error at most once per runtime — it must never kill an otherwise healthy run. */
@@ -475,6 +478,9 @@ export class BotRuntime {
   private lastTownTripAt = Number.NEGATIVE_INFINITY;
   /** Short backoff after a trip that never moved the actor (target/seat unavailable) so it does not spin per tick. */
   private townTripRetryUntil = 0;
+  /** D-075 (F7): the last logged town-trip refusal gate, so a trigger firing every tick during a backoff/cooldown
+   *  window logs the reason once (per episode) instead of spamming. Cleared on a successful begin. */
+  private lastTownTripRefusal: string | null = null;
   /** Per-runtime trip sequence — fixes the idempotency-key namespace so a retried transaction reuses its key. */
   private tripSeq = 0;
   /** One-shot proactive preflight: the first tick opens a town trip before farming (D-069/D-070; D-073 adds Free). */
@@ -650,7 +656,9 @@ export class BotRuntime {
 
     // (b) auto-potion / low-hp floor. The Free branch only ever returns use_potion / hold / stop(low_hp) / baseline.
     const decision = planRecovery(this.buildFreeRecoverySnapshot(pos), config.recovery);
-    if (decision.kind === "use_potion") return void this.dispatchUsePotion();
+    // D-075 (F2): a use_potion decision with a known-empty potion bag falls through (no bottle to drink) to the
+    // proactive town pressure / farm below — the hp_no_potion trigger walks to restock instead of spam-failing a drink.
+    if (decision.kind === "use_potion" && !this.potionsDepleted()) return void this.dispatchUsePotion();
     if (decision.kind === "hold") return; // a drink is in flight — wait for its result.
     const floorStop = decision.kind === "stop" ? decision.reason : null;
 
@@ -934,19 +942,15 @@ export class BotRuntime {
 
     // apply the single decision (state transition before side effect, revision-fenced).
     switch (decision.kind) {
-      case "baseline": {
-        // M2a (D-073): the paid proactive town trip. On a would-be-farm tick (recovery decided baseline, so hp is
-        // above the floor and no death/fallback is pending), a bag/potion/hp pressure sample may WARP to town for
-        // services before a hard overflow or a floor stop. A refused begin (cooldown/gate) simply farms on. Same
-        // decision module as Free — the tier difference is warp vs walk, never capability.
-        const trigger = this.proactiveTownTrigger(dtMs);
-        if (trigger && this.beginTownTrip(trigger)) return;
-        this.runFarmBody(dtMs, true);
+      case "baseline":
+        this.runBaselineFarm(dtMs);
         return;
-      }
       case "hold":
         return;
       case "use_potion":
+        // D-075 (F2): a use_potion decision with a known-empty potion bag → skip the doomed drink and act like
+        // baseline (proactive town trip / farm) so the hp_no_potion pressure trigger warps to restock instead.
+        if (this.potionsDepleted()) return this.runBaselineFarm(dtMs);
         this.dispatchUsePotion();
         return;
       case "plan_return":
@@ -965,6 +969,18 @@ export class BotRuntime {
         this.stop(decision.reason);
         return;
     }
+  }
+
+  /**
+   * The recovery `baseline` path (also reused by the D-075 F2 depleted-potion fall-through): M2a (D-073) proactive
+   * town trip first — a bag/potion/hp pressure sample may WARP to town for services before a hard overflow or a
+   * floor stop; a refused begin (cooldown/gate) simply farms on. Same decision module as Free — the tier difference
+   * is warp vs walk, never capability.
+   */
+  private runBaselineFarm(dtMs: number): void {
+    const trigger = this.proactiveTownTrigger(dtMs);
+    if (trigger && this.beginTownTrip(trigger)) return;
+    this.runFarmBody(dtMs, true);
   }
 
   /**
@@ -1065,8 +1081,14 @@ export class BotRuntime {
         }
       }
       this.recoveryPhase = { kind: "none" };
+      this.noPotionLogged = false; // D-075 (F7): a heal ends the current no_potion episode.
       this.advanceContinuity("WORKING", "potion_heal_applied");
     } else {
+      // D-075 (F7): surface a drink that failed because the bag is empty — once per episode, not every backoff retry.
+      if (outcome.status === "no_potion" && !this.noPotionLogged) {
+        this.noPotionLogged = true;
+        console.info(`[bot ${this.d.sessionRowId}] potion drink failed: no_potion (bag has none) — backing off`);
+      }
       this.recoveryPhase = {
         kind: "potion_backoff",
         retryAtMs: this.d.now() + this.d.config.recovery.potionRetryIntervalMs,
@@ -1140,11 +1162,18 @@ export class BotRuntime {
     this.idleDecisions = 0;
   }
 
-  /** The bot's low-hp drink threshold as a fraction, or null when the profile has no potion rule (opt-in). */
+  /** The bot's low-hp drink threshold as a fraction, or null when auto-potion is off (D-075: null/undefined never
+   *  set, OR 0 = the player turned it off — both read as no potion path via botPotionThresholdEnabled). */
   private potionThresholdFraction(): number | null {
     const pct = this.d.rules.potionThresholdPct;
-    if (pct == null) return null;
+    if (!botPotionThresholdEnabled(pct) || pct == null) return null; // `pct == null` also narrows pct to number below.
     return Math.max(0, Math.min(100, pct)) / 100;
+  }
+
+  /** D-075 (F2): true once a bag sample exists AND it shows zero potions held — the runtime then skips a doomed
+   *  use_potion drink (no bag potion to consume) and lets town-pressure / farming take over instead of spamming. */
+  private potionsDepleted(): boolean {
+    return this.bagStat !== null && this.bagStat.potionCount === 0;
   }
 
   // ── M2a (D-073) proactive town-pressure sampling ──────────────────────────────────────────────────────────
@@ -1346,6 +1375,18 @@ export class BotRuntime {
   /** stop the bot for a reason (mandatory / manual / death / restart). Idempotent. */
   stop(reason: BotStopReason): void {
     if (this.stopped) return;
+    // D-075 (F7): one diagnostic line per stop (prefix pattern shared with the other bot logs).
+    console.info(`[bot ${this.d.sessionRowId}] stop: ${reason}`);
+    // D-075 (F5): out_of_supplies parked the actor in the city-hub (ยา/เงินหมด) — alert the owner it is waiting for
+    // them to top up. The stop itself settles wait_for_owner (policy default branch) → the chip shows "รอคุณจัดการ".
+    if (reason === "out_of_supplies") {
+      const alert: BotAlertMessage = {
+        profileId: this.d.profileId,
+        kind: "supplies",
+        message: "ยา/เงินหมด บอทพักรอคุณที่เมืองหลัก เติมเงิน/ยาแล้วเริ่มบอทใหม่ได้เลย",
+      };
+      this.ownerSendMessage(MSG_BOT_ALERT, alert);
+    }
     // PR6a (D-067): a graceful server_restart shutdown persists the freshest running snapshot BEFORE the run
     // settles, so a Pro resume lands on the last live state (not the last ~30s flush). Pro-only; runs while still
     // !stopped so the manager reads the live snapshot. No-op without the dep wired (in-process behavior unchanged).
@@ -1425,20 +1466,48 @@ export class BotRuntime {
    * and settle `goal_complete` after services instead of returning home.
    */
   beginTownTrip(trigger: TownTripTrigger, endAction: TripEndAction = "return"): boolean {
-    if (this.stopped || this.tripController) return false;
-    if (!canIssueAutomationCommand(this.continuity)) return false;
-    if (!this.d.config.townTrip.enabledTiers.includes(this.currentTier)) return false; // D-071: Free now included.
-    if (!this.d.acquireHostForMap) return false;
+    if (this.stopped || this.tripController) return false; // an active trip / stopped run is not a diagnosable refusal.
+    if (!canIssueAutomationCommand(this.continuity)) return this.refuseTownTrip("continuity_locked");
+    if (!this.d.config.townTrip.enabledTiers.includes(this.currentTier)) return this.refuseTownTrip("tier_not_enabled");
+    if (!this.d.acquireHostForMap) return this.refuseTownTrip("no_acquire_dep");
     const now = this.d.now();
-    if (now < this.townTripRetryUntil) return false;
-    if (now - this.lastTownTripAt < this.d.config.townTrip.cooldownMs) return false;
-    if (!this.advanceContinuity("RETURNING_TO_TOWN", TOWN_TRIP_REASON[trigger])) return false; // fence lost (takeover/stop raced).
+    if (now < this.townTripRetryUntil) return this.refuseTownTrip("retry_backoff", `${this.townTripRetryUntil - now}ms remaining`);
+    // D-075 (F4): cooldownMs 0 (default) disables the gate entirely (ยาหมด → กลับไปซื้อทันที); a >0 knob still gates.
+    const cooldownMs = this.d.config.townTrip.cooldownMs;
+    if (cooldownMs > 0 && now - this.lastTownTripAt < cooldownMs) {
+      return this.refuseTownTrip("cooldown", `${cooldownMs - (now - this.lastTownTripAt)}ms remaining`);
+    }
+    if (!this.advanceContinuity("RETURNING_TO_TOWN", TOWN_TRIP_REASON[trigger])) return this.refuseTownTrip("fence_lost");
+    this.lastTownTripRefusal = null; // a successful begin ends the refusal episode.
     const mode = this.d.config.townTrip.mode?.[this.currentTier] ?? "warp";
     this.tripWalk = null; // fresh walk cursor per trip (D-071).
+    // D-075 (F5): the trip parks `out_of_supplies` only when the plan relies on auto-potion (a positive threshold) —
+    // resolve it once here so the controller need not re-read the rules.
+    const parkWhenOutOfSupplies = botPotionThresholdEnabled(this.d.rules.potionThresholdPct);
     // D-071 M2b: the trigger tells the controller how to settle an unroutable FIRST hop — a proactive trigger stops
     // (wait_for_owner), a bag_full overflow keeps the retryable abort (the runtime's inventory_full fallback guards it).
-    this.tripController = new TownTripController(this.makeTripFacade(), this.tripSeq, mode, trigger, endAction);
+    this.tripController = new TownTripController(
+      this.makeTripFacade(),
+      this.tripSeq,
+      mode,
+      trigger,
+      endAction,
+      parkWhenOutOfSupplies,
+    );
     return true;
+  }
+
+  /**
+   * D-075 (F7): log WHY a town trip was refused — one line per contiguous refusal episode (deduped on the gate name,
+   * so a trigger firing every tick during a backoff/cooldown window does not spam). `detail` (e.g. remaining ms) is
+   * logged but never keyed on, so the dedup holds even as the countdown changes. Always returns false (a refusal).
+   */
+  private refuseTownTrip(gate: string, detail = ""): false {
+    if (this.lastTownTripRefusal !== gate) {
+      this.lastTownTripRefusal = gate;
+      console.info(`[bot ${this.d.sessionRowId}] town trip refused: ${gate}${detail ? ` (${detail})` : ""}`);
+    }
+    return false;
   }
 
   /** Swap the driven host (town-trip warp export→attach→rebind). tickRoom routing follows `rt.host` automatically. */
@@ -1608,7 +1677,8 @@ export class BotRuntime {
       },
       settleTakeover: (checkpointId, requestedAt) => void this.applyTakeoverPause(checkpointId, requestedAt),
       armRetryBackoff: () => {
-        this.townTripRetryUntil = this.d.now() + Math.floor(this.d.config.townTrip.cooldownMs / 10);
+        // D-075: a dedicated backoff knob (was cooldownMs/10) so the anti-spin guard survives cooldownMs = 0.
+        this.townTripRetryUntil = this.d.now() + this.d.config.townTrip.retryBackoffMs;
       },
       onTripEnded: () => {
         this.tripController = null;

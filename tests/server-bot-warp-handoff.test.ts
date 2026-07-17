@@ -1,6 +1,8 @@
 import { describe, expect, test } from "vitest";
 import { createWarpHarness, FakeWorld, warpConfig, type BagSeed } from "./helpers/warp-world";
-import type { BotTier } from "../server/config/bot";
+import type { BotConfig, BotTier } from "../server/config/bot";
+import type { BotRulesV1 } from "../server/bot/types";
+import { MSG_BOT_ALERT, type BotAlertMessage } from "../src/shared/net-protocol";
 
 // PR5 Phase C (D-069/D-070) — town-trip warp handoff. Drives the REAL BotRuntime through beginTownTrip + ticks over
 // a FakeWorld of multiple hosts sharing one character-scoped economy. The load-bearing invariant asserted after
@@ -30,6 +32,8 @@ interface SceneOptions {
   farmAttachFails?: boolean;
   farmExportReturnsNull?: boolean;
   blockTown?: boolean;
+  config?: BotConfig;
+  rules?: BotRulesV1;
 }
 
 function scene(opts: SceneOptions = {}) {
@@ -53,7 +57,13 @@ function scene(opts: SceneOptions = {}) {
     attachFails: opts.townAttachFails,
   });
   if (opts.blockTown) world.blockAcquire.add("city-hub");
-  const harness = createWarpHarness({ world, farmHost, tier: opts.tier ?? "plus", config: warpConfig() });
+  const harness = createWarpHarness({
+    world,
+    farmHost,
+    tier: opts.tier ?? "plus",
+    config: opts.config ?? warpConfig(),
+    rules: opts.rules,
+  });
   return { world, farmHost, townHost, harness };
 }
 
@@ -238,13 +248,24 @@ describe("town-trip warp handoff — begin guards", () => {
     expect(world.acquireCalls).toHaveLength(0);
   });
 
-  test("cooldown: a second trip within cooldownMs refuses after one completes", async () => {
-    const { world, harness } = scene();
+  test("D-075 default (cooldown 0): a second trip opens immediately after one completes", async () => {
+    const { world, harness } = scene(); // warpConfig() → cooldownMs 0 (the shipped default)
     expect(harness.runtime.beginTownTrip("bag_full")).toBe(true);
     await driveToWorking(harness, world);
     expect(harness.state()).toBe("WORKING");
 
-    // Immediately after completion the cooldown blocks a second trip.
+    // No cooldown → return-to-restock is allowed right away (ยาหมด → กลับไปซื้อทันที).
+    expect(harness.runtime.beginTownTrip("bag_full")).toBe(true);
+    expect(harness.state()).toBe("RETURNING_TO_TOWN");
+  });
+
+  test("cooldown knob >0: a second trip within cooldownMs refuses after one completes", async () => {
+    const { world, harness } = scene({ config: warpConfig({ cooldownMs: 60_000 }) });
+    expect(harness.runtime.beginTownTrip("bag_full")).toBe(true);
+    await driveToWorking(harness, world);
+    expect(harness.state()).toBe("WORKING");
+
+    // With an explicit >0 cooldown the gate still blocks a second trip inside the window.
     expect(harness.runtime.beginTownTrip("bag_full")).toBe(false);
   });
 });
@@ -260,5 +281,81 @@ describe("town-trip warp handoff — restock skip visibility (item 5)", () => {
     // All five potions bought → the restock completed → no skip reason lingers in the live status.
     expect(harness.runtime.isStopped).toBe(false);
     expect(world.latestStatus()?.lastTownSkip).toBeUndefined();
+  });
+});
+
+// D-075 — auto-potion rule presets + a bag that yields no gold on sell/deposit (so gold is fully controlled).
+const AUTO_POTION_ON: BotRulesV1 = { skillSlots: [0], potionThresholdPct: 50, lootAll: true };
+const AUTO_POTION_OFF: BotRulesV1 = { skillSlots: [0], potionThresholdPct: 0, lootAll: true };
+function heldPotionBag(qty: number): BagSeed[] {
+  return [{ instanceId: "p1", itemId: "con_small_potion", quantity: qty, rarity: "common", sellPrice: null, deliverable: false }];
+}
+
+describe("town-trip restock — D-075 (F3) emergency first bottle", () => {
+  test("held 0 + balance below the reserve → the emergency first bottle still buys (not gold_reserve)", async () => {
+    // reserve 50, balance 20 → pre-D-075 this bought nothing (margin < 0). D-075 buys the first bottle (18) anyway.
+    const { world, harness } = scene({ gold: 20, bag: [], rules: AUTO_POTION_OFF, config: warpConfig({ potionRestockTarget: 1 }) });
+    expect(harness.runtime.beginTownTrip("bag_full")).toBe(true);
+    await driveToWorking(harness, world);
+    expect(harness.state()).toBe("WORKING");
+    expect(world.gold).toBe(2); // 20 − 18 → one bottle bought below the reserve
+    expect(world.latestStatus()?.lastTownSkip).toBeUndefined(); // restock_done, not gold_reserve
+  });
+
+  test("held 0 + balance below the unit price → buys nothing (shop rejects), still returns home", async () => {
+    const { world, harness } = scene({ gold: 17, bag: [], rules: AUTO_POTION_OFF, config: warpConfig({ potionRestockTarget: 1 }) });
+    expect(harness.runtime.beginTownTrip("bag_full")).toBe(true);
+    await driveToWorking(harness, world);
+    expect(harness.state()).toBe("WORKING"); // auto-potion off → no out-of-supplies park
+    expect(world.gold).toBe(17); // 17 < 18 → the buy was rejected, nothing spent
+  });
+
+  test("knob potionEmergencyBuy false → the reserve blocks the first bottle (pre-D-075 behavior)", async () => {
+    const { world, harness } = scene({
+      gold: 20,
+      bag: [],
+      rules: AUTO_POTION_OFF,
+      config: warpConfig({ potionRestockTarget: 1, potionEmergencyBuy: false }),
+    });
+    expect(harness.runtime.beginTownTrip("bag_full")).toBe(true);
+    await driveToWorking(harness, world);
+    expect(harness.state()).toBe("WORKING");
+    expect(world.gold).toBe(20); // margin 20−50 < 0 → nothing bought
+    expect(world.latestStatus()?.lastTownSkip).toBe("gold_reserve");
+  });
+
+  test("held ≥ 1 → the reserve rule applies to the first bottle (emergency is by held, not restockBought)", async () => {
+    // held 1 (not 0) → NOT emergency. balance 60, reserve 50 → margin 10 > 0 buys one bottle; the next is blocked.
+    const { world, harness } = scene({ gold: 60, bag: heldPotionBag(1), rules: AUTO_POTION_OFF });
+    expect(harness.runtime.beginTownTrip("bag_full")).toBe(true);
+    await driveToWorking(harness, world);
+    expect(harness.state()).toBe("WORKING");
+    expect(world.gold).toBe(42); // 60 − 18 → exactly one bottle (margin gate, unchanged D-070)
+  });
+});
+
+describe("town-trip out-of-supplies park — D-075 (F5)", () => {
+  test("auto-potion on + held 0 + no gold → parks in the city-hub, stops out_of_supplies, alerts supplies", async () => {
+    const { world, harness } = scene({ gold: 0, bag: [], rules: AUTO_POTION_ON });
+    expect(harness.runtime.beginTownTrip("bag_full")).toBe(true);
+    await driveToWorking(harness, world);
+
+    expect(harness.runtime.isStopped).toBe(true);
+    expect(harness.state()).toBe("WAITING_FOR_OWNER");
+    expect(world.stoppedMessage()?.reason).toBe("out_of_supplies");
+    expect(world.hostsContaining(ACTOR).map((h) => h.mapId)).toEqual(["city-hub"]); // parked in town, not returned
+    const alert = world.messages.find((m) => m.type === MSG_BOT_ALERT)?.message as BotAlertMessage | undefined;
+    expect(alert?.kind).toBe("supplies");
+  });
+
+  test("auto-potion OFF + held 0 + no gold → returns home normally, no park, no supplies alert", async () => {
+    const { world, harness } = scene({ gold: 0, bag: [], rules: AUTO_POTION_OFF });
+    expect(harness.runtime.beginTownTrip("bag_full")).toBe(true);
+    await driveToWorking(harness, world);
+
+    expect(harness.runtime.isStopped).toBe(false);
+    expect(harness.state()).toBe("WORKING");
+    expect(world.hostsContaining(ACTOR).map((h) => h.mapId)).toEqual(["map1"]); // walked/warped home
+    expect(world.messages.some((m) => m.type === MSG_BOT_ALERT)).toBe(false);
   });
 });

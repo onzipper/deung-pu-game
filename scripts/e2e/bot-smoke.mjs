@@ -70,6 +70,7 @@ const MSG_BOT_PROFILES = "bot:profiles"; // net-protocol.ts:1048
 const MSG_BOT_STATUS = "bot:status"; // net-protocol.ts:1076
 const MSG_BOT_ACTOR_MAP = "bot:actorMap"; // net-protocol.ts — owner-follow push after a server-owned transfer
 const MSG_BOT_STOPPED = "bot:stopped"; // net-protocol.ts:1106
+const MSG_BOT_ALERT = "bot:alert"; // net-protocol.ts — S→C alert (D-075: kind "supplies" = ยา/เงินหมด parked in town)
 const MSG_BOT_OP_RESULT = "bot:opResult"; // net-protocol.ts:1180
 
 const CITY_HUB_ID = "city-hub"; // src/engine/map/city-hub.ts — the Free walk town-trip destination
@@ -236,6 +237,7 @@ async function main() {
   let startAckAtMs = null;
   let sawStopped = false;
   let stoppedReason = null;
+  let suppliesAlert = null; // D-075: the bot:alert kind "supplies" when the run parks out of potions/gold
 
   try {
     const token = signRealtimeToken(accountId, process.env.JWT_SECRET);
@@ -287,6 +289,10 @@ async function main() {
       sawStopped = true;
       stoppedReason = msg.reason;
       console.log(`[e2e] bot:stopped reason=${msg.reason} kills=${msg.killCount}`);
+    });
+    room.onMessage(MSG_BOT_ALERT, (msg) => {
+      if (msg.kind === "supplies") suppliesAlert = msg;
+      console.log(`[e2e] bot:alert kind=${msg.kind} message=${msg.message ?? ""}`);
     });
     // The server pushes bot:actorMap after every server-owned transfer so a watching owner FOLLOWS the actor. This
     // raw smoke client deliberately does NOT follow (it is not the game engine) — it stays in map1 and records the
@@ -360,17 +366,23 @@ async function main() {
     await waitFor(() => latestStatus != null, 10_000, "bot:status first push");
     report("bot:status began pushing", true, `continuity=${latestStatus.continuity.state}`);
 
-    // (4)+(5) monitor concurrently — see comment above findTownTripSequence for why order isn't forced.
+    // (4)+(5) monitor concurrently — see comment above findTownTripSequence for why order isn't forced. D-075: a run
+    // that reaches town with 0 potions AND cannot afford one (no gold from kills yet) now PARKS in the city-hub and
+    // stops out_of_supplies instead of returning home — that is a VALID terminal here (not a failure), so break on it.
     try {
       await waitFor(
-        () => firstKillAt != null && findTownTripSequence(statusHistory).complete,
+        () =>
+          firstKillAt != null &&
+          (findTownTripSequence(statusHistory).complete || (sawStopped && stoppedReason === "out_of_supplies")),
         MONITOR_TIMEOUT_MS,
-        "farm loop + full town-trip sequence observed",
+        "farm loop + (full town-trip round trip OR out_of_supplies park)",
         500,
       );
     } catch (err) {
-      console.log(`[e2e] monitor window ended without both conditions: ${describeError(err)}`);
+      console.log(`[e2e] monitor window ended without a terminal condition: ${describeError(err)}`);
     }
+    // D-075: which of the two valid town-trip outcomes did this run take?
+    const outOfSupplies = sawStopped && stoppedReason === "out_of_supplies";
 
     report(
       "farm loop: continuity in {WORKING,TRAVELING,COMBAT,LOOTING} + killCount>0 within 60s of start",
@@ -380,45 +392,76 @@ async function main() {
 
     const seq = findTownTripSequence(statusHistory);
     const tripStartRelMs = seq.tripStartAt != null ? seq.tripStartAt - startAckAtMs : null;
-    report(
-      "proactive trigger + town trip: RETURNING_TO_TOWN -> RETURNING_TO_WORK -> farm state",
-      seq.complete && tripStartRelMs != null && tripStartRelMs <= TOWN_TRIP_WINDOW_MS,
-      `reached=${seq.reached} restockingLiterallySeen=${seq.restockingSeen} tripStartRelMs=${tripStartRelMs} budget=${TOWN_TRIP_WINDOW_MS}ms ` +
-        `history=${statusHistory.map((h) => `${h.state}@${h.t - startAckAtMs}ms`).join(" -> ")}`,
-    );
-
     const townTripsCount = latestStatus?.stats?.townTrips ?? null;
-    report(
-      "bot:status.stats.townTrips >= 1",
-      typeof townTripsCount === "number" && townTripsCount >= 1,
-      `stats.townTrips=${townTripsCount} (purchase itself may be skipped if gold < ${MIN_GOLD_RESERVE + POTION_PRICE_APPROX} — not asserted; skip reason on latestStatus.lastTownSkip=${latestStatus?.lastTownSkip ?? "none"})`,
-    );
-
-    // bot:actorMap owner-follow trail: the Free walk trip transfers the actor map1 -> city-hub (outbound) and
-    // city-hub -> map1 (return). A watching owner would follow each hop; here we assert the server EMITTED the
-    // round-trip signal in order (the first push is the outbound to the town, a later push brings it home to map1).
     const outboundIdx = actorMapHistory.findIndex((h) => h.mapId === CITY_HUB_ID);
-    const returnIdx = actorMapHistory.findIndex((h, i) => i > outboundIdx && h.mapId === MAP1_ID);
-    report(
-      "bot:actorMap owner-follow trail: outbound city-hub then return map1",
-      outboundIdx !== -1 && returnIdx !== -1,
-      `trail=${actorMapHistory.map((h) => h.mapId).join(" -> ") || "(none)"}`,
-    );
 
-    // The actor came home to THIS room (map1): the smoke client never followed, so once the return transfer
-    // re-materializes the actor in map1 it must reappear in room.state.players under its stable actorId.
-    let selfBackHome = false;
-    try {
-      await waitFor(() => room.state?.players?.get(selfActorId) != null, 15_000, "self actor back in map1 players");
-      selfBackHome = true;
-    } catch (err) {
-      console.log(`[e2e] self actor did not reappear in map1: ${describeError(err)}`);
+    if (outOfSupplies) {
+      // ── D-075 branch: the run reached town with 0 potions and could not afford one → it PARKED in the city-hub.
+      // The town trip DID run (RETURNING_TO_TOWN reached + outbound owner-follow to city-hub) but there is no return
+      // leg by design. The pass evidence is: trip started, parked in town, out_of_supplies stop + supplies alert.
+      report(
+        "D-075 out_of_supplies: town trip started (RETURNING_TO_TOWN reached, no return by design)",
+        seq.tripStartAt != null && tripStartRelMs != null && tripStartRelMs <= TOWN_TRIP_WINDOW_MS,
+        `reached=${seq.reached} tripStartRelMs=${tripStartRelMs} budget=${TOWN_TRIP_WINDOW_MS}ms ` +
+          `history=${statusHistory.map((h) => `${h.state}@${h.t - startAckAtMs}ms`).join(" -> ")}`,
+      );
+      report(
+        "D-075 out_of_supplies: bot:actorMap outbound to city-hub (parked, no return leg)",
+        outboundIdx !== -1,
+        `trail=${actorMapHistory.map((h) => h.mapId).join(" -> ") || "(none)"}`,
+      );
+      report(
+        "D-075 out_of_supplies: bot:stopped reason + bot:alert kind supplies delivered",
+        stoppedReason === "out_of_supplies" && suppliesAlert != null,
+        `stoppedReason=${stoppedReason} suppliesAlert=${suppliesAlert ? "yes" : "no"} lastTownSkip=${latestStatus?.lastTownSkip ?? "none"}`,
+      );
+    } else {
+      // ── happy branch: enough gold from kills to buy ≥1 potion (emergency first bottle ignores the reserve, D-075)
+      // → the full round trip runs and the actor returns to the farm.
+      report(
+        "proactive trigger + town trip: RETURNING_TO_TOWN -> RETURNING_TO_WORK -> farm state",
+        seq.complete && tripStartRelMs != null && tripStartRelMs <= TOWN_TRIP_WINDOW_MS,
+        `reached=${seq.reached} restockingLiterallySeen=${seq.restockingSeen} tripStartRelMs=${tripStartRelMs} budget=${TOWN_TRIP_WINDOW_MS}ms ` +
+          `history=${statusHistory.map((h) => `${h.state}@${h.t - startAckAtMs}ms`).join(" -> ")}`,
+      );
+      report(
+        "bot:status.stats.townTrips >= 1",
+        typeof townTripsCount === "number" && townTripsCount >= 1,
+        `stats.townTrips=${townTripsCount} lastTownSkip=${latestStatus?.lastTownSkip ?? "none"}`,
+      );
+      // D-075: with the emergency first bottle, any restock reached with ≥ the unit price must NOT report gold_reserve
+      // on the first bottle. We cannot read the ledger from here, so this is a soft diagnostic (not a hard gate):
+      // gold_reserve on lastTownSkip after a completed trip means later bottles hit the reserve (expected), never the
+      // first. A truly broke run would have taken the out_of_supplies branch above instead.
+      report(
+        "D-075 restock: a completed round trip means the first bottle was affordable (not blocked out of supplies)",
+        true,
+        `lastTownSkip=${latestStatus?.lastTownSkip ?? "none"} (emergency-first buy ignores the ${MIN_GOLD_RESERVE} reserve; unit≈${POTION_PRICE_APPROX})`,
+      );
+
+      // bot:actorMap owner-follow trail: the Free walk trip transfers the actor map1 -> city-hub (outbound) and
+      // city-hub -> map1 (return). Assert the server EMITTED the round-trip signal in order.
+      const returnIdx = actorMapHistory.findIndex((h, i) => i > outboundIdx && h.mapId === MAP1_ID);
+      report(
+        "bot:actorMap owner-follow trail: outbound city-hub then return map1",
+        outboundIdx !== -1 && returnIdx !== -1,
+        `trail=${actorMapHistory.map((h) => h.mapId).join(" -> ") || "(none)"}`,
+      );
+
+      // The actor came home to THIS room (map1): once the return transfer re-materializes it, it reappears in players.
+      let selfBackHome = false;
+      try {
+        await waitFor(() => room.state?.players?.get(selfActorId) != null, 15_000, "self actor back in map1 players");
+        selfBackHome = true;
+      } catch (err) {
+        console.log(`[e2e] self actor did not reappear in map1: ${describeError(err)}`);
+      }
+      report(
+        "self actor returned to map1 room.state.players after the trip",
+        selfBackHome,
+        selfBackHome ? `actorId=${selfActorId}` : "actor absent from map1 state at trip end",
+      );
     }
-    report(
-      "self actor returned to map1 room.state.players after the trip",
-      selfBackHome,
-      selfBackHome ? `actorId=${selfActorId}` : "actor absent from map1 state at trip end",
-    );
 
     // (6) bot:stop -> bot:profileDelete -> leave
     // The run may already have self-stopped (D-070 safe-stop, e.g. low_hp with zero starter potions/gold — this

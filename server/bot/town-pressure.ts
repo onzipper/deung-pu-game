@@ -10,6 +10,8 @@
 // stop (the bot cannot heal), so it wins; a nearly-full bag would soon overflow and leak loot; a low potion reserve
 // is the least urgent (the bot can still fight). The order is locked by tests.
 
+import { botPotionThresholdEnabled } from "../../src/shared/net-protocol";
+
 /** What kicked off a proactive trip (distinct from a hard `bag_full` overflow / `preflight` / `workflow`). */
 export type TownPressureTrigger = "potion_low" | "bag_pressure" | "hp_no_potion";
 
@@ -21,7 +23,7 @@ export interface TownPressureInput {
   potionCount: number;
   /** live hp fraction 0..1. */
   hpFraction: number;
-  /** the auto-potion HP% threshold from rules (null = auto-potion off → no `potion_low`, `hp_no_potion` uses the floor). */
+  /** the auto-potion HP% threshold from rules (D-075: null OR 0 = off → no `potion_low`, `hp_no_potion` uses the floor). */
   potionThresholdPct: number | null;
   /** effective "potions running low" reserve (rules.potionLowReserve ?? config default). */
   potionLowReserve: number;
@@ -53,16 +55,19 @@ export function planTownPressure(input: TownPressureInput): TownPressureDecision
     lowHpStopFraction,
   } = input;
 
+  // D-075: auto-potion is on only for a positive threshold — `0` (player turned it off) reads the same as null here.
+  const potionEnabled = botPotionThresholdEnabled(potionThresholdPct);
+
   // 1 — HP with no way to heal (out of potions). The bound is the drink threshold when auto-potion is on, else the
   //     low-hp floor. This is the most dangerous state → highest priority (a trip to restock beats a floor stop).
-  const hpBound = potionThresholdPct != null ? potionThresholdPct / 100 : lowHpStopFraction;
+  const hpBound = potionEnabled && potionThresholdPct != null ? potionThresholdPct / 100 : lowHpStopFraction;
   if (potionCount === 0 && hpFraction <= hpBound) return { kind: "town_trip", trigger: "hp_no_potion" };
 
   // 2 — Bag nearly full: a hard overflow would soon leak loot, so divert before it happens.
   if (freeSlots <= pressureMinFreeSlots) return { kind: "town_trip", trigger: "bag_pressure" };
 
   // 3 — Potions running low (only meaningful when auto-potion is on).
-  if (potionThresholdPct != null && potionCount <= potionLowReserve) {
+  if (potionEnabled && potionCount <= potionLowReserve) {
     return { kind: "town_trip", trigger: "potion_low" };
   }
 

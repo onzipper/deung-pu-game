@@ -81,6 +81,24 @@ describe("planTownPressure — hp_no_potion", () => {
   });
 });
 
+describe("planTownPressure — D-075: threshold 0 = player turned auto-potion off (reads the same as null)", () => {
+  test("threshold 0 → never potion_low even at/below the reserve", () => {
+    expect(planTownPressure(input({ potionThresholdPct: 0, potionCount: 1, potionLowReserve: 1 }))).toEqual({
+      kind: "none",
+    });
+  });
+  test("threshold 0 → hp_no_potion uses the low-hp floor bound (not the 0% threshold)", () => {
+    // At 0% the threshold bound would be 0 (never triggers); D-075 makes 0 = off → hp_no_potion falls back to the
+    // floor. hp at the floor with zero potions → hp_no_potion; just above the floor → none.
+    expect(
+      planTownPressure(input({ potionThresholdPct: 0, potionCount: 0, hpFraction: 0.15, freeSlots: 40 })),
+    ).toEqual({ kind: "town_trip", trigger: "hp_no_potion" });
+    expect(
+      planTownPressure(input({ potionThresholdPct: 0, potionCount: 0, hpFraction: 0.2, freeSlots: 40 })),
+    ).toEqual({ kind: "none" });
+  });
+});
+
 describe("planTownPressure — priority (hp_no_potion > bag_pressure > potion_low)", () => {
   test("hp_no_potion beats bag_pressure", () => {
     expect(

@@ -752,7 +752,7 @@ describe("M1 live stats", () => {
 // A profile can be saved when its pocket held the selected type, then the map/pocket data changes. `start`
 // re-checks selectedMobTypes against the LIVE pocket (resolveTargetCtx) and rejects mob_type_not_in_pocket.
 
-function regateManager(profile: BotProfileRow) {
+function regateManager(profile: BotProfileRow, config: BotConfig = DEFAULT_BOT_CONFIG) {
   const profileRepo: ProfileRepo = {
     listByAccount: async (a) => (a === profile.accountId ? [profile] : []),
     getById: async (a, id) => (a === profile.accountId && id === profile.id ? profile : null),
@@ -802,7 +802,7 @@ function regateManager(profile: BotProfileRow) {
     botSafeCampAnchor: () => ({ tx: 0, ty: 0 }),
   };
   const deps: BotManagerDeps = {
-    config: DEFAULT_BOT_CONFIG,
+    config,
     tierRepo,
     profileRepo,
     sessionRepo,
@@ -851,5 +851,23 @@ describe("M1 start re-gate — SELECTED_TYPES vs live pocket", () => {
       .filter((r) => r.ok === false);
     expect(rejects).toHaveLength(0);
     expect(manager.activeActorForAccount("acc")).not.toBeNull();
+  });
+
+  test("D-075 (F6): an unresolvable pocket (mobTypesInPocket null) rejects, not a silent start", async () => {
+    // A config that bot-allows a pocket the real map registry does NOT have → resolveTargetCtx yields null. Pre-D-075
+    // a null pocket bypassed the in-pocket check and started silently; now it rejects mob_type_not_in_pocket.
+    const config: BotConfig = {
+      ...DEFAULT_BOT_CONFIG,
+      botAllowedPockets: { ...DEFAULT_BOT_CONFIG.botAllowedPockets, map1: ["ghost-pocket"] },
+    };
+    const profile: BotProfileRow = { ...selectedTypesProfile(["slime"]), pocketId: "ghost-pocket" };
+    const { manager, host } = regateManager(profile, config);
+    const messages: { type: string; message: unknown }[] = [];
+    await manager.onStart(host, "controller-1", "acc", "character-a", (type, message) => messages.push({ type, message }), {
+      profileId: "p-regate",
+    });
+    const result = messages.find((m) => m.type === MSG_BOT_OP_RESULT)?.message as BotOpResultMessage | undefined;
+    expect(result).toMatchObject({ op: "start", ok: false, reason: "mob_type_not_in_pocket" });
+    expect(manager.activeActorForAccount("acc")).toBeNull();
   });
 });

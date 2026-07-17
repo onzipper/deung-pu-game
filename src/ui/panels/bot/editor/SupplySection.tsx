@@ -5,6 +5,7 @@
 // แล้ว). ว่างไว้ (null) = ใช้ค่า default ของ server config (Design Knob, ไม่ hardcode ตัวเลขฝั่ง client).
 
 import { setBotPotionReserve, setBotPotionRestock, setBotPotionThreshold, type BotRulesWire } from "../bot-view";
+import { botPotionThresholdEnabled } from "@/shared/net-protocol";
 import { BOT_EDITOR_NUMBER_INPUT_CLASS, BOT_EDITOR_SECTION_CARD_CLASS } from "../bot-layout";
 
 export interface SupplySectionProps {
@@ -16,7 +17,9 @@ export interface SupplySectionProps {
 const DEFAULT_THRESHOLD_PCT = 30;
 
 export function SupplySection({ rules, disabled, onChange }: SupplySectionProps) {
-  const enabled = rules.potionThresholdPct != null;
+  // D-075: auto-potion is on only for a positive threshold. Toggling OFF sends 0 (the explicit sentinel), not null —
+  // null would be re-filled to the default by normalizeBotRules on the next load and quietly turn healing back on.
+  const enabled = botPotionThresholdEnabled(rules.potionThresholdPct);
 
   return (
     <div className={BOT_EDITOR_SECTION_CARD_CLASS}>
@@ -27,7 +30,7 @@ export function SupplySection({ rules, disabled, onChange }: SupplySectionProps)
           type="checkbox"
           checked={enabled}
           disabled={disabled}
-          onChange={(e) => onChange(setBotPotionThreshold(rules, e.target.checked ? DEFAULT_THRESHOLD_PCT : null))}
+          onChange={(e) => onChange(setBotPotionThreshold(rules, e.target.checked ? DEFAULT_THRESHOLD_PCT : 0))}
           className="h-4 w-4 accent-(--dp-resonance-teal)"
         />
         ใช้ยาอัตโนมัติเมื่อ HP ต่ำกว่า

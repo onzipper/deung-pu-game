@@ -55,6 +55,7 @@ interface WalkSceneOptions {
   bag?: BagSeed[];
   farmBlocked?: boolean;
   stuckTickLimit?: number;
+  cooldownMs?: number;
 }
 
 function walkScene(opts: WalkSceneOptions = {}) {
@@ -83,7 +84,10 @@ function walkScene(opts: WalkSceneOptions = {}) {
     walk: { start: { ...TOWN_LANDING }, step: 6 },
     exits: [{ targetMapId: "map1", approach: { ...TOWN_PORTAL }, landing: { ...FARM_LANDING } }],
   });
-  const config = { ...warpConfig(), ...(opts.stuckTickLimit ? { stuckTickLimit: opts.stuckTickLimit } : {}) };
+  const config = {
+    ...warpConfig(opts.cooldownMs != null ? { cooldownMs: opts.cooldownMs } : {}),
+    ...(opts.stuckTickLimit ? { stuckTickLimit: opts.stuckTickLimit } : {}),
+  };
   const harness = createWarpHarness({ world, farmHost, tier: opts.tier ?? "free", config });
   return { world, farmHost, townHost, harness };
 }
@@ -194,12 +198,21 @@ describe("Free walk town trip — anti-loop safety (D-070/D-071)", () => {
 });
 
 describe("Free walk town trip — cooldown (D-069 knob, shared by every tier)", () => {
-  test("a second trip within cooldownMs refuses after one completes", async () => {
-    const { world, harness } = walkScene();
+  test("D-075 default (cooldown 0): a second trip opens immediately after one completes", async () => {
+    const { world, harness } = walkScene(); // warpConfig() → cooldownMs 0 (the shipped default)
     await driveTrip(harness, world);
     expect(harness.state()).toBe("WORKING");
 
-    // Immediately after completion the same cooldown knob blocks a second trip.
+    // No cooldown → a Free bot may walk back to restock right away.
+    expect(harness.runtime.beginTownTrip("bag_full")).toBe(true);
+  });
+
+  test("cooldown knob >0: a second trip within cooldownMs refuses after one completes", async () => {
+    const { world, harness } = walkScene({ cooldownMs: 60_000 });
+    await driveTrip(harness, world);
+    expect(harness.state()).toBe("WORKING");
+
+    // With an explicit >0 cooldown the same gate still blocks a second trip.
     expect(harness.runtime.beginTownTrip("bag_full")).toBe(false);
   });
 });
