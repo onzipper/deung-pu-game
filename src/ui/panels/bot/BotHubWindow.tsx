@@ -1,11 +1,13 @@
 "use client";
 
-// M4 Bot Hub workspace shell content — sticky header (tier chip + วันหมดอายุ + tab bar เท่านั้น, FIX3
-// bot-hub-connection-state 2026-07-17: micro-tutorial/op-result/connection banners ย้ายลง normal scroll flow
-// ใต้ sticky แล้ว — เดิมอยู่ในก้อน sticky ทำให้ dynamic-height content ดันแถบ tab ทับเนื้อหา scroll ด้านล่าง)
-// เหนือเนื้อหาแท็บที่ scroll ได้ในตัวเอง (PanelFrame `fill` มี scroll region เดียวอยู่แล้ว — sticky top-0 บน
-// wrapper นี้พอ ไม่ต้องเพิ่ม scroll container ซ้อน). margin ติดลบชดเชย padding ของ PanelFrame (p-4 md:p-6)
-// ให้แถบ sticky ชนขอบซ้าย-ขวาเต็ม panel.
+// M4 Bot Hub workspace shell content — root คือ flex column สูงเต็ม panel แบ่ง 2 โซนจริง (ไม่ใช่ sticky อีก
+// ต่อไป): (1) header static นอก scroll (tier chip + วันหมดอายุ + tab bar) (2) scroll region เดียวข้างล่างบรรจุ
+// connection banner → tutorial card → op banner → {children} (แท็บที่เลือกอยู่) ตามลำดับเดิม.
+//
+// fix (2026-07-17, follow-up FIX3): เดิมใช้ `sticky top-0` ทับอยู่ใน scroll region เดียวของ PanelFrame — banner
+// ด้านบนที่สูงไม่คงที่ (dynamic height) ดันแถบ tab ให้ล้นลงมาทับเนื้อหา scroll ด้านล่าง. ตอนนี้ BotPanel.tsx ส่ง
+// `<Panel bodyScroll={false}>` (PanelFrame body ไม่ padding/ไม่ scroll เอง) ให้คอมโพเนนต์นี้เป็นเจ้าของ scroll
+// region ที่แท้จริงเพียงอันเดียวแทน — header กับ tab bar จึงอยู่นอก scroll ถาวรจริง ไม่ใช่แค่ sticky.
 
 import type { ReactNode } from "react";
 import { Button } from "@/ui/components";
@@ -70,10 +72,8 @@ export function BotHubWindow({
   const connectionBanner = botConnectionBannerMessage(connectionState);
 
   return (
-    <div className="dp-text-body-sm flex flex-col gap-3">
-      {/* FIX3: sticky block holds ONLY the tier row + tab bar now — tutorial/op/connection banners are dynamic-
-          height content that used to live here and push the tab row down over the scrolling content below it. */}
-      <div className="sticky top-0 z-10 -mx-4 -mt-4 flex flex-col gap-2 border-b border-(--dp-deep-brown) bg-(--dp-panel-bg) px-4 pt-1 pb-2 md:-mx-6 md:-mt-6 md:px-6">
+    <div className="dp-text-body-sm flex h-full min-h-0 flex-col">
+      <div className="flex flex-col gap-2 border-b border-(--dp-deep-brown) bg-(--dp-panel-bg-soft) px-4 pt-2 pb-2 md:px-6">
         {tierState && (
           <div className="flex items-center justify-between gap-2">
             <span className="text-(--dp-highlight)">{botTierLabel(tierState.tier)}</span>
@@ -94,69 +94,73 @@ export function BotHubWindow({
         </div>
       </div>
 
-      {connectionBanner && (
-        <div className="flex items-center gap-2 rounded-(--dp-radius-sm) border border-(--dp-fire-light) bg-(--dp-deep-ink) px-3 py-2 text-(--dp-parchment)">
-          <span>{connectionBanner}</span>
-        </div>
-      )}
-
-      {!tutorial.dismissed && (
-        <div className="flex flex-col gap-2 rounded-(--dp-radius-sm) border border-(--dp-resonance-teal) bg-(--dp-deep-ink) px-3 py-2">
-          <div className="flex items-center justify-between gap-2">
-            <span className="dp-text-label text-(--dp-resonance-light)">
-              {BOT_TUTORIAL_SLIDES[tutorialSlide].title} ({tutorialSlide + 1}/{BOT_TUTORIAL_SLIDES.length})
-            </span>
-            <button
-              type="button"
-              aria-label="ข้ามการแนะนำ"
-              onClick={onTutorialDismiss}
-              className="dp-focus-ring shrink-0 rounded-(--dp-radius-sm) px-1.5 text-(--dp-sand) hover:text-(--dp-highlight)"
-            >
-              ✕
-            </button>
-          </div>
-          <div className="text-(--dp-parchment)">{BOT_TUTORIAL_SLIDES[tutorialSlide].body}</div>
-          <div className="flex justify-end gap-2">
-            <Button variant="ghost" size="sm" onClick={onTutorialDismiss}>
-              ข้าม
-            </Button>
-            {tutorialSlide < BOT_TUTORIAL_SLIDES.length - 1 ? (
-              <Button variant="primary" size="sm" onClick={onTutorialNext}>
-                ถัดไป
-              </Button>
-            ) : (
-              <Button variant="primary" size="sm" onClick={onTutorialFinish}>
-                สร้างแผนแรก
-              </Button>
-            )}
-          </div>
-        </div>
-      )}
-
-      {opMessage && (
-        <div
-          className={[
-            "flex items-center justify-between gap-2 rounded-(--dp-radius-sm) px-3 py-2",
-            opState === "REJECTED"
-              ? "border border-(--dp-danger-red) bg-(--dp-deep-ink) text-(--dp-highlight)"
-              : "border border-(--dp-soil-brown) bg-(--dp-warm-ink) text-(--dp-parchment)",
-          ].join(" ")}
-        >
-          <span>{opMessage}</span>
-          {opState !== "PROCESSING" && (
-            <button
-              type="button"
-              aria-label="ปิด"
-              onClick={onDismissOpMessage}
-              className="dp-focus-ring shrink-0 rounded-(--dp-radius-sm) px-1.5 text-(--dp-sand) hover:text-(--dp-highlight)"
-            >
-              ✕
-            </button>
+      <div className="min-h-0 flex-1 overflow-y-auto p-4 md:p-6">
+        <div className="flex flex-col gap-3">
+          {connectionBanner && (
+            <div className="flex items-center gap-2 rounded-(--dp-radius-sm) border border-(--dp-fire-light) bg-(--dp-deep-ink) px-3 py-2 text-(--dp-parchment)">
+              <span>{connectionBanner}</span>
+            </div>
           )}
-        </div>
-      )}
 
-      <div>{children}</div>
+          {!tutorial.dismissed && (
+            <div className="flex flex-col gap-2 rounded-(--dp-radius-sm) border border-(--dp-resonance-teal) bg-(--dp-deep-ink) px-3 py-2">
+              <div className="flex items-center justify-between gap-2">
+                <span className="dp-text-label text-(--dp-resonance-light)">
+                  {BOT_TUTORIAL_SLIDES[tutorialSlide].title} ({tutorialSlide + 1}/{BOT_TUTORIAL_SLIDES.length})
+                </span>
+                <button
+                  type="button"
+                  aria-label="ข้ามการแนะนำ"
+                  onClick={onTutorialDismiss}
+                  className="dp-focus-ring shrink-0 rounded-(--dp-radius-sm) px-1.5 text-(--dp-sand) hover:text-(--dp-highlight)"
+                >
+                  ✕
+                </button>
+              </div>
+              <div className="text-(--dp-parchment)">{BOT_TUTORIAL_SLIDES[tutorialSlide].body}</div>
+              <div className="flex justify-end gap-2">
+                <Button variant="ghost" size="sm" onClick={onTutorialDismiss}>
+                  ข้าม
+                </Button>
+                {tutorialSlide < BOT_TUTORIAL_SLIDES.length - 1 ? (
+                  <Button variant="primary" size="sm" onClick={onTutorialNext}>
+                    ถัดไป
+                  </Button>
+                ) : (
+                  <Button variant="primary" size="sm" onClick={onTutorialFinish}>
+                    สร้างแผนแรก
+                  </Button>
+                )}
+              </div>
+            </div>
+          )}
+
+          {opMessage && (
+            <div
+              className={[
+                "flex items-center justify-between gap-2 rounded-(--dp-radius-sm) px-3 py-2",
+                opState === "REJECTED"
+                  ? "border border-(--dp-danger-red) bg-(--dp-deep-ink) text-(--dp-highlight)"
+                  : "border border-(--dp-soil-brown) bg-(--dp-warm-ink) text-(--dp-parchment)",
+              ].join(" ")}
+            >
+              <span>{opMessage}</span>
+              {opState !== "PROCESSING" && (
+                <button
+                  type="button"
+                  aria-label="ปิด"
+                  onClick={onDismissOpMessage}
+                  className="dp-focus-ring shrink-0 rounded-(--dp-radius-sm) px-1.5 text-(--dp-sand) hover:text-(--dp-highlight)"
+                >
+                  ✕
+                </button>
+              )}
+            </div>
+          )}
+
+          <div>{children}</div>
+        </div>
+      </div>
     </div>
   );
 }

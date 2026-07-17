@@ -174,7 +174,7 @@ export function BotPanel({ getHandle }: BotPanelProps) {
   };
 
   return (
-    <Panel id={BOT_PANEL_ID} title="ผู้ช่วยนักล่า" layout="workspace">
+    <Panel id={BOT_PANEL_ID} title="ผู้ช่วยนักล่า" layout="workspace" bodyScroll={false}>
       <BotHubWindow
         tab={tab}
         onTabChange={setTab}

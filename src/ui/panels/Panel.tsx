@@ -28,13 +28,25 @@ export interface PanelProps {
    * กลางจอ, เนื้อหา scroll ภายใน (PanelFrame `fill`) · มือถือ = เต็มจอ (`inset-0`, ไม่มี max-h/rounded).
    */
   layout?: "default" | "workspace";
+  /** true (default) = unchanged (PanelFrame's own scroll region). false = pass-through to PanelFrame
+   * `bodyScroll={false}` for a workspace panel that owns its own static-header + scroll-region layout
+   * (Bot Hub M4 follow-up — see BotHubWindow.tsx). Backward-compatible: every other panel is unaffected. */
+  bodyScroll?: boolean;
 }
 
 const MIN_WIDTH_PX = 360;
 const MAX_WIDTH_PX = 420;
 
 /** panel ไม่ render อะไรเลยถ้ายังไม่เปิด (isPanelOpen=false) — caller ไม่ต้องเช็คเองซ้ำที่หน้าเรียกใช้ */
-export function Panel({ id, title, children, widthPx = 380, className, layout = "default" }: PanelProps) {
+export function Panel({
+  id,
+  title,
+  children,
+  widthPx = 380,
+  className,
+  layout = "default",
+  bodyScroll = true,
+}: PanelProps) {
   const manager = usePanelManager();
   const isMobile = useIsMobilePanel();
   const open = manager.isPanelOpen(id);
@@ -85,6 +97,7 @@ export function Panel({ id, title, children, widthPx = 380, className, layout = 
         onClose={() => manager.closePanel(id)}
         className={frameClassName}
         fill={isWorkspace}
+        bodyScroll={bodyScroll}
       >
         {children}
       </PanelFrame>

@@ -9,7 +9,7 @@
 3. Region: **Singapore**
 4. Instance type: **paid (Starter หรือสูงกว่า) — ต้อง always-on** (free tier spin down หลัง idle ~15 นาที = server หลับ/state หาย ตาม spec L4)
    - **สถานะจริง 2026-07-12 (decision-index)**: ช่วงทดสอบ owner ใช้ **free tier + UptimeRobot ping** ไปก่อน (`https://deung-pu-game.onrender.com`) — ตั้ง UptimeRobot monitor ชี้ที่ **`https://deung-pu-game.onrender.com/healthz`** (ตอบ 200 "ok"; path อื่นตอบ 404, root ไม่ใช่ endpoint) · ข้อจำกัด: free tier ยัง restart เป็นระยะ = ห้อง/ตำแหน่งหาย (state in-memory) · **ก่อนเปิดผู้เล่นจริงต้องกลับมา paid always-on**
-5. Build command: `npm install`
+5. Build command: `npm install` (repo has `"postinstall": "prisma generate"` — `npm install` alone regenerates the Prisma client against the current schema every deploy, no extra build step needed)
 6. Start command: `npm run start:server`
 7. Environment variables:
    - `PORT` — **ไม่ต้องตั้ง** Render inject ให้เอง (ดู `.env.example`)
@@ -41,6 +41,10 @@
 3. เดินสองแท็บ → ต้องเห็นผู้เล่นอีกฝั่งขยับ sync กัน
 4. ตีมอน (Space หรือแตะมอน) → เห็นเลขดาเมจ/มอนตาย
 5. เดินข้าม map exit → เห็น fade transition ไป map ถัดไป
+
+## 3.5) Troubleshooting
+
+- **server error `Cannot read properties of undefined (reading 'findUnique')` (หรือ delegate อื่นของ Prisma undefined)**: generated Prisma client บน Render ค้างจาก cache `node_modules` ของ build เก่า ก่อนมี migration/model ตัวที่ error พูดถึง — แก้ด้วยกด **"Clear build cache & Deploy"** บน Render dashboard (บังคับรัน `npm install` สดใหม่ → `postinstall` เรียก `prisma generate` ใหม่ตรง schema ปัจจุบัน)
 
 ## 4) Known risks (จดไว้ ยังไม่พิสูจน์จริง — ตามที่พบระหว่าง deploy จริงค่อยอัปเดต)
 

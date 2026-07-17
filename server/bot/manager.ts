@@ -528,6 +528,23 @@ export class BotManager {
     send(MSG_BOT_OP_RESULT, msg);
   }
 
+  /**
+   * Fail-soft guard (prod crash root cause, docs/deploy-checklist.md §1 troubleshooting): every async client-op
+   * entry method below wraps its body with this. A stale generated Prisma client (Render `npm install` reusing a
+   * cached node_modules from before a schema migration) throws `Cannot read properties of undefined` deep inside
+   * a repo call — previously that was an unhandled rejection with no `bot:opResult` at all, so the client just
+   * hung until its own 8s timeout. Now it logs + replies `internal_error` instead. Validation/business rejects
+   * already resolve through `this.reject` inside `fn` and never reach the catch — happy/reject paths unchanged.
+   */
+  private async guarded(send: Send, op: string, fn: () => Promise<void>): Promise<void> {
+    try {
+      await fn();
+    } catch (e) {
+      console.error(`[bot] ${op} failed:`, e);
+      this.reject(send, op, "internal_error");
+    }
+  }
+
   private async resolveTierFor(accountId: string): Promise<BotTierWire> {
     const row = await this.d.tierRepo.get(accountId);
     return resolveTier(row, this.d.now()).tier;
@@ -599,72 +616,82 @@ export class BotManager {
   // ── profile CRUD ─────────────────────────────────────────────────────────────
 
   async onProfileList(accountId: string | null, send: Send): Promise<void> {
-    if (!accountId || !this.guardDb(send, "profileList")) return;
-    await this.sendTierState(accountId, send);
-    await this.sendProfiles(accountId, send);
-    await this.sendCheckpoint(accountId, send);
+    await this.guarded(send, "profileList", async () => {
+      if (!accountId || !this.guardDb(send, "profileList")) return;
+      await this.sendTierState(accountId, send);
+      await this.sendProfiles(accountId, send);
+      await this.sendCheckpoint(accountId, send);
+    });
   }
 
   async onProfileCreate(accountId: string | null, send: Send, m: BotProfileCreateMessage): Promise<void> {
-    if (!accountId || !this.guardDb(send, "profileCreate")) return;
-    const tier = await this.resolveTierFor(accountId);
-    const res = await createProfile(
-      this.d.profileRepo,
-      tier,
-      { accountId, name: m?.name, mapId: m?.mapId, pocketId: m?.pocketId, rawRules: m?.rules },
-      this.d.now(),
-      this.d.config,
-      this.resolveTargetCtx,
-    );
-    if (!res.ok) return this.reject(send, "profileCreate", res.reason);
-    this.ack(send, "profileCreate", res.profile.id);
-    await this.sendProfiles(accountId, send);
+    await this.guarded(send, "profileCreate", async () => {
+      if (!accountId || !this.guardDb(send, "profileCreate")) return;
+      const tier = await this.resolveTierFor(accountId);
+      const res = await createProfile(
+        this.d.profileRepo,
+        tier,
+        { accountId, name: m?.name, mapId: m?.mapId, pocketId: m?.pocketId, rawRules: m?.rules },
+        this.d.now(),
+        this.d.config,
+        this.resolveTargetCtx,
+      );
+      if (!res.ok) return this.reject(send, "profileCreate", res.reason);
+      this.ack(send, "profileCreate", res.profile.id);
+      await this.sendProfiles(accountId, send);
+    });
   }
 
   async onProfileUpdate(accountId: string | null, send: Send, m: BotProfileUpdateMessage): Promise<void> {
-    if (!accountId || !this.guardDb(send, "profileUpdate")) return;
-    const tier = await this.resolveTierFor(accountId);
-    const res = await updateProfile(
-      this.d.profileRepo,
-      tier,
-      { accountId, id: m?.id, name: m?.name, mapId: m?.mapId, pocketId: m?.pocketId, rawRules: m?.rules },
-      this.d.now(),
-      this.d.config,
-      this.resolveTargetCtx,
-    );
-    if (!res.ok) return this.reject(send, "profileUpdate", res.reason, m?.id);
-    this.ack(send, "profileUpdate", res.profile.id);
-    await this.sendProfiles(accountId, send);
+    await this.guarded(send, "profileUpdate", async () => {
+      if (!accountId || !this.guardDb(send, "profileUpdate")) return;
+      const tier = await this.resolveTierFor(accountId);
+      const res = await updateProfile(
+        this.d.profileRepo,
+        tier,
+        { accountId, id: m?.id, name: m?.name, mapId: m?.mapId, pocketId: m?.pocketId, rawRules: m?.rules },
+        this.d.now(),
+        this.d.config,
+        this.resolveTargetCtx,
+      );
+      if (!res.ok) return this.reject(send, "profileUpdate", res.reason, m?.id);
+      this.ack(send, "profileUpdate", res.profile.id);
+      await this.sendProfiles(accountId, send);
+    });
   }
 
   async onProfileDelete(accountId: string | null, send: Send, m: BotProfileDeleteMessage): Promise<void> {
-    if (!accountId || !this.guardDb(send, "profileDelete")) return;
-    const res = await deleteProfile(this.d.profileRepo, accountId, m?.id);
-    if (!res.ok) return this.reject(send, "profileDelete", res.reason, m?.id);
+    await this.guarded(send, "profileDelete", async () => {
+      if (!accountId || !this.guardDb(send, "profileDelete")) return;
+      const res = await deleteProfile(this.d.profileRepo, accountId, m?.id);
+      if (!res.ok) return this.reject(send, "profileDelete", res.reason, m?.id);
 
-    // The profile is now definitively gone. Abort only the run/start that references this exact plan; deleting an
-    // unrelated plan must never seize authority from the real actor. A deleted active plan fails, not completes.
-    if (this.startingProfileIds.get(accountId) === res.profile.id) {
-      this.cancelPendingStart(accountId, "profile_deleted");
-    }
-    const running = this.bots.get(accountId);
-    if (running?.profileId === res.profile.id) running.stop("profile_deleted");
+      // The profile is now definitively gone. Abort only the run/start that references this exact plan; deleting
+      // an unrelated plan must never seize authority from the real actor. A deleted active plan fails, not completes.
+      if (this.startingProfileIds.get(accountId) === res.profile.id) {
+        this.cancelPendingStart(accountId, "profile_deleted");
+      }
+      const running = this.bots.get(accountId);
+      if (running?.profileId === res.profile.id) running.stop("profile_deleted");
 
-    this.ack(send, "profileDelete", m?.id);
-    await this.sendProfiles(accountId, send);
+      this.ack(send, "profileDelete", m?.id);
+      await this.sendProfiles(accountId, send);
+    });
   }
 
   // ── MOCK purchase (D-061) ────────────────────────────────────────────────────
 
   async onMockPurchase(accountId: string | null, send: Send, m: BotMockPurchaseMessage): Promise<void> {
-    if (!accountId || !this.guardDb(send, "mockPurchase")) return;
-    const current = await this.d.tierRepo.get(accountId);
-    const res = applyMockPurchase(current, { tier: m?.tier, days: m?.days }, this.d.now(), this.d.config);
-    if (!res.ok) return this.reject(send, "mockPurchase", res.reason);
-    await this.d.tierRepo.upsert({ accountId, ...res.row });
-    this.ack(send, "mockPurchase");
-    await this.sendTierState(accountId, send);
-    await this.sendProfiles(accountId, send); // read-only flags may change (upgrade un-pauses excess)
+    await this.guarded(send, "mockPurchase", async () => {
+      if (!accountId || !this.guardDb(send, "mockPurchase")) return;
+      const current = await this.d.tierRepo.get(accountId);
+      const res = applyMockPurchase(current, { tier: m?.tier, days: m?.days }, this.d.now(), this.d.config);
+      if (!res.ok) return this.reject(send, "mockPurchase", res.reason);
+      await this.d.tierRepo.upsert({ accountId, ...res.row });
+      this.ack(send, "mockPurchase");
+      await this.sendTierState(accountId, send);
+      await this.sendProfiles(accountId, send); // read-only flags may change (upgrade un-pauses excess)
+    });
   }
 
   // ── start / stop ─────────────────────────────────────────────────────────────
@@ -677,7 +704,9 @@ export class BotManager {
     send: Send,
     m: BotStartMessage,
   ): Promise<void> {
-    await this.start(requestHost, controllerSessionId, accountId, characterId, send, m, "start");
+    await this.guarded(send, "start", async () => {
+      await this.start(requestHost, controllerSessionId, accountId, characterId, send, m, "start");
+    });
   }
 
   async onResume(
@@ -688,40 +717,42 @@ export class BotManager {
     send: Send,
     m: BotResumeMessage,
   ): Promise<void> {
-    if (!accountId || !this.guardDb(send, "resume")) return;
-    if (!characterId) return this.reject(send, "resume", "no_character");
-    // Surface the in-memory checkpoint, or hydrate a durable one after a restart (only when nothing is live).
-    const checkpoint = await this.surfaceCheckpoint(accountId);
-    if (!checkpoint || checkpoint.id !== m?.checkpointId) {
-      return this.reject(send, "resume", "checkpoint_not_found", m?.checkpointId);
-    }
-    if (checkpoint.state === "saving") {
-      return this.reject(send, "resume", "checkpoint_saving", checkpoint.id);
-    }
-    if (checkpoint.state === "failed") {
-      return this.reject(send, "resume", "checkpoint_failed", checkpoint.id);
-    }
-    if (checkpoint.characterId !== characterId) {
-      return this.reject(send, "resume", "checkpoint_character_mismatch", checkpoint.id);
-    }
-    // PR6a (D-067): a checkpoint that crossed a server restart (kind='restart') resumes for Pro only — Free/Plus
-    // safe-stop across a restart. Clear it (memory + durable row) and reject. In-process takeover checkpoints
-    // (kind='takeover') resume for every tier exactly as before. Resume itself is a NEW run via `startReserved`,
-    // which re-validates live HP/inventory/position/pocket/profile — the interrupted continuity is never replayed.
-    if (checkpoint.kind === "restart" && (await this.resolveTierFor(accountId)) !== "pro") {
-      this.clearCheckpoint(accountId, send);
-      return this.reject(send, "resume", "checkpoint_requires_pro", checkpoint.id);
-    }
-    await this.start(
-      requestHost,
-      controllerSessionId,
-      accountId,
-      characterId,
-      send,
-      { profileId: checkpoint.profileId },
-      "resume",
-      checkpoint.workflow?.stepIndex, // PR6b: resume a goal chain at the captured step (ignored without a workflow)
-    );
+    await this.guarded(send, "resume", async () => {
+      if (!accountId || !this.guardDb(send, "resume")) return;
+      if (!characterId) return this.reject(send, "resume", "no_character");
+      // Surface the in-memory checkpoint, or hydrate a durable one after a restart (only when nothing is live).
+      const checkpoint = await this.surfaceCheckpoint(accountId);
+      if (!checkpoint || checkpoint.id !== m?.checkpointId) {
+        return this.reject(send, "resume", "checkpoint_not_found", m?.checkpointId);
+      }
+      if (checkpoint.state === "saving") {
+        return this.reject(send, "resume", "checkpoint_saving", checkpoint.id);
+      }
+      if (checkpoint.state === "failed") {
+        return this.reject(send, "resume", "checkpoint_failed", checkpoint.id);
+      }
+      if (checkpoint.characterId !== characterId) {
+        return this.reject(send, "resume", "checkpoint_character_mismatch", checkpoint.id);
+      }
+      // PR6a (D-067): a checkpoint that crossed a server restart (kind='restart') resumes for Pro only — Free/Plus
+      // safe-stop across a restart. Clear it (memory + durable row) and reject. In-process takeover checkpoints
+      // (kind='takeover') resume for every tier exactly as before. Resume itself is a NEW run via `startReserved`,
+      // which re-validates live HP/inventory/position/pocket/profile — the interrupted continuity is never replayed.
+      if (checkpoint.kind === "restart" && (await this.resolveTierFor(accountId)) !== "pro") {
+        this.clearCheckpoint(accountId, send);
+        return this.reject(send, "resume", "checkpoint_requires_pro", checkpoint.id);
+      }
+      await this.start(
+        requestHost,
+        controllerSessionId,
+        accountId,
+        characterId,
+        send,
+        { profileId: checkpoint.profileId },
+        "resume",
+        checkpoint.workflow?.stepIndex, // PR6b: resume a goal chain at the captured step (ignored without a workflow)
+      );
+    });
   }
 
   private async start(
@@ -946,84 +977,103 @@ export class BotManager {
     send: Send,
     m: BotTakeoverMessage,
   ): boolean {
-    if (!accountId) return false;
-    const runtime = this.bots.get(accountId);
-    // A null/undefined actorId means the caller has no local actor for this account (e.g. it warped to a sibling
-    // room, so the source room's actorIdOf returns null). Fall back to the account's running runtime / pending
-    // start so an explicit owner takeover still routes to the correct actor.
-    const resolvedActorId = actorId ?? runtime?.actorId ?? this.startingActors.get(accountId)?.actorId ?? null;
-    if (!resolvedActorId) return false;
-    if (!runtime) {
-      const pending = this.startingActors.get(accountId);
-      if (pending?.actorId === resolvedActorId) return this.takeoverPendingStart(accountId, pending, send, m);
-      this.reject(send, "takeover", "not_running", m?.requestId);
-      return false;
-    }
-    if (runtime.actorId !== resolvedActorId || runtime.isStopped) {
-      this.reject(send, "takeover", runtime.isStopped ? "checkpoint_saving" : "actor_mismatch", m?.requestId);
-      return false;
-    }
+    // Synchronous fail-soft (see `guarded` doc above) — onTakeover returns a boolean synchronously to its caller
+    // (MapRoom.takeManualAuthority gates whether the input applies THIS tick), so it can't be converted to the
+    // async `guarded` helper; catch inline and return false (authority not released) instead of throwing.
+    try {
+      if (!accountId) return false;
+      const runtime = this.bots.get(accountId);
+      // A null/undefined actorId means the caller has no local actor for this account (e.g. it warped to a
+      // sibling room, so the source room's actorIdOf returns null). Fall back to the account's running runtime /
+      // pending start so an explicit owner takeover still routes to the correct actor.
+      const resolvedActorId = actorId ?? runtime?.actorId ?? this.startingActors.get(accountId)?.actorId ?? null;
+      if (!resolvedActorId) return false;
+      if (!runtime) {
+        const pending = this.startingActors.get(accountId);
+        if (pending?.actorId === resolvedActorId) return this.takeoverPendingStart(accountId, pending, send, m);
+        this.reject(send, "takeover", "not_running", m?.requestId);
+        return false;
+      }
+      if (runtime.actorId !== resolvedActorId || runtime.isStopped) {
+        this.reject(send, "takeover", runtime.isStopped ? "checkpoint_saving" : "actor_mismatch", m?.requestId);
+        return false;
+      }
 
-    const checkpoint: StoredCheckpoint = {
-      id: randomUUID(),
-      accountId,
-      characterId: runtime.characterId,
-      host: runtime.host,
-      runtime, // settle-time map reconciliation reads runtime.host (return-warp failure → city-hub, D-069)
-      kind: "takeover",
-      profileId: runtime.profileId,
-      sourceSessionId: runtime.sessionRowId,
-      mapId: runtime.mapId,
-      pocketId: runtime.pocketId,
-      savedAt: this.d.now(),
-      state: "saving",
-      continuity: runtime.continuitySnapshot,
-      workflow: runtime.workflowCheckpoint, // PR6b: the goal-chain cursor (undefined for a single-pocket run)
-    };
-    this.checkpoints.set(accountId, checkpoint);
-    this.drainingAccounts.add(accountId);
-    const paused = runtime.takeover(checkpoint.id, checkpoint.savedAt);
-    if (!paused) {
-      this.checkpoints.delete(accountId);
-      this.drainingAccounts.delete(accountId);
-      this.reject(send, "takeover", "checkpoint_saving", m?.requestId);
+      const checkpoint: StoredCheckpoint = {
+        id: randomUUID(),
+        accountId,
+        characterId: runtime.characterId,
+        host: runtime.host,
+        runtime, // settle-time map reconciliation reads runtime.host (return-warp failure → city-hub, D-069)
+        kind: "takeover",
+        profileId: runtime.profileId,
+        sourceSessionId: runtime.sessionRowId,
+        mapId: runtime.mapId,
+        pocketId: runtime.pocketId,
+        savedAt: this.d.now(),
+        state: "saving",
+        continuity: runtime.continuitySnapshot,
+        workflow: runtime.workflowCheckpoint, // PR6b: the goal-chain cursor (undefined for a single-pocket run)
+      };
+      this.checkpoints.set(accountId, checkpoint);
+      this.drainingAccounts.add(accountId);
+      const paused = runtime.takeover(checkpoint.id, checkpoint.savedAt);
+      if (!paused) {
+        this.checkpoints.delete(accountId);
+        this.drainingAccounts.delete(accountId);
+        this.reject(send, "takeover", "checkpoint_saving", m?.requestId);
+        return false;
+      }
+      checkpoint.continuity = paused;
+      send(MSG_BOT_CHECKPOINT, this.checkpointMessage(checkpoint));
+      this.ack(send, "takeover", m?.requestId);
+      return true;
+    } catch (e) {
+      console.error(`[bot] takeover failed:`, e);
+      this.reject(send, "takeover", "internal_error", m?.requestId);
       return false;
     }
-    checkpoint.continuity = paused;
-    send(MSG_BOT_CHECKPOINT, this.checkpointMessage(checkpoint));
-    this.ack(send, "takeover", m?.requestId);
-    return true;
   }
 
   onStop(accountId: string | null, send: Send, _m: BotStopMessage): void {
-    if (!accountId) return;
-    const rt = this.bots.get(accountId);
-    if (!rt) {
-      if (this.cancelPendingStart(accountId, "manual")) return this.ack(send, "stop");
-      return this.reject(send, "stop", "not_running");
+    // Synchronous fail-soft (see `guarded` doc above — onStop/onTakeover are sync, so they catch inline instead).
+    try {
+      if (!accountId) return;
+      const rt = this.bots.get(accountId);
+      if (!rt) {
+        if (this.cancelPendingStart(accountId, "manual")) return this.ack(send, "stop");
+        return this.reject(send, "stop", "not_running");
+      }
+      rt.stop("manual");
+      this.ack(send, "stop");
+    } catch (e) {
+      console.error(`[bot] stop failed:`, e);
+      this.reject(send, "stop", "internal_error");
     }
-    rt.stop("manual");
-    this.ack(send, "stop");
   }
 
   // ── reports ──────────────────────────────────────────────────────────────────
 
   async onReportList(accountId: string | null, send: Send): Promise<void> {
-    if (!accountId || !this.guardDb(send, "reportList")) return;
-    const tier = await this.resolveTierFor(accountId);
-    const rows = await this.d.sessionRepo.listByAccount(accountId);
-    const reports = listReports(rows, tier, this.d.now(), this.d.config);
-    const msg: BotReportsMessage = { reports };
-    send(MSG_BOT_REPORTS, msg);
+    await this.guarded(send, "reportList", async () => {
+      if (!accountId || !this.guardDb(send, "reportList")) return;
+      const tier = await this.resolveTierFor(accountId);
+      const rows = await this.d.sessionRepo.listByAccount(accountId);
+      const reports = listReports(rows, tier, this.d.now(), this.d.config);
+      const msg: BotReportsMessage = { reports };
+      send(MSG_BOT_REPORTS, msg);
+    });
   }
 
   async onReportFetch(accountId: string | null, send: Send, m: BotReportFetchMessage): Promise<void> {
-    if (!accountId || !this.guardDb(send, "reportFetch")) return;
-    const tier = await this.resolveTierFor(accountId);
-    const row = await this.d.sessionRepo.getById(accountId, m?.id);
-    const detail = fetchReport(row, tier, this.d.now(), this.d.config);
-    const msg: BotReportMessage = { report: detail };
-    send(MSG_BOT_REPORT, msg);
+    await this.guarded(send, "reportFetch", async () => {
+      if (!accountId || !this.guardDb(send, "reportFetch")) return;
+      const tier = await this.resolveTierFor(accountId);
+      const row = await this.d.sessionRepo.getById(accountId, m?.id);
+      const detail = fetchReport(row, tier, this.d.now(), this.d.config);
+      const msg: BotReportMessage = { report: detail };
+      send(MSG_BOT_REPORT, msg);
+    });
   }
 }
 
