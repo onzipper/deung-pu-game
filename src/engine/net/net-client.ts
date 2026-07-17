@@ -167,6 +167,14 @@ import {
  */
 export type NetConnectionState = ConnectionState;
 
+/**
+ * fix(bot-hub-connection-state): connection states net-client itself ever transitions **to** internally
+ * (never "idle" — that value is only debug-info.ts's placeholder for "no net client at all", produced
+ * outside net-client.ts when config.net.enabled=false). `NetClientHandlers.onConnectionStateChange` uses
+ * this narrower union so callers (game-store bridge) don't need to handle a case that never fires.
+ */
+export type NetConnectionLiveState = Exclude<NetConnectionState, "idle">;
+
 /** live snapshot ของสถานะ net — mutate in place, caller ถือ reference อ่านได้ทุก frame. */
 export interface NetStatus {
   state: NetConnectionState;
@@ -407,6 +415,12 @@ export interface NetClientHandlers {
    * correlate กับ local phase ด้วย `op` (bot-view.ts BotOpPhase, pattern เดียวกับ ShopTxPhase). optional.
    */
   onBotOpResult?(msg: BotOpResultMessage): void;
+  /**
+   * fix(bot-hub-connection-state): fires on every `status.state` transition inside net-client (fresh join,
+   * reconnect start/success, drop, session-taken-over, disconnect) — lets caller drive UI gating (Bot Hub
+   * disables ops + shows a banner while not "online") without polling `status.state` every frame. optional.
+   */
+  onConnectionStateChange?(state: NetConnectionLiveState): void;
 }
 
 /** อ่าน MobState schema (reflection → any) → MobSnapshot (coerce state). */
@@ -589,6 +603,13 @@ export function createNetClient(
     lastError: null,
   };
 
+  // fix(bot-hub-connection-state): single choke point for status.state mutation → notify caller (game-store
+  // bridge via app.ts) on every transition. Every `status.state = "x"` below routes through this.
+  const setConnState = (s: NetConnectionLiveState): void => {
+    status.state = s;
+    handlers.onConnectionStateChange?.(s);
+  };
+
   let room: Room | null = null;
   let disposed = false;
   // P1-07: token กลับเข้า seat เดิม (อัปเดตทุกครั้งที่ join/reconnect สำเร็จ) + flag กัน reconnect ซ้อน.
@@ -664,7 +685,7 @@ export function createNetClient(
     mapReconciled = false; // PR5-fix: re-check loaded map vs room map for this fresh connection
     room = joinedRoom;
     persistToken(joinedRoom.reconnectionToken); // P1-07(-fix): เก็บ token ล่าสุด (memory + per-tab store)
-    status.state = "online";
+    setConnState("online");
     status.roomId = joinedRoom.roomId;
     const $ = getStateCallbacks(joinedRoom);
     const state = joinedRoom.state as {
@@ -920,14 +941,14 @@ export function createNetClient(
       if (code === WS_CLOSE_SESSION_TAKEN_OVER) {
         reconnectionToken = null;
         config.store.clear();
-        status.state = "offline";
+        setConnState("offline");
         status.lastError = "session_taken_over";
         return;
       }
       // P1-07: consented leave (เราเรียก leave() เอง) → offline จริง. หลุดไม่ตั้งใจ (code ≠ 4000) →
       // พยายาม auto-reconnect เข้า seat เดิม (server hold state ใน grace, §59.1).
       if (code === WS_CLOSE_CONSENTED || reconnectionToken === null) {
-        status.state = "offline";
+        setConnState("offline");
         return;
       }
       void beginReconnect();
@@ -945,7 +966,7 @@ export function createNetClient(
   const beginReconnect = async (): Promise<void> => {
     if (reconnecting || disposed) return;
     reconnecting = true;
-    status.state = "reconnecting";
+    setConnState("reconnecting");
     const token = reconnectionToken;
     room = null;
 
@@ -981,7 +1002,7 @@ export function createNetClient(
 
   /** P1-07: fresh join (boot ครั้งแรก / หลัง reconnect ล้มเหลว) — server spawn ที่ safe camp, ไม่ throw. */
   const freshJoin = async (): Promise<void> => {
-    status.state = "connecting";
+    setConnState("connecting");
     try {
       // P2-04: แนบ realtime token (ถ้าขอได้) ใน joinOptions → server onAuth verify. null (offline/dev
       // client-only) = join ไม่มี token (server dev bypass รับ). token คนละเรื่องกับ reconnectionToken.
@@ -1007,7 +1028,7 @@ export function createNetClient(
       }
       wire(joined);
     } catch (err) {
-      status.state = "offline";
+      setConnState("offline");
       status.lastError = err instanceof Error ? err.message : String(err);
       console.warn(
         `[net] connect ล้มเหลว (${config.serverUrl}) — เล่น solo ต่อ:`,
@@ -1181,7 +1202,7 @@ export function createNetClient(
     disconnect(): void {
       if (disposed) return;
       disposed = true;
-      status.state = "offline";
+      setConnState("offline");
       reconnectionToken = null; // P1-07: กัน onLeave trigger auto-reconnect หลังตั้งใจปิด
       // P1-07-fix: consented leave (SPA nav away / map transition) → ล้าง token ไม่ให้ boot ครั้งหน้า
       //   reconnect กลับ room/map เก่า. (refresh/close tab ไม่เรียก disconnect — ws หลุด unconsented แทน.)

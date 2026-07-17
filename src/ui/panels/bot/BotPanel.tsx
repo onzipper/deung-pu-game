@@ -26,12 +26,15 @@ import {
   selectBotReports,
   selectBotStatus,
   selectBotTierState,
+  selectConnectionState,
   selectInventory,
 } from "@/ui/store/game-store";
 import { useGameStore } from "@/ui/store/use-game-store";
 import {
   BOT_PANEL_ID,
+  botBusyOpFromPhase,
   botOpMessage,
+  botOpsAvailable,
   canConfirmBotOp,
   createBotTutorialStore,
   dismissBotTutorial,
@@ -77,6 +80,10 @@ export function BotPanel({ getHandle }: BotPanelProps) {
   const checkpoint = useGameStore(selectBotCheckpoint);
   const authorityActive = useGameStore(selectBotAuthorityActive);
   const inventory = useGameStore(selectInventory);
+  // fix(bot-hub-connection-state): connectionState gates every op button (send() fail-fast below) — not just
+  // BotStatusChip's stale tierState≠null check (tierState can be non-null from before a drop, FIX2 root cause).
+  const connectionState = useGameStore(selectConnectionState);
+  const opsAvailable = botOpsAvailable(connectionState);
 
   const [tab, setTab] = useState<BotTab>("status");
   const [phase, setPhase] = useState<BotOpPhase>({ kind: "idle" });
@@ -116,13 +123,21 @@ export function BotPanel({ getHandle }: BotPanelProps) {
   }, [phase]);
 
   const opState = resolveBotOpState(phase);
-  const busy = !canConfirmBotOp(opState);
+  // fix(bot-hub-connection-state): fold offline-ness into `busy` too — every button downstream (BotPlansTab
+  // create/edit/delete, BotPackagesTab buy) already threads this single `busy` prop through unchanged.
+  const busy = !canConfirmBotOp(opState) || !opsAvailable;
+  const busyOp = botBusyOpFromPhase(phase); // CTA label only (FIX4) — must NOT include offline (see bot-view.ts doc)
   const opMessage = botOpMessage(opState, phase.kind === "settled" ? phase.result : opResult);
   const caps = tierState?.caps ?? null;
 
   const send = (op: string, fn: (net: BotNet) => void): void => {
     const net = getHandle()?.net;
-    if (!net) return;
+    // fix(bot-hub-connection-state): fail-fast — every sendBot* is a silent no-op when net isn't "online"
+    // (net-client.ts guard). Entering "processing" anyway is the root cause of the stuck 8s timeout banner.
+    if (!net || !opsAvailable) {
+      setPhase({ kind: "offline" });
+      return;
+    }
     fn(net);
     setPhase({ kind: "processing", op });
   };
@@ -165,6 +180,7 @@ export function BotPanel({ getHandle }: BotPanelProps) {
         onTabChange={setTab}
         tierState={tierState}
         nowMs={nowMs}
+        connectionState={connectionState}
         opMessage={opMessage}
         opState={opState}
         onDismissOpMessage={() => setPhase({ kind: "idle" })}
@@ -184,6 +200,7 @@ export function BotPanel({ getHandle }: BotPanelProps) {
             authorityActive={authorityActive}
             inventory={inventory}
             busy={busy}
+            busyOp={busyOp}
             cta={cta}
             onCtaClick={onCtaClick}
             onGoToPlans={() => setTab("profiles")}

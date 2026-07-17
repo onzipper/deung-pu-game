@@ -90,6 +90,16 @@ export type WorldPhaseView = "dawn" | "day" | "dusk" | "night";
 export type WeatherView = "clear" | "rain";
 
 /**
+ * fix(bot-hub-connection-state): structural twin of engine `NetConnectionLiveState` (net-client.ts) — declared
+ * here instead of imported so `src/ui/**` never imports `src/engine/**` types directly (ui.md contract, same
+ * pattern as MinimapBlip/WorldPhaseView/AutoPilotStopReasonView). "connecting" = initial/boot or mid fresh-join
+ * retry, "reconnecting" = ws dropped unintentionally and net-client is retrying the same seat within grace,
+ * "offline" = gave up (solo play) or consented leave, "online" = joined a room. Bot Hub (and anything else that
+ * sends server intents) gates on `=== "online"` — the other three all mean "sends would silently no-op".
+ */
+export type ConnectionStateView = "connecting" | "online" | "offline" | "reconnecting";
+
+/**
  * Auto Pilot (Batch 7a, D-037): เหตุผลที่ auto-walk หยุด — structural twin ของ engine `AutoPilotStopReason`
  * (src/engine/player/auto-pilot.ts) ประกาศซ้ำที่นี่กัน UI import engine ตรง ๆ (ui.md contract, pattern
  * เดียวกับ MinimapBlip/WorldPhaseView). AutoPilotChip map เป็นข้อความไทย (ถึงแล้ว/หยุดเอง/...).
@@ -118,6 +128,12 @@ export interface ActiveDialogueView {
 export interface HudState {
   /** snapshot ล่าสุดของ debug overlay (P0-11) — null ก่อน engine publish ครั้งแรก */
   debugInfo: EngineDebugInfo | null;
+  /**
+   * fix(bot-hub-connection-state): net connection lifecycle, event-driven (engine calls setConnectionState on
+   * every net-client status.state transition — not the throttled ~4Hz debugInfo poll, so UI reacts immediately
+   * to a drop). Initial "connecting" (matches net-client's boot state before the first join attempt resolves).
+   */
+  connectionState: ConnectionStateView;
   /** snapshot inventory/equipment ล่าสุดจาก server (P2-07, MSG_INVENTORY_STATE) — null ก่อน join สำเร็จ */
   inventory: InventorySnapshot | null;
   /**
@@ -308,6 +324,7 @@ export interface HudState {
 
 export const INITIAL_HUD_STATE: HudState = {
   debugInfo: null,
+  connectionState: "connecting",
   inventory: null,
   inventoryRejection: null,
   enhanceResult: null,
@@ -373,6 +390,17 @@ export function resetHudState(): void {
 
 /** typed selector — เลี่ยง `state.debugInfo` กระจายทั่วไฟล์ component */
 export const selectDebugInfo = (state: HudState): EngineDebugInfo | null => state.debugInfo;
+
+/**
+ * fix(bot-hub-connection-state): engine เรียกทันทีที่ net-client status.state เปลี่ยน (event-driven ไม่ throttle
+ * — ผู้เล่นต้องเห็น UI gate ทันทีที่หลุด ไม่ใช่รอ ~250ms debugInfo poll). ดู ConnectionStateView doc ด้านบน.
+ */
+export function setConnectionState(state: ConnectionStateView): void {
+  gameStore.setState({ connectionState: state });
+}
+
+/** typed selector — connection state ล่าสุด (fix(bot-hub-connection-state)) */
+export const selectConnectionState = (state: HudState): ConnectionStateView => state.connectionState;
 
 /**
  * P2-07: event-driven (ไม่ throttle) — engine เรียกตรงทันทีที่ MSG_INVENTORY_STATE มาถึง (ต่างจาก

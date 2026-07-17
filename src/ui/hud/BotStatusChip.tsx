@@ -20,10 +20,12 @@ import {
   selectBotProfiles,
   selectBotStatus,
   selectBotTierState,
+  selectConnectionState,
 } from "@/ui/store/game-store";
 import {
   BOT_PANEL_ID,
   botCtaButtonLabel,
+  botOpsAvailable,
   resolveActiveBotProfileId,
   resolveBotCta,
   resolveBotCtaAction,
@@ -45,9 +47,14 @@ export function BotStatusChip({ getHandle }: BotStatusChipProps) {
   const checkpoint = useGameStore(selectBotCheckpoint);
   const authorityActive = useGameStore(selectBotAuthorityActive);
   const lastStopped = useGameStore(selectBotLastStopped);
-  // chip ไม่ track op phase เต็มแบบ Bot Hub (ไม่มี bot:opResult reconciliation ที่นี่) — busy เป็นแค่ debounce
-  // สั้น ๆ กันกดซ้ำระหว่างรอ server ตอบ (authorityActive/status จะอัปเดตจริงตอนถัดไปอยู่แล้ว).
-  const [busy, setBusy] = useState(false);
+  // fix(bot-hub-connection-state): tierState≠null alone is stale after a drop (server answered bot:tierState
+  // before the connection dropped) — gate the CTA on live connectionState too (chip itself still shows status).
+  const connectionState = useGameStore(selectConnectionState);
+  const opsAvailable = botOpsAvailable(connectionState);
+  // chip ไม่ track op phase เต็มแบบ Bot Hub (ไม่มี bot:opResult reconciliation ที่นี่) — busyOp เป็นแค่ debounce
+  // สั้น ๆ กันกดซ้ำระหว่างรอ server ตอบ (authorityActive/status จะอัปเดตจริงตอนถัดไปอยู่แล้ว). เก็บเป็น op name
+  // (ไม่ใช่ boolean) เพราะ botCtaButtonLabel ต้องรู้ว่า busy ตรงกับ action ของ CTA นี้จริงไหม (FIX4).
+  const [busyOp, setBusyOp] = useState<string | null>(null);
 
   if (!tierState) return null;
 
@@ -55,7 +62,7 @@ export function BotStatusChip({ getHandle }: BotStatusChipProps) {
   const activeProfile = profiles?.find((p) => p.id === selectedProfileId) ?? null;
   const hasStartableProfile = !!profiles?.some((p) => !p.readOnly);
 
-  const opState: BotOpState = busy ? "PROCESSING" : "IDLE";
+  const opState: BotOpState = busyOp !== null ? "PROCESSING" : "IDLE";
   const ctaInput: BotCtaInput = {
     authorityActive,
     status,
@@ -75,12 +82,13 @@ export function BotStatusChip({ getHandle }: BotStatusChipProps) {
   const onCtaClick = (): void => {
     const action = resolveBotCtaAction(cta, selectedProfileId, checkpoint);
     const net = getHandle()?.net;
-    if (!action || !net) return;
-    setBusy(true);
+    // fix(bot-hub-connection-state): fail-fast — sendBot* is a silent no-op when not "online" (net-client.ts).
+    if (!action || !net || !opsAvailable) return;
+    setBusyOp(action.kind);
     if (action.kind === "stop") net.sendBotStop({});
     else if (action.kind === "resume") net.sendBotResume({ checkpointId: action.checkpointId });
     else net.sendBotStart({ profileId: action.profileId });
-    setTimeout(() => setBusy(false), 1500); // เผื่อ round-trip เท่านั้น — server เป็น authority จริง
+    setTimeout(() => setBusyOp(null), 1500); // เผื่อ round-trip เท่านั้น — server เป็น authority จริง
   };
 
   const positionClass = isMobile ? "fixed z-30" : "fixed bottom-4 left-4 z-30";
@@ -109,10 +117,10 @@ export function BotStatusChip({ getHandle }: BotStatusChipProps) {
         <button
           type="button"
           onClick={onCtaClick}
-          disabled={!cta.enabled}
+          disabled={!cta.enabled || !opsAvailable}
           className="dp-focus-ring shrink-0 rounded-(--dp-radius-sm) bg-(--dp-resonance-teal)/80 px-2 py-1 text-[11px] font-semibold text-(--dp-deep-brown) hover:bg-(--dp-resonance-teal) disabled:cursor-not-allowed disabled:opacity-50"
         >
-          {botCtaButtonLabel(cta, busy)}
+          {botCtaButtonLabel(cta, busyOp)}
         </button>
       )}
     </div>

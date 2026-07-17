@@ -12,7 +12,7 @@
 - `src/engine/pathfinding/` — A* on the iso grid (click-to-move)
 - `src/engine/player/` — local player/correction + autonomy lock/takeover intent + auto-pilot (D-037, ≠ bot) + companion.ts (entity creation, fixed spawnAt) + dung-presence.ts (pure resolveDungPresence state machine, D-068 §0.0 contextual guide — HUB_IDLE/SUMMONED_CONTEXT/REPORT_NARRATION/STORY_APPEARANCE/HIDDEN)
 - `src/engine/net/` — Colyseus glue, stable controller→actor self binding, reconnect/interpolation, party, visibility
-- `src/engine/net/net-client.ts` — connect/reconnect, stable self actor, cast + Bot takeover/checkpoint/resume messages
+- `src/engine/net/net-client.ts` — connect/reconnect, stable self actor, cast + Bot takeover/checkpoint/resume messages; `onConnectionStateChange` handler fires on every status.state transition (fix(bot-hub-connection-state) — app.ts mirrors it into game-store's `connectionState`)
 - `src/engine/net/self-authority.ts` — M6: pure self-state interpolation buffer used only during Character Autonomy (snap-vs-interpolate decision + boundary seed/warp/flush; reuses interpolation.ts) — kills the stutter when a bot drives your actor
 - `src/engine/animation/` — animation manifest (5-dir+mirror), sprite animator, placeholder textures, texture-set (non-owning handles)
 - `src/engine/assets/` — runtime atlas loader/registry (engine-scope, fail-soft → placeholder)
@@ -40,7 +40,7 @@
 - `src/app/hub/` — Game Hub route: auth/upgrade panels, character grid/create, enter-game
 - `src/app/api/` — auth (guest/register/login/upgrade/session/rt-token) + characters (list/create)
 - `src/ui/` — GameCanvas (mount bridge), DebugOverlay (F3), debug-overlay-logic (pure reducer)
-- `src/ui/store/` — Zustand vanilla store bridge (HUD state, engine→UI one-way, no React import)
+- `src/ui/store/` — Zustand vanilla store bridge (HUD state, engine→UI one-way, no React import); `connectionState` (event-driven, not throttled debugInfo poll) — Bot Hub/HUD chip gate op sends on `=== "online"` (fix(bot-hub-connection-state))
 - `src/ui/theme/rarity.ts` — rarity color tokens (D-043)
 - `src/ui/components/` — token kit §4: PanelFrame, Button, TextInput, ItemSlot, Tooltip, ConfirmDialog(+hold-to-confirm), Toast
 - `src/ui/hud/` — M5 HUD redesign: `HudRoot.tsx` (7 named slots, organizational only — each widget still self-positions via its own fixed classes) + `hud-layout.ts` (`HudSlotName`, Utility Dock item config/shortcuts/availability, z-index semantics stay per-widget) · `UtilityDock.tsx` (8 buttons — inventory/enhancement/shop/storage/journal/bot/help/settings, one I/J/B shortcut listener — replaces the old per-panel fixed `*HudButton.tsx` files, all deleted) · `BotStatusChip.tsx` + `bot-status-chip-view.ts` (bottom-left desktop / under StatusCluster on mobile, same `resolveBotCta` as the Bot Hub, copy-guard scans this folder too)
