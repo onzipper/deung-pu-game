@@ -48,8 +48,9 @@ import {
   type ShakeState,
 } from "@/engine/render/screen-shake";
 import type { MobViewHandle } from "@/game/mob/manager";
+import { getMobNameEntry } from "@/game/mob/name-catalog";
 import type { ClientSkillView } from "@/game/skill/views";
-import type { CastSkillMessage, SkillResultMessage } from "@/shared/net-protocol";
+import type { CastSkillMessage, PlayerDamagedMessage, SkillResultMessage } from "@/shared/net-protocol";
 import { defaultRng, type RngFn } from "@/game/mob/rng";
 import {
   advanceCooldown,
@@ -60,7 +61,11 @@ import {
   tileUnitVectorForScreenAngle,
   type AttackShape,
 } from "@/game/combat/hit-test";
-import { createDamageNumberLayer, type DamageNumberLayerHandle } from "@/game/combat/damage-number";
+import {
+  createDamageNumberLayer,
+  type DamageNumberLayerConfig,
+  type DamageNumberLayerHandle,
+} from "@/game/combat/damage-number";
 import {
   advanceHitStop,
   computeHitStopTimeScale,
@@ -71,6 +76,23 @@ import {
 import { resolveJuiceLevel } from "@/game/combat/juice-level";
 import { createSkillVfxManager, type SkillVfxManagerHandle } from "@/game/combat/skill-vfx";
 import { getSoundManager } from "@/engine/audio/sound-manager";
+import { isBigDamage, resolveImpactTier } from "@/game/combat/damage-tier";
+import {
+  advanceCameraFlash,
+  computeCameraFlashAlpha,
+  createCameraFlashState,
+  triggerCameraFlash,
+  type CameraFlashState,
+  type CameraFlashStyleConfig,
+} from "@/game/combat/camera-flash";
+import { createParticleBurstLayer, type ParticleBurstLayerHandle } from "@/game/combat/impact-particles";
+import { scaleParticleBurstCount } from "@/game/combat/particle-burst";
+import {
+  combatJuiceQualityScale,
+  DEFAULT_COMBAT_JUICE_CONFIG,
+  isQualityAtLeast,
+  type CombatJuiceConfig,
+} from "@/game/combat/juice-config";
 
 /** zLayer ของ hitbox debug wedge — เหนือ entity ปกติ (0); damage number ไม่ใช้ scene zLayer อีกต่อไป
  *  (P1-06: อยู่ layer แยกที่เป็น child หลังสุดของ scene.world เสมอ — ดู damage-number.ts). */
@@ -80,6 +102,12 @@ const HITBOX_ARC_SEGMENTS = 16;
 /** Wave 2 SFX (D-065): hit/crit/kill ของ caster อื่น (ไม่ใช่ own cast) เบาลงเหลือสัดส่วนนี้ — ยังให้ signal
  *  ว่ามีการต่อสู้เกิดขึ้นรอบตัว แต่ไม่ดังเท่าของตัวเอง. ค่า cosmetic audio mix ล้วน ไม่ใช่ balance knob (§48). */
 const REMOTE_HIT_SFX_VOLUME_SCALE = 0.35;
+/**
+ * Combat Juice F5 camera flash overlay: ครึ่งขนาด (px) ของสี่เหลี่ยม screen-space ที่วาดรอบจุด (0,0) local —
+ * ใหญ่พอครอบทุกความละเอียดจอจริง (ปกติ ≤ 4K ~3840px) โดยไม่ต้องรู้ viewport จริง (เทคนิค "world-position
+ * cancel" — ดู comment ยาวที่จุดสร้าง cameraFlashOverlay ด้านล่าง).
+ */
+const CAMERA_FLASH_HALF_SIZE_PX = 6000;
 
 /** dependencies ที่ caller (app.ts) เชื่อมกับ net/skill layer (P1-05). */
 export interface CombatStubDeps {
@@ -102,6 +130,13 @@ export interface CombatStubDeps {
    * อะไรเลย (fail-soft, ไม่ throw — เกมเล่นได้ปกติแค่ไม่เห็นเอฟเฟกต์).
    */
   registry?: AssetRegistry;
+  /**
+   * Combat Juice F5: knob group สำหรับ impact flash/particle/death-vfx/camera-flash/damage-number extras —
+   * ยังไม่มีที่อยู่ใน src/engine/config/** (game-specialist scope = src/game/** เท่านั้น, ดู
+   * game/combat/juice-config.ts module header). ไม่ส่ง (undefined) = DEFAULT_COMBAT_JUICE_CONFIG (inject
+   * ได้เพื่อเทสต์/tune ภายหลังโดยไม่แก้โค้ด).
+   */
+  juiceConfig?: CombatJuiceConfig;
 }
 
 export interface CombatStubHandle {
@@ -116,6 +151,13 @@ export interface CombatStubHandle {
    *   ตีมอบตายอีกฝั่งไม่ควรทำให้จอเราสั่น/หยุด) — เลข damage number ยังโชว์ทุก caster เหมือนเดิม (ไม่ gate).
    */
   onSkillResult(result: SkillResultMessage, isOwnCast: boolean): void;
+  /**
+   * Combat Juice F5 (A1 §2): รับ MSG_PLAYER_DAMAGED (broadcast, มอน contact ใส่ผู้เล่น) → เล่นเลข damage
+   * โทน "incoming" เหนือหัว local player + shake/camera-flash เบา ๆ **เฉพาะ isSelf เท่านั้น** (ยังไม่รองรับ
+   * remote player position — ดู module header/report: ต้อง remote-player-manager position lookup ซึ่งอยู่
+   * นอกไฟล์นี้). caller (app.ts) เทียบ `msg.sessionId === net.status.selfSessionId` เหมือน onSkillResult.
+   */
+  onPlayerDamaged(msg: PlayerDamagedMessage, isSelf: boolean): void;
   /**
    * DEV-ONLY (P1-06 §5 stress harness) — spawn เลข damage สังเคราะห์ตรง ๆ ผ่าน pool/aggregate จริง
    * (พิสูจน์ budget ด้วยเส้นทางการผลิตจริง). ไม่ผ่าน validate/cooldown/server — caller (stress harness
@@ -179,9 +221,19 @@ export function createCombatStub(
   // P1-11: combat ปิดในโซน safe (เมือง) → gate การกดโจมตี (Space/tap) — default = เปิด (field).
   const combatEnabled = deps.combatEnabled !== false;
   const rng: RngFn = deps.rng ?? defaultRng;
+  // Combat Juice F5: knob group แยกจาก combatFeel (engine) — ดู juice-config.ts module header + CombatStubDeps doc.
+  const juiceConfig: CombatJuiceConfig = deps.juiceConfig ?? DEFAULT_COMBAT_JUICE_CONFIG;
+  // F5: ประกอบ config ที่ damage-number.ts ต้องการจริง (engine normal/crit/aggregate + F5 incoming/pop) —
+  // structural spread, ไม่แตะ engine config type/file (ดู DamageNumberLayerConfig doc).
+  const damageNumberConfig: DamageNumberLayerConfig = {
+    ...combatFeel.damageNumber,
+    incoming: juiceConfig.damageNumber.incoming,
+    popScaleByKind: juiceConfig.damageNumber.popScaleByKind,
+    popDurationMs: juiceConfig.damageNumber.popDurationMs,
+  };
   const damageNumbers: DamageNumberLayerHandle = createDamageNumberLayer(
     scene,
-    combatFeel.damageNumber,
+    damageNumberConfig,
     combatFeel.effectQuality,
     tileSize,
   );
@@ -192,12 +244,51 @@ export function createCombatStub(
   const triggerSkillVfx = (skillId: string): void => {
     skillVfx.spawn(skillId, player.position, player.facing);
   };
+  // Combat Juice F5: spark/death-burst/loot-sparkle ใช้ pool เดียวกัน (budget เดียว, ดู impact-particles.ts).
+  const particles: ParticleBurstLayerHandle = createParticleBurstLayer(
+    scene,
+    juiceConfig.impactParticles.poolSize,
+    tileSize,
+    rng,
+  );
 
   // P1-06 juice state (per combat-stub instance = per local player) — ดู module header
   const hitStopState: HitStopState = createHitStopState();
   const shakeState: ShakeState = createShakeState();
   const currentShakeAmplitudeScale = (feel: CombatFeelConfig): number =>
     feel.effectQuality.tiers[feel.effectQuality.current].shakeAmplitudeScale;
+
+  // Combat Juice F5 camera flash (ขอบจอวาบสี ตอน crit ใหญ่/โดนตี) — screen-space overlay ผ่านเทคนิค "world
+  // position cancel": rect ใหญ่มาก (±CAMERA_FLASH_HALF_SIZE_PX) เป็นลูกของ scene.world (public field)
+  // วางตำแหน่ง local = -world.position ทุกเฟรม → หักล้าง pan ของกล้อง (world.position + localPos ≈ (0,0)
+  // เสมอ ไม่ว่ากล้องจะอยู่ไหน) โดยไม่ต้องรู้ viewport จริง เหมือน damage-number layer ที่ add เข้า scene.world
+  // ตรง ๆ (pattern เดียวกัน) แต่ overlay นี้ต้อง**บนสุดจริง**จึง add หลัง particles/damageNumbers (ลำดับ
+  // z ของ pixi = ลำดับ addChild). ระบายสีใหม่เฉพาะตอน state.color เปลี่ยนจริง (ไม่ redraw ทุกเฟรม — perf).
+  const cameraFlashState: CameraFlashState = createCameraFlashState();
+  const cameraFlashOverlay = new Graphics();
+  cameraFlashOverlay.alpha = 0;
+  scene.world.addChild(cameraFlashOverlay);
+  let cameraFlashDrawnColor: number | null = null;
+  const redrawCameraFlashOverlay = (color: number): void => {
+    cameraFlashOverlay.clear();
+    cameraFlashOverlay
+      .rect(
+        -CAMERA_FLASH_HALF_SIZE_PX,
+        -CAMERA_FLASH_HALF_SIZE_PX,
+        CAMERA_FLASH_HALF_SIZE_PX * 2,
+        CAMERA_FLASH_HALF_SIZE_PX * 2,
+      )
+      .fill({ color });
+    cameraFlashDrawnColor = color;
+  };
+  /** true = quality ปัจจุบันพอสำหรับ camera flash (ของแพงสุดในชุด F5 — ปิดที่ low ตาม invariant). */
+  const cameraFlashAllowed = (): boolean =>
+    juiceConfig.cameraFlash.enabled &&
+    isQualityAtLeast(combatFeel.effectQuality.current, juiceConfig.cameraFlash.minQuality);
+  const fireCameraFlash = (style: CameraFlashStyleConfig): void => {
+    if (!cameraFlashAllowed()) return;
+    triggerCameraFlash(cameraFlashState, style);
+  };
 
   // shape ของสกิลจริง (client view มี range/radius/angle — shared field): cone/arc/line ใช้ range+angle,
   // circle ใช้ radius; angle null → 360 (รอบตัว). ใช้ทั้ง offline dummy hit + hitbox debug wedge.
@@ -217,6 +308,9 @@ export function createCombatStub(
   /** cache ตำแหน่งมอนล่าสุด (id → foot tile) — ให้ damage number ของ killing blow render ตรงจุด
    *  แม้ mob เพิ่ง despawn (state removal อาจมาก่อน/หลัง skill_result). refresh ทุก frame. */
   const lastMobPos = new Map<string, TilePoint>();
+  /** Combat Juice F5: cache mobType คู่กับ lastMobPos (id → mobType) — ใช้เลือกสี death burst ตาม rank
+   *  แม้มอนเพิ่ง despawn ไปแล้วตอน killing blow (เหตุผลเดียวกับ lastMobPos). */
+  const lastMobType = new Map<string, string>();
 
   const clearHitboxDebug = (): void => {
     if (!hitbox) return;
@@ -238,8 +332,10 @@ export function createCombatStub(
 
       // refresh cache ตำแหน่งมอน (clone tx/ty — getAliveTargets คืน live reference)
       lastMobPos.clear();
+      lastMobType.clear();
       for (const t of mobs.getAliveTargets()) {
         lastMobPos.set(t.id, { tx: t.pos.tx, ty: t.pos.ty });
+        lastMobType.set(t.id, t.mobType);
       }
 
       // consume เสมอ (เคลียร์ edge กันค้าง) แต่ยิงจริงเฉพาะเมื่อ combat เปิด (P1-11: safe zone → ไม่ยิง).
@@ -304,6 +400,7 @@ export function createCombatStub(
 
       damageNumbers.update(juiceDtSeconds);
       skillVfx.update(juiceDtSeconds * 1000); // F4: ผูก tick เดียวกับ damage number/hitbox fade (hit-stop scaled)
+      particles.update(juiceDtSeconds * 1000); // F5: spark/death-burst/loot-sparkle ผูก tick เดียวกัน (hit-stop scaled)
 
       // P1-06 screen shake (GS §17.5): decay real-time (ไม่ผูกกับ hit-stop scale) → ดัน offset เข้า
       // scene ทุก frame ก่อน app.ts เรียก scene.update() (ลำดับ tick เดียวกัน, ดู runtime/app.ts).
@@ -311,13 +408,45 @@ export function createCombatStub(
       scene.setCameraShakeOffset(
         combatFeel.screenShake.enabled ? computeShakeOffset(shakeState, rng) : { sx: 0, sy: 0 },
       );
+
+      // F5 camera flash: decay real-time เหมือน shake (ไม่ผูก hit-stop scale) — redraw สีเฉพาะตอนเปลี่ยนจริง.
+      // gate ด้วย cameraFlashAllowed() ทุกเฟรม (ไม่ใช่แค่ตอน trigger) เหมือน screenShake.enabled ด้านบน —
+      // เปลี่ยน quality กลาง flash ที่กำลังเล่นอยู่ก็ตัดทันที ไม่ทิ้งค้างจนจบ decay.
+      advanceCameraFlash(cameraFlashState, dtSeconds * 1000);
+      const flashAlpha = cameraFlashAllowed() ? computeCameraFlashAlpha(cameraFlashState) : 0;
+      if (flashAlpha > 0 && cameraFlashDrawnColor !== cameraFlashState.color) {
+        redrawCameraFlashOverlay(cameraFlashState.color);
+      }
+      cameraFlashOverlay.alpha = flashAlpha;
+      // หักล้าง camera pan (scene.world.position เฟรมก่อนหน้า — ดู comment ตอนสร้าง overlay ด้านบน)
+      cameraFlashOverlay.position.set(-scene.world.position.x, -scene.world.position.y);
     },
 
     onSkillResult(result: SkillResultMessage, isOwnCast: boolean): void {
-      for (const hit of result.hits) {
+      const hits = result.hits;
+      hits.forEach((hit, index) => {
         const pos = lastMobPos.get(hit.mobId);
-        if (!pos) continue; // มอนไม่รู้จัก/หายไปเกิน 1 เฟรม — ข้าม
-        damageNumbers.spawn(pos, hit.dmg, { crit: hit.crit, targetId: hit.mobId });
+        if (!pos) return; // มอนไม่รู้จัก/หายไปเกิน 1 เฟรม — ข้าม
+
+        // F5: จัดกลุ่มความหนักของ hit นี้ (สไตล์ล้วน ๆ ไม่กระทบ balance) — ใช้เลือกสี/จำนวน flash+particle
+        const tier = resolveImpactTier({ dmg: hit.dmg, crit: hit.crit }, juiceConfig.damageTier);
+
+        // F5 multi-hit stagger: มี >1 เป้าในผลเดียวกัน (AoE) → เรียงจังหวะกันเลขทับ/โผล่พร้อมกันทื่อๆ
+        const spawnDelayMs = hits.length > 1 ? index * juiceConfig.damageNumber.multiHitStaggerMs : 0;
+        damageNumbers.spawn(pos, hit.dmg, { crit: hit.crit, targetId: hit.mobId, spawnDelayMs });
+
+        // F5 impact flash + spark particles: ทุก caster (ไม่ gate own-cast — feedback ผูกกับตัวมอนเอง/จุด
+        // กระทบ ไม่ใช่จอผู้เล่นคนเดียว เหมือน damage number/SFX ด้านล่าง).
+        if (juiceConfig.impactFlash.enabled) {
+          mobs.flashHit(hit.mobId, juiceConfig.impactFlash.stylesByTier[tier]);
+        }
+        if (juiceConfig.impactParticles.enabled) {
+          const scale = combatJuiceQualityScale(
+            juiceConfig.impactParticles.countScaleByQuality,
+            combatFeel.effectQuality.current,
+          );
+          particles.spawn(pos, scaleParticleBurstCount(juiceConfig.impactParticles.stylesByTier[tier], scale));
+        }
 
         // Wave 2 SFX (D-065): hit/crit/kill ได้ยินทุก caster เหมือน damage number (ไม่ gate ทิ้งแบบ hit
         // stop/screen shake ด้านล่าง) — เบาลงถ้าไม่ใช่ own cast ให้ signal ว่ามีการต่อสู้รอบตัวโดยไม่หนวกหู.
@@ -328,19 +457,28 @@ export function createCombatStub(
 
         // owner report: hit stop/screen shake ต้อง trigger เฉพาะผลจาก cast ของตัวเอง — เพื่อนตีมอบตายอีกฝั่ง
         // ไม่ควรทำให้จอเราสั่น/หยุด (เลข damage number ข้างบนยังโชว์ทุก caster เหมือนเดิม, ไม่ gate).
-        if (!isOwnCast) continue;
+        if (!isOwnCast) return;
+
+        // F5: hit ที่ trigger hit-stop/shake อยู่แล้ว (crit/kill) แต่ dmg ก็ "big" ด้วย → ยกระดับอีกขั้น
+        // (tune magnitude เท่านั้น — ไม่เปลี่ยนเงื่อนไข "trigger เมื่อไหร่" เดิมของ combatFeel เลย)
+        const bigHitFloor = isBigDamage(hit.dmg, juiceConfig.damageTier)
+          ? juiceConfig.hitStopBigHit.minLevelOnBigHit
+          : 0;
 
         // P1-06 (GS §17.5): hit stop เมื่อ crit/kill เท่านั้น — ระดับตาม skill.hitStopLevel (client manifest),
         // ยกขึ้นด้วย minLevelOnKill/minLevelOnCrit (feel floor, ดู juice-level.ts) กัน skill level ต่ำ (S1=0)
         // ทำให้ kill/crit ไม่รู้สึกอะไรเลย.
         if (hit.crit || hit.killed) {
-          const hitStopLevel = resolveJuiceLevel({
-            baseLevel: skill.hitStopLevel,
-            killed: hit.killed,
-            crit: hit.crit,
-            minLevelOnKill: combatFeel.hitStop.minLevelOnKill,
-            minLevelOnCrit: combatFeel.hitStop.minLevelOnCrit,
-          });
+          const hitStopLevel = Math.max(
+            resolveJuiceLevel({
+              baseLevel: skill.hitStopLevel,
+              killed: hit.killed,
+              crit: hit.crit,
+              minLevelOnKill: combatFeel.hitStop.minLevelOnKill,
+              minLevelOnCrit: combatFeel.hitStop.minLevelOnCrit,
+            }),
+            bigHitFloor,
+          );
           triggerHitStop(hitStopState, hitStopLevel, combatFeel.hitStop.durationMsByLevel);
         }
         // screen shake: crit/kill เสมอ **หรือ** skill.screenShakeLevel สูงพอ (เช่น ultimate-tier) แม้ hit
@@ -348,13 +486,16 @@ export function createCombatStub(
         const shouldShake =
           hit.crit || hit.killed || skill.screenShakeLevel >= combatFeel.screenShake.alwaysTriggerAtLevel;
         if (shouldShake) {
-          const shakeLevel = resolveJuiceLevel({
-            baseLevel: skill.screenShakeLevel,
-            killed: hit.killed,
-            crit: hit.crit,
-            minLevelOnKill: combatFeel.screenShake.minLevelOnKill,
-            minLevelOnCrit: combatFeel.screenShake.minLevelOnCrit,
-          });
+          const shakeLevel = Math.max(
+            resolveJuiceLevel({
+              baseLevel: skill.screenShakeLevel,
+              killed: hit.killed,
+              crit: hit.crit,
+              minLevelOnKill: combatFeel.screenShake.minLevelOnKill,
+              minLevelOnCrit: combatFeel.screenShake.minLevelOnCrit,
+            }),
+            bigHitFloor,
+          );
           triggerShake(
             shakeState,
             shakeLevel,
@@ -362,7 +503,40 @@ export function createCombatStub(
             currentShakeAmplitudeScale(combatFeel),
           );
         }
-      }
+
+        // F5 camera flash: crit ที่ dmg ก็สูงพอ (critMinDamage) → วาบขอบจอสั้น ๆ (own cast เท่านั้น)
+        if (hit.crit && hit.dmg >= juiceConfig.cameraFlash.critMinDamage) {
+          fireCameraFlash(juiceConfig.cameraFlash.critStyle);
+        }
+
+        // F5 death VFX: burst สีตาม mob rank + loot sparkle เสริมทอง (ผูกกับ "เราฆ่าเอง" ตรง ๆ — ไม่รอ sync
+        // กับ MSG_PLAYER_PROGRESS จริงเพราะ SkillResultMessage ไม่มี field รางวัล; เกือบทุกกรณีตรงกันเพราะ
+        // ฆ่าเองมีสิทธิ์รางวัลอยู่แล้ว §10.2/§10.3 — deviation ที่ยอมรับได้ใน scope juice ล้วน).
+        if (hit.killed && juiceConfig.deathVfx.enabled) {
+          const mobType = lastMobType.get(hit.mobId);
+          const rank = mobType ? (getMobNameEntry(mobType)?.rank ?? "normal") : "normal";
+          const scale = combatJuiceQualityScale(
+            juiceConfig.deathVfx.countScaleByQuality,
+            combatFeel.effectQuality.current,
+          );
+          particles.spawn(pos, scaleParticleBurstCount(juiceConfig.deathVfx.burstByRank[rank], scale));
+          particles.spawn(pos, scaleParticleBurstCount(juiceConfig.deathVfx.lootSparkleStyle, scale));
+        }
+      });
+    },
+
+    onPlayerDamaged(msg: PlayerDamagedMessage, isSelf: boolean): void {
+      // F5 (A1 §2): ยังไม่รองรับ remote player position (ต้อง remote-player-manager lookup นอกไฟล์นี้) —
+      // self เท่านั้นตอนนี้ (ดู CombatStubHandle doc / report).
+      if (!isSelf) return;
+      damageNumbers.spawn(player.position, msg.dmg, { incoming: true, targetId: "self" });
+      triggerShake(
+        shakeState,
+        juiceConfig.selfDamagedFeedback.shakeLevel,
+        combatFeel.screenShake.levelsByLevel,
+        currentShakeAmplitudeScale(combatFeel),
+      );
+      fireCameraFlash(juiceConfig.cameraFlash.selfDamagedStyle);
     },
 
     spawnSyntheticDamageNumber(tile: TilePoint, amount: number, crit: boolean): void {
@@ -379,6 +553,9 @@ export function createCombatStub(
       clearHitboxDebug();
       damageNumbers.destroy();
       skillVfx.destroy();
+      particles.destroy();
+      cameraFlashOverlay.parent?.removeChild(cameraFlashOverlay);
+      cameraFlashOverlay.destroy();
       scene.setCameraShakeOffset({ sx: 0, sy: 0 });
     },
   };

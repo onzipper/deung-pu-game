@@ -39,6 +39,18 @@ import {
   type MobNameplateCandidate,
 } from "@/game/mob/nameplate-visibility";
 import type { NameplateLayerHandle } from "@/engine/render/nameplate-layer";
+import {
+  advanceImpactFlash,
+  computeImpactFlashFactor,
+  createImpactFlashState,
+  lerpColor,
+  triggerImpactFlash,
+  type ImpactFlashState,
+  type ImpactFlashStyleConfig,
+} from "@/game/combat/impact-flash";
+
+/** สีสไปรต์ตอนไม่มี flash ค้าง (ขาว = ไม่คูณสีอะไรเลย, pixi Sprite.tint default) — Combat Juice F5. */
+const NO_FLASH_TINT = 0xffffff;
 
 /** texture + manifest ต่อ mobType — atlas มี manifest ของตัวเอง (คนละตัวกับ placeholder ที่แชร์). */
 interface MobRenderSet {
@@ -70,12 +82,16 @@ interface MobViewEntry {
   current: TilePoint;
   facing: Direction;
   anim: string;
+  /** Combat Juice F5: tint pulse state ตอนโดนตี — trigger ทุก caster (ไม่ gate own-cast, ดู impact-flash.ts) */
+  readonly flash: ImpactFlashState;
 }
 
 /** target 1 ตัวสำหรับ combat stub hit-test (P0-10 → P1-03: อ่านจาก view นี้แทน local manager). */
 export interface MobHitTarget {
   readonly id: string;
   readonly pos: TilePoint;
+  /** Combat Juice F5: ใช้เลือกสี death burst ตาม mob rank (combat-stub.ts cache คู่กับ pos ทุกเฟรม) */
+  readonly mobType: string;
 }
 
 /**
@@ -107,6 +123,11 @@ export interface MobViewHandle {
   getAliveTargets(): MobHitTarget[];
   /** Minimap (§8.4) blips — ตำแหน่ง + rank ของมอนที่ render อยู่ (throttled publish ที่ app.ts, ไม่ใช่ทุก frame). */
   getBlips(): MobBlip[];
+  /**
+   * Combat Juice F5: trigger tint pulse บนมอนตัวนี้ (ทุก caster — ไม่ gate own-cast, ดู impact-flash.ts
+   * module header) — combat-stub.ts เรียกทุก hit ก่อนเช็ค isOwnCast. mobId ไม่รู้จัก (มอนเพิ่งหาย) → no-op เงียบ ๆ.
+   */
+  flashHit(mobId: string, style: ImpactFlashStyleConfig): void;
   /** ลบมอนทั้งหมด + ปล่อย texture ที่ generate (per mobType). */
   destroy(): void;
 }
@@ -279,6 +300,7 @@ export function createMobViewManager(
       current: { tx: snap.tx, ty: snap.ty },
       facing: INITIAL_FACING,
       anim: snap.state,
+      flash: createImpactFlashState(),
     });
   };
 
@@ -346,6 +368,13 @@ export function createMobViewManager(
         }
         entry.animator.setState(entry.anim, entry.facing);
         entry.animator.update(dtSeconds);
+
+        // Combat Juice F5: tint pulse decay แบบ real-time เสมอ (เหมือน screen-shake — ไม่ผูก hit-stop
+        // time-scale, ดู impact-flash.ts) แล้ว apply เข้าสไปรต์จริงผ่าน lerpColor (ขาว→สี flash).
+        advanceImpactFlash(entry.flash, dtSeconds * 1000);
+        const flashFactor = computeImpactFlashFactor(entry.flash);
+        entry.animator.view.tint =
+          flashFactor > 0 ? lerpColor(NO_FLASH_TINT, entry.flash.color, flashFactor) : NO_FLASH_TINT;
       }
 
       nameplateRefreshElapsedMs += dtSeconds * 1000;
@@ -386,7 +415,7 @@ export function createMobViewManager(
     getAliveTargets(): MobHitTarget[] {
       const targets: MobHitTarget[] = [];
       for (const [mobId, entry] of mobs) {
-        targets.push({ id: mobId, pos: entry.current });
+        targets.push({ id: mobId, pos: entry.current, mobType: entry.mobType });
       }
       return targets;
     },
@@ -398,6 +427,12 @@ export function createMobViewManager(
         blips.push({ tx: entry.current.tx, ty: entry.current.ty, kind: rank });
       }
       return blips;
+    },
+
+    flashHit(mobId: string, style: ImpactFlashStyleConfig): void {
+      const entry = mobs.get(mobId);
+      if (!entry) return; // มอนเพิ่งหาย (state removal มาก่อน skill_result) — เงียบ ไม่ throw
+      triggerImpactFlash(entry.flash, style);
     },
 
     destroy(): void {

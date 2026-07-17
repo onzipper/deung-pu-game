@@ -31,12 +31,38 @@ import {
   tickDamageAggregate,
   type AggregateFlush,
 } from "@/game/combat/damage-aggregate";
+import { computePopScale } from "@/game/combat/damage-number-motion";
+
+/** เลข damage 3 ประเภท — normal/crit = "เราตี" (engine combatFeel.damageNumber เดิม), incoming = "เราโดนตี"
+ *  (Combat Juice F5, โทนแยกชัดเจน — ดู juice-config.ts DamageNumberJuiceConfig.incoming). */
+export type DamageNumberKind = "normal" | "crit" | "incoming";
+
+/**
+ * config ที่ createDamageNumberLayer ต้องการจริง — superset ของ engine DamageNumberPoolConfig (P1-06) บวก
+ * ส่วนขยาย F5 (incoming style + pop-bounce) ที่ยังไม่มีที่อยู่ใน src/engine/config/** (game-specialist scope
+ * = src/game/** เท่านั้น — ดู juice-config.ts module header). caller (combat-stub.ts) ประกอบ object นี้จาก
+ * `{ ...combatFeel.damageNumber, ...juiceConfig.damageNumber }` ตรง ๆ (structural — ไม่ต้องแก้ engine file).
+ */
+export interface DamageNumberLayerConfig extends DamageNumberPoolConfig {
+  /** สไตล์เลข "โดนตี" (F5) */
+  incoming: DamageNumberStyleConfig;
+  /** สเกลเริ่มต้นตอนสแปม (pop-in) ต่อ kind ก่อนหด ease-out กลับ 1.0 (F5, damage-number-motion.ts) */
+  popScaleByKind: Record<DamageNumberKind, number>;
+  /** ระยะเวลา (ms) ที่สเกลหดจาก popScaleByKind กลับ 1.0 */
+  popDurationMs: number;
+}
 
 /** ตัวเลือกต่อ spawn — crit = สไตล์ critical (GS §17.3); targetId = คีย์ aggregate bucket (ปกติ = mobId). */
 export interface DamageNumberSpawnOptions {
   crit?: boolean;
   /** ใช้เป็น aggregate bucket key เมื่อเกิน budget — ไม่ระบุ = รวมกองเดียว ("unknown", เช่น offline dummy/stress harness) */
   targetId?: string;
+  /** F5: true = เลขนี้คือดาเมจที่ "เราโดนตี" (ไม่ใช่ที่เราตี) → ใช้สไตล์ incoming แทน normal/crit (crit ถูกละเว้นถ้า true) */
+  incoming?: boolean;
+  /** F5: หน่วง (ms) ก่อนสแปมจริง — ให้ multi-hit ในผลเดียวกัน (AoE โดนหลายเป้าพร้อมกัน) โผล่เรียงจังหวะไม่ทับกันเป๊ะ
+   *  (ไม่ระบุ/≤0 = สแปมทันทีเหมือนเดิม). ใช้ dt เดียวกับ update() (hit-stop-scaled) — ดีเลย์นี้ "ช้าลง" ระหว่าง
+   *  hit stop เหมือน juice อื่น ๆ ในเฟรมนั้น (สม่ำเสมอกับ damage number ที่กำลังลอย/จางอยู่แล้ว). */
+  spawnDelayMs?: number;
 }
 
 export interface DamageNumberLayerHandle {
@@ -56,6 +82,16 @@ interface ActiveEntry {
   readonly baseSx: number;
   readonly baseSy: number;
   elapsedMs: number;
+  /** F5: สเกลเริ่มต้นตอนสแปม (pop-in) — ease-out เข้า 1.0 ภายใน config.popDurationMs ที่ update() */
+  readonly popFromScale: number;
+}
+
+/** F5: รายการที่รอ spawnDelayMs หมดก่อนถึงจะสแปมจริง (multi-hit stagger) — ไม่กิน pool/concurrentCap จนกว่าจะถึงคิว. */
+interface PendingSpawn {
+  remainingMs: number;
+  readonly tile: TilePoint;
+  readonly amount: number;
+  readonly opts: DamageNumberSpawnOptions;
 }
 
 const AGGREGATE_UNKNOWN_KEY = "unknown";
@@ -90,13 +126,14 @@ function applyStyle(display: BitmapText, style: DamageNumberStyleConfig, text: s
  */
 export function createDamageNumberLayer(
   scene: MapSceneHandle,
-  config: DamageNumberPoolConfig,
+  config: DamageNumberLayerConfig,
   effectQuality: EffectQualityConfig,
   tileSize: TileSize,
 ): DamageNumberLayerHandle {
   installStyleFont(config.normal);
   installStyleFont(config.crit);
   installStyleFont(config.aggregate);
+  installStyleFont(config.incoming); // F5: โทนเลข "โดนตี" แยกจาก normal/crit
 
   // layer เดียว เพิ่มเข้า scene.world ครั้งเดียว (public field ของ MapSceneHandle) — เป็น child หลังสุด
   // ของ world เสมอ (สร้างหลัง ground/entityLayer/depthDebugLayer ใน scene.ts) → วาดบนสุดโดยไม่ต้อง
@@ -124,6 +161,7 @@ export function createDamageNumberLayer(
 
   const active = new Map<string, ActiveEntry>();
   const aggregateState = createDamageAggregateState();
+  const pending: PendingSpawn[] = []; // F5 multi-hit stagger (spawnDelayMs) — ดู module header
   let seq = 0;
 
   const currentTier = () => effectQuality.tiers[effectQuality.current];
@@ -137,31 +175,58 @@ export function createDamageNumberLayer(
     tile: TilePoint,
     text: string,
     style: DamageNumberStyleConfig,
+    popFromScale: number,
   ): boolean => {
     const display = pool.acquire();
     if (!display) return false;
     const s = entityFootToScreen(tile, tileSize);
     display.position.set(s.sx, s.sy + config.spawnOffsetY);
     applyStyle(display, style, text);
+    display.scale.set(popFromScale); // F5: pop-in ขนาดเริ่ม (ease-out กลับ 1.0 ที่ update())
     const id = `dmg:${seq++}`;
-    active.set(id, { display, baseSx: s.sx, baseSy: s.sy, elapsedMs: 0 });
+    active.set(id, { display, baseSx: s.sx, baseSy: s.sy, elapsedMs: 0, popFromScale });
     return true;
+  };
+
+  /** สแปมจริง (ข้าม delay queue) — ตัวเดิมของ spawn() ก่อนมี F5 stagger, แยกไว้ให้ pending queue เรียกซ้ำได้. */
+  const performSpawn = (tile: TilePoint, amount: number, opts: DamageNumberSpawnOptions): void => {
+    const incoming = opts.incoming ?? false;
+    const crit = !incoming && (opts.crit ?? false);
+    const kind: DamageNumberKind = incoming ? "incoming" : crit ? "crit" : "normal";
+    const text = String(Math.round(amount));
+    if (active.size < concurrentCap()) {
+      const style = incoming ? config.incoming : crit ? config.crit : config.normal;
+      if (trySpawnPooled(tile, text, style, config.popScaleByKind[kind])) return;
+    }
+    // เกิน budget/target (quality cap หรือ pool เต็มจริง) → เข้า aggregate window (GS §17.10)
+    addToAggregate(aggregateState, opts.targetId ?? AGGREGATE_UNKNOWN_KEY, tile, amount, crit);
   };
 
   return {
     spawn(tile: TilePoint, amount: number, opts: DamageNumberSpawnOptions = {}): void {
-      const crit = opts.crit ?? false;
-      const text = String(Math.round(amount));
-      if (active.size < concurrentCap()) {
-        const style = crit ? config.crit : config.normal;
-        if (trySpawnPooled(tile, text, style)) return;
+      const delay = opts.spawnDelayMs ?? 0;
+      if (delay > 0) {
+        pending.push({ remainingMs: delay, tile, amount, opts });
+        return;
       }
-      // เกิน budget/target (quality cap หรือ pool เต็มจริง) → เข้า aggregate window (GS §17.10)
-      addToAggregate(aggregateState, opts.targetId ?? AGGREGATE_UNKNOWN_KEY, tile, amount, crit);
+      performSpawn(tile, amount, opts);
     },
 
     update(dtSeconds: number): void {
       const dtMs = dtSeconds * 1000;
+
+      // F5: เดิน delay queue ก่อน — หมดเวลาแล้วค่อยสแปมจริง (ให้ multi-hit ในผลเดียวกันโผล่เรียงจังหวะ)
+      if (pending.length > 0) {
+        const ready: PendingSpawn[] = [];
+        const stillPending: PendingSpawn[] = [];
+        for (const p of pending) {
+          p.remainingMs -= dtMs;
+          (p.remainingMs <= 0 ? ready : stillPending).push(p);
+        }
+        pending.length = 0;
+        pending.push(...stillPending);
+        for (const p of ready) performSpawn(p.tile, p.amount, p.opts);
+      }
 
       const expired: string[] = [];
       for (const [id, entry] of active) {
@@ -170,6 +235,8 @@ export function createDamageNumberLayer(
         // rise จาก baseline คงที่ (ไม่ลบสะสมทุกเฟรม กัน float drift) + fade เชิงเส้น
         entry.display.position.y = entry.baseSy + config.spawnOffsetY - progress * config.riseDistance;
         entry.display.alpha = 1 - progress;
+        // F5: pop-bounce ease-out (crit เด้งหนักสุด — popFromScale ใหญ่กว่า, ดู damage-number-motion.ts)
+        entry.display.scale.set(computePopScale(entry.elapsedMs, entry.popFromScale, config.popDurationMs));
         if (progress >= 1) expired.push(id);
       }
       for (const id of expired) {
@@ -187,7 +254,7 @@ export function createDamageNumberLayer(
       );
       for (const f of flushes) {
         const label = `×${f.hitCount} ${Math.round(f.totalAmount)}`;
-        trySpawnPooled(f.tile, label, config.aggregate);
+        trySpawnPooled(f.tile, label, config.aggregate, 1); // aggregate เลขก้อนรวม ไม่ pop (สแปมนิ่งปกติ)
       }
     },
 
