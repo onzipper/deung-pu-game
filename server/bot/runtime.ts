@@ -48,6 +48,8 @@ import {
   type BotContinuitySnapshot,
 } from "./continuity";
 import { settlementForStoppedPlan } from "./policy";
+import { buildMapAdjacency, nextHopToward, type MapAdjacency } from "./map-route";
+import { MAP_REGISTRY } from "../../src/engine/map/registry";
 import { TownTripController, type TownTripFacade, type TownTripTrigger } from "./town-trip";
 import { WorkflowController, type WorkflowFacade } from "./workflow";
 import type { BotWorkflowStatusCursor } from "../../src/shared/bot-workflow";
@@ -131,6 +133,12 @@ const RETURN_WAYPOINT_ARRIVE_TILES = 0.5;
 /** Shared inert placeholders for the Free recovery snapshot's paid-only pocket fields (never read by the Free branch). */
 const EMPTY_POCKET_SET: ReadonlySet<string> = new Set<string>();
 const EMPTY_ANCHOR_MAP: ReadonlyMap<string, Vec2> = new Map<string, Vec2>();
+
+/**
+ * D-071 M2b: the directed portal graph, built ONCE from the real map registry (city-hub↔map1↔map2↔map3↔map4). The
+ * walk town trip recomputes the next hop per leg over this graph; warp trips ignore it (they transfer directly).
+ */
+const MAP_ADJACENCY: MapAdjacency = buildMapAdjacency(MAP_REGISTRY.values());
 
 /** Continuity reason code per town-trip trigger (audit-only; the trip itself is identical across triggers). */
 const TOWN_TRIP_REASON: Record<TownTripTrigger, string> = {
@@ -1305,7 +1313,9 @@ export class BotRuntime {
     if (!this.advanceContinuity("RETURNING_TO_TOWN", TOWN_TRIP_REASON[trigger])) return false; // fence lost (takeover/stop raced).
     const mode = this.d.config.townTrip.mode?.[this.currentTier] ?? "warp";
     this.tripWalk = null; // fresh walk cursor per trip (D-071).
-    this.tripController = new TownTripController(this.makeTripFacade(), this.tripSeq, mode);
+    // D-071 M2b: the trigger tells the controller how to settle an unroutable FIRST hop — a proactive trigger stops
+    // (wait_for_owner), a bag_full overflow keeps the retryable abort (the runtime's inventory_full fallback guards it).
+    this.tripController = new TownTripController(this.makeTripFacade(), this.tripSeq, mode, trigger);
     return true;
   }
 
@@ -1328,6 +1338,20 @@ export class BotRuntime {
     this.recoveryPhase = { kind: "returning", targetPocketId, waypoints: route, nextIndex: 0 };
     this.idleDecisions = 0;
     return true;
+  }
+
+  /**
+   * D-071 M2b (multi-hop walk): the next portal hop toward `finalMapId` from the CURRENT host's map — BFS over the
+   * real map graph picks the next map, then the host's OWN exit lookup (the same data a real player's MSG_MOVE reads)
+   * yields the approach tile + landing spawn. Returns null when no portal chain connects here to `finalMapId`, or the
+   * current map is `finalMapId` already (zero hops). Recomputed per leg so a mid-chain re-attach just re-plans.
+   */
+  private planNextHop(finalMapId: string): { approach: Vec2; landing: Vec2; nextMapId: string } | null {
+    const nextMapId = nextHopToward(this.currentHost.mapId, finalMapId, MAP_ADJACENCY);
+    if (nextMapId === null) return null;
+    const exit = this.currentHost.botExitToward?.(nextMapId);
+    if (!exit) return null;
+    return { approach: exit.approach, landing: exit.landing, nextMapId };
   }
 
   /**
@@ -1421,7 +1445,8 @@ export class BotRuntime {
       bagItems: () => this.currentHost.botBagItems(this.d.actorId),
       ownerStatusPush: () => this.pushStatus(),
       beginReturnRouteFromCurrent: (pocketId) => this.beginReturnRouteFromCurrent(pocketId),
-      exitToward: (targetMapId) => this.currentHost.botExitToward?.(targetMapId) ?? null,
+      currentMapId: () => this.currentHost.mapId,
+      nextHopToward: (finalMapId) => this.planNextHop(finalMapId),
       walkToward: (goal, dtMs) => this.walkTripToward(goal, dtMs),
       markTripComplete: () => this.markTripComplete(),
       settleTakeover: (checkpointId, requestedAt) => void this.applyTakeoverPause(checkpointId, requestedAt),

@@ -13,6 +13,7 @@ import type {
   BotCheckpointWire,
   BotCompletionActionWire,
   BotOpResultMessage,
+  BotProfileWire,
   BotRulesWire,
   BotStatusMessage,
   BotTargetModeWire,
@@ -22,6 +23,9 @@ import type {
   BotTierStateMessage,
   BotTierWire,
 } from "@/shared/net-protocol";
+// M4: editor/tabs component ต่างๆ ใต้ src/ui/panels/bot/** import type พวกนี้ผ่าน bot-view.ts เสมอ (ไม่ import
+// @/shared/net-protocol ตรง ๆ ซ้ำ) — re-export ที่นี่ที่เดียวกันชื่อ type กระจายซ้ำหลายไฟล์.
+export type { BotCompletionActionWire, BotProfileWire, BotRulesWire, BotTargetModeWire, BotTierCapsWire, BotTierWire };
 import type { BotContinuityStateWire } from "@/shared/bot-continuity";
 import {
   validateWorkflow,
@@ -49,9 +53,13 @@ export type BotTab = "status" | "profiles" | "reports" | "packages";
 
 // PR7 terminology (P3 Bot UI spec §2 locked): "แผนงาน" แทน "โปรไฟล์/บอท" ทั้ง panel — Hub สื่อ "แผนที่บันทึกไว้
 // + ตัวละครจริงกำลังทำแผนไหน" ไม่ใช่ "บอทหลายตัว". `BotTab`/type อื่นคงชื่อ id เดิม (ไม่ใช่ user-facing copy).
+//
+// M4 (owner brief 2026-07-17): workspace redesign เปลี่ยน copy 2 แท็บแรกเป็น "ภาพรวม"/"แผนฟาร์ม" (id เดิม
+// status/profiles ไม่เปลี่ยน — เทส/net/store ที่ key ด้วย id เดิมไม่กระทบ). "แผนฟาร์ม" ยังมีคำว่า "แผน" ตาม
+// เทส PR7 terminology guard (BOT_TAB_LABELS.profiles ต้อง toContain("แผน")).
 export const BOT_TAB_LABELS: Readonly<Record<BotTab, string>> = {
-  status: "สถานะ",
-  profiles: "แผนงาน",
+  status: "ภาพรวม",
+  profiles: "แผนฟาร์ม",
   reports: "รายงาน",
   packages: "แพ็กเกจ",
 };
@@ -453,6 +461,62 @@ export function resolveBotCta(input: BotCtaInput): BotCta {
   };
 }
 
+// ── M4: single active-plan selection (owner brief 2026-07-17 workspace redesign) ─────────────────────────
+//
+// Bot Hub เดิม (PR7) มีปุ่ม "มอบการควบคุม"/"รับช่วงต่อ" แยกอยู่ที่การ์ดของแต่ละแผน (เลือกแผนผ่านปุ่มนั้นตรง ๆ).
+// M4 เหลือ CTA เดียวทั้ง panel (resolveBotCta) จึงต้องมี "แผนที่เลือกอยู่" (active plan) แยกจาก CTA — ผู้เล่น
+// เลือกจากแท็บแผนฟาร์ม (explicitSelection), แต่ถ้ามีบอทกำลังรันอยู่ หรือมี checkpoint ค้างอยู่ ให้ authority
+// (server) ชนะเสมอ (เหมือน resolveBotCta comment ด้านบน — status/checkpoint คือความจริงตอนนี้).
+
+/** แผนที่ "กำลังทำงาน/ค้างอยู่/ผู้เล่นเลือกไว้ล่าสุด" — ใช้ทั้ง Overview (แสดงรายละเอียด) และ CTA (จะ start แผนไหน) */
+export function resolveActiveBotProfileId(input: {
+  explicitSelection: string | null;
+  profiles: readonly BotProfileWire[] | null;
+  status: BotStatusMessage | null;
+  checkpoint: BotCheckpointWire | null;
+}): string | null {
+  if (input.status) return input.status.profileId;
+  if (input.checkpoint) return input.checkpoint.profileId;
+  if (input.explicitSelection && input.profiles?.some((p) => p.id === input.explicitSelection)) {
+    return input.explicitSelection;
+  }
+  const firstStartable = input.profiles?.find((p) => !p.readOnly) ?? null;
+  return firstStartable?.id ?? input.profiles?.[0]?.id ?? null;
+}
+
+/**
+ * ป้ายบนปุ่ม CTA ระหว่างกำลังส่งคำขอ (product decision #1: "กำลังเริ่ม…"/"กำลังหยุด…" แยกจาก "กำลังทำรายการ…"
+ * generic ของ opMessage banner) — busy มาจาก !canConfirmBotOp(opState) เดียวกับที่ disable ปุ่มอื่นทั้ง panel;
+ * cta.kind ระหว่าง processing ยังเป็นค่าเดิมก่อนกดเสมอ (authorityActive/status ไม่เปลี่ยนจนกว่า server จะตอบ)
+ * จึงอ่าน kind ตรง ๆ ได้อย่างปลอดภัยไม่ต้องรอผล.
+ */
+export function botCtaButtonLabel(cta: BotCta, busy: boolean): string {
+  if (!busy) return cta.label;
+  return cta.kind === "stop" ? "กำลังหยุด…" : "กำลังเริ่ม…";
+}
+
+/** ผลของการกด CTA เดียว — component แค่แปลงเป็น net call ที่ตรงกัน (sendBotStart/Resume/Stop) */
+export type BotCtaAction = { kind: "start"; profileId: string } | { kind: "resume"; checkpointId: string } | { kind: "stop" };
+
+/**
+ * ตัดสินว่าการกด CTA (จาก resolveBotCta) ตอนนี้ควรส่ง net message ไหน — null = กดไม่ได้ตอนนี้ (enabled=false
+ * หรือไม่มีแผนให้ start). stop ไม่ผูก profileId (server หยุด session ที่กำลังรันของบัญชีนี้เสมอ — 1 บัญชีรันได้
+ * ครั้งละ 1 บอทอยู่แล้ว, ดู comment resolveBotCta ด้านบน).
+ */
+export function resolveBotCtaAction(
+  cta: BotCta,
+  selectedProfileId: string | null,
+  checkpoint: BotCheckpointWire | null,
+): BotCtaAction | null {
+  if (cta.kind === "stop") return { kind: "stop" };
+  if (!cta.enabled) return null;
+  if (cta.isResume && checkpoint?.state === "ready" && checkpoint.profileId === selectedProfileId) {
+    return { kind: "resume", checkpointId: checkpoint.id };
+  }
+  if (!selectedProfileId) return null;
+  return { kind: "start", profileId: selectedProfileId };
+}
+
 // ── Rule count (mirror server/bot/profiles.ts countRules — §16 Q3/Q4 นับรวม 1 toggle/condition = 1 rule) ──
 
 /**
@@ -646,6 +710,20 @@ export function mobTypeLabel(mobType: string): string {
   return getMobNameEntry(mobType)?.nameTh ?? mobType;
 }
 
+/** ป้ายสรุปโหมดเลือกเป้าหมาย (M4 Overview "active plan" + Plans target section) */
+export const BOT_TARGET_MODE_LABELS: Readonly<Record<BotTargetModeWire, string>> = {
+  ALL_IN_AREA: "ทุกตัวในพื้นที่",
+  SELECTED_TYPES: "เลือกเฉพาะชนิด",
+};
+
+/** สรุปเป้าหมายของแผนเป็นบรรทัดเดียว — ALL_IN_AREA = "ทุกตัวในพื้นที่", SELECTED_TYPES = รายชื่อมอนไทยที่เลือก */
+export function botTargetSummaryLabel(rules: BotRulesWire): string {
+  if (rules.targetMode !== "SELECTED_TYPES") return BOT_TARGET_MODE_LABELS.ALL_IN_AREA;
+  const types = rules.selectedMobTypes ?? [];
+  if (types.length === 0) return BOT_TARGET_MODE_LABELS.SELECTED_TYPES;
+  return types.map(mobTypeLabel).join(", ");
+}
+
 // ── M1: feature gating by tier (Plus/Pro-only controls — เดียวกับ server tier gate ใน profiles.ts) ────────────
 
 export type BotLockedFeature = "selected_types" | "goal" | "workflow" | "warp_town";
@@ -676,7 +754,29 @@ export function lockedControlFor(tier: BotTierWire, feature: BotLockedFeature): 
   return { locked, requiredTierLabel: locked ? BOT_LOCKED_TIER_LABEL[required] : null };
 }
 
+/** ป้ายไทยของแต่ละ locked feature — ใช้ประกอบ "สิ่งที่ปลดล็อคเมื่ออัปเกรด" (M4 editor คอลัมน์ขวา) */
+export const BOT_LOCKED_FEATURE_LABELS: Readonly<Record<BotLockedFeature, string>> = {
+  selected_types: "เลือกชนิดมอน",
+  goal: "ตั้งเป้าหมาย + action เมื่อครบเป้า",
+  warp_town: "วาร์ปเข้า/ออกเมือง",
+  workflow: "งานหลายขั้น (Workflow)",
+};
+
+/** features ที่ยัง locked สำหรับ tier นี้ (ไล่ตามลำดับคงที่) — [] เมื่อปลดหมดแล้ว (Pro) */
+export function lockedBotFeaturesFor(tier: BotTierWire): readonly { feature: BotLockedFeature; label: string; requiredTierLabel: "Plus" | "Pro" }[] {
+  const order: readonly BotLockedFeature[] = ["selected_types", "goal", "warp_town", "workflow"];
+  const out: { feature: BotLockedFeature; label: string; requiredTierLabel: "Plus" | "Pro" }[] = [];
+  for (const feature of order) {
+    const { locked, requiredTierLabel } = lockedControlFor(tier, feature);
+    if (locked && requiredTierLabel) out.push({ feature, label: BOT_LOCKED_FEATURE_LABELS[feature], requiredTierLabel });
+  }
+  return out;
+}
+
 // ── Live status formatting (§7 Live Status) ────────────────────────────────────────────────────────────
+
+/** M1 lifetime-of-run counters shape (bot:status.stats) — re-exported for bot-layout.ts formatBotStats. */
+export type BotStatsSnapshot = NonNullable<BotStatusMessage["stats"]>;
 
 const BOT_ACTION_LABELS: Readonly<Record<string, string>> = {
   moving: "กำลังเดินไปเป้าหมาย",
@@ -803,6 +903,21 @@ export function isValidBotWorkflowClient(workflow: BotWorkflowV1): boolean {
 /** true = แผนนี้ตั้งงานหลายขั้นไว้ (มี step อย่างน้อย 1) */
 export function hasWorkflow(rules: BotRulesWire): boolean {
   return !!rules.workflow && rules.workflow.steps.length > 0;
+}
+
+/** mirror server "goal_conflicts_workflow" — ตั้งเป้าหมายเดี่ยวพร้อมงานหลายขั้นพร้อมกันไม่ได้ (M4 editor เตือน UI) */
+export function hasGoalWorkflowConflict(rules: BotRulesWire): boolean {
+  return !!rules.goal && hasWorkflow(rules);
+}
+
+/** ความคืบหน้าเป้าหมายเดี่ยว (Plus, bot:status.goal) — "ล่า 12/50" / "เวลา 3/5 นาที" */
+export function formatBotGoalProgress(goal: { type: BotWorkflowMetric; target: number; done: number }): string {
+  if (goal.type === "durationMs") {
+    const doneMin = Math.round(goal.done / 60000);
+    const targetMin = Math.round(goal.target / 60000);
+    return `${BOT_WORKFLOW_METRIC_LABELS.durationMs} ${formatWorkflowProgress(doneMin, targetMin)} นาที`;
+  }
+  return `${BOT_WORKFLOW_METRIC_LABELS[goal.type]} ${formatWorkflowProgress(goal.done, goal.target)}`;
 }
 
 /** สร้าง step id ใหม่ที่ไม่ชนของเดิม (deterministic: step-1, step-2, …) */

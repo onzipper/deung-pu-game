@@ -30,6 +30,7 @@ import { JournalPanel } from "@/ui/panels/journal/JournalPanel";
 import { BotHudButton } from "@/ui/panels/bot/BotHudButton";
 import { BotPanel } from "@/ui/panels/bot/BotPanel";
 import { BotAlertToast } from "@/ui/panels/bot/BotAlertToast";
+import { BotTakeoverToast } from "@/ui/panels/bot/BotTakeoverToast";
 import { HelpFocusProvider } from "@/ui/panels/help/help-focus-context";
 import { HelpHudButton } from "@/ui/panels/help/HelpHudButton";
 import { HelpPanel } from "@/ui/panels/help/HelpPanel";
@@ -188,6 +189,9 @@ export function GameCanvas() {
           <AchievementToast />
           {/* D-067: item/safety alert toast; ordinary rare is a plan event, not a universal stop. */}
           <BotAlertToast />
+          {/* M4 §7: takeover toast — manual input (move/skill/pointer/touch) already returns control instantly;
+              this is just the confirmation notice. */}
+          <BotTakeoverToast />
           {/* A3 (P2 UI §8.3): แถบสกิล hotbar (S1-S4) — desktop (Digit1-4/คลิก) + มือถือ (แตะช่อง) */}
           <SkillBar getHandle={() => engineRef.current} />
           {/* P2-15: settings (effect quality/screen shake) + mobile controls + OS notice */}

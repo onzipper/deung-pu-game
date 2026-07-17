@@ -64,6 +64,15 @@ export interface NetConfig {
   sendEpsilon: number;
   /** snapshot interpolation ของ remote entity (P1-01) — render ย้อนหลัง ~100–150ms จาก buffer */
   interpolation: NetInterpolationConfig;
+  /**
+   * M6 (จอกระตุกตอนบอทคุมตัว): ระยะกระโดด (tile, euclidean) ของ self-authority state (Character Autonomy)
+   * ที่เกินแล้วถือเป็น warp/teleport/transfer → snap ตำแหน่ง+กล้องทันที (ครั้งเดียว) แทน interpolate.
+   * ต่ำกว่าค่านี้ = push เข้า self buffer แล้ว render ย้อนหลัง (bufferMs เดียวกับ interpolation) ให้เดิน smooth
+   * แทน snap ทุก patch. ต้อง **> ระยะเดินจริงต่อ patch** (speed 4 tile/s × ช่วง patch ที่ bunch ได้จริง)
+   * เพื่อไม่ snap ตอนเดินปกติ — ตั้งเท่า movementValidation.teleportThresholdTiles (3) ให้ "อะไรที่ server
+   * ถือเป็น teleport" = "อะไรที่ client snap" สอดคล้องกัน. Design Knob (§48).
+   */
+  selfAuthoritySnapThresholdTiles: number;
   /** สีตัว remote player (แยกจาก local ด้วยตา) */
   remotePlayerColor: number;
   /** สี accent (ไหล่) ของ remote player */
@@ -228,6 +237,9 @@ export const DEFAULT_NET_CONFIG: NetConfig = {
     bufferCapacity: 16, // เผื่อ jitter หลาย interval (12Hz → 16 snapshot ≈ 1.3s ประวัติ)
     expectedSnapshotRateHz: 12, // = positionSyncHz ฝั่งส่ง
   },
+  // 3 tile — เท่า movementValidation.teleportThresholdTiles: เดินปกติต่อ patch ≤ ~1.5 tile (speed 4 ×
+  // ช่วง patch ที่ bunch ได้) < 3 → interpolate smooth; warp/teleport/respawn ≥ 3 → snap ตำแหน่ง+กล้องครั้งเดียว.
+  selfAuthoritySnapThresholdTiles: 3,
   remotePlayerColor: 0x4aa3ff, // ฟ้า = คนอื่น (local = เหลือง)
   remotePlayerAccentColor: 0x1b5fa8,
 };
