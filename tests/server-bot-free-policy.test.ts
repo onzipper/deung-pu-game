@@ -20,6 +20,7 @@ const ALL_STOP_REASONS = [
   "workflow_complete", // PR6b: goal chain จบครบทุกขั้น
   "goal_complete", // M1: Plus single-goal ถึงเป้า → complete
   "town_trip_no_route", // M1: หาเส้นทางเดินไปเมืองไม่ได้ → wait_for_owner
+  "out_of_supplies", // D-075: ยา/เงินหมด จอดรอที่เมือง → wait_for_owner
 ] as const satisfies readonly BotStopReason[];
 
 describe("Free Character Autonomy stop settlement", () => {
@@ -38,6 +39,10 @@ describe("Free Character Autonomy stop settlement", () => {
 
   test("a walking town trip with no route waits for the owner (M1)", () => {
     expect(settlementForStoppedPlan("town_trip_no_route")).toBe("wait_for_owner");
+  });
+
+  test("out of supplies parks in town and waits for the owner (D-075)", () => {
+    expect(settlementForStoppedPlan("out_of_supplies")).toBe("wait_for_owner");
   });
 
   test.each(["map_unsafe", "server_restart", "boss_or_event", "secret_trigger", "profile_deleted"] as const)(
@@ -68,6 +73,7 @@ describe("Free Character Autonomy stop settlement", () => {
       "expired_readonly",
       "town_trip_failed",
       "town_trip_no_route",
+      "out_of_supplies", // D-075
     ]);
     for (const reason of waiting) {
       expect(settlementForStoppedPlan(reason), reason).toBe("wait_for_owner");
@@ -79,7 +85,7 @@ describe("Free Character Autonomy stop settlement", () => {
     const stopReasonSetIsExhaustive: [MissingStopReason] extends [never] ? true : false = true;
 
     expect(stopReasonSetIsExhaustive).toBe(true);
-    expect(ALL_STOP_REASONS).toHaveLength(17);
+    expect(ALL_STOP_REASONS).toHaveLength(18);
     for (const reason of ALL_STOP_REASONS) {
       expect(["wait_for_owner", "complete", "fail"]).toContain(settlementForStoppedPlan(reason));
     }

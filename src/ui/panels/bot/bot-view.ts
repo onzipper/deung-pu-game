@@ -40,6 +40,7 @@ import {
   type BotWorkflowV1,
   BOT_WORKFLOW_VERSION,
 } from "@/shared/bot-workflow";
+import { botPotionThresholdEnabled } from "@/shared/net-protocol";
 import type { KeyValueStorage } from "@/engine/net/reconnect-store";
 import type { PanelId } from "@/ui/panels";
 // M3: mob display-name catalog lives at src/game/mob/name-catalog.ts — a pure data table (no engine/React import),
@@ -237,6 +238,9 @@ export function botStopReasonLabel(reason: string): string {
     // M1: Plus single-goal ถึงเป้าแล้ว หรือ Pro workflow ทำครบทุกขั้น — จบแผนสวย ไม่ใช่ปัญหา.
     case "goal_complete":
       return "แผนสำเร็จตามเป้าหมายแล้ว";
+    // D-075: ยาหมด + ซื้อไม่ได้ (เงินหมด) — บอทพักรอที่เมืองหลักปลอดภัย รอเจ้าของเติมเงิน/ยา.
+    case "out_of_supplies":
+      return "ยา/เงินหมด — บอทพักรอคุณที่เมืองหลัก";
     default:
       return "บอทหยุดทำงาน";
   }
@@ -700,7 +704,8 @@ export function setBotCompletionAction(rules: BotRulesWire, action: BotCompletio
   return { ...rules, completionAction: action };
 }
 
-/** null = ปิด auto-potion (ไม่ดื่มเลย) */
+/** D-075: 0 = ปิด auto-potion (ไม่ดื่มเลย · sentinel ที่ normalizeBotRules ไม่ทับ) · >0 = เปิดที่ %HP นั้น. UI ส่ง 0
+ *  เวลาปิด ไม่ใช่ null (null จะโดน normalize เติม 30 กลับมาเปิดเอง). ดู botPotionThresholdEnabled. */
 export function setBotPotionThreshold(rules: BotRulesWire, pct: number | null): BotRulesWire {
   return { ...rules, potionThresholdPct: pct };
 }
@@ -1203,7 +1208,8 @@ export function afkFlowStepsFor(tier: BotTierWire, rules: BotRulesWire): readonl
     { key: "loot", label: "เก็บของ" },
     { key: "check", label: "เช็ค HP/ยา/กระเป๋า" },
   ];
-  if (rules.potionThresholdPct != null) steps.push({ key: "drink", label: "ดื่มยา" });
+  // D-075: show the drink step only when auto-potion is actually on (0 = player turned it off, reads like null).
+  if (botPotionThresholdEnabled(rules.potionThresholdPct)) steps.push({ key: "drink", label: "ดื่มยา" });
   if (tier === "plus") steps.push({ key: "recover", label: "ฟื้นหลังตาย" });
 
   steps.push({ key: "town_enter", label: tier === "free" ? "ยาหมด/ของเต็ม: เดินเข้าเมือง" : "ยาหมด/ของเต็ม: วาร์ปเข้าเมือง" });

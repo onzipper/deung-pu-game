@@ -165,6 +165,12 @@ export class TownTripController {
   private restockNeed = -1;
   private restockBought = 0;
   private restockUnitCost = 0;
+  /** D-075: potions the actor already held when restock started — drives the emergency first bottle (F3) + the
+   *  out-of-supplies park (F5, held 0 AND bought 0). -1 before the restock bag read. */
+  private restockHeld = -1;
+  /** D-075 (F5): park in the city-hub + stop `out_of_supplies` when the trip ends with no potions and none bought,
+   *  but only when the plan relies on auto-potion (the runtime passes botPotionThresholdEnabled here). */
+  private readonly parkWhenOutOfSupplies: boolean;
 
   constructor(
     facade: TownTripFacade,
@@ -172,12 +178,14 @@ export class TownTripController {
     mode: TownTripMode = "warp",
     trigger: TownTripTrigger = "bag_full",
     endAction: TripEndAction = "return",
+    parkWhenOutOfSupplies = false,
   ) {
     this.f = facade;
     this.cfg = facade.config.townTrip;
     this.tripSeq = tripSeq;
     this.mode = mode;
     this.endAction = endAction;
+    this.parkWhenOutOfSupplies = parkWhenOutOfSupplies;
     // D-071 M2b: only a bag_full overflow keeps the retryable abort on an unroutable first hop — every proactive
     // trigger (potion_low / bag_pressure / hp_no_potion / preflight) surfaces the routing failure to the owner.
     this.noRouteStops = trigger !== "bag_full";
@@ -413,6 +421,7 @@ export class TownTripController {
         const held = bag
           .filter((i) => !i.equipped && i.itemId === potionId)
           .reduce((n, i) => n + i.quantity, 0);
+        this.restockHeld = held; // D-075: remember for the emergency first bottle (F3) + the out-of-supplies park (F5).
         this.restockNeed = Math.max(0, this.cfg.potionRestockTarget - held);
         this.restockBought = 0;
         if (this.restockNeed === 0) return this.finishRestock("restock_skipped");
@@ -425,9 +434,22 @@ export class TownTripController {
       const balance = await this.f.goldBalance();
       if (balance === null) return this.finishRestock("restock_skipped"); // persistence unavailable → skip restock.
       const margin = balance - this.cfg.minGoldReserve;
-      // First unit: the price is unknown, so buy only while strictly above the reserve. After the first buy the
+      // D-075 (F3) emergency first bottle: a bot holding ZERO potions must get the first one even below the gold
+      // reserve — a bot with no way to heal is worse than a thin reserve. Only the FIRST bottle of the round (held 0
+      // AND nothing bought yet) bypasses the reserve; every later bottle holds the D-070 reserve. On this very first
+      // buy the per-unit cost is unknown, so require only a positive balance (or the known cost) and let the shop
+      // reject an unaffordable buy below (→ restock_skipped). Emergency off / already holds potions = pre-D-075.
+      const emergencyFirst =
+        this.cfg.potionEmergencyBuy && this.restockHeld === 0 && this.restockBought === 0;
+      // First unit (non-emergency): price unknown → buy only strictly above the reserve. After the first buy the
       // per-unit cost is known, so every later unit strictly holds the reserve (D-070: never buy below it).
-      const affordable = this.restockBought === 0 ? margin > 0 : margin >= this.restockUnitCost;
+      const affordable = emergencyFirst
+        ? this.restockUnitCost > 0
+          ? balance >= this.restockUnitCost
+          : balance > 0
+        : this.restockBought === 0
+          ? margin > 0
+          : margin >= this.restockUnitCost;
       if (!affordable) return this.finishRestock("gold_reserve");
 
       const key = `bot:${this.f.sessionRowId}:t${this.tripSeq}:buy:${potionId}:${this.restockBought}`;
@@ -448,6 +470,13 @@ export class TownTripController {
     // with abortMode === "none" (interrupted() short-circuits restock to the return phase for a takeover/expiry, so
     // safety still preempts this). The actor stays materialized in the safe city-hub for the owner to reclaim.
     if (this.endAction === "stop_in_town") return this.stopEnd("goal_complete");
+    // D-075 (F5): the plan relies on auto-potion but the actor reached town with ZERO potions and could not buy even
+    // one (out of gold) → don't wander back to the farm to die. Park in the safe city-hub (same as town_stop) and
+    // settle `out_of_supplies` (→ wait_for_owner + a `supplies` alert). Only when auto-potion is on; a plan with it
+    // off never parks (the player accepted no healing) → ordinary return.
+    if (this.parkWhenOutOfSupplies && this.restockHeld === 0 && this.restockBought === 0 && this.restockNeed > 0) {
+      return this.stopEnd("out_of_supplies");
+    }
     this.f.advance("RETURNING_TO_WORK", reason);
     this.phase = this.returnPhase(); // walk_return (D-071) or warp_back (D-069).
   }

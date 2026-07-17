@@ -952,6 +952,7 @@ export type BotCompletionActionWire = "safe_stop" | "notify_continue" | "town_st
 /** Rules v1 (P3 §4) — the declarative bot behaviour stored per profile. Mirrors BotRulesV1 (server/bot/types.ts). */
 export interface BotRulesWire {
   skillSlots: number[];
+  /** D-075 semantics: >0 = auto-potion on at this HP%; 0 = the player turned it off; null/undefined = never set. */
   potionThresholdPct?: number | null;
   lootAll: boolean;
   /** PR6b Pro goal chain (optional). Sent with profile create/update; server re-validates + gates it to Pro. */
@@ -968,6 +969,17 @@ export interface BotRulesWire {
   potionRestockTarget?: number | null;
   /** M1: "potions running low" reserve that may trigger a town trip (null ⇒ config default). */
   potionLowReserve?: number | null;
+}
+
+/**
+ * D-075: the single semantics for `potionThresholdPct` shared by client + server. Auto-potion is ON only when the
+ * player set a positive HP% — `0` means the player explicitly turned it off (a sentinel that survives
+ * normalizeBotRules, which fills a never-set `null`/`undefined` with the default), so both `0` and `null`/`undefined`
+ * read as "no drink" here, but only `null`/`undefined` gets a default filled in. Every threshold gate (runtime fraction,
+ * recovery potion branch, town-pressure potion_low / hp_no_potion bound, the Supplies editor toggle) reads THIS.
+ */
+export function botPotionThresholdEnabled(pct: number | null | undefined): boolean {
+  return pct != null && pct > 0;
 }
 
 /** A profile as the client sees it (adds `readOnly` = excess-after-downgrade, D-063 §12.4). */
@@ -1166,7 +1178,8 @@ export interface BotCheckpointMessage {
 export const MSG_BOT_ALERT = "bot:alert";
 export interface BotAlertMessage {
   profileId: string;
-  kind: "rare" | "captcha" | "gold_cap" | "goal";
+  /** D-075: `supplies` = the bot parked in the city-hub out of potions/gold (see BotStopReason `out_of_supplies`). */
+  kind: "rare" | "captcha" | "gold_cap" | "goal" | "supplies";
   itemId?: string;
   message: string;
 }

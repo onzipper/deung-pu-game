@@ -19,6 +19,8 @@ const KIND_LABEL: Readonly<Record<string, string>> = {
   gold_cap: "ถึงเพดานทอง",
   // M4 §7: bot:alert kind "goal" (M1 Plus single-goal ถึงเป้าหมาย, server/bot/types.ts BotAlertMessage.kind)
   goal: "ถึงเป้าหมายแล้ว",
+  // D-075: bot:alert kind "supplies" — ยา/เงินหมด บอทพักรอที่เมืองหลัก (BotStopReason out_of_supplies)
+  supplies: "บอทพักรอที่เมือง — ยา/เงินหมด",
 };
 
 export function BotAlertToast() {

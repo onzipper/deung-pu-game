@@ -77,7 +77,8 @@ export type BotStopReason =
   | "town_trip_failed" // D-069: warp to city-hub for services failed; actor parked safely in town → wait_for_owner
   | "workflow_complete" // PR6b: a Pro goal chain ran every step to the end → settles `complete` (like manual stop)
   | "goal_complete" // M1: a Plus single-goal (rules.goal) reached its target → settles `complete` (like manual/workflow)
-  | "town_trip_no_route"; // M1: no A* route to the city-hub gate for a walking trip → wait_for_owner (default branch)
+  | "town_trip_no_route" // M1: no A* route to the city-hub gate for a walking trip → wait_for_owner (default branch)
+  | "out_of_supplies"; // D-075: reached town with 0 potions AND could not buy any (no gold) → park in the city-hub, wait_for_owner
 
 export interface BotConfig {
   /** tier caps + passes (D-063). Keyed by tier. */
@@ -151,8 +152,14 @@ export interface BotConfig {
      * it to `warp`.
      */
     mode: Record<BotTier, "walk" | "warp">;
-    /** minimum interval between town trips per run (D-069). */
+    /**
+     * minimum interval between town trips per run (D-069). D-075: default 0 (no cooldown) so a bot that runs out of
+     * potions can return to restock immediately. `> 0` still gates (the knob remains fully wired for tuning/tests).
+     */
     cooldownMs: number;
+    /** D-075: short backoff after a trip that never moved the actor (target/seat unavailable) — kept independent of
+     *  cooldownMs so it keeps guarding a tight loop even when trips have no cooldown. */
+    retryBackoffMs: number;
     /** the city-hub map the actor warps to for services (must host the shop + storage NPC). */
     townMapId: string;
     /** warp arrival anchor in town; null → the town map's safeCamp. */
@@ -169,6 +176,9 @@ export interface BotConfig {
     potionRestockTarget: number;
     /** trip succeeds only when free bag slots reach this after returning to farm (D-070). */
     resumeMinFreeSlots: number;
+    /** D-075: when the actor holds ZERO potions, buy the FIRST bottle even below minGoldReserve (a bot with no
+     *  potions must get one if it can afford the unit at all); later bottles keep the reserve. false = pre-D-075. */
+    potionEmergencyBuy: boolean;
     /** retry a failed transaction at most this many times, then skip it (D-070). */
     maxTxRetries: number;
     /** start a trip on the first bag overflow instead of waiting for a later cue. */
@@ -277,7 +287,8 @@ export const DEFAULT_BOT_CONFIG: BotConfig = {
   townTrip: {
     enabledTiers: ["free", "plus", "pro"], // D-071: Free walks; Plus/Pro warp (see mode)
     mode: { free: "walk", plus: "warp", pro: "warp" }, // D-071 — speed differs per tier, capability does not
-    cooldownMs: 600_000, // 10 min between trips (D-069) — the same knob for every tier
+    cooldownMs: 0, // D-075: no trip cooldown by default (ยาหมด → กลับไปซื้อทันที); the gate still honors a >0 override
+    retryBackoffMs: 60_000, // D-075: anti-spin backoff after a no-move trip (was cooldownMs/10 = 60s before D-075)
     townMapId: "city-hub",
     townAnchor: null, // null → target map safeCamp
     sellRarityMax: "uncommon", // sell only common/uncommon (D-070)
@@ -286,6 +297,7 @@ export const DEFAULT_BOT_CONFIG: BotConfig = {
     potionItemId: "con_small_potion",
     potionRestockTarget: 5, // refill to starter-loadout count (D-070)
     resumeMinFreeSlots: 5, // trip success criterion (D-070) — of 40 bag slots
+    potionEmergencyBuy: true, // D-075: buy the first bottle below the reserve when the actor holds zero potions
     maxTxRetries: 1, // retry-once per transaction (D-070)
     tripOnFirstOverflow: true,
     pressureMinFreeSlots: 5, // M1 Design Knob (§48) — bag-pressure trip trigger floor

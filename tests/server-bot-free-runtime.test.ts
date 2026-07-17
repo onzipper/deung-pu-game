@@ -2,10 +2,12 @@ import { describe, expect, test } from "vitest";
 import {
   BotRuntime,
   type BotAttackOutcome,
+  type BotBagItemView,
   type BotHost,
   type BotPotionOutcome,
 } from "../server/bot/runtime";
 import type { SessionRepo } from "../server/bot/store";
+import type { BotRulesV1 } from "../server/bot/types";
 import { DEFAULT_BOT_CONFIG, type BotConfig } from "../server/config/bot";
 import {
   MSG_BOT_ALERT,
@@ -34,12 +36,18 @@ interface RuntimeHarnessOptions {
   attack?: () => Promise<BotAttackOutcome>;
   usePotion?: () => Promise<BotPotionOutcome>;
   rarityOf?: (itemId: string) => string | undefined;
+  /** D-075 (F2): scriptable bag the runtime samples for proactive pressure + the potion-depleted skip. */
+  bagItems?: () => BotBagItemView[];
+  /** D-075: profile rules override (default: auto-potion off). */
+  rules?: BotRulesV1;
 }
 
 function createRuntimeHarness(options: RuntimeHarnessOptions = {}) {
   let now = 1_000;
   let stepCount = 0;
   let stoppedCount = 0;
+  let hp = options.hpFraction ?? 1; // D-075 (F2): mutable so a test can drop hp below the threshold between ticks.
+  let usePotionCalls = 0; // D-075 (F2): count real drink dispatches (a skipped drink must not call botUsePotion).
   const releases: string[] = [];
   const messages: { type: string; message: unknown }[] = [];
   const patches: Parameters<SessionRepo["patch"]>[] = [];
@@ -61,7 +69,7 @@ function createRuntimeHarness(options: RuntimeHarnessOptions = {}) {
     },
     botMobs: () => options.mobs ?? [],
     botPos: () => ({ tx: 0, ty: 0 }),
-    botHpFraction: () => options.hpFraction ?? 1,
+    botHpFraction: () => hp,
     botAttackRange: () => 1,
     botBaseCooldownSeconds: () => 1,
     botStepToward: () => {
@@ -75,7 +83,10 @@ function createRuntimeHarness(options: RuntimeHarnessOptions = {}) {
     },
     isForbiddenTargetType: () => false,
     pocketExists: () => true,
-    botUsePotion: options.usePotion ?? (async () => UNAVAILABLE_POTION),
+    botUsePotion: async () => {
+      usePotionCalls += 1;
+      return options.usePotion ? options.usePotion() : UNAVAILABLE_POTION;
+    },
     botPlanPath: () => null,
     botPocketAnchor: () => null,
     partyId: "",
@@ -84,7 +95,7 @@ function createRuntimeHarness(options: RuntimeHarnessOptions = {}) {
     botExportActor: () => null,
     botAttachWarpedActor: () => false,
     botPersistNow: () => undefined,
-    botBagItems: async () => [],
+    botBagItems: async () => options.bagItems?.() ?? [],
     botTownSell: async () => ({ ok: false, reason: "unavailable" }),
     botTownDeposit: async () => ({ ok: false, reason: "unavailable" }),
     botTownBuy: async () => ({ ok: false, reason: "unavailable" }),
@@ -103,7 +114,7 @@ function createRuntimeHarness(options: RuntimeHarnessOptions = {}) {
     actorId: "actor:real",
     mapId: "map1",
     pocketId: "pocket",
-    rules: { skillSlots: [0], potionThresholdPct: null, lootAll: true },
+    rules: options.rules ?? { skillSlots: [0], potionThresholdPct: null, lootAll: true },
     tier: "free",
     resolveTier: async () => "free",
     baseCooldownSeconds: 1,
@@ -122,6 +133,10 @@ function createRuntimeHarness(options: RuntimeHarnessOptions = {}) {
     patches,
     stepCount: () => stepCount,
     stoppedCount: () => stoppedCount,
+    setHp: (v: number) => {
+      hp = v;
+    },
+    usePotionCalls: () => usePotionCalls,
   };
 }
 
@@ -183,6 +198,34 @@ describe("Free Character Autonomy runtime baseline", () => {
       itemId: "rare-gem",
       message: "เก็บของแรร์แล้ว",
     });
+  });
+
+  test("D-075 (F2): a known-empty potion bag skips the doomed drink; with a potion it still drinks", async () => {
+    const flush = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
+    const mobs = [{ id: "m1", mobType: "slime", tx: 0, ty: 0, hp: 10, pocketId: "pocket" }];
+    const potion = (): BotBagItemView[] => [
+      { instanceId: "p1", itemId: "con_small_potion", quantity: 3, version: 1, rarity: "common", equipped: false, sellPrice: null, deliverable: false },
+    ];
+
+    // auto-potion ON at 50%. Empty bag → after a first (high-hp) baseline tick samples 0 potions, dropping hp below
+    // the threshold must NOT dispatch a drink (nothing to drink) — the hp_no_potion town-pressure path owns it.
+    const empty = createRuntimeHarness({ rules: { skillSlots: [0], potionThresholdPct: 50, lootAll: true }, hpFraction: 1, mobs, bagItems: () => [] });
+    empty.runtime.tick(2_000); // baseline (hp high) → samples the empty bag
+    await flush();
+    empty.setHp(0.3); // now below the 50% threshold, still above the 15% floor
+    empty.runtime.tick(2_000); // planner says use_potion; F2 skips it (bag known-empty)
+    await flush();
+    expect(empty.usePotionCalls()).toBe(0);
+    expect(empty.runtime.isStopped).toBe(false); // fell through to farm, not a spammed drink
+
+    // Same shape but the bag holds potions → the drink IS dispatched (byte-identical to pre-D-075).
+    const stocked = createRuntimeHarness({ rules: { skillSlots: [0], potionThresholdPct: 50, lootAll: true }, hpFraction: 1, mobs, bagItems: potion });
+    stocked.runtime.tick(2_000);
+    await flush();
+    stocked.setHp(0.3);
+    stocked.runtime.tick(2_000);
+    await flush();
+    expect(stocked.usePotionCalls()).toBe(1);
   });
 
   test("a Delivery Box fallback still counts as a Free inventory obstacle", async () => {

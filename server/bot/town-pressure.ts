@@ -10,6 +10,8 @@
 // stop (the bot cannot heal), so it wins; a nearly-full bag would soon overflow and leak loot; a low potion reserve
 // is the least urgent (the bot can still fight). The order is locked by tests.
 
+import { botPotionThresholdEnabled } from "../../src/shared/net-protocol";
+
 /** What kicked off a proactive trip (distinct from a hard `bag_full` overflow / `preflight` / `workflow`). */
 export type TownPressureTrigger = "potion_low" | "bag_pressure" | "hp_no_potion";
 
@@ -21,10 +23,17 @@ export interface TownPressureInput {
   potionCount: number;
   /** live hp fraction 0..1. */
   hpFraction: number;
-  /** the auto-potion HP% threshold from rules (null = auto-potion off → no `potion_low`, `hp_no_potion` uses the floor). */
+  /** the auto-potion HP% threshold from rules (D-075: null OR 0 = off → no `potion_low`, `hp_no_potion` uses the floor). */
   potionThresholdPct: number | null;
   /** effective "potions running low" reserve (rules.potionLowReserve ?? config default). */
   potionLowReserve: number;
+  /**
+   * D-075 follow-up: has the run ACTUALLY carried a potion at some point (a bag sample saw potionCount > 0)? Gates
+   * `potion_low` so "ยาหมดแล้ว → ไปซื้อ" means ran out mid-run — a FRESH actor that simply never carried potions and
+   * is at full HP keeps farming (bootstrap) rather than being dragged to a town it cannot afford. It still restocks
+   * once hp actually falls (hp_no_potion) — by then kills have earned gold.
+   */
+  hadPotionsThisRun: boolean;
   /** config: min free bag slots below which bag pressure alone may trigger a trip. */
   pressureMinFreeSlots: number;
   /** config: the low-hp floor (used as the `hp_no_potion` bound when auto-potion is off). */
@@ -39,7 +48,8 @@ export type TownPressureDecision =
  * Deterministic proactive town-trip decision for one bag sample. First match wins (priority order above):
  *   1. hp_no_potion — no potions held AND hp ≤ (potionThresholdPct/100 when set, else the low-hp floor).
  *   2. bag_pressure — free slots ≤ pressureMinFreeSlots.
- *   3. potion_low   — auto-potion is on AND potions held ≤ the low reserve.
+ *   3. potion_low   — auto-potion is on AND potions held ≤ the low reserve AND (the run ran out mid-run OR hp ≤ the
+ *                     drink threshold) — a fresh actor with no potions at full HP keeps farming (D-075 follow-up).
  * Otherwise `none` (keep farming).
  */
 export function planTownPressure(input: TownPressureInput): TownPressureDecision {
@@ -51,18 +61,25 @@ export function planTownPressure(input: TownPressureInput): TownPressureDecision
     potionLowReserve,
     pressureMinFreeSlots,
     lowHpStopFraction,
+    hadPotionsThisRun,
   } = input;
+
+  // D-075: auto-potion is on only for a positive threshold — `0` (player turned it off) reads the same as null here.
+  const potionEnabled = botPotionThresholdEnabled(potionThresholdPct);
 
   // 1 — HP with no way to heal (out of potions). The bound is the drink threshold when auto-potion is on, else the
   //     low-hp floor. This is the most dangerous state → highest priority (a trip to restock beats a floor stop).
-  const hpBound = potionThresholdPct != null ? potionThresholdPct / 100 : lowHpStopFraction;
+  const hpBound = potionEnabled && potionThresholdPct != null ? potionThresholdPct / 100 : lowHpStopFraction;
   if (potionCount === 0 && hpFraction <= hpBound) return { kind: "town_trip", trigger: "hp_no_potion" };
 
   // 2 — Bag nearly full: a hard overflow would soon leak loot, so divert before it happens.
   if (freeSlots <= pressureMinFreeSlots) return { kind: "town_trip", trigger: "bag_pressure" };
 
-  // 3 — Potions running low (only meaningful when auto-potion is on).
-  if (potionThresholdPct != null && potionCount <= potionLowReserve) {
+  // 3 — Potions running low (auto-potion on AND ≤ the reserve). D-075 follow-up: only when the run RAN OUT mid-run
+  //     (`hadPotionsThisRun`) or the bot is already hurt (hp ≤ the drink threshold). A fresh actor that never carried
+  //     potions and is at full HP keeps farming — it heads to town only once hp actually falls (hp_no_potion, by
+  //     which point kills earned the gold for the emergency buy). "ยาหมดแล้ว → ไปซื้อ", never "ไม่มียาติดตัว = ห้ามฟาร์ม".
+  if (potionEnabled && potionCount <= potionLowReserve && (hadPotionsThisRun || hpFraction <= hpBound)) {
     return { kind: "town_trip", trigger: "potion_low" };
   }
 

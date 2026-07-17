@@ -830,8 +830,10 @@ export class BotManager {
     // no longer be a normal mob that lives in the assigned pocket. Mirrors validateRules' SELECTED_TYPES check.
     if (profile.rules.targetMode === "SELECTED_TYPES") {
       const ctx = this.resolveTargetCtx(profile.mapId, profile.pocketId);
+      // D-075 (F6): a null pocket resolution (unknown map/pocket at start) now REJECTS instead of bypassing the
+      // in-pocket check — an unresolvable pocket must not silently green-light every selected type.
       const invalid = (profile.rules.selectedMobTypes ?? []).some(
-        (t) => ctx.mobClassOf(t) !== "normal" || (ctx.mobTypesInPocket != null && !ctx.mobTypesInPocket.includes(t)),
+        (t) => ctx.mobClassOf(t) !== "normal" || ctx.mobTypesInPocket == null || !ctx.mobTypesInPocket.includes(t),
       );
       if (invalid) return this.reject(send, op, "mob_type_not_in_pocket", profile.id);
     }

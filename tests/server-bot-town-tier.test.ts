@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { createWarpHarness, FakeWorld, warpConfig, type BagSeed } from "./helpers/warp-world";
-import { DEFAULT_BOT_CONFIG, type BotConfig, type BotTier } from "../server/config/bot";
+import type { BotConfig, BotTier } from "../server/config/bot";
 import type { AgentMob, Vec2 } from "../server/bot/agent";
 import type { BotAttackOutcome } from "../server/bot/runtime";
 
@@ -76,16 +76,20 @@ async function driveToWorking(harness: ReturnType<typeof createWarpHarness>, max
   }
 }
 
-describe("town-trip cooldown gate (D-069)", () => {
+// D-075: the trip cooldown now defaults to 0; these tests set an explicit >0 knob to exercise the gate both ways.
+const COOLDOWN = 600_000;
+
+describe("town-trip cooldown gate (D-069 · knob explicit under D-075)", () => {
   test("within cooldownMs a fresh overflow refuses a second trip and safe-stops inventory_full", async () => {
-    const { world, harness } = scene({ tier: "plus" });
+    // D-075: with the default cooldown 0 an immediate second trip would be allowed, so pin a >0 cooldown here.
+    const { world, harness } = scene({ tier: "plus", config: warpConfig({ cooldownMs: COOLDOWN }) });
 
     await driveToWorking(harness); // first overflow → full trip → home; markTripComplete arms the cooldown
     expect(harness.state()).toBe("WORKING");
     expect(harness.runtime.isStopped).toBe(false);
     const acquiresAfterTrip = world.acquireCalls.length;
 
-    harness.advanceClock(DEFAULT_BOT_CONFIG.townTrip.cooldownMs - 1); // still inside the cooldown window
+    harness.advanceClock(COOLDOWN - 1); // still inside the cooldown window
     for (let i = 0; i < 12 && !harness.runtime.isStopped; i++) await harness.tickAndSettle();
 
     expect(harness.runtime.isStopped).toBe(true);
@@ -95,17 +99,26 @@ describe("town-trip cooldown gate (D-069)", () => {
   });
 
   test("past cooldownMs a fresh overflow is allowed to open a second trip", async () => {
-    const { world, harness } = scene({ tier: "plus" });
+    const { world, harness } = scene({ tier: "plus", config: warpConfig({ cooldownMs: COOLDOWN }) });
 
     await driveToWorking(harness); // first trip home; cooldown armed at the (constant) clock
     expect(harness.state()).toBe("WORKING");
 
-    harness.advanceClock(DEFAULT_BOT_CONFIG.townTrip.cooldownMs + 1); // step past the cooldown
+    harness.advanceClock(COOLDOWN + 1); // step past the cooldown
     await harness.tickAndSettle(); // overflow → beginTownTrip allowed → RETURNING_TO_TOWN
 
     expect(harness.runtime.isStopped).toBe(false);
     expect(harness.state()).toBe("RETURNING_TO_TOWN");
     expect(world.actorCount()).toBe(1);
+  });
+
+  test("D-075 default (cooldown 0): two trips back-to-back both open — no cooldown gate", async () => {
+    const { harness } = scene({ tier: "plus" }); // warpConfig() → cooldownMs 0 (the shipped default)
+    await driveToWorking(harness); // first trip completes and returns home
+    expect(harness.state()).toBe("WORKING");
+    // Immediately (clock unchanged) a second trip is allowed — the actor can return to restock right away.
+    expect(harness.runtime.beginTownTrip("bag_full")).toBe(true);
+    expect(harness.state()).toBe("RETURNING_TO_TOWN");
   });
 });
 

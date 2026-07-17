@@ -354,6 +354,17 @@ describe("M1 normalizeBotRules (old profile load)", () => {
     expect(n.potionRestockTarget).toBeNull();
     expect(n.potionLowReserve).toBeNull();
     expect(n.skillSlots).toEqual([0]); // untouched
+    expect(n.potionThresholdPct).toBe(30); // D-075: null → default-on 30% (old plans heal themselves)
+  });
+
+  test("D-075: auto-potion sentinels — null/undefined → 30 (default-on); 0 kept (player off); a set % kept", () => {
+    // null and a missing field are both "never set" → default-on at 30.
+    expect(normalizeBotRules({ skillSlots: [0], potionThresholdPct: null, lootAll: true } as BotRulesV1).potionThresholdPct).toBe(30);
+    expect(normalizeBotRules({ skillSlots: [0], lootAll: true } as BotRulesV1).potionThresholdPct).toBe(30);
+    // 0 is the explicit player-off sentinel → NEVER overwritten.
+    expect(normalizeBotRules({ skillSlots: [0], potionThresholdPct: 0, lootAll: true } as BotRulesV1).potionThresholdPct).toBe(0);
+    // an already-set positive threshold is idempotent.
+    expect(normalizeBotRules({ skillSlots: [0], potionThresholdPct: 45, lootAll: true } as BotRulesV1).potionThresholdPct).toBe(45);
   });
 
   test("a goal without completionAction normalizes to safe_stop", () => {

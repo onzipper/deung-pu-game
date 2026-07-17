@@ -18,8 +18,10 @@ describe("town-trip Design Knobs (D-070 locked 2026-07-16)", () => {
     expect(townTrip.mode).toEqual({ free: "walk", plus: "warp", pro: "warp" });
   });
 
-  test("locked numeric + policy values match D-070", () => {
-    expect(townTrip.cooldownMs).toBe(600_000); // 10 min between trips (D-069)
+  test("locked numeric + policy values match D-070 (+ D-075 knobs)", () => {
+    expect(townTrip.cooldownMs).toBe(0); // D-075: no trip cooldown by default (ยาหมด → กลับไปซื้อทันที)
+    expect(townTrip.retryBackoffMs).toBe(60_000); // D-075: anti-spin backoff, independent of cooldownMs
+    expect(townTrip.potionEmergencyBuy).toBe(true); // D-075: buy the first bottle below reserve when held 0
     expect(townTrip.townMapId).toBe("city-hub");
     expect(townTrip.townAnchor).toBeNull(); // null → target map safeCamp
     expect(townTrip.sellRarityMax).toBe("uncommon"); // sell only common/uncommon

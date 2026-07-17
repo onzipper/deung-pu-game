@@ -96,6 +96,24 @@ describe("Free proactive town pressure — potion_low (D-073)", () => {
     expect(harness.state()).toBe("RETURNING_TO_TOWN");
     expect(harness.runtime.isStopped).toBe(false);
   });
+
+  test("D-075 follow-up: a fresh actor (auto-potion on, 0 potions, full HP) FARMS — no potion_low bootstrap trip", async () => {
+    // The bug this locks: F1 default-on 30% + potionCount 0 ≤ reserve + F4 no cooldown dragged a brand-new broke
+    // character to town on the first bag read and parked it (never farmed). "ยาหมดแล้ว → ไปซื้อ", not "ไม่มียา = ห้ามฟาร์ม".
+    let hp = 1;
+    const { harness } = scene({ rules: POTION_RULES, bag: junk(2), hp: () => hp }); // freeSlots 38, 0 potions, full HP
+    const spy = vi.spyOn(harness.runtime, "beginTownTrip");
+
+    for (let i = 0; i < 4; i++) await harness.tickAndSettle(); // bag sampled (0 potions) → keeps farming, no trip
+    expect(triggers(spy)).not.toContain("potion_low");
+    expect(harness.state()).not.toBe("RETURNING_TO_TOWN");
+    expect(harness.runtime.isStopped).toBe(false);
+
+    hp = 0.3; // HP finally falls to/below the drink threshold with no potion in the bag → the hp_no_potion path opens
+    await harness.tickAndSettle();
+    expect(triggers(spy)).toContain("hp_no_potion");
+    expect(triggers(spy)).not.toContain("potion_low"); // still never a bootstrap potion_low
+  });
 });
 
 describe("Free proactive town pressure — bag_pressure (D-073)", () => {

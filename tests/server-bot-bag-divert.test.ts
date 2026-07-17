@@ -52,6 +52,8 @@ interface DivertSceneOptions {
   initialTownTrip?: boolean;
   townEnabledTiers?: readonly BotTier[];
   resolveTier?: () => Promise<BotTier>;
+  /** D-075: pin a >0 trip cooldown (default 0) to exercise the within-cooldown refusal path. */
+  cooldownMs?: number;
 }
 
 function divertScene(opts: DivertSceneOptions = {}) {
@@ -64,9 +66,10 @@ function divertScene(opts: DivertSceneOptions = {}) {
   });
   farmHost.players.add(ACTOR);
   const townHost = world.addHost({ roomId: "room-town", mapId: "city-hub" });
-  const config = opts.townEnabledTiers
-    ? warpConfig({ enabledTiers: opts.townEnabledTiers })
-    : warpConfig();
+  const config = warpConfig({
+    ...(opts.townEnabledTiers ? { enabledTiers: opts.townEnabledTiers } : {}),
+    ...(opts.cooldownMs != null ? { cooldownMs: opts.cooldownMs } : {}),
+  });
   const harness = createWarpHarness({
     world,
     farmHost,
@@ -137,7 +140,9 @@ describe("bag-full divert (D-069/D-070)", () => {
   });
 
   test("(b) paid overflow within cooldown stops inventory_full — no fresh acquire (begin refused before warp)", async () => {
-    const { world, harness } = divertScene({ tier: "plus" });
+    // D-075: the cooldown now defaults to 0 (immediate re-trip). Pin a >0 cooldown here to lock the refusal path:
+    // a second overflow inside the window must fall back to a safe stop rather than opening a fresh trip.
+    const { world, harness } = divertScene({ tier: "plus", cooldownMs: 600_000 });
 
     await driveToWorking(harness); // first overflow → full trip → home; markTripComplete arms the cooldown
     expect(harness.state()).toBe("WORKING");

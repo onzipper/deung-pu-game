@@ -118,7 +118,9 @@ export function planRecovery(s: RecoverySnapshot, cfg: BotConfig["recovery"]): R
  */
 function planPotionOrFloor(s: RecoverySnapshot): RecoveryDecision | null {
   const phase = s.phase;
-  if (s.potionThresholdFraction !== null) {
+  // D-075: a positive fraction = auto-potion on; null (never set) OR 0 (player turned it off, arriving here as the
+  // pct-0 sentinel via the runtime) both mean "no potion path" — the same semantics as botPotionThresholdEnabled.
+  if (s.potionThresholdFraction !== null && s.potionThresholdFraction > 0) {
     if (phase.kind === "potion_pending") return { kind: "hold" };
     if (s.hpFraction <= s.potionThresholdFraction) {
       if (phase.kind === "none") return { kind: "use_potion" };

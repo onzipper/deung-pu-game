@@ -54,6 +54,11 @@ export function normalizeBotRules(rules: BotRulesV1): BotRulesV1 {
   return {
     ...rules,
     targetMode: rules.targetMode ?? "ALL_IN_AREA",
+    // D-075: an old/never-set threshold (null/undefined) defaults auto-potion ON at 30% (matches the client
+    // defaultBotRules) so pre-D-075 plans heal themselves; a stored `0` is the player's explicit OFF and is kept
+    // (botPotionThresholdEnabled reads 0 as off). This is the ONE place the default is filled — every runtime/UI
+    // gate then reads the resolved value through botPotionThresholdEnabled.
+    potionThresholdPct: rules.potionThresholdPct == null ? 30 : rules.potionThresholdPct,
     ...(completionAction !== undefined ? { completionAction } : {}),
     potionRestockTarget: rules.potionRestockTarget ?? null,
     potionLowReserve: rules.potionLowReserve ?? null,
