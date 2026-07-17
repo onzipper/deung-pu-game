@@ -8,6 +8,7 @@
     "build": "next build",
     "start": "next start",
     "start:server": "tsx --tsconfig server/tsconfig.json server/index.ts",
+    "postinstall": "prisma generate",
     "lint": "eslint",
     "test": "vitest run",
     "e2e": "node scripts/e2e/smoke.mjs",
@@ -25,6 +26,7 @@
     "colyseus.js": "^0.16.22",
     "next": "16.2.10",
     "pixi.js": "^8.19.0",
+    "prisma": "^6.19.3",
     "react": "19.2.4",
     "react-dom": "19.2.4",
     "tsx": "^4.23.0",
@@ -39,7 +41,6 @@
     "eslint": "^9",
     "eslint-config-next": "16.2.10",
     "pngjs": "^7.0.0",
-    "prisma": "^6.19.3",
     "tailwindcss": "^4",
     "typescript": "^5",
     "vitest": "^4.1.10"

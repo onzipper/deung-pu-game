@@ -276,6 +276,10 @@ export function botOpRejectionLabel(reason: string | undefined): string {
     case "db_error":
     case "spawn_failed":
       return "เริ่มบอทไม่สำเร็จ ลองใหม่อีกครั้ง";
+    // Fix A: entry-method fail-soft guard (server/bot/manager.ts `guarded`) — an unexpected server-side throw
+    // (e.g. a stale generated Prisma client) replies this instead of leaving the op hanging to its own timeout.
+    case "internal_error":
+      return "ระบบขัดข้องชั่วคราว — ลองใหม่อีกครั้ง";
     case "not_running":
       return "ไม่มีบอทกำลังทำงานอยู่";
     case "checkpoint_saving":

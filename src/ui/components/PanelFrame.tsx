@@ -27,6 +27,11 @@ export interface PanelFrameProps {
   /** true = fill parent height (h-full flex flex-col; body already flex-1 overflow-y-auto by default) —
    * M4 Bot Hub workspace layout (Panel `layout="workspace"`). Default false = unchanged (content-sized). */
   fill?: boolean;
+  /** true (default) = body scrolls internally with the usual p-4/md:p-6 padding (unchanged behavior). false =
+   * un-padded, no internal scroll of its own — for a caller (e.g. Bot Hub's BotHubWindow) that owns its own
+   * static-header + scroll-region layout inside `children` instead of relying on PanelFrame's single scroll
+   * region (fixes the sticky tab bar covering scrolled-under content, M4 follow-up). */
+  bodyScroll?: boolean;
 }
 
 export function PanelFrame({
@@ -40,6 +45,7 @@ export function PanelFrame({
   bodyClassName,
   radius = "md",
   fill = false,
+  bodyScroll = true,
 }: PanelFrameProps) {
   return (
     <div
@@ -77,7 +83,9 @@ export function PanelFrame({
       )}
       <div
         className={[
-          "dp-text-body min-h-0 flex-1 overflow-y-auto p-4 text-(--dp-parchment) md:p-6",
+          bodyScroll
+            ? "dp-text-body min-h-0 flex-1 overflow-y-auto p-4 text-(--dp-parchment) md:p-6"
+            : "dp-text-body min-h-0 flex-1 overflow-hidden p-0 text-(--dp-parchment)",
           bodyClassName ?? "",
         ]
           .filter(Boolean)
