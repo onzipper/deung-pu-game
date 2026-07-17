@@ -57,7 +57,7 @@ export function buildBotTierPlans(config: BotConfig = DEFAULT_BOT_CONFIG): BotTi
       tier,
       caps: {
         profiles: def.caps.profiles,
-        rules: def.caps.rules,
+        rules: def.caps.rules, // dormant (D-074 — quota removed, field kept only to avoid wire/version skew)
         reportRetentionDays: def.caps.reportRetentionDays,
         notifications: def.caps.notifications,
         schedules: def.caps.schedules,

@@ -150,23 +150,24 @@ describe("BotProfileFormState helpers", () => {
     });
   });
 
-  test("isBotProfileFormValid: ผ่านเมื่อชื่อ/สกิล/rule cap/workflow ผ่านหมด", () => {
+  test("isBotProfileFormValid: ผ่านเมื่อชื่อ/สกิล/workflow ผ่านหมด", () => {
     const form = blankBotProfileForm();
-    expect(isBotProfileFormValid({ ...form, name: "แผน 1" }, 10)).toBe(true);
+    expect(isBotProfileFormValid({ ...form, name: "แผน 1" })).toBe(true);
   });
 
   test("isBotProfileFormValid: ชื่อว่าง → false", () => {
-    expect(isBotProfileFormValid(blankBotProfileForm(), 10)).toBe(false);
+    expect(isBotProfileFormValid(blankBotProfileForm())).toBe(false);
   });
 
-  test("isBotProfileFormValid: rule เกิน cap → false", () => {
+  test("D-074: isBotProfileFormValid ไม่มีเพดานจำนวนกฎอีกแล้ว — สกิลเต็มก็ยังผ่าน", () => {
     const form = blankBotProfileForm();
-    expect(isBotProfileFormValid({ ...form, name: "แผน 1" }, 0)).toBe(false);
+    const rules = { ...form.rules, skillSlots: [0, 1, 2, 3, 4, 5, 6, 7], potionThresholdPct: 50 };
+    expect(isBotProfileFormValid({ ...form, name: "แผน 1", rules })).toBe(true);
   });
 
   test("isBotProfileFormValid: goal ชนกับ workflow → false", () => {
     const form = blankBotProfileForm();
     const rules = { ...form.rules, goal: { type: "kills" as const, target: 10 }, workflow: addWorkflowStep(undefined, newWorkflowFarmStep("step-1", form.mapId, form.pocketId)) };
-    expect(isBotProfileFormValid({ ...form, name: "แผน 1", rules }, 25)).toBe(false);
+    expect(isBotProfileFormValid({ ...form, name: "แผน 1", rules })).toBe(false);
   });
 });

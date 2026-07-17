@@ -10,7 +10,7 @@
 
 import { useMediaQuery } from "@/ui/panels/use-media-query";
 import { Button, TextInput } from "@/ui/components";
-import { countBotRules, ruleCountLabel, type BotRulesWire, type BotTierWire } from "../bot-view";
+import type { BotRulesWire, BotTierWire } from "../bot-view";
 import {
   BOT_PLAN_EDITOR_COLUMNS,
   botPlanEditorStackOrder,
@@ -26,12 +26,10 @@ import { CompletionSection } from "./CompletionSection";
 import { RecoverySection } from "./RecoverySection";
 import { AfkFlowPreviewSection } from "./AfkFlowPreviewSection";
 import { WorkflowEditorSection } from "./WorkflowEditorSection";
-import type { BotTierCapsWire } from "@/shared/net-protocol";
 
 export interface BotPlanEditorProps {
   form: BotProfileFormState;
   tier: BotTierWire;
-  caps: BotTierCapsWire | null;
   disabled: boolean;
   onChange: (form: BotProfileFormState) => void;
   onCancel: () => void;
@@ -42,7 +40,7 @@ export interface BotPlanEditorProps {
 // จึง stack เดียวแทน 3 คอลัมน์เคียงกัน
 const DESKTOP_GRID_QUERY = "(min-width: 768px)";
 
-export function BotPlanEditor({ form, tier, caps, disabled, onChange, onCancel, onSubmit }: BotPlanEditorProps) {
+export function BotPlanEditor({ form, tier, disabled, onChange, onCancel, onSubmit }: BotPlanEditorProps) {
   const isDesktop = useMediaQuery(DESKTOP_GRID_QUERY, false);
 
   const onRulesChange = (rules: BotRulesWire): void => onChange({ ...form, rules });
@@ -115,21 +113,13 @@ export function BotPlanEditor({ form, tier, caps, disabled, onChange, onCancel, 
         <div className="flex flex-col gap-3">{botPlanEditorStackOrder().map(renderSection)}</div>
       )}
 
-      <div className="flex items-center justify-between gap-2">
-        <span className="dp-text-caption text-(--dp-sand)">{caps ? ruleCountLabel(countBotRules(form.rules), caps.rules) : ""}</span>
-        <div className="flex gap-2">
-          <Button variant="secondary" size="sm" disabled={disabled} onClick={onCancel}>
-            ยกเลิก
-          </Button>
-          <Button
-            variant="primary"
-            size="sm"
-            disabled={disabled || !isBotProfileFormValid(form, caps?.rules ?? null)}
-            onClick={onSubmit}
-          >
-            {form.mode === "create" ? "สร้างแผน" : "บันทึก"}
-          </Button>
-        </div>
+      <div className="flex items-center justify-end gap-2">
+        <Button variant="secondary" size="sm" disabled={disabled} onClick={onCancel}>
+          ยกเลิก
+        </Button>
+        <Button variant="primary" size="sm" disabled={disabled || !isBotProfileFormValid(form)} onClick={onSubmit}>
+          {form.mode === "create" ? "สร้างแผน" : "บันทึก"}
+        </Button>
       </div>
     </div>
   );

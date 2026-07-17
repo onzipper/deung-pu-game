@@ -85,6 +85,11 @@ export interface TownTripFacade {
   walkToward(goal: Vec2, dtMs: number): "walking" | "arrived" | "stuck";
   /** arm the trip cooldown + bump the idempotency-key trip sequence. */
   markTripComplete(): void;
+  /**
+   * Record the restock outcome for the owner's live status (`restock_done` clears it; a skip reason
+   * `gold_reserve` / `restock_skipped` surfaces "why the bot did not buy potions"). Diagnostic only.
+   */
+  reportTownSkip(reason: string): void;
   /** run the takeover pause + checkpoint settle (after landing at farm, or in place at city-hub on return failure). */
   settleTakeover(checkpointId: string, requestedAt: number): void;
   /** short retry backoff after a trip that never moved the actor, so an auto-trigger does not spin every tick. */
@@ -435,6 +440,10 @@ export class TownTripController {
   }
 
   private finishRestock(reason: string): void {
+    // Surface the restock outcome to the owner's live status (a skip = gold_reserve / restock_skipped; restock_done
+    // clears it) so "the bot did not buy potions" is visible without changing the economy gate (the shop unlock is
+    // not server-gated — see the report). The reason ALSO rides continuity below; this makes it durably observable.
+    this.f.reportTownSkip(reason);
     // M1 `town_stop`: services done → park in the city-hub and settle `goal_complete` (no return leg). Reached only
     // with abortMode === "none" (interrupted() short-circuits restock to the return phase for a takeover/expiry, so
     // safety still preempts this). The actor stays materialized in the safe city-hub for the owner to reclaim.

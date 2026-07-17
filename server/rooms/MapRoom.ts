@@ -3326,13 +3326,14 @@ export class MapRoom extends Room<MapRoomState> {
     player.expCeil = exported.expCeil;
     this.botMembers.set(actorId, { ...exported.botMember });
 
-    // When the owner was offline at export, keep the actor retained + the account slot pinned to it so the room
-    // survives and a later reconnect routes back here. When the owner was attached, the trip controller (next
-    // task) redirects the transport, which re-binds through the onJoin retained-actor path.
-    if (!exported.ownerAttached) {
-      this.retainedActors.add(actorId);
-      this.retainWarpedActorSession(exported.accountId, actorId, exported.sessionCharacters.characterId);
-    }
+    // ALWAYS retain the warped actor + re-point the account slot/lease to THIS room, whether the owner was offline
+    // or attached at export. An attached owner's transport is still stranded in the SOURCE room (its self
+    // `players.onRemove` is a no-op) — the runtime's MSG_BOT_ACTOR_MAP push makes it FOLLOW here, re-binding through
+    // the onJoin retained-actor path; a mid-trip refresh routes back here via the re-pointed lease. Retaining while
+    // the owner is attached is safe: at attach time the owner is never yet in this room, transferSession(actorId,
+    // actorId) is a no-op while the live transport still holds the slot, and botMembers already keeps autoDispose off.
+    this.retainedActors.add(actorId);
+    this.retainWarpedActorSession(exported.accountId, actorId, exported.sessionCharacters.characterId);
     this.refreshAutoDispose();
     console.log(`[MapRoom ${this.roomId}] warp attach ${actorId} @(${player.tx.toFixed(1)},${player.ty.toFixed(1)})`);
     return true;

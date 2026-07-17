@@ -32,7 +32,8 @@ export type BotGoal = BotWorkflowCondition;
  *     skill's `botUsageRule` (v15 §50, free-text) — machine-parsing it is P3+ (documented TODO).
  *   • `potionThresholdPct` — placeholder for the potion-use system (not built) — carried but inert.
  *   • `lootAll` — keep everything (v1); ordinary rare loot alerts and continues under the PR4 baseline.
- * Each set toggle/condition counts as ONE rule toward the tier cap (P3 §16 Q3/Q4: nábรวม).
+ * D-074 (amends D-063): there is no rule-count quota on any tier — a plan sets any combination of the fields
+ * below freely. Tier only gates which FEATURES are unlocked (SELECTED_TYPES/goal = Plus+, workflow = Pro).
  */
 export interface BotRulesV1 {
   /** allowed class skill-slot indices (0-based into the class skill list). */
@@ -43,19 +44,19 @@ export interface BotRulesV1 {
   lootAll: boolean;
   /**
    * PR6b Pro goal chain (optional). Present ⇒ the account must be Pro (validateRules rejects it otherwise, start
-   * re-gates it). Each step counts toward the rule cap. Absent ⇒ the pre-PR6b single-pocket behavior, unchanged.
+   * re-gates it). Absent ⇒ the pre-PR6b single-pocket behavior, unchanged.
    */
   workflow?: BotWorkflowV1;
   /**
    * M1 target selection. `ALL_IN_AREA` (default) = attack any bot-safe mob in the pocket (pre-M1). `SELECTED_TYPES`
-   * (Plus/Pro) = only `selectedMobTypes`. Setting SELECTED_TYPES counts as +1 rule toward the tier cap.
+   * (Plus/Pro) = only `selectedMobTypes`.
    */
   targetMode?: BotTargetMode;
   /** M1: the normal mob types to attack under SELECTED_TYPES (each must be a normal mob in the assigned pocket). */
   selectedMobTypes?: string[];
   /**
    * M1 Plus single-goal (optional). Present ⇒ the account must be Plus/Pro. Mutually exclusive with `workflow`
-   * (a Pro chain supersedes a single goal). Counts as +1 rule. Absent ⇒ the bot farms without a completion target.
+   * (a Pro chain supersedes a single goal). Absent ⇒ the bot farms without a completion target.
    */
   goal?: BotGoal;
   /** M1: what happens the instant `goal` is met (default `safe_stop`). Only meaningful together with `goal`. */
@@ -68,7 +69,7 @@ export interface BotRulesV1 {
 
 /** Result of validating a rules payload — either the sanitized rules or a reason string. */
 export type RulesValidation =
-  | { ok: true; rules: BotRulesV1; ruleCount: number }
+  | { ok: true; rules: BotRulesV1 }
   | { ok: false; reason: string };
 
 /** bot_tier_state row (per account). `passExpiresAt` null = Free (or an expired pass already fell back). */

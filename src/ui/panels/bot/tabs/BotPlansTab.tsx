@@ -12,9 +12,7 @@ import {
   botPocketLabel,
   botTargetSummaryLabel,
   canCreateMoreProfiles,
-  countBotRules,
   profileCountLabel,
-  ruleCountLabel,
   type BotOpPhase,
 } from "../bot-view";
 import { blankBotProfileForm, editBotProfileForm, type BotProfileFormState } from "../bot-layout";
@@ -90,13 +88,12 @@ export function BotPlansTab({ profiles, tier, caps, busy, phase, selectedProfile
                 isSelected ? "border-(--dp-resonance-teal) bg-(--dp-selected-wash)" : "border-(--dp-soil-brown) bg-(--dp-warm-ink) hover:bg-(--dp-deep-brown)",
               ].join(" ")}
             >
-              <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
                 <span className="text-(--dp-parchment)">
                   {p.name}
                   {p.readOnly && <span className="ml-1 dp-text-caption text-(--dp-fire-light)">(ถูกพัก, อ่านอย่างเดียว)</span>}
                   {isRunning && <span className="ml-1 dp-text-caption text-(--dp-resonance-light)">กำลังทำงาน</span>}
                 </span>
-                <span className="dp-text-caption text-(--dp-sand)">{caps ? ruleCountLabel(countBotRules(p.rules), caps.rules) : ""}</span>
               </div>
               <div className="dp-text-caption text-(--dp-sand)">
                 {botMapLabel(p.mapId)} · {botPocketLabel(p.pocketId)} · {botTargetSummaryLabel(p.rules)}
@@ -114,7 +111,7 @@ export function BotPlansTab({ profiles, tier, caps, busy, phase, selectedProfile
         })}
 
       {form && (
-        <BotPlanEditor form={form} tier={tier} caps={caps} disabled={busy} onChange={setForm} onCancel={() => setForm(null)} onSubmit={onSubmitForm} />
+        <BotPlanEditor form={form} tier={tier} disabled={busy} onChange={setForm} onCancel={() => setForm(null)} onSubmit={onSubmitForm} />
       )}
 
       <ConfirmDialog

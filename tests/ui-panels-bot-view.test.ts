@@ -14,7 +14,6 @@ import {
   botTierLabel,
   canConfirmBotOp,
   canCreateMoreProfiles,
-  countBotRules,
   defaultBotRules,
   formatDurationShort,
   formatEpochMs,
@@ -28,7 +27,6 @@ import {
   reportStopReasonLabel,
   resolveBotOpState,
   resolveBotPurchaseConfirmation,
-  ruleCountLabel,
   setBotLootAll,
   toggleBotSkillSlot,
   addWorkflowStep,
@@ -92,6 +90,7 @@ import {
   BOT_TARGET_MODE_LABELS,
   botCtaButtonLabel,
   botTargetSummaryLabel,
+  botTownSkipLabel,
   formatBotGoalProgress,
   hasGoalWorkflowConflict,
   lockedBotFeaturesFor,
@@ -354,43 +353,6 @@ describe("BotOpPhase state machine", () => {
   });
 });
 
-describe("countBotRules (mirror server/bot/profiles.ts countRules)", () => {
-  test("skillSlots.length + potion(0/1) + loot(1 เสมอ)", () => {
-    expect(countBotRules({ skillSlots: [0], potionThresholdPct: null, lootAll: true })).toBe(2);
-    expect(countBotRules({ skillSlots: [0, 1], potionThresholdPct: 30, lootAll: true })).toBe(4);
-    expect(countBotRules({ skillSlots: [], potionThresholdPct: null, lootAll: false })).toBe(1);
-  });
-  test("PR6b: แต่ละ workflow step นับเป็น 1 rule ด้วย", () => {
-    const workflow: BotWorkflowV1 = {
-      version: 1,
-      steps: [
-        { id: "s1", kind: "farm", mapId: "map1", pocketId: "map1-slime-center", goal: { type: "kills", target: 10 }, fallbacks: [] },
-        { id: "s2", kind: "town_service" },
-      ],
-    };
-    expect(countBotRules({ skillSlots: [0], potionThresholdPct: null, lootAll: true, workflow })).toBe(4); // 1+0+1+2
-  });
-  test("M1: SELECTED_TYPES +1 · goal +1 (server/bot/profiles.ts countRules mirror)", () => {
-    expect(
-      countBotRules({
-        skillSlots: [0],
-        potionThresholdPct: null,
-        lootAll: true,
-        targetMode: "SELECTED_TYPES",
-        selectedMobTypes: ["slime"],
-      }),
-    ).toBe(3); // 1+0+1+1
-    expect(
-      countBotRules({
-        skillSlots: [0],
-        potionThresholdPct: null,
-        lootAll: true,
-        goal: { type: "kills", target: 50 },
-      }),
-    ).toBe(3); // 1+0+1+1
-  });
-});
-
 describe("M3 §1 resolveBotCta — CTA เหลือปุ่มเดียว เริ่มบอท/หยุดบอท", () => {
   function statusFixture(state: BotContinuityStateWire): BotStatusMessage {
     return {
@@ -578,9 +540,8 @@ describe("PR6b งานหลายขั้น helpers", () => {
   });
 });
 
-describe("ruleCountLabel / profileCountLabel / canCreateMoreProfiles", () => {
+describe("profileCountLabel / canCreateMoreProfiles", () => {
   test("รูปแบบ X/Y", () => {
-    expect(ruleCountLabel(2, 10)).toBe("ใช้กฎไป 2/10");
     expect(profileCountLabel(1, 3)).toBe("1/3");
   });
   test("canCreateMoreProfiles", () => {
@@ -772,15 +733,15 @@ describe("PR7 §5 setup wizard (สร้างแผนใหม่)", () => {
     expect(prevBotWizardStep("stop_policy")).toBe("rules");
   });
 
-  test("isBotWizardStepValid: gate ตามขั้น (pocket ต้อง allow-list, rules ต้องมีสกิล+ไม่เกิน cap, stop_policy ต้องชื่อถูก)", () => {
+  test("isBotWizardStepValid: gate ตามขั้น (pocket ต้อง allow-list, rules ต้องมีสกิล, stop_policy ต้องชื่อถูก)", () => {
     const base = { name: "ฟาร์มสไลม์", mapId: "map1", pocketId: "map1-slime-center", rules: defaultBotRules() };
-    expect(isBotWizardStepValid("map", base, 3)).toBe(true);
-    expect(isBotWizardStepValid("pocket", base, 3)).toBe(true);
-    expect(isBotWizardStepValid("pocket", { ...base, pocketId: "map1-boss-arena" }, 3)).toBe(false);
-    expect(isBotWizardStepValid("rules", base, 3)).toBe(true);
-    expect(isBotWizardStepValid("rules", { ...base, rules: { skillSlots: [], potionThresholdPct: null, lootAll: true } }, 3)).toBe(false);
-    expect(isBotWizardStepValid("stop_policy", base, 3)).toBe(true);
-    expect(isBotWizardStepValid("stop_policy", { ...base, name: "" }, 3)).toBe(false);
+    expect(isBotWizardStepValid("map", base)).toBe(true);
+    expect(isBotWizardStepValid("pocket", base)).toBe(true);
+    expect(isBotWizardStepValid("pocket", { ...base, pocketId: "map1-boss-arena" })).toBe(false);
+    expect(isBotWizardStepValid("rules", base)).toBe(true);
+    expect(isBotWizardStepValid("rules", { ...base, rules: { skillSlots: [], potionThresholdPct: null, lootAll: true } })).toBe(false);
+    expect(isBotWizardStepValid("stop_policy", base)).toBe(true);
+    expect(isBotWizardStepValid("stop_policy", { ...base, name: "" })).toBe(false);
   });
 });
 
@@ -1295,6 +1256,13 @@ describe("M4 workspace redesign (owner brief 2026-07-17) — active-plan selecti
   test("formatBotGoalProgress: kills/gold/exp ตรงตัว, durationMs แปลงเป็นนาที", () => {
     expect(formatBotGoalProgress({ type: "kills", target: 50, done: 12 })).toBe("จำนวนที่ล่า 12/50");
     expect(formatBotGoalProgress({ type: "durationMs", target: 300000, done: 120000 })).toBe("เวลา (นาที) 2/5 นาที");
+  });
+
+  test("botTownSkipLabel: gold_reserve/skip อื่นมีข้อความ · restock_done(ไม่มีค่า) = null", () => {
+    expect(botTownSkipLabel(undefined)).toBeNull();
+    expect(botTownSkipLabel("gold_reserve")).toContain("เงินสำรอง");
+    expect(botTownSkipLabel("restock_skipped")).toContain("ไม่ได้ซื้อยา");
+    expect(botTownSkipLabel("future_reason")).toContain("ไม่ได้ซื้อยา"); // forward-compat: reason ใหม่ไม่พังจอ
   });
 
   test("lockedBotFeaturesFor: free ล็อกครบ 4, pro ปลดหมด", () => {

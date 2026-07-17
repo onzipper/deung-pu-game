@@ -1,7 +1,9 @@
 // Batch 7b-server — Profile service. PURE validation + tier-gated CRUD orchestration over a repo seam.
 //
-// D-063 gating: profiles count ≤ tier cap · rules count ≤ tier cap · after a tier downgrade the EXCESS profiles
-// are NOT deleted — they are returned flagged `readOnly` (paused) and `start` rejects them (§12.4).
+// D-063 gating: profiles count ≤ tier cap · after a tier downgrade the EXCESS profiles are NOT deleted — they
+// are returned flagged `readOnly` (paused) and `start` rejects them (§12.4). D-074 (amends D-063): the rule
+// quota is gone on every tier — a plan can use skills/potion/loot/goal/workflow freely; tier only gates which
+// FEATURES are unlocked (SELECTED_TYPES/goal = Plus+, workflow = Pro — checked below, unchanged).
 //
 // ⛔ SERVER-ONLY. The repo seam is injected → the service is fully unit-testable with an in-memory fake (no DB).
 
@@ -21,21 +23,6 @@ import { isValidWorkflowCondition, validateWorkflow, type BotWorkflowCondition }
 
 /** Upper bound on skill-slot indices at create time (class binding + range check happens at start). */
 export const MAX_SKILL_SLOTS = 8;
-
-/**
- * Count the rules a payload uses toward the tier cap (P3 §4/§16 Q4: 1 toggle/condition = 1 rule; §16 Q3:
- * custom stops share the same quota). v1: one rule per allowed skill slot + one for the potion rule (if set) +
- * one for the loot filter. Documented so the client counter can mirror it (defense-in-depth, server is truth).
- */
-export function countRules(rules: BotRulesV1): number {
-  const skill = rules.skillSlots.length;
-  const potion = rules.potionThresholdPct != null ? 1 : 0;
-  const loot = 1; // the loot filter is always one configured rule
-  const workflow = rules.workflow ? rules.workflow.steps.length : 0; // PR6b: each chain step is one rule
-  const targeting = rules.targetMode === "SELECTED_TYPES" ? 1 : 0; // M1: a selected-types filter is one rule
-  const goal = rules.goal ? 1 : 0; // M1: a single completion goal is one rule
-  return skill + potion + loot + workflow + targeting + goal;
-}
 
 /** Set membership for the completion-action enum (M1). */
 const COMPLETION_ACTION_SET: ReadonlySet<string> = new Set(BOT_COMPLETION_ACTIONS);
@@ -74,10 +61,11 @@ export function normalizeBotRules(rules: BotRulesV1): BotRulesV1 {
 }
 
 /**
- * Validate + sanitize a raw rules payload against a tier's rule cap. Rejects a bad shape, out-of-range/duplicate
- * skill slots, an empty skill set, a bad target/goal/potion dial, or a rule count over the cap. Returns the
- * sanitized (already-normalized) BotRulesV1 + its count. `targetCtx` (from the manager) enables the SELECTED_TYPES
- * class/pocket checks against live map data.
+ * Validate + sanitize a raw rules payload against a tier's FEATURE gates (D-074: no rule-count quota — a plan
+ * may use skills/potion/loot/goal/workflow freely). Rejects a bad shape, out-of-range/duplicate skill slots, an
+ * empty skill set, a bad target/goal/potion dial, or a feature not unlocked for the tier (SELECTED_TYPES/goal =
+ * Plus+, workflow = Pro). Returns the sanitized (already-normalized) BotRulesV1. `targetCtx` (from the manager)
+ * enables the SELECTED_TYPES class/pocket checks against live map data.
  */
 export function validateRules(
   raw: unknown,
@@ -112,8 +100,8 @@ export function validateRules(
   const rules: BotRulesV1 = { skillSlots: slots, potionThresholdPct, lootAll: r.lootAll };
 
   // PR6b: an optional Pro goal chain. A workflow is a Pro-only capability (tier gate here, re-gated at start +
-  // mid-run). Structural validation (allow-list / branch cycle / maxSteps) is the pure shared validator; each
-  // step counts toward the same rule cap.
+  // mid-run). Structural validation (allow-list / branch cycle / maxSteps) is the pure shared validator — maxSteps
+  // is a structural bound (validateWorkflow), not a rule quota (D-074 removed the quota entirely).
   if (r.workflow != null) {
     if (tier !== "pro") return { ok: false, reason: "workflow_requires_pro" };
     const validated = validateWorkflow(r.workflow, {
@@ -201,10 +189,7 @@ export function validateRules(
     rules.potionLowReserve = v;
   }
 
-  const ruleCount = countRules(rules);
-  const cap = capsFor(tier, config).rules;
-  if (ruleCount > cap) return { ok: false, reason: "rules_over_cap" };
-  return { ok: true, rules, ruleCount };
+  return { ok: true, rules };
 }
 
 /**

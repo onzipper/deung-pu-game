@@ -124,6 +124,15 @@ describe("town-trip warp handoff — happy path", () => {
     expect(farmHost.calls.sell).toHaveLength(0);
     expect(farmHost.calls.buy).toHaveLength(0);
 
+    // Warp mode pushed one owner-follow out to the town and one back to the farm (a watching owner tracks the actor).
+    expect(world.followMaps()).toEqual(["city-hub", "map1"]);
+
+    // Item 4: the live status tracks the actor's real map — city-hub while in town, back to the farm on return.
+    expect(world.statusMaps()).toContain("city-hub");
+    expect(world.latestStatus()?.mapId).toBe("map1");
+    // Item 5: the reserve stopped the restock short (bought 3 of 5, held the ≥50 gold reserve) → visible skip reason.
+    expect(world.latestStatus()?.lastTownSkip).toBe("gold_reserve");
+
     // Bag freed (3 sold + 1 deposited; +1 potion stack) and the gold reserve held (buys stopped before dipping <50).
     expect(world.usedSlots()).toBe(1); // only the potion stack remains among non-equipped slots
     expect(world.gold).toBe(56); // 20 +90 sells −54 (3×18) = 56 ≥ 50
@@ -142,6 +151,7 @@ describe("town-trip warp handoff — outbound aborts (actor never leaves the far
     expect(world.hostsContaining(ACTOR)[0]).toBe(farmHost); // still home
     expect(farmHost.calls.export).toBe(0); // never exported (reserve is checked first)
     expect(townHost.calls.reserve).toBeGreaterThanOrEqual(1);
+    expect(world.followMaps()).toHaveLength(0); // no transfer → no rebind → no owner-follow push
     expect(harness.runtime.isStopped).toBe(false);
 
     await harness.tickAndSettle(); // farming resumes cleanly
@@ -236,5 +246,19 @@ describe("town-trip warp handoff — begin guards", () => {
 
     // Immediately after completion the cooldown blocks a second trip.
     expect(harness.runtime.beginTownTrip("bag_full")).toBe(false);
+  });
+});
+
+describe("town-trip warp handoff — restock skip visibility (item 5)", () => {
+  test("enough gold to fully restock → restock_done clears lastTownSkip (no false skip surfaced)", async () => {
+    // 200 gold + 90 sells easily covers 5×18 while holding the 50 reserve → the full target is bought.
+    const { world, harness } = scene({ gold: 200 });
+    expect(harness.runtime.beginTownTrip("bag_full")).toBe(true);
+    await driveToWorking(harness, world);
+    expect(harness.state()).toBe("WORKING");
+
+    // All five potions bought → the restock completed → no skip reason lingers in the live status.
+    expect(harness.runtime.isStopped).toBe(false);
+    expect(world.latestStatus()?.lastTownSkip).toBeUndefined();
   });
 });

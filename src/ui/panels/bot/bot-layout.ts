@@ -12,7 +12,6 @@ import { getMap } from "@/engine/map/registry";
 import {
   botMapOptions,
   botPocketOptions,
-  countBotRules,
   defaultBotRules,
   formatDurationShort,
   hasAtLeastOneSkillSlot,
@@ -62,12 +61,11 @@ export function editBotProfileForm(profile: BotProfileWire): BotProfileFormState
   return { mode: "edit", id: profile.id, name: profile.name, mapId: profile.mapId, pocketId: profile.pocketId, rules: profile.rules };
 }
 
-/** mirror server validateRules/countRules (server เป็น truth จริงเสมอ) — ใช้ enable/disable ปุ่มบันทึกฝั่ง client */
-export function isBotProfileFormValid(form: BotProfileFormState, rulesCap: number | null): boolean {
+/** mirror server validateRules (server เป็น truth จริงเสมอ) — ใช้ enable/disable ปุ่มบันทึกฝั่ง client */
+export function isBotProfileFormValid(form: BotProfileFormState): boolean {
   return (
     isValidBotProfileName(form.name) &&
     hasAtLeastOneSkillSlot(form.rules) &&
-    (rulesCap === null || countBotRules(form.rules) <= rulesCap) &&
     (!form.rules.workflow || isValidBotWorkflowClient(form.rules.workflow)) &&
     !hasGoalWorkflowConflict(form.rules)
   );

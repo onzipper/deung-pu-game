@@ -85,6 +85,8 @@ describe("cross-map farm step — transfer succeeds", () => {
     expect(harness.runtime.runningCheckpoint.mapId).toBe("map2");
     expect(harness.state()).toBe("WORKING");
     expect(map2Host.calls.attach).toBe(1);
+    // The cross-map transfer pushed exactly one owner-follow to map2 (a watching owner follows the goal-chain warp).
+    expect(world.followMaps()).toEqual(["map2"]);
   });
 });
 
@@ -99,6 +101,7 @@ describe("cross-map farm step — transfer fails", () => {
     expect(world.actorCount()).toBe(1);
     expect(world.hostsContaining(ACTOR)[0]).toBe(farmHost); // still home
     expect(map2Host.calls.attach).toBe(0);
+    expect(world.followMaps()).toHaveLength(0); // never transferred → no owner-follow push
   });
 
   test("attach at the target fails but re-attaches to the source (recovered) → stuck stop, actor home", async () => {

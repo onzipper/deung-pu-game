@@ -936,6 +936,7 @@ export type BotTierWire = "free" | "plus" | "pro";
 /** Tier caps mirrored to the client for gating (server is truth). */
 export interface BotTierCapsWire {
   profiles: number;
+  /** dormant (D-074 — the rule quota is removed on every tier; field kept only to avoid a wire/version skew). */
   rules: number;
   reportRetentionDays: number;
   notifications: boolean;
@@ -1101,6 +1102,25 @@ export interface BotStatusMessage {
   };
   /** M1: live Plus single-goal progress (absent for a workflow run or a goal-less run; M2 fills `done`). */
   goal?: { type: BotWorkflowMetric; target: number; done: number };
+  /**
+   * The reason the last town-service restock did NOT fully restock potions (`gold_reserve` = held the D-070 gold
+   * reserve; `restock_skipped` = already stocked / buy failed / persistence unavailable). Absent/undefined = the
+   * last restock completed (or none has run yet). Diagnostic only — surfaces "why the bot did not buy potions".
+   */
+  lastTownSkip?: string;
+}
+/**
+ * S→C: after a server-owned actor transfer (town-trip walk hop / warp / workflow cross-map) rebinds the actor to a
+ * new MapRoom, tell the owner's watching client to FOLLOW it there (its transport still sits in the source room —
+ * `players.onRemove` for self is a no-op). Fanned across every host so a client stranded in the old room receives
+ * it. The client re-enters the target map on the same teardown+rejoin flow as MSG_MAP_TRANSITION. tx/ty = the
+ * landing tile on the destination (a placeholder; onSelfSpawn adoption still corrects the authoritative position).
+ */
+export const MSG_BOT_ACTOR_MAP = "bot:actorMap";
+export interface BotActorMapMessage {
+  mapId: string;
+  tx: number;
+  ty: number;
 }
 /** S→C: the plan stopped (§13 bot:stopped) — carries the current stop reason + session totals. */
 export const MSG_BOT_STOPPED = "bot:stopped";

@@ -15,6 +15,7 @@ import {
   botStatusStateLabel,
   botStopReasonLabel,
   botTargetSummaryLabel,
+  botTownSkipLabel,
   formatBotGoalProgress,
   formatDurationShort,
   formatHpPercent,
@@ -99,6 +100,9 @@ export function BotOverviewTab({
           <div className="text-(--dp-resonance-light)">{botStatusStateLabel(status.continuity, status.action)}</div>
           {status.workflow && <div className="dp-text-caption text-(--dp-resonance-light)">{formatWorkflowStepProgress(status.workflow)}</div>}
           {status.goal && <div className="dp-text-caption text-(--dp-resonance-light)">เป้าหมาย: {formatBotGoalProgress(status.goal)}</div>}
+          {botTownSkipLabel(status.lastTownSkip) && (
+            <div className="dp-text-caption text-(--dp-fire-light)">{botTownSkipLabel(status.lastTownSkip)}</div>
+          )}
           <div className="dp-text-caption text-(--dp-sand)">
             ฆ่า {status.killCount} · gold {status.goldEarned} · exp {status.expEarned} · HP {formatHpPercent(status.hpFraction)} · เวลา{" "}
             {formatDurationShort(status.uptimeMs)}

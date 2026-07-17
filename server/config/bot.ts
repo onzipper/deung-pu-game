@@ -25,7 +25,8 @@ export const BOT_TIERS: readonly BotTier[] = ["free", "plus", "pro"] as const;
 export interface BotTierCaps {
   /** max concurrent saved profiles (1/3/10). */
   profiles: number;
-  /** max rules across skill+potion+loot+custom-stop per profile (3/10/25). */
+  /** D-074: the rule quota is REMOVED on every tier (dormant field — kept only to avoid a wire/version skew
+   *  with an older client/server; never read for gating anymore). Values are the pre-D-074 history (3/10/25). */
   rules: number;
   /** report retention window in days (1/14/90) — enforced at query time. */
   reportRetentionDays: number;
@@ -186,7 +187,7 @@ export interface BotConfig {
    * re-gates it). Only the dials live here; the workflow engine (server/bot/workflow.ts) reads them.
    */
   workflow: {
-    /** max steps a single goal chain may hold (rule-cap counts each step separately). */
+    /** max steps a single goal chain may hold — a structural bound (validateWorkflow), not a rule quota (D-074). */
     maxSteps: number;
   };
 }

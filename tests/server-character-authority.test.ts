@@ -592,6 +592,20 @@ describe("MapRoom no-clone implementation guard", () => {
     expect(room).toContain("loot: [...outcome.granted, ...outcome.delivered]");
     expect(room).toContain("outcome.delivered.length > 0 || outcome.overflow.length > 0");
   });
+
+  test("a warped actor is retained + its account slot re-pointed UNCONDITIONALLY (owner online or offline)", () => {
+    // The owner-follow fix requires the target room to retain the actor even when the owner was attached at export
+    // (its transport is stranded in the source room until MSG_BOT_ACTOR_MAP walks it here). A resurrected
+    // `if (!exported.ownerAttached)` guard around the retain would regress the online-owner follow into the freeze.
+    const source = readFileSync(resolve(process.cwd(), "server/rooms/MapRoom.ts"), "utf8");
+    const attach = source.slice(
+      source.indexOf("  botAttachWarpedActor(exported"),
+      source.indexOf("  private retainWarpedActorSession("),
+    );
+    expect(attach).toContain("this.retainedActors.add(actorId)");
+    expect(attach).toContain("this.retainWarpedActorSession(exported.accountId, actorId,");
+    expect(attach).not.toContain("if (!exported.ownerAttached)");
+  });
 });
 
 describe("BotRuntime authority drain", () => {

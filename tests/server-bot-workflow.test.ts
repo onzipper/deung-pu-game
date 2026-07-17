@@ -133,20 +133,22 @@ describe("workflow contract validation (validateRules + validateWorkflow)", () =
     expect(validateWorkflow(ok, { maxSteps: 10, ...okPockets }).ok).toBe(true);
   });
 
-  test("over maxSteps is rejected, and step count counts toward the rule cap", () => {
+  test("over maxSteps is rejected (workflow_invalid_step) — a structural bound, not a rule quota", () => {
     const many = wf(...Array.from({ length: 11 }, (_, i) => farmStep(`s${i}`, "A", { type: "kills", target: 1 })));
     expect(validateWorkflow(many, { maxSteps: 10, ...okPockets })).toEqual({
       ok: false,
       reason: "workflow_invalid_step",
     });
-    // 25 steps + skill(1) + loot(1) = 27 > pro cap 25 → rules_over_cap.
-    const capped = {
+  });
+
+  test("D-074: a large step count no longer hits any rule quota — only maxSteps (structural) bounds it", () => {
+    const loaded = {
       skillSlots: [0],
       lootAll: true,
       workflow: wf(...Array.from({ length: 25 }, (_, i) => farmStep(`s${i}`, "map1-slime-center", { type: "kills", target: 1 }))),
     };
     const config = { ...DEFAULT_BOT_CONFIG, workflow: { maxSteps: 30 } };
-    expect(validateRules(capped, "pro", config)).toEqual({ ok: false, reason: "rules_over_cap" });
+    expect(validateRules(loaded, "pro", config).ok).toBe(true);
   });
 
   test("a bad branch target (nonexistent step) is rejected", () => {
