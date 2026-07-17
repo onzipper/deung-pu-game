@@ -739,8 +739,14 @@ export async function createEngine(
             sendAccumMs = 0;
             setPlayerDead(false);
           },
-          // A1 (§2): "player damaged" signal — hit flash/damage number juice = E3/E4 (hp truth มาทาง onSelfVitals).
-          //   ยังไม่ทำ visual รอบนี้ (out of scope); handler ผูกไว้ให้ E-work ต่อยอด (message ถูก consume ที่ net-client).
+          // A1 (§2) + Combat Juice F5: "player damaged" signal — hp truth มาทาง onSelfVitals (schema) เสมอ;
+          //   ที่นี่แค่ trigger juice (เลข damage โทน "incoming" + shake/camera-flash เบา ๆ, game/combat/combat-stub.ts
+          //   onPlayerDamaged). isSelf เทียบ sessionId เหมือน onSkillResult ด้านล่าง — combat-stub เองยัง gate
+          //   เฉพาะ self เท่านั้น (remote player position lookup = follow-up นอกสโคปไฟล์นั้น).
+          onPlayerDamaged: (msg) => {
+            const isSelf = net !== null && net.status.selfSessionId === msg.sessionId;
+            combat.onPlayerDamaged(msg, isSelf);
+          },
           onMobAdd: (snap) => mobView.onMobAdd(snap),
           onMobChange: (snap) => mobView.onMobChange(snap),
           onMobRemove: (mobId) => mobView.onMobRemove(mobId),
