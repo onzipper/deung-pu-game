@@ -85,13 +85,14 @@ describe("Bot autonomy and Dung-Dung direction docs lock", () => {
   test("routing docs point agents to both decisions and flag implementation drift", () => {
     expectAll("README.md", ["Canonical game spec (v15.5)", "§4.2 Continuity"]);
     expectAll("docs/context/server.md", [
-      "PR4 Free is live",
       "one assigned area + one continuous goal",
       "WAITING_FOR_OWNER/COMPLETED/FAILED",
-      "PR5 live: Plus recovery + town warp",
-      "PR6 owns workflow/restart resume",
+      "town-pressure.ts",
+      "map-route.ts",
+      "D-073",
+      "statsJson",
     ]);
-    expectAll("docs/context/ui.md", ["PR4 status/stopped messages", "PR7 UX"]);
+    expectAll("docs/context/ui.md", ["resolveBotCta", "เริ่มบอท", "D-072"]);
     expectAll("docs/CODEMAP.md", ["policy.ts", "PR4 Free one-area/one-goal safe-stop settlement"]);
     expectAll("docs/design/deungpu_MAP_SCALE_AND_SPAWN_DENSITY_SPEC_v1.md", [
       "CURRENT BOT SOURCE OF TRUTH",
