@@ -24,6 +24,10 @@ import { resolveDirection, type Direction } from "@/engine/movement/direction";
 import { findPath } from "@/engine/pathfinding/astar";
 import { planCorrectionResume } from "@/engine/player/correction-resume";
 import {
+  createSelfAuthorityController,
+  type SelfAuthorityController,
+} from "@/engine/net/self-authority";
+import {
   advancePathFollower,
   type PathFollowParams,
   type PathFollowState,
@@ -65,6 +69,9 @@ const INITIAL_FACING: Direction = "S";
 
 /** intent ที่สั้นกว่านี้ (²) ถือว่า "ไม่เดิน" → idle. */
 const MOVE_EPS = 1e-9;
+
+/** M6: ตำแหน่ง authority interpolated ที่ขยับน้อยกว่านี้ (tile) ถือว่านิ่ง → ไม่ moveEntity ซ้ำ (เท่า remote MOVE_EPSILON). */
+const AUTHORITY_MOVE_EPS = 1e-4;
 
 export type ManualTakeoverIntent =
   | { kind: "move" }
@@ -165,6 +172,7 @@ export interface LocalPlayerHandle {
  *
  * @param renderer pixi renderer (app.renderer) — ใช้ generate placeholder texture
  * @param target EventTarget ของ keyboard (default window) — inject ได้เพื่อเทสต์
+ * @param now monotonic clock (ms) สำหรับ self-authority buffer (M6) — inject ได้เพื่อเทสต์ (default performance.now)
  */
 export function createLocalPlayer(
   scene: MapSceneHandle,
@@ -174,6 +182,7 @@ export function createLocalPlayer(
   registry?: AssetRegistry,
   nameplates?: NameplateLayerHandle,
   target?: EventTarget,
+  now: () => number = () => performance.now(),
 ): LocalPlayerHandle {
   const { tileSize, player, pathfinding, input } = config;
   const pos: TilePoint = { tx: map.spawnPoint.x, ty: map.spawnPoint.y };
@@ -185,6 +194,14 @@ export function createLocalPlayer(
   let attackElapsedMs: number | null = null; // null = ไม่ได้กำลังโจมตี
   let clickAttackPending = false; // P1-09 programmatic attack (tap mob) — edge-triggered เหมือน Space
   let authorityLocked = false;
+  // M6: self-authority interpolation buffer — ใช้เฉพาะตอน Character Autonomy คุม actor เรา (ดู applyAuthorityState/
+  //   update locked branch). reuse net.interpolation (bufferMs/capacity/maxExtrap) เหมือน remote player.
+  const selfAuthority: SelfAuthorityController = createSelfAuthorityController({
+    bufferMs: config.net.interpolation.bufferMs,
+    bufferCapacity: config.net.interpolation.bufferCapacity,
+    maxExtrapolationMs: config.net.interpolation.maxExtrapolationMs,
+    snapThresholdTiles: config.net.selfAuthoritySnapThresholdTiles,
+  });
 
   // --- animated sprite (P0-06 placeholder / P3 atlas art ถ้ามี assetId + โหลดสำเร็จ) ---
   // มี assetId + peek เจอ + anim ครบ → ใช้ atlas (manifest/anchor/texture ของ atlas เอง); ไม่งั้น placeholder.
@@ -311,6 +328,21 @@ export function createLocalPlayer(
     scene.setCameraTarget(pos, true);
   };
 
+  /**
+   * M6: ขยับ entity ไปตำแหน่ง interpolated จาก self-authority buffer + กล้อง **lerp** (snap=false) — ต่างจาก
+   * snapPosition (กล้องวาร์ป, ใช้ตอน seed/warp) และ applyMove (manual, เช็ค next===pos). epsilon กัน depth
+   * resort ฟรีเมื่อแทบไม่ขยับ. ผ่าน scene.moveEntity เดิม → depth-sort/placement pipeline เดียวกัน (ห้าม bypass).
+   */
+  const applyAuthorityMove = (tx: number, ty: number): void => {
+    if (Math.abs(tx - pos.tx) > AUTHORITY_MOVE_EPS || Math.abs(ty - pos.ty) > AUTHORITY_MOVE_EPS) {
+      pos.tx = tx;
+      pos.ty = ty;
+      scene.moveEntity(LOCAL_PLAYER_ID, pos);
+      nameplates?.moveEntity(LOCAL_PLAYER_ID, pos);
+    }
+    scene.setCameraTarget(pos); // follow lerp (snap=false) — กล้องไม่วาร์ปทุก patch (M6 ชั้น 1)
+  };
+
   return {
     position: pos,
     get facing() {
@@ -335,7 +367,20 @@ export function createLocalPlayer(
       keyboard.consumeAttackPressed();
       keyboard.consumeSlotPressed();
       authorityLocked = locked;
-      if (!locked) return;
+      if (!locked) {
+        // M6 end-autonomy boundary: flush self buffer → snap ไป state ล่าสุดที่ server ยืนยัน (render ตามหลัง
+        // bufferMs อยู่) **ก่อน** คืน manual prediction — กัน rubber-band/ตำแหน่ง client-server แตกต่างสะสม.
+        const latest = selfAuthority.flush();
+        if (latest) {
+          snapPosition(latest.tx, latest.ty);
+          facing = latest.direction;
+          animation = latest.anim;
+          animator.setState(animation, facing);
+        }
+        return;
+      }
+      // M6 start-autonomy boundary: เคลียร์ buffer → push แรกจะ seed + snap ครั้งเดียว (ดู applyAuthorityState).
+      selfAuthority.reset();
       moveVector = null;
       manualInputActive = false;
       clickAttackPending = false;
@@ -439,12 +484,18 @@ export function createLocalPlayer(
       direction: Direction,
       nextAnimation: "idle" | "walk",
     ): void {
-      snapPosition(tx, ty);
-      clearPath();
-      attackElapsedMs = null;
-      facing = direction;
-      animation = nextAnimation;
-      animator.setState(animation, facing);
+      // M6: แทนที่จะ snap ทุก patch (จอ+กล้องกระตุก) → push เข้า self buffer แล้ว update() sample per-frame ให้ smooth.
+      //   seed แรก / warp (jump ≥ threshold: teleport/respawn/mismatch-reentry) → snap ครั้งเดียว (sprite+กล้อง).
+      const cmd = selfAuthority.push(now(), tx, ty, direction, nextAnimation);
+      if (cmd.kind === "snap") {
+        snapPosition(tx, ty);
+        clearPath();
+        attackElapsedMs = null;
+        facing = direction;
+        animation = nextAnimation;
+        animator.setState(animation, facing);
+      }
+      // cmd.kind === "buffer": ไม่แตะ pos/facing/animation ตรงนี้ — update() locked branch จะ sample + apply เอง.
     },
 
     update(dtSeconds: number): void {
@@ -452,6 +503,14 @@ export function createLocalPlayer(
         keyboard.consumeAttackPressed();
         keyboard.consumeSlotPressed();
         manualInputActive = false;
+        // M6 ชั้น 2: sample self buffer ที่ now − bufferMs → ขยับ entity (smooth camera lerp) + facing/anim
+        //   จาก snapshot (เหมือน remote). null = ยังไม่มี state (ก่อน seed) → คงตำแหน่ง/anim เดิม.
+        const sample = selfAuthority.sample(now());
+        if (sample) {
+          applyAuthorityMove(sample.tx, sample.ty);
+          facing = sample.direction;
+          animation = sample.anim;
+        }
         animator.setState(animation, facing);
         animator.update(dtSeconds);
         return;

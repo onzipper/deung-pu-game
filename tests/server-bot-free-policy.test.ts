@@ -18,6 +18,8 @@ const ALL_STOP_REASONS = [
   "expired_readonly",
   "town_trip_failed",
   "workflow_complete", // PR6b: goal chain จบครบทุกขั้น
+  "goal_complete", // M1: Plus single-goal ถึงเป้า → complete
+  "town_trip_no_route", // M1: หาเส้นทางเดินไปเมืองไม่ได้ → wait_for_owner
 ] as const satisfies readonly BotStopReason[];
 
 describe("Free Character Autonomy stop settlement", () => {
@@ -31,6 +33,11 @@ describe("Free Character Autonomy stop settlement", () => {
   test("an explicit owner stop completes the single assigned goal", () => {
     expect(settlementForStoppedPlan("manual")).toBe("complete");
     expect(settlementForStoppedPlan("workflow_complete")).toBe("complete");
+    expect(settlementForStoppedPlan("goal_complete")).toBe("complete"); // M1 Plus single-goal
+  });
+
+  test("a walking town trip with no route waits for the owner (M1)", () => {
+    expect(settlementForStoppedPlan("town_trip_no_route")).toBe("wait_for_owner");
   });
 
   test.each(["map_unsafe", "server_restart", "boss_or_event", "secret_trigger", "profile_deleted"] as const)(
@@ -48,7 +55,7 @@ describe("Free Character Autonomy stop settlement", () => {
       "secret_trigger",
       "profile_deleted",
     ]);
-    const completes = new Set<BotStopReason>(["manual", "workflow_complete"]);
+    const completes = new Set<BotStopReason>(["manual", "workflow_complete", "goal_complete"]);
     const waiting = ALL_STOP_REASONS.filter((reason) => !completes.has(reason) && !failed.has(reason));
 
     expect(waiting).toEqual([
@@ -60,6 +67,7 @@ describe("Free Character Autonomy stop settlement", () => {
       "captcha",
       "expired_readonly",
       "town_trip_failed",
+      "town_trip_no_route",
     ]);
     for (const reason of waiting) {
       expect(settlementForStoppedPlan(reason), reason).toBe("wait_for_owner");
@@ -71,7 +79,7 @@ describe("Free Character Autonomy stop settlement", () => {
     const stopReasonSetIsExhaustive: [MissingStopReason] extends [never] ? true : false = true;
 
     expect(stopReasonSetIsExhaustive).toBe(true);
-    expect(ALL_STOP_REASONS).toHaveLength(15);
+    expect(ALL_STOP_REASONS).toHaveLength(17);
     for (const reason of ALL_STOP_REASONS) {
       expect(["wait_for_owner", "complete", "fail"]).toContain(settlementForStoppedPlan(reason));
     }

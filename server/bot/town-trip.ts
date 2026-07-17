@@ -25,8 +25,18 @@ import { transferActor, type TransferResult } from "./warp";
 /**
  * What kicked off a trip. `bag_full` = a real overflow; `preflight` = an already-full proactive check;
  * `workflow` = a Pro goal-chain town_service step (PR6b) — an explicit service run, not bag pressure.
+ * M2a (D-073) proactive pressure triggers: `potion_low` (potions running low), `bag_pressure` (bag nearly full),
+ * `hp_no_potion` (low hp with no potion to drink). M1: `goal` = a Plus single-goal town_stop / town_continue
+ * completion action. Only the continuity reason code differs — the trip itself is identical (Free walks, paid warps).
  */
-export type TownTripTrigger = "bag_full" | "preflight" | "workflow";
+export type TownTripTrigger =
+  | "bag_full"
+  | "preflight"
+  | "workflow"
+  | "potion_low"
+  | "bag_pressure"
+  | "hp_no_potion"
+  | "goal";
 
 /**
  * The narrow runtime surface the controller drives. The runtime builds this from private closures (keeping its own
@@ -57,12 +67,16 @@ export interface TownTripFacade {
   ownerStatusPush(): void;
   /** plan A* home from the current (safe-camp) tile and enter the recovery "returning" phase; false = unroutable. */
   beginReturnRouteFromCurrent(targetPocketId: string): boolean;
+  /** the map the actor currently stands on (rebinds across every hop transfer) — the per-leg recompute anchor. */
+  currentMapId(): string;
   /**
-   * D-071 (walk mode): the exit on the CURRENT host's map toward `targetMapId` — a walkable approach tile inside
-   * the exit's trigger area (walk here before the transfer, as a player would) plus the landing spawn in the
-   * target map. null when no exit connects the two maps (a walk is impossible → the caller aborts the leg).
+   * D-071 M2b (walk mode, multi-hop): the NEXT portal hop toward `finalMapId` from the current host's map — a
+   * walkable `approach` tile inside that hop's exit area (walk here before the transfer, as a player would), the
+   * `landing` spawn on the next map, and that `nextMapId` (the acquire target). BFS over the real map graph, so a
+   * multi-map chain is crossed one hop at a time. null when no portal chain connects here to `finalMapId`, or the
+   * current map IS `finalMapId` already (zero hops — the caller checks currentMapId first).
    */
-  exitToward(targetMapId: string): { approach: Vec2; landing: Vec2 } | null;
+  nextHopToward(finalMapId: string): { approach: Vec2; landing: Vec2; nextMapId: string } | null;
   /**
    * D-071 (walk mode): step the actor toward `goal` one node this tick (A* planned lazily). "arrived" at/near the
    * goal, "stuck" once the idle-decision limit is hit (the caller settles the Free obstacle baseline), else
@@ -81,9 +95,10 @@ export interface TownTripFacade {
 
 /**
  * Internal trip phase. `warp_out`/`warp_back` are the D-069 instant transfers (Plus/Pro). D-071 adds the Free walk
- * legs: `walk_out` (A* to the farm→town portal, then transfer), `walk_to_service` (walk from the portal landing to
- * the town shop before SELLING), `walk_return` (walk to the town→farm portal, then transfer). `route_home` returns
- * to farming — via the recovery "returning" machinery (warp/paid) or the ordinary farm loop (walk/Free).
+ * legs: `walk_out` (A* to THIS hop's portal, transfer, LOOP until the town map is reached — D-071 M2b multi-hop),
+ * `walk_to_service` (walk from the town portal landing to the town shop before SELLING), `walk_return` (the same
+ * hop-by-hop loop back to the farm map). `route_home` returns to farming — via the recovery "returning" machinery
+ * (warp/paid) or the ordinary farm loop (walk/Free).
  */
 type TripPhase =
   | "warp_out"
@@ -100,6 +115,13 @@ type TripPhase =
 /** How a trip reaches the city-hub (D-069 warp vs D-071 walk). */
 export type TownTripMode = "walk" | "warp";
 
+/**
+ * M1: what the trip does once services finish (after restock). `return` (default) = the D-069/D-071 return leg
+ * back to farming. `stop_in_town` = a Plus single-goal `town_stop` completion: park in the city-hub and settle
+ * `goal_complete` WITHOUT returning (no return warp/walk). A takeover/expiry still preempts either (safety wins).
+ */
+export type TripEndAction = "return" | "stop_in_town";
+
 /** Rarity ladder (Economy §5.1: common/uncommon/rare). Unknown rarities fall outside every "up to max" band. */
 const RARITY_LADDER: readonly string[] = ["common", "uncommon", "rare"];
 
@@ -113,6 +135,10 @@ export class TownTripController {
   private readonly cfg: BotConfig["townTrip"];
   private readonly tripSeq: number;
   private readonly mode: TownTripMode;
+  /** M1: `stop_in_town` parks in the city-hub + settles `goal_complete` after services (a Plus goal `town_stop`). */
+  private readonly endAction: TripEndAction;
+  /** D-071 M2b: an unroutable FIRST hop STOPS (wait_for_owner) for a proactive trigger; a bag_full overflow aborts (retryable). */
+  private readonly noRouteStops: boolean;
   private readonly sellRarities: ReadonlySet<string>;
   private readonly keepItemIds: ReadonlySet<string>;
   private readonly capacity = DEFAULT_INVENTORY_CAPACITY;
@@ -135,11 +161,21 @@ export class TownTripController {
   private restockBought = 0;
   private restockUnitCost = 0;
 
-  constructor(facade: TownTripFacade, tripSeq: number, mode: TownTripMode = "warp") {
+  constructor(
+    facade: TownTripFacade,
+    tripSeq: number,
+    mode: TownTripMode = "warp",
+    trigger: TownTripTrigger = "bag_full",
+    endAction: TripEndAction = "return",
+  ) {
     this.f = facade;
     this.cfg = facade.config.townTrip;
     this.tripSeq = tripSeq;
     this.mode = mode;
+    this.endAction = endAction;
+    // D-071 M2b: only a bag_full overflow keeps the retryable abort on an unroutable first hop — every proactive
+    // trigger (potion_low / bag_pressure / hp_no_potion / preflight) surfaces the routing failure to the owner.
+    this.noRouteStops = trigger !== "bag_full";
     // D-071: the outbound leg differs by mode; the whole service cycle is shared. Warp is byte-identical to D-069.
     this.phase = mode === "walk" ? "walk_out" : "warp_out";
     this.sellRarities = raritiesUpTo(this.cfg.sellRarityMax);
@@ -238,37 +274,42 @@ export class TownTripController {
   }
 
   /**
-   * D-071 walk outbound: while the actor is still on the farm, A* to the farm→town portal, then transfer at the
-   * gate landing at the town portal-entry (NOT the warp anchor). A takeover/expiry mid-walk settles in place — the
-   * actor never left the farm. Death/stuck en route are the runtime's job (it stops the whole run). No mob combat:
-   * the controller only walks (Free must never farm with a full bag).
+   * D-071 M2b walk outbound (multi-hop): A* to THIS map's portal toward the town, transfer at the gate to the next
+   * map (landing at the portal entry, NOT a warp anchor), then LOOP — the next tick re-plans the next hop from the
+   * new map, so the whole city-hub↔map1↔…↔map4 chain is crossed one hop at a time. Continuity stays
+   * RETURNING_TO_TOWN across the entire chain (SELLING starts only at the town service anchor). A takeover/expiry
+   * mid-walk settles in place at the actor's real position (D-071 M2b — NOT the D-069 finish-and-return). Death/stuck
+   * en route are the runtime's job. No mob combat: the controller only walks (Free must never farm with a full bag).
    */
   private tickWalkOut(dtMs: number): void {
-    // Abort before the actor moved: settle where it stands (the farm) without walking all the way to town.
-    if (this.abortMode === "takeover") return this.settleTakeoverEnd();
-    if (this.abortMode === "expiry") return this.stopEnd("expired_readonly");
-    const exit = this.f.exitToward(this.cfg.townMapId);
-    if (!exit) return this.abortOutbound("town_trip_no_route"); // no portal connects the farm to the city-hub.
-    const status = this.f.walkToward(exit.approach, dtMs);
+    // A takeover/expiry mid-walk settles where the actor really stands (any hop's map), not the warp finish-and-return.
+    if (this.settleWalkAbort()) return;
+    // Reached the town map (last hop landed here, or a re-attach put us here): walk to the shop.
+    if (this.f.currentMapId() === this.cfg.townMapId) {
+      this.phase = "walk_to_service";
+      return;
+    }
+    const hop = this.f.nextHopToward(this.cfg.townMapId);
+    if (!hop) return this.outboundNoRoute(); // no portal chain from here to the city-hub.
+    const status = this.f.walkToward(hop.approach, dtMs);
     if (status === "stuck") return this.stopEnd("stuck"); // an owner-visible obstacle (Free waits for the owner).
     if (status === "walking") return;
-    // Arrived at the gate → transfer to the city-hub, landing at the portal entry (exit.landing), then walk in.
+    // Arrived at this hop's gate → transfer to the next map, landing at its portal entry, then loop for the next hop.
     this.pump(async () => {
-      const target = await this.f.acquireHostForMap(this.cfg.townMapId);
+      const target = await this.f.acquireHostForMap(hop.nextMapId);
       if (this.f.isStopped()) return;
-      if (this.abortMode === "takeover") return this.settleTakeoverEnd();
-      if (this.abortMode === "expiry") return this.stopEnd("expired_readonly");
-      if (!target) return this.abortOutbound("town_trip_target_unavailable");
+      if (this.settleWalkAbort()) return;
+      if (!target) return this.hopFailedOutbound("town_trip_target_unavailable");
       const source = this.f.currentHost();
-      const result = this.doTransfer(source, target, exit.landing);
+      const result = this.doTransfer(source, target, hop.landing);
       switch (result) {
         case "reserve_fail":
-          return this.abortOutbound("town_trip_seat_unavailable");
+          return this.hopFailedOutbound("town_trip_seat_unavailable");
         case "export_null":
           if (this.f.isStopped()) return this.end();
-          return this.abortOutbound("town_trip_export_null");
+          return this.hopFailedOutbound("town_trip_export_null");
         case "attach_recovered":
-          return this.abortOutbound("town_trip_attach_recovered");
+          return this.hopFailedOutbound("town_trip_attach_recovered");
         case "attach_fatal":
           return this.stopEnd("town_trip_failed");
         case "ok":
@@ -276,8 +317,8 @@ export class TownTripController {
           source.botPersistNow(this.actorId);
           target.botPersistNow(this.actorId);
           this.f.ownerStatusPush();
-          // Continuity stays RETURNING_TO_TOWN while walking to the shop; SELLING starts only at the service anchor.
-          this.phase = "walk_to_service";
+          // Reached the town → walk to the shop. Otherwise stay in walk_out; the next tick plans the next hop.
+          if (this.f.currentMapId() === this.cfg.townMapId) this.phase = "walk_to_service";
           return;
       }
     });
@@ -285,14 +326,12 @@ export class TownTripController {
 
   /**
    * D-071 walk outbound: from the town portal entry, walk to the service anchor (the central plaza safe camp, next
-   * to the shop + storage) before the D-070 service cycle. A takeover/expiry now heads back home (the actor is in
-   * town). The town seams are gated by map, not tile — the walk is for fidelity, not a transaction precondition.
+   * to the shop + storage) before the D-070 service cycle. A takeover/expiry settles in place in town (D-071 M2b —
+   * the actor already arrived). The town seams are gated by map, not tile — the walk is for fidelity, not a
+   * transaction precondition.
    */
   private tickWalkToService(dtMs: number): void {
-    if (this.abortMode !== "none") {
-      this.phase = this.returnPhase(); // takeover/expiry → head back to the farm portal (finish-and-return, D-069).
-      return;
-    }
+    if (this.settleWalkAbort()) return; // takeover/expiry → settle in place in town (D-071 M2b, walk-only phase).
     const anchor = this.f.currentHost().botSafeCampAnchor();
     const status = this.f.walkToward(anchor, dtMs);
     if (status === "stuck") return this.stopEnd("stuck"); // cannot reach the shop — parked safely in town.
@@ -396,6 +435,10 @@ export class TownTripController {
   }
 
   private finishRestock(reason: string): void {
+    // M1 `town_stop`: services done → park in the city-hub and settle `goal_complete` (no return leg). Reached only
+    // with abortMode === "none" (interrupted() short-circuits restock to the return phase for a takeover/expiry, so
+    // safety still preempts this). The actor stays materialized in the safe city-hub for the owner to reclaim.
+    if (this.endAction === "stop_in_town") return this.stopEnd("goal_complete");
     this.f.advance("RETURNING_TO_WORK", reason);
     this.phase = this.returnPhase(); // walk_return (D-071) or warp_back (D-069).
   }
@@ -420,33 +463,39 @@ export class TownTripController {
   }
 
   /**
-   * D-071 walk return: from the town service anchor, A* to the town→farm portal, then transfer at the gate landing
-   * at the farm portal entry. A stuck walk / failed transfer parks the actor safely in town (wait for owner), or
-   * settles the pending takeover/expiry in place. On success, hand off to `route_home` exactly like the warp path.
+   * D-071 M2b walk return (multi-hop): the mirror of walk_out — A* to THIS map's portal toward the farm, transfer at
+   * the gate to the next map, then LOOP until the farm map is reached (continuity stays RETURNING_TO_WORK the whole
+   * way). A takeover/expiry mid-return settles in place at the actor's real position (D-071 M2b). A stuck walk /
+   * failed transfer / dead-end route parks the actor safely on whatever map it stands on (wait for owner). On
+   * reaching the farm, hand off to `route_home` exactly like the warp path.
    */
   private tickWalkReturn(dtMs: number): void {
-    const exit = this.f.exitToward(this.f.farmMapId);
-    if (!exit) return this.landFailed(); // no portal back to the farm — parked safely in town.
-    const status = this.f.walkToward(exit.approach, dtMs);
-    if (status === "stuck") {
-      if (this.abortMode === "takeover") return this.settleTakeoverEnd();
-      return this.stopEnd(this.abortMode === "expiry" ? "expired_readonly" : "stuck");
-    }
+    if (this.settleWalkAbort()) return; // takeover/expiry mid-return settles in place (not the D-069 finish-and-return).
+    if (this.f.currentMapId() === this.f.farmMapId) return this.finishReturn(); // already home (re-attach / zero hop).
+    const hop = this.f.nextHopToward(this.f.farmMapId);
+    if (!hop) return this.landFailed(); // no portal chain back to the farm — parked safely where it stands.
+    const status = this.f.walkToward(hop.approach, dtMs);
+    if (status === "stuck") return this.stopEnd("stuck"); // owner-visible obstacle (abort already handled above).
     if (status === "walking") return;
     this.pump(async () => {
-      const target = await this.f.acquireHostForMap(this.f.farmMapId);
+      const target = await this.f.acquireHostForMap(hop.nextMapId);
       if (this.f.isStopped()) return;
+      if (this.settleWalkAbort()) return;
       if (!target) return this.landFailed();
       const source = this.f.currentHost();
-      const result = this.doTransfer(source, target, exit.landing);
+      const result = this.doTransfer(source, target, hop.landing);
       if (result !== "ok") return this.landFailed();
       target.botPersistNow(this.actorId);
       this.f.ownerStatusPush();
-      if (this.abortMode === "takeover") return this.settleTakeoverEnd();
-      if (this.abortMode === "expiry") return this.stopEnd("expired_readonly");
-      this.f.markTripComplete();
-      this.phase = "route_home";
+      // Reached the farm → finish the trip. Otherwise stay in walk_return; the next tick plans the next hop.
+      if (this.f.currentMapId() === this.f.farmMapId) return this.finishReturn();
     });
+  }
+
+  /** Arrived home on the walk return: arm the cooldown and hand off to the resume-farming phase (route_home). */
+  private finishReturn(): void {
+    this.f.markTripComplete();
+    this.phase = "route_home";
   }
 
   private tickRouteHome(): void {
@@ -495,15 +544,56 @@ export class TownTripController {
 
   /**
    * Between transactions, observe the stop / abort flags. A stop halts silently (the runtime death/stop path owns
-   * settlement). An abort (takeover/expiry) skips the remaining transactions and jumps straight to the return warp.
+   * settlement). An abort skips the remaining transactions: a WARP trip finish-and-returns home (D-069); a WALK trip
+   * settles in place in town (D-071 M2b — the owner reclaims mid-service), after the in-flight tx has drained.
    */
   private interrupted(): boolean {
     if (this.f.isStopped()) return true;
     if (this.abortMode !== "none") {
-      this.phase = this.returnPhase(); // walk_return (D-071) or warp_back (D-069) — finish-and-return home.
+      if (this.mode === "walk") this.settleWalkAbort(); // takeover → pause in town; expiry → stop in place.
+      else this.phase = this.returnPhase(); // D-069 warp: finish-and-return home.
       return true;
     }
     return false;
+  }
+
+  /**
+   * D-071 M2b: a takeover/expiry during ANY walk phase settles IN PLACE at the actor's real position (owner reclaim
+   * mid-walk) — never the D-069 warp finish-and-return. Returns true when it handled the abort (the caller stops
+   * stepping). The in-flight transaction has already drained (the pump lease defers finalize) by the time a service
+   * tick re-observes the flag. Warp mode never calls this (it keeps finish-and-return).
+   */
+  private settleWalkAbort(): boolean {
+    if (this.abortMode === "takeover") {
+      this.settleTakeoverEnd();
+      return true;
+    }
+    if (this.abortMode === "expiry") {
+      this.stopEnd("expired_readonly");
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * D-071 M2b outbound routing failure (no portal chain to the town from here). A proactive trigger, OR any failure
+   * once the chain has already begun (≥1 hop transferred — the actor is stranded mid-chain), STOPS visibly
+   * (wait_for_owner) with the actor parked on its real map. Only a bag_full overflow on the very first hop keeps the
+   * retryable abort (the runtime's inventory_full fallback still guards a truly stuck bag).
+   */
+  private outboundNoRoute(): void {
+    if (this.transferred || this.noRouteStops) return this.stopEnd("town_trip_no_route");
+    this.abortOutbound("town_trip_no_route");
+  }
+
+  /**
+   * D-071 M2b: an outbound hop's transfer failed (host acquire / seat / export / re-attach). Mid-chain (≥1 hop
+   * already done) the actor is stranded on an intermediate map → a visible town_trip_failed stop parks it there. On
+   * the FIRST hop the actor never left the farm (or was re-attached to it) → the retryable abort resumes farming.
+   */
+  private hopFailedOutbound(reasonCode: string): void {
+    if (this.transferred) return this.stopEnd("town_trip_failed");
+    this.abortOutbound(reasonCode);
   }
 
   /** Outbound abort — the actor never left the farm (or was re-attached there): resume farming, retry after backoff. */
@@ -513,9 +603,13 @@ export class TownTripController {
     this.end();
   }
 
-  /** The return warp could not complete — the actor is parked safely in the city-hub. */
+  /**
+   * The return leg could not complete — the actor is parked safely on whatever map it stands on (the city-hub for a
+   * warp trip, or any intermediate map on a walk trip whose next hop is unroutable / un-transferable). A pending
+   * takeover pauses in place there (the manager stamps the checkpoint mapId from the live host); otherwise a stop.
+   */
   private landFailed(): void {
-    if (this.abortMode === "takeover") return this.settleTakeoverEnd(); // pause in place (checkpoint = city-hub).
+    if (this.abortMode === "takeover") return this.settleTakeoverEnd(); // pause in place (checkpoint = live host map).
     this.stopEnd(this.abortMode === "expiry" ? "expired_readonly" : "town_trip_failed");
   }
 

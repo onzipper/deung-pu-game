@@ -143,7 +143,11 @@ const METRIC_SET: ReadonlySet<string> = new Set(BOT_WORKFLOW_METRICS);
 const FALLBACK_WHEN_SET: ReadonlySet<string> = new Set(BOT_WORKFLOW_FALLBACK_WHENS);
 const FALLBACK_ACTION_SET: ReadonlySet<string> = new Set(BOT_WORKFLOW_FALLBACK_ACTIONS);
 
-function isValidCondition(raw: unknown): raw is BotWorkflowCondition {
+/**
+ * True when `raw` is a well-formed condition/goal: a known metric + a positive-integer target. Exported so the
+ * Plus single-goal validator (server/bot/profiles.ts) reuses the identical goal shape/check (no duplicate rule).
+ */
+export function isValidWorkflowCondition(raw: unknown): raw is BotWorkflowCondition {
   if (typeof raw !== "object" || raw === null) return false;
   const c = raw as Record<string, unknown>;
   return (
@@ -183,7 +187,7 @@ export function validateWorkflow(raw: unknown, opts: WorkflowValidationOptions):
         return { ok: false, reason: "workflow_invalid_step" };
       }
       if (!opts.isAllowedPocket(s.mapId, s.pocketId)) return { ok: false, reason: "workflow_map_not_allowed" };
-      if (!isValidCondition(s.goal)) return { ok: false, reason: "workflow_invalid_step" };
+      if (!isValidWorkflowCondition(s.goal)) return { ok: false, reason: "workflow_invalid_step" };
       const fallbacks = sanitizeFallbacks(s.fallbacks, s.mapId, opts.isAllowedPocket);
       if (!fallbacks.ok) return { ok: false, reason: fallbacks.reason };
       steps.push({
@@ -197,7 +201,7 @@ export function validateWorkflow(raw: unknown, opts: WorkflowValidationOptions):
     } else if (s.kind === "town_service") {
       steps.push({ id: s.id, kind: "town_service" });
     } else if (s.kind === "branch") {
-      if (!isValidCondition(s.when) || typeof s.thenStepId !== "string" || typeof s.elseStepId !== "string") {
+      if (!isValidWorkflowCondition(s.when) || typeof s.thenStepId !== "string" || typeof s.elseStepId !== "string") {
         return { ok: false, reason: "workflow_invalid_step" };
       }
       steps.push({

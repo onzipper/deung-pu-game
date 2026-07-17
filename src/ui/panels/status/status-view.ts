@@ -29,3 +29,23 @@ export function expBarFraction(exp: ExpProgress | null): number {
   }
   return exp.ceil === 0 ? 1 : 0;
 }
+
+// ── M5 §4: portrait slot fallback (ไม่มี portrait art จริง — ต้องดู "ตั้งใจ" ไม่ใช่รูปแตก) ─────────────────
+//
+// classId มาจาก sessionStorage (readSelectedCharacterClassId, src/engine/net/character-session.ts) — มีแค่
+// 2 คลาสตอนนี้ (swordsman/archer, decision-index). ไม่รู้จัก/ว่าง → fallback "นักผจญภัย"/"ผ".
+
+const CLASS_LABEL_TH: Readonly<Record<string, string>> = {
+  swordsman: "นักดาบ",
+  archer: "นักธนู",
+};
+
+/** ป้ายไทยของอาชีพ — ใช้เป็น title ของ portrait frame (fallback "นักผจญภัย" เมื่อไม่รู้จัก classId) */
+export function classLabel(classId: string | undefined): string {
+  return (classId && CLASS_LABEL_TH[classId]) || "นักผจญภัย";
+}
+
+/** ตัวอักษรไทยตัวแรกของอาชีพ (แสดงในกรอบไม้แทน portrait art ที่ยังไม่มี) */
+export function classInitial(classId: string | undefined): string {
+  return classLabel(classId).charAt(0);
+}

@@ -35,6 +35,24 @@ describe("target selection", () => {
   test("empty pocket → null", () => {
     expect(pickTarget({ tx: 0, ty: 0 }, [mob("x", 1, 1, "Q")], "P")).toBeNull();
   });
+
+  // M1 SELECTED_TYPES: an optional allow-list restricts targeting to the chosen mob types in the pocket.
+  test("SELECTED_TYPES picks only an allowed type; other types in the pocket are skipped", () => {
+    const mobs = [
+      mob("bird-near", 1, 0, "P", 10, "bird"), // nearer, but a disallowed type
+      mob("slime-far", 5, 0, "P", 10, "slime"), // farther, but the allowed type
+    ];
+    const t = pickTarget({ tx: 0, ty: 0 }, mobs, "P", new Set(["slime"]));
+    expect(t?.id).toBe("slime-far");
+  });
+  test("SELECTED_TYPES with no matching type in the pocket → null (farm loop idles)", () => {
+    const mobs = [mob("bird", 1, 0, "P", 10, "bird"), mob("boar", 2, 0, "P", 10, "boar")];
+    expect(pickTarget({ tx: 0, ty: 0 }, mobs, "P", new Set(["slime"]))).toBeNull();
+  });
+  test("an undefined allow-list is ALL_IN_AREA (every bot-safe mob in the pocket)", () => {
+    const mobs = [mob("bird", 1, 0, "P", 10, "bird"), mob("slime", 5, 0, "P", 10, "slime")];
+    expect(pickTarget({ tx: 0, ty: 0 }, mobs, "P", undefined)?.id).toBe("bird");
+  });
 });
 
 describe("range + movement", () => {

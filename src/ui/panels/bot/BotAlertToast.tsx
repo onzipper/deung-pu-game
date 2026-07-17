@@ -17,6 +17,8 @@ const KIND_LABEL: Readonly<Record<string, string>> = {
   rare: "เจอของแรร์",
   captcha: "ต้องยืนยันตัวตน",
   gold_cap: "ถึงเพดานทอง",
+  // M4 §7: bot:alert kind "goal" (M1 Plus single-goal ถึงเป้าหมาย, server/bot/types.ts BotAlertMessage.kind)
+  goal: "ถึงเป้าหมายแล้ว",
 };
 
 export function BotAlertToast() {

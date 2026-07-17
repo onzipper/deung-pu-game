@@ -74,7 +74,9 @@ export type BotStopReason =
   | "server_restart" // process restarted — sessions with stoppedAt IS NULL are marked this on boot, NOT resumed
   | "expired_readonly" // tier downgrade paused this profile (excess) — running bot stopped safely
   | "town_trip_failed" // D-069: warp to city-hub for services failed; actor parked safely in town → wait_for_owner
-  | "workflow_complete"; // PR6b: a Pro goal chain ran every step to the end → settles `complete` (like manual stop)
+  | "workflow_complete" // PR6b: a Pro goal chain ran every step to the end → settles `complete` (like manual stop)
+  | "goal_complete" // M1: a Plus single-goal (rules.goal) reached its target → settles `complete` (like manual/workflow)
+  | "town_trip_no_route"; // M1: no A* route to the city-hub gate for a walking trip → wait_for_owner (default branch)
 
 export interface BotConfig {
   /** tier caps + passes (D-063). Keyed by tier. */
@@ -170,6 +172,14 @@ export interface BotConfig {
     maxTxRetries: number;
     /** start a trip on the first bag overflow instead of waiting for a later cue. */
     tripOnFirstOverflow: boolean;
+    /** Design Knob (§48) — M1: min free bag slots below which bag pressure alone may trigger a town trip. */
+    pressureMinFreeSlots: number;
+    /** Design Knob (§48) — M1: how often the runtime re-evaluates bag pressure between trips. */
+    pressureCheckIntervalMs: number;
+    /** Design Knob (§48) — M1: default "potions running low" reserve when a profile leaves potionLowReserve null. */
+    potionLowReserveDefault: number;
+    /** Design Knob (§48) — M1: upper bound a profile's potionRestockTarget may request. */
+    potionRestockTargetMax: number;
   };
   /**
    * PR6b Pro goal-chain knobs. Pro-only — Free/Plus never carry a workflow (validateRules rejects it, start
@@ -277,6 +287,10 @@ export const DEFAULT_BOT_CONFIG: BotConfig = {
     resumeMinFreeSlots: 5, // trip success criterion (D-070) — of 40 bag slots
     maxTxRetries: 1, // retry-once per transaction (D-070)
     tripOnFirstOverflow: true,
+    pressureMinFreeSlots: 5, // M1 Design Knob (§48) — bag-pressure trip trigger floor
+    pressureCheckIntervalMs: 15_000, // M1 Design Knob (§48) — bag-pressure re-check cadence
+    potionLowReserveDefault: 1, // M1 Design Knob (§48) — "low on potions" reserve when profile leaves it null
+    potionRestockTargetMax: 20, // M1 Design Knob (§48) — ceiling for a profile's potionRestockTarget
   },
   // PR6b Pro goal-chain (locked 2026-07-16)
   workflow: {

@@ -1,15 +1,17 @@
-// Batch 7b-server / PR5 — Plus-tier recovery planner (PURE, no I/O). One side-effect-free decision the runtime
+// Batch 7b-server / PR5 · M2a (D-073) — recovery planner (PURE, no I/O). One side-effect-free decision the runtime
 // calls each tick to choose between the normal PR4 farm loop and a recovery action. Tier settlement, async
 // drinks, A* routing, respawn detection, and DB access all stay in the runtime; this module only decides.
 //
-// Owner-locked semantics (D-063 · §6.2 no power sold):
-//   • Free tier does NO recovery — always baseline (heal/fallback is paid capability, never combat power).
-//   • Auto-potion is OPT-IN: no plan rule (potionThresholdFraction === null) ⇒ never drink; the low-hp floor
-//     stop still applies exactly as it does for Free today.
-//   • Death recovery (Plus/Pro): the game respawns the real character at full HP at the safe camp; the planner
+// Owner-locked semantics (D-063 · §6.2 no power sold · D-073):
+//   • Free tier recovers with POTIONS ONLY (auto-drink + the low-hp floor stop) — D-073 gave Free auto-potion, a
+//     convenience, never combat power. Free NEVER gets death recovery or pocket fallback (that stays paid — the
+//     Free branch structurally cannot return plan_return/follow_route/arrived/fallback_pocket/stop("death")).
+//   • Auto-potion is OPT-IN for every tier: no plan rule (potionThresholdFraction === null) ⇒ never drink; the
+//     low-hp floor stop still applies exactly as it did for Free before.
+//   • Death recovery (Plus/Pro only): the game respawns the real character at full HP at the safe camp; the planner
 //     observes that respawn, then plans a route back to the assigned pocket.
-//   • Pocket fallback: a dry active pocket hands off to another allowed pocket that still has mobs; the assigned
-//     pocket wins back as soon as it has alive mobs when preferAssignedPocket.
+//   • Pocket fallback (Plus/Pro only): a dry active pocket hands off to another allowed pocket that still has mobs;
+//     the assigned pocket wins back as soon as it has alive mobs when preferAssignedPocket.
 
 import type { BotConfig, BotStopReason, BotTier } from "../config/bot";
 import { squaredDistance, withinRange, type Vec2 } from "./agent";
@@ -56,27 +58,29 @@ export type RecoveryDecision =
 
 /**
  * Deterministic recovery decision for one tick. Precedence (first match wins):
- *   1. tier "free" → baseline (recovery is a paid capability, never combat power).
- *   2. death phases:
+ *   1. tier "free" → potion decision + low-hp floor ONLY (D-073). Free skips the death phases and pocket fallback
+ *      entirely, so it can never return plan_return/follow_route/arrived/fallback_pocket/stop("death").
+ *   2. death phases (paid):
  *        • awaiting_respawn: respawn observed → plan_return(assigned); timed out → stop("death"); else hold.
  *        • returning: route consumed OR within arrive radius of the last waypoint → arrived; else follow_route.
  *   3. potion (only with a rule, and only once past the death phases):
  *        • potion_pending → hold; hp ≤ threshold & phase none → use_potion (drink-first, beats the floor stop);
  *        • hp ≤ threshold & backoff: elapsed → use_potion; not elapsed → fall through.
  *   4. low-hp floor: hp ≤ lowHpStopFraction with no potion path available (no rule, or backoff cooling) → stop("low_hp").
- *   5. pocket fallback: assigned regained mobs while on a fallback pocket → switch back immediately (no idle wait);
- *      else after pocketFallbackIdleDecisions idle decisions, switch to a qualifying pocket (assigned preferred, else nearest).
+ *   5. pocket fallback (paid): assigned regained mobs while on a fallback pocket → switch back immediately (no idle
+ *      wait); else after pocketFallbackIdleDecisions idle decisions, switch to a qualifying pocket (assigned
+ *      preferred, else nearest).
  *   6. else baseline.
  * The maxDeathRecoveriesPerSession gate lives where death recovery STARTS (runtime); the planner never re-gates —
  * it proceeds even if deathRecoveryCount already exceeds the cap, so the two owners of that gate cannot disagree.
  */
 export function planRecovery(s: RecoverySnapshot, cfg: BotConfig["recovery"]): RecoveryDecision {
-  // 1 — Free never recovers.
-  if (s.tier === "free") return { kind: "baseline" };
+  // 1 — Free (D-073): potion decision + low-hp floor only. No death phases, no pocket fallback (tier boundary).
+  if (s.tier === "free") return planPotionOrFloor(s) ?? { kind: "baseline" };
 
   const phase = s.phase;
 
-  // 2 — Death recovery phases take precedence over the potion/fallback loop.
+  // 2 — Death recovery phases take precedence over the potion/fallback loop (paid).
   if (phase.kind === "awaiting_respawn") {
     if (s.position !== null && s.hpFraction >= cfg.respawnObserveMinHpFraction) {
       return { kind: "plan_return", targetPocketId: s.assignedPocketId };
@@ -95,7 +99,25 @@ export function planRecovery(s: RecoverySnapshot, cfg: BotConfig["recovery"]): R
     return arrived ? { kind: "arrived" } : { kind: "follow_route" };
   }
 
-  // 3 — Auto-potion is opt-in (a plan rule sets the threshold). Drink-first beats the floor stop.
+  // 3+4 — Auto-potion (opt-in) + low-hp floor, shared with the Free branch.
+  const recover = planPotionOrFloor(s);
+  if (recover) return recover;
+
+  // 5 — Pocket fallback (dry active pocket, or the assigned pocket regaining mobs).
+  const fallback = planPocketFallback(s, cfg);
+  if (fallback) return fallback;
+
+  // 6 — Nothing to recover: run the normal farm loop.
+  return { kind: "baseline" };
+}
+
+/**
+ * The tier-shared potion + low-hp-floor sub-decision (D-073 gave Free this exact path — potions + floor, nothing
+ * else). Returns null when neither applies (the caller falls through to death/fallback/baseline). Auto-potion is
+ * opt-in (a plan rule sets the threshold); a drink-first beats the floor stop.
+ */
+function planPotionOrFloor(s: RecoverySnapshot): RecoveryDecision | null {
+  const phase = s.phase;
   if (s.potionThresholdFraction !== null) {
     if (phase.kind === "potion_pending") return { kind: "hold" };
     if (s.hpFraction <= s.potionThresholdFraction) {
@@ -104,16 +126,9 @@ export function planRecovery(s: RecoverySnapshot, cfg: BotConfig["recovery"]): R
       // backoff not elapsed → fall through to the floor stop / baseline.
     }
   }
-
-  // 4 — Low-hp floor: no potion path available (no rule, or backoff still cooling) and at/below the floor.
+  // Low-hp floor: no potion path available (no rule, or backoff still cooling) and at/below the floor.
   if (s.hpFraction <= s.lowHpStopFraction) return { kind: "stop", reason: "low_hp" };
-
-  // 5 — Pocket fallback (dry active pocket, or the assigned pocket regaining mobs).
-  const fallback = planPocketFallback(s, cfg);
-  if (fallback) return fallback;
-
-  // 6 — Nothing to recover: run the normal farm loop.
-  return { kind: "baseline" };
+  return null;
 }
 
 /**

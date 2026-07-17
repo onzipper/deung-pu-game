@@ -57,7 +57,10 @@ import {
   type SessionRepo,
   type TierRepo,
 } from "./store";
-import { applyMockPurchase, capsFor, resolveTier } from "./tier";
+import { applyMockPurchase, buildBotTierPlans, capsFor, resolveTier } from "./tier";
+import type { ResolveRuleTargetCtx } from "./profiles";
+import { getMap } from "../../src/engine/map/registry";
+import { mobClassForMobType } from "../economy/kill-rewards";
 import {
   applyBotContinuityTransition,
   createBotContinuity,
@@ -548,9 +551,24 @@ export class BotManager {
         analytics: caps.analytics,
       },
       pausedProfileIds: views.filter((v) => v.readOnly).map((v) => v.id),
+      // M1: caps/prices for every tier come straight from config — the client stops hard-coding them.
+      plans: buildBotTierPlans(this.d.config),
     };
     send(MSG_BOT_TIER_STATE, msg);
   }
+
+  /**
+   * M1: build the SELECTED_TYPES validation context from LIVE map data — the mob types in the assigned pocket
+   * (each bot pocket holds one mob type) + the milestone class lookup. Passed to createProfile/updateProfile so a
+   * Plus/Pro selected-types filter is checked against the real pocket, never a hard-coded list.
+   */
+  private readonly resolveTargetCtx: ResolveRuleTargetCtx = (mapId, pocketId) => {
+    const pocket = getMap(mapId)?.mobPockets.find((p) => p.pocketId === pocketId);
+    return {
+      mobTypesInPocket: pocket ? [pocket.mobType] : null,
+      mobClassOf: (mobType) => mobClassForMobType(mobType),
+    };
+  };
 
   private async sendProfiles(accountId: string, send: Send): Promise<void> {
     const tier = await this.resolveTierFor(accountId);
@@ -596,6 +614,7 @@ export class BotManager {
       { accountId, name: m?.name, mapId: m?.mapId, pocketId: m?.pocketId, rawRules: m?.rules },
       this.d.now(),
       this.d.config,
+      this.resolveTargetCtx,
     );
     if (!res.ok) return this.reject(send, "profileCreate", res.reason);
     this.ack(send, "profileCreate", res.profile.id);
@@ -611,6 +630,7 @@ export class BotManager {
       { accountId, id: m?.id, name: m?.name, mapId: m?.mapId, pocketId: m?.pocketId, rawRules: m?.rules },
       this.d.now(),
       this.d.config,
+      this.resolveTargetCtx,
     );
     if (!res.ok) return this.reject(send, "profileUpdate", res.reason, m?.id);
     this.ack(send, "profileUpdate", res.profile.id);
@@ -773,6 +793,18 @@ export class BotManager {
     if (profile.mapId !== requestHost.mapId) {
       return this.reject(send, op, "character_not_in_profile_map", profile.id);
     }
+
+    // M1 start re-gate: a SELECTED_TYPES profile is re-validated against the LIVE pocket — map/pocket data can
+    // change after the profile was saved (resolveTargetCtx reads the current map registry), so a selected type may
+    // no longer be a normal mob that lives in the assigned pocket. Mirrors validateRules' SELECTED_TYPES check.
+    if (profile.rules.targetMode === "SELECTED_TYPES") {
+      const ctx = this.resolveTargetCtx(profile.mapId, profile.pocketId);
+      const invalid = (profile.rules.selectedMobTypes ?? []).some(
+        (t) => ctx.mobClassOf(t) !== "normal" || (ctx.mobTypesInPocket != null && !ctx.mobTypesInPocket.includes(t)),
+      );
+      if (invalid) return this.reject(send, op, "mob_type_not_in_pocket", profile.id);
+    }
+
     if (this.cancelledStarts.has(accountId)) return this.reject(send, op, "cancelled", profile.id);
 
     const now = this.d.now();
@@ -799,14 +831,14 @@ export class BotManager {
       continuity,
     });
 
-    // PR5 Phase C (D-069/D-070) proactive bag preflight — paid tiers only, never Free. Read the actor's live bag
-    // through the SAME best-effort seam the trip controller uses (botBagItems → [] on any load failure) and, if
-    // free bag slots already sit below the town-trip resume threshold, open the run with a town trip before it
-    // farms a single mob (never farm with a full bag → loot leaks). Best-effort: a load failure/[] yields a full
-    // slot count → no preflight, so it never blocks a start. Placed before the cancelled re-check so a cancel
-    // during the read is caught below (which releases authority). Free reads nothing at all.
+    // PR5 Phase C (D-069/D-070) · D-073 proactive bag preflight — every enabled tier (D-073 added Free, walk mode).
+    // Read the actor's live bag through the SAME best-effort seam the trip controller uses (botBagItems → [] on any
+    // load failure) and, if free bag slots already sit below the town-trip resume threshold, open the run with a
+    // town trip before it farms a single mob (never farm with a full bag → loot leaks). Best-effort: a load
+    // failure/[] yields a full slot count → no preflight, so it never blocks a start. Placed before the cancelled
+    // re-check so a cancel during the read is caught below (which releases authority).
     let initialTownTrip = false;
-    if (tier !== "free" && this.d.config.townTrip.enabledTiers.includes(tier)) {
+    if (this.d.config.townTrip.enabledTiers.includes(tier)) {
       try {
         const bag = await requestHost.botBagItems(actorId);
         initialTownTrip =
@@ -888,8 +920,8 @@ export class BotManager {
       // across every registered host (the owner's transport can sit in a sibling room after a warp).
       acquireHostForMap: (mapId) => this.acquireHostForMap(mapId),
       ownerSend: (acc, type, message) => this.ownerSend(acc, type, message),
-      // PR5 Phase C (D-069/D-070): a paid start whose bag is already at/over town pressure opens with a town trip
-      // before farming (the first paid tick warps to town). Always false for Free (no bag read above).
+      // PR5 Phase C (D-069/D-070) · D-073: a start whose bag is already at/over town pressure opens with a town trip
+      // before farming (paid warps, Free walks — first tick). Computed for every enabled tier above.
       initialTownTrip,
       // PR6a (D-067): the runtime piggybacks a Pro-only durable running checkpoint on its flush cadence + graceful
       // server_restart. The manager reads the runtime's live snapshot here (no-op without a checkpoint repo wired).

@@ -42,13 +42,96 @@ const mob = (id: string, pocketId: string, hp: number): AgentMob => ({
   pocketId,
 });
 
-describe("free tier", () => {
-  test("never recovers — baseline even at hp 0.01 mid death-recovery", () => {
-    const d = planRecovery(
-      snap({ tier: "free", hpFraction: 0.01, phase: { kind: "awaiting_respawn", diedAtMs: 0 } }),
-      cfg(),
-    );
-    expect(d).toEqual({ kind: "baseline" });
+describe("free tier — potions + floor only (D-073)", () => {
+  // D-073 (2026-07): Free gained auto-potion (a convenience, never combat power). The Free branch now runs the
+  // SAME potion decision + low-hp floor stop as paid, but STILL skips death recovery and pocket fallback (tier
+  // boundary D-063/D-067). It can never return plan_return/follow_route/arrived/fallback_pocket/stop("death").
+
+  test("no potion rule + hp ≤ floor → floor stop low_hp (byte-identical to the pre-D-073 Free baseline)", () => {
+    expect(planRecovery(snap({ tier: "free", potionThresholdFraction: null, hpFraction: 0.1 }), cfg())).toEqual({
+      kind: "stop",
+      reason: "low_hp",
+    });
+  });
+
+  test("no potion rule + hp above floor → baseline", () => {
+    expect(planRecovery(snap({ tier: "free", potionThresholdFraction: null, hpFraction: 0.9 }), cfg())).toEqual({
+      kind: "baseline",
+    });
+  });
+
+  test("potion rule + hp ≤ threshold + phase none → use_potion (Free now drinks)", () => {
+    expect(
+      planRecovery(snap({ tier: "free", potionThresholdFraction: 0.5, hpFraction: 0.4 }), cfg()),
+    ).toEqual({ kind: "use_potion" });
+  });
+
+  test("potion rule + hp ≤ floor + phase none → use_potion (drink-first beats the floor stop)", () => {
+    expect(
+      planRecovery(snap({ tier: "free", potionThresholdFraction: 0.5, hpFraction: 0.1 }), cfg()),
+    ).toEqual({ kind: "use_potion" });
+  });
+
+  test("potion_pending → hold (a drink is in flight)", () => {
+    expect(
+      planRecovery(
+        snap({ tier: "free", potionThresholdFraction: 0.5, hpFraction: 0.4, phase: { kind: "potion_pending" } }),
+        cfg(),
+      ),
+    ).toEqual({ kind: "hold" });
+  });
+
+  test("potion backoff not elapsed + hp between floor and threshold → baseline (no re-drink)", () => {
+    const phase: RecoveryPhase = { kind: "potion_backoff", retryAtMs: 5000 };
+    expect(
+      planRecovery(snap({ tier: "free", potionThresholdFraction: 0.5, hpFraction: 0.3, nowMs: 1000, phase }), cfg()),
+    ).toEqual({ kind: "baseline" });
+  });
+
+  test("potion backoff not elapsed + hp ≤ floor → floor stop low_hp", () => {
+    const phase: RecoveryPhase = { kind: "potion_backoff", retryAtMs: 5000 };
+    expect(
+      planRecovery(snap({ tier: "free", potionThresholdFraction: 0.5, hpFraction: 0.1, nowMs: 1000, phase }), cfg()),
+    ).toEqual({ kind: "stop", reason: "low_hp" });
+  });
+
+  test("EXHAUSTIVE: Free never returns a death-recovery or pocket-fallback decision, whatever the phase/pockets", () => {
+    // Even fed a death phase, alive fallback pockets, and a maxed idle counter — the paid-only paths that these
+    // inputs would trigger for a paid tier must NEVER appear for Free.
+    const deathPhases: RecoveryPhase[] = [
+      { kind: "awaiting_respawn", diedAtMs: 0 },
+      { kind: "returning", targetPocketId: "A", waypoints: [{ tx: 1, ty: 0 }], nextIndex: 0 },
+      { kind: "none" },
+      { kind: "potion_pending" },
+      { kind: "potion_backoff", retryAtMs: 0 },
+    ];
+    for (const phase of deathPhases) {
+      for (const hpFraction of [0.01, 0.1, 0.3, 0.9, 1.0]) {
+        for (const potionThresholdFraction of [null, 0.5]) {
+          const d = planRecovery(
+            snap({
+              tier: "free",
+              phase,
+              hpFraction,
+              potionThresholdFraction,
+              activePocketId: "B",
+              assignedPocketId: "A",
+              idleDecisions: 99, // would force a paid pocket fallback
+              nowMs: 10_000,
+              pocketsWithAliveMobs: new Set(["A", "B", "C"]),
+              pocketAnchors: new Map<string, Vec2>([["A", { tx: 0, ty: 0 }]]),
+            }),
+            cfg(),
+          );
+          expect(["use_potion", "hold", "stop", "baseline"]).toContain(d.kind);
+          expect(d.kind).not.toBe("plan_return");
+          expect(d.kind).not.toBe("follow_route");
+          expect(d.kind).not.toBe("arrived");
+          expect(d.kind).not.toBe("fallback_pocket");
+          if (d.kind === "stop") expect(d.reason).toBe("low_hp"); // never "death"
+        }
+      }
+    }
   });
 });
 

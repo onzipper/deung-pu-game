@@ -28,12 +28,22 @@ export interface Vec2 {
  * Nearest alive mob that belongs to the bot's pocket (§bot farms its assigned pocket only). Boss/elite pockets
  * are never the bot's pocket (forbidden at create/start), so this naturally excludes them. Returns null when the
  * pocket has no alive mob this tick (drives the `stuck` counter).
+ *
+ * M1 `allowedMobTypes` (SELECTED_TYPES): when supplied, only mobs whose `mobType` is in the set are eligible
+ * (ALL_IN_AREA passes it as undefined → every bot-safe mob in the pocket, the pre-M1 behaviour). An empty pocket
+ * after the type filter yields null = the ordinary idle/stuck behaviour of the farm loop.
  */
-export function pickTarget(botPos: Vec2, mobs: readonly AgentMob[], pocketId: string): AgentMob | null {
+export function pickTarget(
+  botPos: Vec2,
+  mobs: readonly AgentMob[],
+  pocketId: string,
+  allowedMobTypes?: ReadonlySet<string>,
+): AgentMob | null {
   let best: AgentMob | null = null;
   let bestDist = Infinity;
   for (const m of mobs) {
     if (m.pocketId !== pocketId || m.hp <= 0) continue;
+    if (allowedMobTypes && !allowedMobTypes.has(m.mobType)) continue;
     const dx = m.tx - botPos.tx;
     const dy = m.ty - botPos.ty;
     const d = dx * dx + dy * dy;

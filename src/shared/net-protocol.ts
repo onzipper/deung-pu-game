@@ -11,7 +11,7 @@
 
 import type { Direction } from "@/engine/movement/direction";
 import type { BotContinuitySnapshotWire } from "./bot-continuity";
-import type { BotWorkflowStatusCursor, BotWorkflowV1 } from "./bot-workflow";
+import type { BotWorkflowCondition, BotWorkflowMetric, BotWorkflowStatusCursor, BotWorkflowV1 } from "./bot-workflow";
 
 export type {
   BotContinuityOperationalStateWire,
@@ -943,13 +943,30 @@ export interface BotTierCapsWire {
   analytics: boolean;
 }
 
-/** Rules v1 (P3 §4) — the declarative bot behaviour stored per profile. */
+/** M1: bot target-selection mode — mirrors BotTargetMode (server/bot/types.ts). */
+export type BotTargetModeWire = "ALL_IN_AREA" | "SELECTED_TYPES";
+/** M1: what a Plus single-goal does when met — mirrors BotCompletionAction (server/bot/types.ts). */
+export type BotCompletionActionWire = "safe_stop" | "notify_continue" | "town_stop" | "town_continue";
+
+/** Rules v1 (P3 §4) — the declarative bot behaviour stored per profile. Mirrors BotRulesV1 (server/bot/types.ts). */
 export interface BotRulesWire {
   skillSlots: number[];
   potionThresholdPct?: number | null;
   lootAll: boolean;
   /** PR6b Pro goal chain (optional). Sent with profile create/update; server re-validates + gates it to Pro. */
   workflow?: BotWorkflowV1;
+  /** M1: target-selection mode (default ALL_IN_AREA). */
+  targetMode?: BotTargetModeWire;
+  /** M1: normal mob types to attack under SELECTED_TYPES. */
+  selectedMobTypes?: string[];
+  /** M1: Plus single-goal (reuses the workflow condition shape). Mutually exclusive with `workflow`. */
+  goal?: BotWorkflowCondition;
+  /** M1: action taken the instant `goal` is met (default safe_stop). */
+  completionAction?: BotCompletionActionWire;
+  /** M1: potions to restock on a town trip (null ⇒ config default). */
+  potionRestockTarget?: number | null;
+  /** M1: "potions running low" reserve that may trigger a town trip (null ⇒ config default). */
+  potionLowReserve?: number | null;
 }
 
 /** A profile as the client sees it (adds `readOnly` = excess-after-downgrade, D-063 §12.4). */
@@ -1032,6 +1049,17 @@ export const MSG_BOT_PROFILES = "bot:profiles";
 export interface BotProfilesMessage {
   profiles: BotProfileWire[];
 }
+/** M1: one buyable pass duration in a plan (mirrors BotPassPrice — server/config/bot.ts). Free carries none. */
+export interface BotTierPassWire {
+  days: number;
+  priceThb: number;
+}
+/** M1: a full tier plan the client renders from config (caps + buyable passes) — server config is the one truth. */
+export interface BotTierPlanWire {
+  tier: BotTierWire;
+  caps: BotTierCapsWire;
+  passes: BotTierPassWire[];
+}
 /** S→C: current tier state (§13 bot:tierState) — tier, expiry (ms|null), caps, paused (read-only) profile ids. */
 export const MSG_BOT_TIER_STATE = "bot:tierState";
 export interface BotTierStateMessage {
@@ -1039,6 +1067,8 @@ export interface BotTierStateMessage {
   passExpiresAt: number | null;
   caps: BotTierCapsWire;
   pausedProfileIds: string[];
+  /** M1: every tier's caps + prices straight from server config (client stops hard-coding them). */
+  plans: BotTierPlanWire[];
 }
 /** PR6b: the live goal-chain cursor projection (Pro workflow runs only; absent for single-pocket runs). */
 export type BotWorkflowStatusWire = BotWorkflowStatusCursor;
@@ -1060,6 +1090,17 @@ export interface BotStatusMessage {
   uptimeMs: number;
   /** PR6b Pro goal-chain cursor (absent for single-pocket runs). */
   workflow?: BotWorkflowStatusWire;
+  /** M1: lifetime-of-run activity counters for the status panel (M2 fills them; M1 defines the shape). */
+  stats?: {
+    townTrips: number;
+    potionsUsed: number;
+    deaths: number;
+    msFarming: number;
+    msWalking: number;
+    msInTown: number;
+  };
+  /** M1: live Plus single-goal progress (absent for a workflow run or a goal-less run; M2 fills `done`). */
+  goal?: { type: BotWorkflowMetric; target: number; done: number };
 }
 /** S→C: the plan stopped (§13 bot:stopped) — carries the current stop reason + session totals. */
 export const MSG_BOT_STOPPED = "bot:stopped";
@@ -1105,7 +1146,7 @@ export interface BotCheckpointMessage {
 export const MSG_BOT_ALERT = "bot:alert";
 export interface BotAlertMessage {
   profileId: string;
-  kind: "rare" | "captcha" | "gold_cap";
+  kind: "rare" | "captcha" | "gold_cap" | "goal";
   itemId?: string;
   message: string;
 }

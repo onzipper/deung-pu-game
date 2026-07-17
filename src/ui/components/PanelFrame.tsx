@@ -24,6 +24,9 @@ export interface PanelFrameProps {
   bodyClassName?: string;
   /** Panel = md (default), Modal = lg — §2.4 shape language */
   radius?: "md" | "lg";
+  /** true = fill parent height (h-full flex flex-col; body already flex-1 overflow-y-auto by default) —
+   * M4 Bot Hub workspace layout (Panel `layout="workspace"`). Default false = unchanged (content-sized). */
+  fill?: boolean;
 }
 
 export function PanelFrame({
@@ -36,11 +39,13 @@ export function PanelFrame({
   className,
   bodyClassName,
   radius = "md",
+  fill = false,
 }: PanelFrameProps) {
   return (
     <div
       className={[
         "flex flex-col overflow-hidden bg-(--dp-panel-bg)",
+        fill ? "h-full" : "",
         radius === "lg" ? "rounded-(--dp-radius-lg) dp-shadow-modal" : "rounded-(--dp-radius-md) dp-shadow-panel",
         className ?? "",
       ]

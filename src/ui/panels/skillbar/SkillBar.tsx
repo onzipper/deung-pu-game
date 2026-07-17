@@ -11,6 +11,7 @@ import type { EngineHandle } from "@/engine/runtime/app";
 import { useGameStore } from "@/ui/store/use-game-store";
 import { selectSkillSlots, type SkillSlotView } from "@/ui/store/game-store";
 import { skillIconUrl } from "./skill-icon-catalog";
+import { hudIconUrl } from "@/ui/panels/hud-icon-catalog";
 
 export interface SkillBarProps {
   getHandle: () => EngineHandle | null;
@@ -52,10 +53,10 @@ function SkillSlotButton({ slot, onCast }: { slot: SkillSlotView; onCast: () => 
           : `${slot.displayName} — ล็อก ปลดเลเวล ${slot.unlockLevel}`
       }
       className={
-        "pointer-events-auto relative shrink-0 overflow-hidden rounded-lg border-2 transition-colors " +
+        "pointer-events-auto relative shrink-0 overflow-hidden rounded-(--dp-radius-md) border-2 transition-colors " +
         (slot.unlocked
-          ? "border-amber-600/80 bg-stone-800/85 text-amber-100 hover:border-amber-400"
-          : "cursor-not-allowed border-stone-600/60 bg-stone-900/85 text-stone-500 grayscale")
+          ? "border-(--dp-warm-wood) bg-(--dp-deep-brown) text-(--dp-parchment) hover:border-(--dp-resonance-teal)"
+          : "cursor-not-allowed border-(--dp-soil-brown) bg-(--dp-warm-ink) text-(--dp-sand) grayscale")
       }
       style={{ width: size, height: size }}
     >
@@ -78,7 +79,7 @@ function SkillSlotButton({ slot, onCast }: { slot: SkillSlotView; onCast: () => 
         </span>
       )}
       {/* key label บนซ้าย (§8.3) */}
-      <span className="absolute left-0.5 top-0.5 rounded bg-black/60 px-1 text-[10px] font-bold text-amber-200">
+      <span className="absolute left-0.5 top-0.5 rounded-(--dp-radius-sm) bg-black/60 px-1 text-[10px] font-bold text-(--dp-highlight)">
         {slot.keyLabel}
       </span>
       {/* cooldown: dark clockwise radial + วินาที (§8.3) */}
@@ -91,16 +92,20 @@ function SkillSlotButton({ slot, onCast }: { slot: SkillSlotView; onCast: () => 
             }}
             aria-hidden
           />
-          <span className="absolute inset-0 flex items-center justify-center text-sm font-bold text-white">
+          <span className="absolute inset-0 flex items-center justify-center text-sm font-bold text-(--dp-highlight)">
             {remainingSec}
           </span>
         </>
       )}
-      {/* unavailable: lock (§8.3 reason icon) */}
+      {/* unavailable: lock icon (§8.3 reason icon, M5 §4 — svg แทน emoji 🔒) */}
       {!slot.unlocked && (
-        <span className="absolute inset-0 flex items-center justify-center text-lg" aria-hidden>
-          🔒
-        </span>
+        // eslint-disable-next-line @next/next/no-img-element -- decorative overlay glyph, closed icon set (hud-icon-catalog.ts)
+        <img
+          src={hudIconUrl("lock")}
+          alt=""
+          aria-hidden
+          className="absolute inset-0 m-auto h-6 w-6 opacity-90"
+        />
       )}
     </button>
   );

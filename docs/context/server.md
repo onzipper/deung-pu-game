@@ -12,7 +12,7 @@ Scope: `server/**`, `src/server/**`, `src/shared/**` · Read this pack + the fil
 - `server/index.ts` — Colyseus Server + `.filterBy(['mapId','partyId'])`, ws://localhost:2567
 - `server/schema/` — @colyseus/schema room/player/mob state
 - `server/security/` — WS handshake (JWT+origin+rate limit), session takeover/lease (Bible 5.2)
-- `server/characters/` + `server/bot/` — real actor, no clone; PR2–3 own takeover/continuity. PR4 Free is live: one assigned area + one continuous goal, with WAITING_FOR_OWNER/COMPLETED/FAILED reports. PR5 live: Plus recovery + town warp (`server/bot/town-trip.ts`, D-069/D-070); PR6 owns workflow/restart resume.
+- `server/characters/` + `server/bot/` — real actor, no clone; `continuity.ts` owns takeover/continuity. Free = one assigned area + one continuous goal, WAITING_FOR_OWNER/COMPLETED/FAILED reports; recovery (`recovery.ts`) is potion-drink + low-hp floor stop only for Free (D-073) — no death-recovery/pocket fallback (tier boundary). `town-pressure.ts` runs a proactive town-trip check every tier (potion_low/bag_pressure/hp_no_potion, D-073) instead of a hard bag-full-only trigger. `town-trip.ts` does the actual trip: Plus/Pro warp instantly (D-069/D-070); Free walks it — multi-hop across maps via `map-route.ts` (pure BFS over the map registry, recomputed per hop), fails visibly (`town_trip_no_route` → `wait_for_owner`) instead of silently, and a takeover mid-walk settles in place immediately (warp mode still finishes the trip and returns, D-069). Plus also gets `SELECTED_TYPES` mob targeting + a single goal (kills/gold/exp/duration) with a completion action (safe_stop/notify_continue/town_stop/town_continue); Pro workflows may not run a goal in parallel. `store.ts` (`CheckpointRepo`) gives Pro durable restart/resume (write-behind, re-validated on resume). Live in-memory bot stats (town trips/potions/deaths/time buckets) exist on `BotStatusMessage.stats` but are **not persisted** — a report of past runs needs a future `statsJson` migration.
 - `src/engine/net/net-client.ts` — connect/reconnect/self-adopt + cast and Bot takeover/checkpoint/resume
 - `src/server/db.ts` + `server/db/` — Prisma singletons (server-only) + ledger contract
 
@@ -21,6 +21,7 @@ Scope: `server/**`, `src/server/**`, `src/shared/**` · Read this pack + the fil
 - Every balance value from config (Design Knobs §48). Field names per GS §50.1.
 - Best-effort DB: no `DATABASE_URL` / can't connect → skip + warn once, **never break join** (dev/e2e have no DB).
 - Run the server with `--tsconfig server/tsconfig.json`; keep `server/` in the root tsconfig `exclude` + eslint `globalIgnores`.
+- Bot plan rules all live in `bot_profiles.rulesJson` (no dedicated columns, no migration needed) — `normalizeBotRules` fills defaults so old saved profiles keep loading after new rule fields are added.
 
 ## Traps
 - **Colyseus version pinning + schema decorators** — Pin the 0.16 line on schema 3 on both sides: colyseus@0.16.5 + @colyseus/schema@^3 (server) + colyseus.js@0.16.22 (client). A schema major bump = a different wire format → decode failures. `@type` is a legacy PropertyDecorator → the server needs `experimentalDecorators:true` + `useDefineForClassFields:false`.
