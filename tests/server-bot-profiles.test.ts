@@ -7,11 +7,14 @@ import {
   isBotAllowedPocket,
   listProfiles,
   markReadOnlyExcess,
+  normalizeBotRules,
   updateProfile,
   validateRules,
   type ProfileRepo,
+  type RuleTargetCtx,
 } from "../server/bot/profiles";
-import type { BotProfileRow } from "../server/bot/types";
+import { DEFAULT_BOT_CONFIG } from "../server/config/bot";
+import type { BotProfileRow, BotRulesV1 } from "../server/bot/types";
 
 // Batch 7b — Profile service (pure + DI repo). D-063 gating: profiles cap · rules cap · read-only excess after
 // downgrade (never deleted) · bot-safe pockets only. No DB — an in-memory fake repo drives the CRUD tests.
@@ -193,5 +196,178 @@ describe("CRUD orchestration", () => {
     const d = await deleteProfile(repo, "a", c.profile.id);
     expect(d.ok).toBe(true);
     expect(await listProfiles(repo, "a", "plus")).toHaveLength(0);
+  });
+});
+
+// ── M1: target selection · single goal · potion dials · normalization ────────────────────────────────────────────
+
+// live-map stand-in: map1-slime-center holds `slime` (normal). `bird` is normal but lives in another pocket;
+// `boss_boiling_boar` is a boss. Mirrors what the manager assembles from getMap + mobClassForMobType.
+const slimeCtx: RuleTargetCtx = {
+  mobTypesInPocket: ["slime"],
+  mobClassOf: (t) => (t === "boss_boiling_boar" ? "boss" : t === "slime" || t === "bird" ? "normal" : null),
+};
+
+describe("M1 target mode (SELECTED_TYPES)", () => {
+  const base = { skillSlots: [0], lootAll: true };
+
+  test("Free cannot use SELECTED_TYPES (target_mode_requires_plus)", () => {
+    const r = validateRules({ ...base, targetMode: "SELECTED_TYPES", selectedMobTypes: ["slime"] }, "free", DEFAULT_BOT_CONFIG, slimeCtx);
+    expect(r).toEqual({ ok: false, reason: "target_mode_requires_plus" });
+  });
+
+  test("Plus + a normal type in the pocket passes and counts +1 rule", () => {
+    const r = validateRules({ ...base, targetMode: "SELECTED_TYPES", selectedMobTypes: ["slime", "slime"] }, "plus", DEFAULT_BOT_CONFIG, slimeCtx);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.rules.targetMode).toBe("SELECTED_TYPES");
+    expect(r.rules.selectedMobTypes).toEqual(["slime"]); // deduped
+    expect(r.ruleCount).toBe(3); // skill 1 + loot 1 + targeting 1
+  });
+
+  test("an empty selectedMobTypes list is rejected (bad_selected_mob_types)", () => {
+    const r = validateRules({ ...base, targetMode: "SELECTED_TYPES", selectedMobTypes: [] }, "plus", DEFAULT_BOT_CONFIG, slimeCtx);
+    expect(r).toEqual({ ok: false, reason: "bad_selected_mob_types" });
+  });
+
+  test("a non-normal (boss) type is rejected (mob_type_not_normal)", () => {
+    const r = validateRules({ ...base, targetMode: "SELECTED_TYPES", selectedMobTypes: ["boss_boiling_boar"] }, "pro", DEFAULT_BOT_CONFIG, slimeCtx);
+    expect(r).toEqual({ ok: false, reason: "mob_type_not_normal" });
+  });
+
+  test("a normal type from another pocket is rejected (mob_type_not_in_pocket)", () => {
+    const r = validateRules({ ...base, targetMode: "SELECTED_TYPES", selectedMobTypes: ["bird"] }, "plus", DEFAULT_BOT_CONFIG, slimeCtx);
+    expect(r).toEqual({ ok: false, reason: "mob_type_not_in_pocket" });
+  });
+
+  test("with no ctx the class/pocket checks are skipped (shape still enforced)", () => {
+    const r = validateRules({ ...base, targetMode: "SELECTED_TYPES", selectedMobTypes: ["anything"] }, "plus");
+    expect(r.ok).toBe(true);
+  });
+
+  test("selectedMobTypes without SELECTED_TYPES is rejected (bad_selected_mob_types)", () => {
+    const r = validateRules({ ...base, selectedMobTypes: ["slime"] }, "plus", DEFAULT_BOT_CONFIG, slimeCtx);
+    expect(r).toEqual({ ok: false, reason: "bad_selected_mob_types" });
+  });
+
+  test("an out-of-enum targetMode is rejected (bad_target_mode)", () => {
+    const r = validateRules({ ...base, targetMode: "FOO" }, "plus");
+    expect(r).toEqual({ ok: false, reason: "bad_target_mode" });
+  });
+
+  test("ALL_IN_AREA is the default and needs no tier gate", () => {
+    const r = validateRules(base, "free");
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.rules.targetMode).toBe("ALL_IN_AREA");
+  });
+});
+
+describe("M1 single goal + completion action", () => {
+  const base = { skillSlots: [0], lootAll: true };
+  const goal = { type: "kills", target: 100 };
+  const wf = {
+    version: 1,
+    steps: [{ id: "s1", kind: "farm", mapId: "map1", pocketId: "map1-slime-center", goal: { type: "kills", target: 10 }, fallbacks: [] }],
+  };
+
+  test("Free cannot set a goal (goal_requires_plus)", () => {
+    expect(validateRules({ ...base, goal }, "free")).toEqual({ ok: false, reason: "goal_requires_plus" });
+  });
+
+  test("Plus goal passes, defaults completionAction to safe_stop, counts +1 rule", () => {
+    const r = validateRules({ ...base, goal }, "plus");
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.rules.goal).toEqual({ type: "kills", target: 100 });
+    expect(r.rules.completionAction).toBe("safe_stop");
+    expect(r.ruleCount).toBe(3); // skill 1 + loot 1 + goal 1
+  });
+
+  test("a bad goal shape is rejected (bad_goal)", () => {
+    expect(validateRules({ ...base, goal: { type: "kills", target: 0 } }, "plus")).toEqual({ ok: false, reason: "bad_goal" });
+    expect(validateRules({ ...base, goal: { type: "nope", target: 5 } }, "plus")).toEqual({ ok: false, reason: "bad_goal" });
+  });
+
+  test("goal + workflow together is rejected (goal_conflicts_workflow)", () => {
+    expect(validateRules({ ...base, goal, workflow: wf }, "pro")).toEqual({ ok: false, reason: "goal_conflicts_workflow" });
+  });
+
+  test("completionAction without a goal is rejected (bad_completion_action)", () => {
+    expect(validateRules({ ...base, completionAction: "town_stop" }, "plus")).toEqual({ ok: false, reason: "bad_completion_action" });
+  });
+
+  test("an out-of-enum completionAction is rejected (bad_completion_action)", () => {
+    expect(validateRules({ ...base, goal, completionAction: "explode" }, "plus")).toEqual({ ok: false, reason: "bad_completion_action" });
+  });
+
+  test("a valid completionAction is kept", () => {
+    const r = validateRules({ ...base, goal, completionAction: "notify_continue" }, "plus");
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.rules.completionAction).toBe("notify_continue");
+  });
+});
+
+describe("M1 potion dials", () => {
+  const base = { skillSlots: [0], lootAll: true };
+  const max = DEFAULT_BOT_CONFIG.townTrip.potionRestockTargetMax; // 20
+
+  test("potionRestockTarget above the config max is rejected (bad_potion_restock)", () => {
+    expect(validateRules({ ...base, potionRestockTarget: max + 1 }, "plus")).toEqual({ ok: false, reason: "bad_potion_restock" });
+    expect(validateRules({ ...base, potionRestockTarget: -1 }, "plus")).toEqual({ ok: false, reason: "bad_potion_restock" });
+    expect(validateRules({ ...base, potionRestockTarget: 3.5 }, "plus")).toEqual({ ok: false, reason: "bad_potion_restock" });
+  });
+
+  test("a valid potionRestockTarget is kept; null stays null (config default)", () => {
+    const r = validateRules({ ...base, potionRestockTarget: 10 }, "plus");
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.rules.potionRestockTarget).toBe(10);
+    const nul = validateRules(base, "plus");
+    if (nul.ok) expect(nul.rules.potionRestockTarget).toBeNull();
+  });
+
+  test("potionLowReserve is bounded by the effective restock target (bad_potion_reserve)", () => {
+    // explicit restock 3 → reserve 5 is over the bound
+    expect(validateRules({ ...base, potionRestockTarget: 3, potionLowReserve: 5 }, "plus")).toEqual({
+      ok: false,
+      reason: "bad_potion_reserve",
+    });
+    // no restock set → bound is the config default (5); 6 is over, 5 is fine
+    const dflt = DEFAULT_BOT_CONFIG.townTrip.potionRestockTarget;
+    expect(validateRules({ ...base, potionLowReserve: dflt + 1 }, "plus")).toEqual({ ok: false, reason: "bad_potion_reserve" });
+    const ok = validateRules({ ...base, potionLowReserve: dflt }, "plus");
+    expect(ok.ok).toBe(true);
+    if (ok.ok) expect(ok.rules.potionLowReserve).toBe(dflt);
+  });
+});
+
+describe("M1 normalizeBotRules (old profile load)", () => {
+  test("an old rules object (no M1 fields) gets structural defaults, never crashes", () => {
+    const old = { skillSlots: [0], potionThresholdPct: null, lootAll: true } as BotRulesV1;
+    const n = normalizeBotRules(old);
+    expect(n.targetMode).toBe("ALL_IN_AREA");
+    expect(n.completionAction).toBeUndefined(); // no goal → no completion action
+    expect(n.potionRestockTarget).toBeNull();
+    expect(n.potionLowReserve).toBeNull();
+    expect(n.skillSlots).toEqual([0]); // untouched
+  });
+
+  test("a goal without completionAction normalizes to safe_stop", () => {
+    const old = { skillSlots: [0], lootAll: true, goal: { type: "gold", target: 500 } } as BotRulesV1;
+    expect(normalizeBotRules(old).completionAction).toBe("safe_stop");
+  });
+
+  test("existing M1 values are preserved (idempotent)", () => {
+    const n = normalizeBotRules({
+      skillSlots: [0],
+      lootAll: true,
+      targetMode: "SELECTED_TYPES",
+      selectedMobTypes: ["slime"],
+      potionRestockTarget: 7,
+      potionLowReserve: 2,
+    });
+    expect(n.targetMode).toBe("SELECTED_TYPES");
+    expect(n.selectedMobTypes).toEqual(["slime"]);
+    expect(n.potionRestockTarget).toBe(7);
+    expect(n.potionLowReserve).toBe(2);
   });
 });

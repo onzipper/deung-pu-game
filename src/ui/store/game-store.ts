@@ -287,7 +287,7 @@ export interface HudState {
   /** D-067: ผล settle ล่าสุดจาก global safety/tier obstacle/manual/error + สรุป run. */
   botLastStopped: BotStoppedMessage | null;
   /** Batch 7b-UI: แจ้งเตือนล่าสุด (rare/captcha/gold_cap) + timestamp client — BotAlertToast อ่าน atMs (pattern เดียวกับ milestoneNotice). */
-  botAlert: { profileId: string; kind: "rare" | "captcha" | "gold_cap"; itemId?: string; message: string; atMs: number } | null;
+  botAlert: { profileId: string; kind: BotAlertMessage["kind"]; itemId?: string; message: string; atMs: number } | null;
   /** Batch 7b-UI: สรุปรายงานภายใน retention ของ tier (reply to bot:reportList). null = ยังไม่เคยขอ. */
   botReports: BotReportSummaryWire[] | null;
   /** Batch 7b-UI: รายละเอียด 1 รายงานที่เพิ่งเลือกดู (reply to bot:reportFetch) — null = ยังไม่เลือก/ถูก retention clip. */
@@ -298,6 +298,12 @@ export interface HudState {
   botCheckpoint: BotCheckpointWire | null;
   /** Live schema authority bit for the local real actor; independent of the throttled Bot status stream. */
   botAuthorityActive: boolean;
+  /**
+   * M3: timestamp (ms, nowMs-injectable) of the most recent bot-authority true→false transition — the player just
+   * took manual control back (move/skill/pointer/touch/cta). null = never happened yet / already consumed. A future
+   * UI milestone renders BOT_TAKEOVER_TOAST_MESSAGE (bot-view.ts) from this; the store never imports ui/panels.
+   */
+  botManualControlNoticeAtMs: number | null;
 }
 
 export const INITIAL_HUD_STATE: HudState = {
@@ -347,6 +353,7 @@ export const INITIAL_HUD_STATE: HudState = {
   botOpResult: null,
   botCheckpoint: null,
   botAuthorityActive: false,
+  botManualControlNoticeAtMs: null,
 };
 
 /** store singleton ตัวเดียวทั้งแอป — engine publish เข้านี่, React component subscribe ผ่าน useGameStore */
@@ -771,11 +778,31 @@ export function setBotCheckpoint(msg: BotCheckpointMessage): void {
 
 export const selectBotCheckpoint = (state: HudState): BotCheckpointWire | null => state.botCheckpoint;
 
-export function setBotAuthorityActive(active: boolean): void {
-  gameStore.setState(active ? { botAuthorityActive: true } : { botAuthorityActive: false, botStatus: null });
+/**
+ * M3: `nowMs` is injectable for tests (default `Date.now()`, same pattern as `setBotAlert`). A true→false call
+ * stamps `botManualControlNoticeAtMs` — the player just took manual control back. The prev→next comparison is
+ * inlined here on purpose (never import from `ui/panels` — the store must not depend on the panel layer);
+ * `bot-view.ts` separately exports `shouldShowTakeoverToast` with the identical check for whichever component
+ * ends up reading this field + rendering the toast.
+ */
+export function setBotAuthorityActive(active: boolean, nowMs: number = Date.now()): void {
+  if (active) {
+    gameStore.setState({ botAuthorityActive: true });
+    return;
+  }
+  const wasActive = gameStore.getState().botAuthorityActive;
+  gameStore.setState({
+    botAuthorityActive: false,
+    botStatus: null,
+    ...(wasActive ? { botManualControlNoticeAtMs: nowMs } : {}),
+  });
 }
 
 export const selectBotAuthorityActive = (state: HudState): boolean => state.botAuthorityActive;
+
+/** typed selector — timestamp ล่าสุดที่ผู้เล่นเพิ่งกลับมาคุมเอง (null = ยังไม่เคย/ถูกเคลียร์แล้ว) */
+export const selectBotManualControlNoticeAtMs = (state: HudState): number | null =>
+  state.botManualControlNoticeAtMs;
 
 export interface HudPublisher {
   /**

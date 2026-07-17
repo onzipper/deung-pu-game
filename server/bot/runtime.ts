@@ -35,6 +35,8 @@ import {
   type Vec2,
 } from "./agent";
 import { planRecovery, type RecoveryPhase, type RecoverySnapshot } from "./recovery";
+import { planTownPressure, type TownPressureTrigger } from "./town-pressure";
+import { DEFAULT_INVENTORY_CAPACITY } from "../../src/server/inventory/item-catalog";
 import type { SessionRepo } from "./store";
 import type { BotRulesV1, BotSessionCounters } from "./types";
 import {
@@ -125,6 +127,20 @@ export interface BotBagItemView {
  * ends the whole return (config.recovery.pocketArriveRadiusTiles) is the design-tuned value the planner owns.
  */
 const RETURN_WAYPOINT_ARRIVE_TILES = 0.5;
+
+/** Shared inert placeholders for the Free recovery snapshot's paid-only pocket fields (never read by the Free branch). */
+const EMPTY_POCKET_SET: ReadonlySet<string> = new Set<string>();
+const EMPTY_ANCHOR_MAP: ReadonlyMap<string, Vec2> = new Map<string, Vec2>();
+
+/** Continuity reason code per town-trip trigger (audit-only; the trip itself is identical across triggers). */
+const TOWN_TRIP_REASON: Record<TownTripTrigger, string> = {
+  bag_full: "bag_full_town_trip",
+  preflight: "preflight_town_trip",
+  workflow: "workflow_town_step",
+  potion_low: "potion_low_town_trip", // M2a (D-073)
+  bag_pressure: "bag_pressure_town_trip", // M2a (D-073)
+  hp_no_potion: "hp_no_potion_town_trip", // M2a (D-073)
+};
 
 /** Verified request to hand an already-materialized character actor to automation. */
 export interface BotAuthorityInput {
@@ -330,11 +346,11 @@ export interface BotRuntimeDeps {
    */
   ownerSend?: (accountId: string, type: string, message: unknown) => boolean;
   /**
-   * PR5 Phase C (D-069/D-070): the manager's proactive bag preflight found the bag already at/over the town
-   * pressure threshold at start (free slots < townTrip.resumeMinFreeSlots). On the FIRST paid tick the runtime
-   * opens a town trip BEFORE farming a single mob (never farm with a full bag → loot leaks). A refusal (cooldown
-   * / no warp dep / tier not enabled) clears the flag and farms normally; the bag-full divert then catches the
-   * next real overflow. Absent/false = the ordinary farm start. Free never sets this (no bag read at all).
+   * PR5 Phase C (D-069/D-070) · D-073: the manager's proactive bag preflight found the bag already at/over the town
+   * pressure threshold at start (free slots < townTrip.resumeMinFreeSlots). On the FIRST tick the runtime opens a
+   * town trip BEFORE farming a single mob (never farm with a full bag → loot leaks). A refusal (cooldown / no warp
+   * dep / tier not enabled) clears the flag and farms normally; the bag-full divert then catches the next real
+   * overflow. Absent/false = the ordinary farm start. D-073 added Free (walk mode) — it now preflights too.
    */
   initialTownTrip?: boolean;
   /**
@@ -411,8 +427,21 @@ export class BotRuntime {
   private townTripRetryUntil = 0;
   /** Per-runtime trip sequence — fixes the idempotency-key namespace so a retried transaction reuses its key. */
   private tripSeq = 0;
-  /** One-shot proactive preflight: the first paid tick opens a town trip before farming (D-069/D-070). */
+  /** One-shot proactive preflight: the first tick opens a town trip before farming (D-069/D-070; D-073 adds Free). */
   private initialTownTripPending = false;
+
+  // ── M2a (D-073) proactive bag-pressure sample (every tier) ─────────────────────────────────────────────────
+  /**
+   * The last bag sample driving proactive town pressure, or null before the first read / after a trip (stale). The
+   * runtime refreshes it on a cadence (config.townTrip.pressureCheckIntervalMs) via the async botBagItems seam — a
+   * pressure decision is NEVER made from empty data (null → skip). Kept fresh between reads by sync patches: −1
+   * potion on a successful drink, freeSlots=0 on an attack overflow, nulled on trip end (re-read next farm tick).
+   */
+  private bagStat: { freeSlots: number; potionCount: number; readAtMs: number } | null = null;
+  /** true while a bag sample read is in flight (one read at a time — never read every tick). */
+  private bagStatInFlight = false;
+  /** ms since the last bag sample read (initialized past the interval so the first farm tick samples). */
+  private sinceBagCheckMs = 0;
 
   // ── PR6b Pro goal-chain state (Pro + a profile workflow only — every other run is null here) ────────────────
   /** The goal-chain engine, or null when the run has no workflow (Free/Plus, or Pro without a chain). */
@@ -428,6 +457,8 @@ export class BotRuntime {
     this.activePocketId = deps.pocketId;
     this.currentTier = deps.tier;
     this.initialTownTripPending = deps.initialTownTrip === true;
+    // Sample the bag on the first farm tick (not one full interval later) so proactive pressure reacts promptly.
+    this.sinceBagCheckMs = deps.config.townTrip.pressureCheckIntervalMs;
     // A goal chain is a Pro capability (validateRules + start re-gate it). Constructing the engine here means tick
     // routes Pro+workflow to tickWorkflow; any non-Pro run (or a Pro run with no chain) keeps the pre-PR6b path.
     this.workflowController =
@@ -495,17 +526,10 @@ export class BotRuntime {
   tick(dtMs: number): void {
     if (this.stopped || !canIssueAutomationCommand(this.continuity)) return;
 
-    // Free tier is byte-identical to PR4: the farm loop verbatim, no recovery planner, no tier recheck, no new
-    // host calls. `activePocketId` never leaves the assigned pocket for Free, and the inline low-hp stop stays.
+    // Free tier (D-073): auto-potion + proactive town pressure around the PR4 farm loop. No death recovery, no
+    // pocket fallback, no tier recheck (`activePocketId` never leaves the assigned pocket for Free).
     if (this.currentTier === "free") {
-      // D-071: a Free WALK town trip owns the tick (walk to the city-hub → services → walk home). Without an
-      // active trip this stays byte-identical to PR4 — Free only ever holds a trip after a bag-full walk divert.
-      if (this.tripController) {
-        if (this.hasPendingAttack()) return; // never warp/walk-out while a committed grant is still draining.
-        this.tripController.tickTrip(dtMs);
-        return;
-      }
-      this.runFarmBody(dtMs, false);
+      this.tickFree(dtMs);
       return;
     }
 
@@ -516,6 +540,87 @@ export class BotRuntime {
     }
 
     this.tickPaid(dtMs);
+  }
+
+  /**
+   * Free-tier tick (D-073): a proactive preflight, then — with no active trip — one auto-potion / low-hp-floor
+   * decision, proactive town pressure, and the farm loop. Free never rechecks tier, never enters death recovery,
+   * and never pocket-fallbacks; the walk town trip (D-071) is its only away-from-pocket movement.
+   */
+  private tickFree(dtMs: number): void {
+    // (a) one-shot proactive preflight: the bag was already full at start → walk to town before farming a mob.
+    if (this.initialTownTripPending) {
+      this.initialTownTripPending = false;
+      this.beginTownTrip("preflight");
+    }
+
+    // (b) an active WALK town trip owns the whole tick (walk out → services → walk home).
+    if (this.tripController) {
+      if (this.hasPendingAttack()) return; // never walk-out while a committed grant is still draining.
+      this.tripController.tickTrip(dtMs);
+      return;
+    }
+
+    this.runFreeFarm(dtMs);
+  }
+
+  /**
+   * Free recovery + proactive pressure + farm, in order: (b) auto-potion / low-hp-floor via the shared planner
+   * (Free branch: potion + floor only); (c) proactive town pressure — a would-be floor stop is DEFERRED so a walk
+   * to restock gets first crack (better than an immediate wait-for-owner); (d) the deferred floor stop, else farm.
+   */
+  private runFreeFarm(dtMs: number): void {
+    const host = this.currentHost;
+    const config = this.d.config;
+    const pos = host.botPos(this.d.actorId);
+    if (!pos) return void this.stop("map_unsafe"); // member vanished (matches runFarmBody's guard order).
+    if (!host.pocketExists(this.activePocketId)) return void this.stop("map_unsafe");
+
+    // (b) auto-potion / low-hp floor. The Free branch only ever returns use_potion / hold / stop(low_hp) / baseline.
+    const decision = planRecovery(this.buildFreeRecoverySnapshot(pos), config.recovery);
+    if (decision.kind === "use_potion") return void this.dispatchUsePotion();
+    if (decision.kind === "hold") return; // a drink is in flight — wait for its result.
+    const floorStop = decision.kind === "stop" ? decision.reason : null;
+
+    // (c) proactive town pressure (potion low / bag pressure / hp with no potion → WALK to town). Skipped until a
+    //     bag sample exists (never trigger from empty data). A refused begin falls through to the floor stop / farm,
+    //     except an hp_no_potion refusal at/below the floor stops low_hp (never farm to death — Free has no recovery).
+    const trigger = this.proactiveTownTrigger(dtMs);
+    if (trigger) {
+      if (this.beginTownTrip(trigger)) return; // walk trip owns the next ticks.
+      if (trigger === "hp_no_potion" && host.botHpFraction(this.d.actorId) <= config.lowHpStopFraction) {
+        return void this.stop("low_hp");
+      }
+    }
+
+    // (d) apply a deferred floor stop, else run the ordinary Free farm loop (planner owns the floor → skip inline).
+    if (floorStop) return void this.stop(floorStop);
+    this.runFarmBody(dtMs, true);
+  }
+
+  /**
+   * Minimal recovery snapshot for the Free branch of planRecovery (potion + floor only). Pocket fields are inert
+   * placeholders — the Free branch never reads them — so Free never builds the paid pocket/anchor caches or makes
+   * the extra host calls those would incur.
+   */
+  private buildFreeRecoverySnapshot(pos: Vec2): RecoverySnapshot {
+    const host = this.currentHost;
+    return {
+      nowMs: this.d.now(),
+      tier: "free",
+      hpFraction: host.botHpFraction(this.d.actorId),
+      position: pos,
+      assignedPocketId: this.d.pocketId,
+      activePocketId: this.activePocketId,
+      allowedPockets: [this.activePocketId],
+      pocketsWithAliveMobs: EMPTY_POCKET_SET,
+      pocketAnchors: EMPTY_ANCHOR_MAP,
+      potionThresholdFraction: this.potionThresholdFraction(),
+      lowHpStopFraction: this.d.config.lowHpStopFraction,
+      idleDecisions: this.idleDecisions,
+      deathRecoveryCount: this.deathRecoveryCount,
+      phase: this.recoveryPhase,
+    };
   }
 
   /**
@@ -706,9 +811,16 @@ export class BotRuntime {
 
     // apply the single decision (state transition before side effect, revision-fenced).
     switch (decision.kind) {
-      case "baseline":
+      case "baseline": {
+        // M2a (D-073): the paid proactive town trip. On a would-be-farm tick (recovery decided baseline, so hp is
+        // above the floor and no death/fallback is pending), a bag/potion/hp pressure sample may WARP to town for
+        // services before a hard overflow or a floor stop. A refused begin (cooldown/gate) simply farms on. Same
+        // decision module as Free — the tier difference is warp vs walk, never capability.
+        const trigger = this.proactiveTownTrigger(dtMs);
+        if (trigger && this.beginTownTrip(trigger)) return;
         this.runFarmBody(dtMs, true);
         return;
+      }
       case "hold":
         return;
       case "use_potion":
@@ -820,6 +932,11 @@ export class BotRuntime {
   /** Settle a resolved drink: healed/not_needed resumes work; anything else backs off (planner's floor still stops). */
   private applyPotionOutcome(outcome: BotPotionOutcome): void {
     if (outcome.status === "healed" || outcome.status === "not_needed") {
+      // M2a (D-073): a successful drink consumed one potion — keep the pressure sample fresh between reads so a
+      // potion_low / hp_no_potion trigger reflects the real stock (not_needed drank nothing → leave it).
+      if (outcome.status === "healed" && this.bagStat) {
+        this.bagStat = { ...this.bagStat, potionCount: Math.max(0, this.bagStat.potionCount - 1) };
+      }
       this.recoveryPhase = { kind: "none" };
       this.advanceContinuity("WORKING", "potion_heal_applied");
     } else {
@@ -901,6 +1018,74 @@ export class BotRuntime {
     const pct = this.d.rules.potionThresholdPct;
     if (pct == null) return null;
     return Math.max(0, Math.min(100, pct)) / 100;
+  }
+
+  // ── M2a (D-073) proactive town-pressure sampling ──────────────────────────────────────────────────────────
+
+  /**
+   * Refresh the bag sample on its cadence, then evaluate the proactive town-trip trigger (or null when no sample
+   * exists yet — never trigger from empty data). Called from the farm path (currentHost is the farm host there).
+   */
+  private proactiveTownTrigger(dtMs: number): TownPressureTrigger | null {
+    this.maybeRefreshBagStat(dtMs);
+    if (!this.bagStat) return null;
+    const cfg = this.d.config;
+    const result = planTownPressure({
+      freeSlots: this.bagStat.freeSlots,
+      potionCount: this.bagStat.potionCount,
+      hpFraction: this.currentHost.botHpFraction(this.d.actorId),
+      potionThresholdPct: this.d.rules.potionThresholdPct ?? null,
+      potionLowReserve: this.d.rules.potionLowReserve ?? cfg.townTrip.potionLowReserveDefault,
+      pressureMinFreeSlots: cfg.townTrip.pressureMinFreeSlots,
+      lowHpStopFraction: cfg.lowHpStopFraction,
+    });
+    return result.kind === "town_trip" ? result.trigger : null;
+  }
+
+  /**
+   * Fire-and-forget bag sample on the pressure cadence — one read at a time (in-flight guard), NEVER every tick,
+   * and NEVER awaited in the tick path. A read failure keeps the last sample (best-effort); the timer resets so a
+   * flaky seam does not hammer the DB. Uses no lease: a pure read owns no economy state a stop must drain.
+   */
+  private maybeRefreshBagStat(dtMs: number): void {
+    this.sinceBagCheckMs += dtMs;
+    if (this.sinceBagCheckMs < this.d.config.townTrip.pressureCheckIntervalMs || this.bagStatInFlight) return;
+    this.sinceBagCheckMs = 0;
+    this.bagStatInFlight = true;
+    const potionId = this.d.config.townTrip.potionItemId;
+    void this.currentHost
+      .botBagItems(this.d.actorId)
+      .then((bag) => {
+        if (this.stopped) return; // a stop raced the read — the sample is moot.
+        // Slots: capacity − non-equipped instances (mirrors manager.freeBagSlots + the trip's route-home math).
+        // Potions: non-equipped stacks of the town potion, summed (mirrors town-trip.ts tickRestocking).
+        let occupied = 0;
+        let potions = 0;
+        for (const item of bag) {
+          if (item.equipped) continue;
+          occupied += 1;
+          if (item.itemId === potionId) potions += item.quantity;
+        }
+        this.bagStat = {
+          freeSlots: DEFAULT_INVENTORY_CAPACITY - occupied,
+          potionCount: potions,
+          readAtMs: this.d.now(),
+        };
+      })
+      .catch((e: unknown) => {
+        console.error(
+          `[bot ${this.d.sessionRowId}] bag sample error: ${e instanceof Error ? e.message : String(e)}`,
+        );
+      })
+      .finally(() => {
+        this.bagStatInFlight = false;
+      });
+  }
+
+  /** Force the next farm tick to re-sample the bag (a trip changed it a lot). */
+  private markBagStatStale(): void {
+    this.bagStat = null;
+    this.sinceBagCheckMs = this.d.config.townTrip.pressureCheckIntervalMs;
   }
 
   /** Allowed pockets for this map (config ∩ existing), lazily cached; falls back to the assigned pocket if empty. */
@@ -1012,6 +1197,8 @@ export class BotRuntime {
     // (farming on with a full bag leaks loot — never acceptable). This runs in the attack continuation with the
     // attack lease still held; beginTownTrip only advances continuity + constructs the controller here — the trip's
     // first warp/walk step runs on a later tick, after releaseLease has drained this committed grant into the report.
+    // M2a (D-073): an overflow means the bag is full — keep the pressure sample honest between reads.
+    if (o.bagOverflowed && this.bagStat) this.bagStat = { ...this.bagStat, freeSlots: 0 };
     const bag = stopForInventoryOverflow(o.bagOverflowed ? 1 : 0);
     if (bag && !this.beginTownTrip("bag_full")) this.stop(bag);
   }
@@ -1115,13 +1302,7 @@ export class BotRuntime {
     const now = this.d.now();
     if (now < this.townTripRetryUntil) return false;
     if (now - this.lastTownTripAt < this.d.config.townTrip.cooldownMs) return false;
-    const reason =
-      trigger === "bag_full"
-        ? "bag_full_town_trip"
-        : trigger === "workflow"
-          ? "workflow_town_step"
-          : "preflight_town_trip";
-    if (!this.advanceContinuity("RETURNING_TO_TOWN", reason)) return false; // fence lost (takeover/stop raced).
+    if (!this.advanceContinuity("RETURNING_TO_TOWN", TOWN_TRIP_REASON[trigger])) return false; // fence lost (takeover/stop raced).
     const mode = this.d.config.townTrip.mode?.[this.currentTier] ?? "warp";
     this.tripWalk = null; // fresh walk cursor per trip (D-071).
     this.tripController = new TownTripController(this.makeTripFacade(), this.tripSeq, mode);
@@ -1250,6 +1431,7 @@ export class BotRuntime {
       onTripEnded: () => {
         this.tripController = null;
         this.tripWalk = null;
+        this.markBagStatStale(); // the trip sold/deposited/restocked → re-sample before the next pressure check.
       },
     };
   }

@@ -25,8 +25,17 @@ import { transferActor, type TransferResult } from "./warp";
 /**
  * What kicked off a trip. `bag_full` = a real overflow; `preflight` = an already-full proactive check;
  * `workflow` = a Pro goal-chain town_service step (PR6b) — an explicit service run, not bag pressure.
+ * M2a (D-073) proactive pressure triggers: `potion_low` (potions running low), `bag_pressure` (bag nearly full),
+ * `hp_no_potion` (low hp with no potion to drink). Only the continuity reason code differs — the trip itself is
+ * identical (Free walks, paid warps).
  */
-export type TownTripTrigger = "bag_full" | "preflight" | "workflow";
+export type TownTripTrigger =
+  | "bag_full"
+  | "preflight"
+  | "workflow"
+  | "potion_low"
+  | "bag_pressure"
+  | "hp_no_potion";
 
 /**
  * The narrow runtime surface the controller drives. The runtime builds this from private closures (keeping its own

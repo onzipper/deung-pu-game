@@ -322,12 +322,14 @@ function gatingManager(tierRow: BotTierStateRow | null) {
   return { manager: new BotManager(deps), host, bagCalls: () => bagCalls };
 }
 
-describe("manager preflight gating (D-069/D-070)", () => {
-  test("a Free start never reads the bag", async () => {
+describe("manager preflight gating (D-069/D-070/D-073)", () => {
+  test("a Free start reads the bag once for the preflight (D-073 — Free now walks to town too)", async () => {
+    // D-073 (2026-07): the proactive preflight covers every enabled tier — Free (walk mode) reads the bag once,
+    // exactly like paid, so a Free run whose bag is already full opens with a walk town trip before farming.
     const h = gatingManager(null); // no row → Free
     await h.manager.onStart(h.host, "controller-1", "acc", "character-a", () => undefined, { profileId: "p1" });
     expect(h.manager.activeActorForAccount("acc")).not.toBeNull();
-    expect(h.bagCalls()).toBe(0);
+    expect(h.bagCalls()).toBe(1);
   });
 
   test("a paid start reads the bag once (through botBagItems) for the preflight", async () => {

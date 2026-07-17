@@ -10,7 +10,8 @@
 //
 // ⛔ Payment = MOCK ONLY in beta (D-061) — this computes the entitlement row; no real billing anywhere.
 
-import { DEFAULT_BOT_CONFIG, type BotConfig, type BotTier, type BotTierCaps } from "../config/bot";
+import { BOT_TIERS, DEFAULT_BOT_CONFIG, type BotConfig, type BotTier, type BotTierCaps } from "../config/bot";
+import type { BotTierPlanWire } from "../../src/shared/net-protocol";
 import type { BotTierStateRow } from "./types";
 
 /** Effective tier after applying expiry (D-063 fallback). */
@@ -43,6 +44,28 @@ export function resolveTier(row: BotTierStateRow | null, nowMs: number): Resolve
 /** Caps for a tier (verbatim table, D-063 · §15). */
 export function capsFor(tier: BotTier, config: BotConfig = DEFAULT_BOT_CONFIG): BotTierCaps {
   return config.tiers[tier].caps;
+}
+
+/**
+ * M1: project every tier's caps + buyable passes straight from server config into the wire plan list. The server is
+ * the single source of truth for prices/caps (the client stops hard-coding them). Free carries an empty `passes`.
+ */
+export function buildBotTierPlans(config: BotConfig = DEFAULT_BOT_CONFIG): BotTierPlanWire[] {
+  return BOT_TIERS.map((tier) => {
+    const def = config.tiers[tier];
+    return {
+      tier,
+      caps: {
+        profiles: def.caps.profiles,
+        rules: def.caps.rules,
+        reportRetentionDays: def.caps.reportRetentionDays,
+        notifications: def.caps.notifications,
+        schedules: def.caps.schedules,
+        analytics: def.caps.analytics,
+      },
+      passes: def.passes.map((p) => ({ days: p.days, priceThb: p.priceThb })),
+    };
+  });
 }
 
 /** A validated pass purchase request (MOCK). `tier` must be a paid tier; `days` one of that tier's pass lengths. */

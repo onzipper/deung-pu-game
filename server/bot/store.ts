@@ -7,7 +7,7 @@
 
 import { getPrisma } from "../../src/server/db";
 import type { BotTier, BotStopReason } from "../config/bot";
-import type { ProfileRepo } from "./profiles";
+import { normalizeBotRules, type ProfileRepo } from "./profiles";
 import type { BotProfileRow, BotRulesV1, BotSessionRow, BotTierStateRow } from "./types";
 import type {
   BotCheckpointKindWire,
@@ -69,7 +69,9 @@ function toProfileRow(r: {
     name: r.name,
     mapId: r.mapId,
     pocketId: r.pocketId,
-    rules: r.rulesJson as BotRulesV1,
+    // M1: an old row (pre-M1) is missing targetMode/completionAction — normalize on load (in-memory only, never
+    // persisted back) so the runtime + client always see a complete rules object.
+    rules: normalizeBotRules(r.rulesJson as BotRulesV1),
     createdAt: reqMs(r.createdAt),
     updatedAt: reqMs(r.updatedAt),
   };

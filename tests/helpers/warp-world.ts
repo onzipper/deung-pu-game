@@ -47,6 +47,8 @@ export interface FakeHostSpec {
   mobs?: () => AgentMob[];
   /** scriptable attack outcome (the bag-full divert path drives an overflow through here). */
   attack?: (target: Vec2) => Promise<BotAttackOutcome>;
+  /** scriptable live hp fraction (M2a proactive hp_no_potion pressure); default 1. */
+  hpFraction?: () => number;
   /** D-071 walk town trip: exits from this map's portals — drives botExitToward (approach tile + target landing). */
   exits?: { targetMapId: string; approach: Vec2; landing: Vec2 }[];
   /**
@@ -67,6 +69,7 @@ interface HostCalls {
   persist: number;
   step: number;
   attack: number;
+  bagItems: number;
   sell: string[];
   deposit: string[];
   buy: string[];
@@ -85,10 +88,11 @@ export class FakeHost implements BotHost {
   readonly players = new Set<string>();
   /** pending warp-seat reservations, actor-keyed (mirrors MapRoom.pendingActorSeats). */
   private readonly pending = new Map<string, number>();
-  readonly calls: HostCalls = { reserve: 0, release: 0, export: 0, attach: 0, persist: 0, step: 0, attack: 0, sell: [], deposit: [], buy: [] };
+  readonly calls: HostCalls = { reserve: 0, release: 0, export: 0, attach: 0, persist: 0, step: 0, attack: 0, bagItems: 0, sell: [], deposit: [], buy: [] };
   private pos: Vec2 = { tx: 0, ty: 0 };
   private readonly scriptMobs: () => AgentMob[];
   private readonly scriptAttack: (target: Vec2) => Promise<BotAttackOutcome>;
+  private readonly scriptHpFraction: () => number;
   /** D-071 walk town trip. */
   readonly exits: { targetMapId: string; approach: Vec2; landing: Vec2 }[];
   private readonly walk: { step: number; blocked: boolean } | null;
@@ -107,6 +111,7 @@ export class FakeHost implements BotHost {
     this.exportReturnsNull = spec.exportReturnsNull ?? false;
     this.scriptMobs = spec.mobs ?? (() => []);
     this.scriptAttack = spec.attack ?? (async () => EMPTY_OUTCOME);
+    this.scriptHpFraction = spec.hpFraction ?? (() => 1);
     this.exits = spec.exits ?? [];
     this.walk = spec.walk ? { step: spec.walk.step ?? 6, blocked: spec.walk.blocked ?? false } : null;
     if (spec.walk?.start) this.pos = { tx: spec.walk.start.tx, ty: spec.walk.start.ty };
@@ -161,6 +166,7 @@ export class FakeHost implements BotHost {
 
   // ── town seams (delegate to the shared world economy; record which host handled it) ──
   async botBagItems(): Promise<BotBagItemView[]> {
+    this.calls.bagItems += 1;
     return this.world.bagView();
   }
   async botTownSell(
@@ -202,7 +208,7 @@ export class FakeHost implements BotHost {
     return this.players.has(actorId) ? { tx: this.pos.tx, ty: this.pos.ty } : null;
   }
   botHpFraction(): number {
-    return 1;
+    return this.scriptHpFraction();
   }
   botAttackRange(): number {
     return 1;

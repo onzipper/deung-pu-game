@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { DEFAULT_BOT_CONFIG } from "../server/config/bot";
-import { applyMockPurchase, capsFor, resolveTier } from "../server/bot/tier";
+import { applyMockPurchase, buildBotTierPlans, capsFor, resolveTier } from "../server/bot/tier";
 import type { BotTierStateRow } from "../server/bot/types";
 
 // Batch 7b — Tier service (pure). Canon = D-063 (LOCKED): free forever/24-7; caps 1/3/10 · 3/10/25 · 1/14/90;
@@ -52,6 +52,30 @@ describe("bot tier caps (verbatim D-063 · §15)", () => {
       { days: 30, priceThb: 149 },
     ]);
     expect(DEFAULT_BOT_CONFIG.tiers.free.passes).toEqual([]);
+  });
+});
+
+describe("M1 buildBotTierPlans (config is the single truth — client stops hard-coding)", () => {
+  test("every tier's caps + prices come straight from DEFAULT_BOT_CONFIG", () => {
+    const plans = buildBotTierPlans();
+    expect(plans.map((p) => p.tier)).toEqual(["free", "plus", "pro"]);
+
+    const free = plans.find((p) => p.tier === "free")!;
+    expect(free.passes).toEqual([]);
+    expect(free.caps).toEqual(DEFAULT_BOT_CONFIG.tiers.free.caps);
+
+    const plus = plans.find((p) => p.tier === "plus")!;
+    expect(plus.caps).toEqual(DEFAULT_BOT_CONFIG.tiers.plus.caps);
+    expect(plus.passes).toEqual(DEFAULT_BOT_CONFIG.tiers.plus.passes); // 9/39/79
+
+    const pro = plans.find((p) => p.tier === "pro")!;
+    expect(pro.caps).toEqual(DEFAULT_BOT_CONFIG.tiers.pro.caps);
+    expect(pro.passes).toEqual(DEFAULT_BOT_CONFIG.tiers.pro.passes); // 15/69/149
+  });
+
+  test("caps retain the dormant `schedules` field (D-072)", () => {
+    const plans = buildBotTierPlans();
+    expect(plans.every((p) => "schedules" in p.caps)).toBe(true);
   });
 });
 

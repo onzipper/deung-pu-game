@@ -470,11 +470,37 @@ describe("Plus recovery runtime — takeover, tier recheck, fallback", () => {
   });
 });
 
-describe("Free tier gate — byte-identical to PR4 (no recovery)", () => {
-  test("low HP stops low_hp with zero potion/route/anchor/tier host calls, and death stops immediately", () => {
+describe("Free tier — auto-potion (D-073), still no death recovery / pocket fallback / tier recheck", () => {
+  // D-073 (2026-07): Free gained auto-potion — the SAME drink path as paid (a convenience, never combat power).
+  // It STILL has no death recovery, no pocket fallback, and never rechecks tier (tier boundary D-063/D-067).
+
+  test("Free with a potion rule drinks at/below the threshold, heals in place, and resumes (D-073)", async () => {
+    let hp = 0.4;
     const harness = createPlusHarness({
       tier: "free",
-      rules: POTION_RULES, // a potion rule is present but Free must never act on it
+      rules: POTION_RULES,
+      hpFraction: () => hp,
+      usePotion: async () => HEALED_POTION,
+      mobs: () => [],
+    });
+
+    harness.runtime.tick(2_000); // hp ≤ threshold + phase none → use_potion (Free now heals, D-073)
+    expect(harness.state()).toBe("RECOVERING");
+    expect(harness.usePotionCalls).toEqual([["actor", "con_small_potion"]]);
+
+    await flush(); // healed → back to WORKING
+    expect(harness.state()).toBe("WORKING");
+    hp = 1;
+    expect(harness.runtime.isStopped).toBe(false);
+    expect(harness.resolveTierCalls()).toBe(0); // Free never rechecks tier
+    expect(harness.planPathCalls).toHaveLength(0); // no death-recovery routing
+    expect(harness.pocketAnchorCalls).toHaveLength(0); // no pocket fallback
+  });
+
+  test("Free with NO potion rule floor-stops low_hp with zero potion/route/anchor/tier host calls (pre-D-073 baseline)", () => {
+    const harness = createPlusHarness({
+      tier: "free",
+      rules: NO_POTION_RULES,
       hpFraction: () => 0.1,
       mobs: () => [],
     });
@@ -484,11 +510,13 @@ describe("Free tier gate — byte-identical to PR4 (no recovery)", () => {
     expect(harness.runtime.isStopped).toBe(true);
     expect(harness.state()).toBe("WAITING_FOR_OWNER");
     expect(harness.stoppedMessage()).toMatchObject({ reason: "low_hp" });
-    expect(harness.usePotionCalls).toHaveLength(0);
+    expect(harness.usePotionCalls).toHaveLength(0); // no rule → never drinks
     expect(harness.planPathCalls).toHaveLength(0);
     expect(harness.pocketAnchorCalls).toHaveLength(0);
     expect(harness.resolveTierCalls()).toBe(0);
+  });
 
+  test("Free death stops immediately — no death recovery (D-063/D-067)", () => {
     const death = createPlusHarness({ tier: "free", rules: POTION_RULES, hpFraction: () => 1, mobs: () => [] });
     death.runtime.onActorDied();
     expect(death.runtime.isStopped).toBe(true);

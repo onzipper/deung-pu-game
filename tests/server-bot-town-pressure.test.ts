@@ -1,0 +1,101 @@
+import { describe, expect, test } from "vitest";
+import { planTownPressure, type TownPressureInput } from "../server/bot/town-pressure";
+
+// M2a (D-073) proactive town-pressure planner (pure): deterministic per-sample decision. Table-style, local
+// factory with overrides. Defaults = a comfortable state (no trigger): a full-ish bag, stocked potions, full hp.
+
+const input = (o: Partial<TownPressureInput> = {}): TownPressureInput => ({
+  freeSlots: 40,
+  potionCount: 5,
+  hpFraction: 1,
+  potionThresholdPct: 50,
+  potionLowReserve: 1,
+  pressureMinFreeSlots: 5,
+  lowHpStopFraction: 0.15,
+  ...o,
+});
+
+describe("planTownPressure — no trigger", () => {
+  test("comfortable state → none", () => {
+    expect(planTownPressure(input())).toEqual({ kind: "none" });
+  });
+});
+
+describe("planTownPressure — bag_pressure", () => {
+  test("free slots at the floor → bag_pressure", () => {
+    expect(planTownPressure(input({ freeSlots: 5 }))).toEqual({ kind: "town_trip", trigger: "bag_pressure" });
+  });
+  test("free slots below the floor → bag_pressure", () => {
+    expect(planTownPressure(input({ freeSlots: 2 }))).toEqual({ kind: "town_trip", trigger: "bag_pressure" });
+  });
+  test("free slots just above the floor → none", () => {
+    expect(planTownPressure(input({ freeSlots: 6 }))).toEqual({ kind: "none" });
+  });
+});
+
+describe("planTownPressure — potion_low", () => {
+  test("potions at the reserve with auto-potion on → potion_low", () => {
+    expect(planTownPressure(input({ potionCount: 1, potionLowReserve: 1 }))).toEqual({
+      kind: "town_trip",
+      trigger: "potion_low",
+    });
+  });
+  test("potions above the reserve → none", () => {
+    expect(planTownPressure(input({ potionCount: 2, potionLowReserve: 1 }))).toEqual({ kind: "none" });
+  });
+  test("auto-potion OFF (threshold null) → never potion_low, even with zero potions and hp fine", () => {
+    // potionCount 0 but hp high → hp_no_potion needs hp ≤ floor (not met), potion_low needs a rule → none.
+    expect(planTownPressure(input({ potionThresholdPct: null, potionCount: 0, hpFraction: 1 }))).toEqual({
+      kind: "none",
+    });
+  });
+});
+
+describe("planTownPressure — hp_no_potion", () => {
+  test("zero potions and hp exactly at the drink threshold → hp_no_potion", () => {
+    expect(planTownPressure(input({ potionCount: 0, hpFraction: 0.5, potionThresholdPct: 50 }))).toEqual({
+      kind: "town_trip",
+      trigger: "hp_no_potion",
+    });
+  });
+  test("zero potions and hp below the drink threshold → hp_no_potion", () => {
+    expect(planTownPressure(input({ potionCount: 0, hpFraction: 0.4, potionThresholdPct: 50 }))).toEqual({
+      kind: "town_trip",
+      trigger: "hp_no_potion",
+    });
+  });
+  test("threshold null → hp_no_potion uses the low-hp floor as the bound (hp at the floor)", () => {
+    expect(
+      planTownPressure(input({ potionThresholdPct: null, potionCount: 0, hpFraction: 0.15, freeSlots: 40 })),
+    ).toEqual({ kind: "town_trip", trigger: "hp_no_potion" });
+  });
+  test("threshold null + hp just above the floor + 0 potions → none", () => {
+    expect(
+      planTownPressure(input({ potionThresholdPct: null, potionCount: 0, hpFraction: 0.2, freeSlots: 40 })),
+    ).toEqual({ kind: "none" });
+  });
+  test("has potions → never hp_no_potion even at low hp (the bot can still drink)", () => {
+    // hp low but potions held → not hp_no_potion; hp above the threshold so no potion decision here → potion_low
+    // fires only when at/below the reserve. With 3 potions (> reserve 1) and free slots → none.
+    expect(planTownPressure(input({ potionCount: 3, hpFraction: 0.1, freeSlots: 40 }))).toEqual({ kind: "none" });
+  });
+});
+
+describe("planTownPressure — priority (hp_no_potion > bag_pressure > potion_low)", () => {
+  test("hp_no_potion beats bag_pressure", () => {
+    expect(
+      planTownPressure(input({ potionCount: 0, hpFraction: 0.1, freeSlots: 2, potionThresholdPct: 50 })),
+    ).toEqual({ kind: "town_trip", trigger: "hp_no_potion" });
+  });
+  test("hp_no_potion beats potion_low", () => {
+    expect(
+      planTownPressure(input({ potionCount: 0, hpFraction: 0.3, freeSlots: 40, potionThresholdPct: 50 })),
+    ).toEqual({ kind: "town_trip", trigger: "hp_no_potion" });
+  });
+  test("bag_pressure beats potion_low", () => {
+    // hp high (no hp_no_potion), bag at the floor AND potions at the reserve → bag_pressure wins.
+    expect(
+      planTownPressure(input({ potionCount: 1, potionLowReserve: 1, freeSlots: 3, hpFraction: 1 })),
+    ).toEqual({ kind: "town_trip", trigger: "bag_pressure" });
+  });
+});

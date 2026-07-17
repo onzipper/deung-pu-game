@@ -41,7 +41,6 @@ import {
   BOT_RULE_SKILL_SLOTS,
   BOT_TAB_LABELS,
   BOT_TAB_ORDER,
-  BOT_TIER_PLANS,
   botMapLabel,
   botMapOptions,
   botOpMessage,
@@ -971,12 +970,13 @@ export function BotPanel({ getHandle }: BotPanelProps) {
 
         {tab === "packages" && (
           <div className="flex flex-col gap-3">
+            {/* M1: plans (caps + passes) มาจาก server config ทาง tierState.plans เสมอ — ไม่ hardcode ราคาแล้ว */}
             <div className="overflow-x-auto">
               <table className="w-full min-w-[320px] text-left">
                 <thead>
                   <tr className="text-(--dp-sand)">
                     <th className="py-1 pr-2 font-normal">ความสามารถ</th>
-                    {BOT_TIER_PLANS.map((p) => (
+                    {(tierState?.plans ?? []).map((p) => (
                       <th key={p.tier} className="px-2 py-1 text-center font-semibold text-(--dp-highlight)">
                         {botTierLabel(p.tier)}
                       </th>
@@ -984,10 +984,10 @@ export function BotPanel({ getHandle }: BotPanelProps) {
                   </tr>
                 </thead>
                 <tbody>
-                  {botTierComparisonRows().map((row) => (
+                  {botTierComparisonRows(tierState?.plans ?? []).map((row) => (
                     <tr key={row.label} className="border-t border-(--dp-soil-brown)">
                       <td className="py-1 pr-2 text-(--dp-parchment)">{row.label}</td>
-                      {BOT_TIER_PLANS.map((p) => (
+                      {(tierState?.plans ?? []).map((p) => (
                         <td key={p.tier} className="px-2 py-1 text-center tabular-nums text-(--dp-parchment)">
                           {row.values[p.tier]}
                         </td>
@@ -998,7 +998,7 @@ export function BotPanel({ getHandle }: BotPanelProps) {
               </table>
             </div>
 
-            {BOT_TIER_PLANS.filter((p) => p.passes.length > 0).map((plan) => (
+            {(tierState?.plans ?? []).filter((p) => p.passes.length > 0).map((plan) => (
               <div
                 key={plan.tier}
                 className="flex flex-col gap-2 rounded-(--dp-radius-sm) border border-(--dp-soil-brown) bg-(--dp-warm-ink) px-3 py-2"
